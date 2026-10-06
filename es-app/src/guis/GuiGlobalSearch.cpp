@@ -18,6 +18,7 @@
 #include "views/ViewController.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
