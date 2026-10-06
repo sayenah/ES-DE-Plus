@@ -12,6 +12,7 @@
 #include "Settings.h"
 #include "SystemData.h"
 #include "UIModeController.h"
+#include "Window.h"
 #include "components/TextComponent.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
