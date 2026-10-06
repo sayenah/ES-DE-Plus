@@ -30,6 +30,7 @@
 #include "guis/GuiCollectionSystemsOptions.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiGameImporter.h"
+#include "guis/GuiGlobalSearch.h"
 #include "guis/GuiMediaViewerOptions.h"
 #include "guis/GuiMsgBox.h"
 #include "guis/GuiOrphanedDataCleanup.h"
@@ -60,6 +61,8 @@ GuiMenu::GuiMenu()
     , mThemeDownloaderReloadCounter {0}
 {
     const bool isFullUI {UIModeController::getInstance()->isUIModeFull()};
+
+    addEntry(_("SEARCH"), mMenuColorPrimary, true, [this] { openGlobalSearch(); });
 
     if (isFullUI)
         addEntry(_("SCRAPER"), mMenuColorPrimary, true, [this] { openScraperOptions(); });
@@ -114,6 +117,27 @@ GuiMenu::~GuiMenu()
         ViewController::getInstance()->stopScrolling();
 
         ViewController::getInstance()->startViewVideos();
+    }
+}
+
+void GuiMenu::openGlobalSearch()
+{
+    auto searchCallback = [this](const std::string& value) {
+        const std::string query {Utils::String::trim(value)};
+        if (!query.empty())
+            mWindow->pushGui(new GuiGlobalSearch(query));
+    };
+
+    if (Settings::getInstance()->getBool("VirtualKeyboard")) {
+        const float verticalPosition {
+            Renderer::getIsVerticalOrientation() ? mMenu.getPosition().y : 0.0f};
+        mWindow->pushGui(new GuiTextEditKeyboardPopup(
+            verticalPosition, _("SEARCH ALL GAMES"), "", searchCallback, false, _("SEARCH"),
+            _("START SEARCH?")));
+    }
+    else {
+        mWindow->pushGui(new GuiTextEditPopup(_("SEARCH ALL GAMES"), "", searchCallback, false,
+                                              _("SEARCH"), _("START SEARCH?")));
     }
 }
 

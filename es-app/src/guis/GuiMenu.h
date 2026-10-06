@@ -33,6 +33,7 @@ private:
                   const std::function<void()>& func);
     void addVersionInfo();
 
+    void openGlobalSearch();
     void openScraperOptions();
     void openUIOptions();
     void openThemeDownloader(GuiSettings* settings);
