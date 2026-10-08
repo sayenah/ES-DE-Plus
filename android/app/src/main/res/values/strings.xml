@@ -6,7 +6,7 @@
     <string name="scoped_mode">Use app-owned storage (recommended)</string>
     <string name="direct_mode">Use direct filesystem compatibility</string>
     <string name="scoped_howto">ROM folder: %1$s
-How to add games: connect USB, install Android platform tools on your computer, enable USB debugging, and authorize the computer. Run adb push your-ROM-folder/. %2$s/ (organize games into system folders such as nes). No storage permission is required. Uninstalling removes app-owned games. SAF import is not available in this slice.</string>
+How to add games: connect USB, install Android platform tools on your computer, enable USB debugging, and authorize the computer. Run adb push your-ROM-folder/. %2$s/ (organize games into system folders such as nes). No storage permission is required. Uninstalling removes app-owned games. Import through a file picker is not available yet.</string>
     <string name="direct_explanation">Compatibility mode requires broad storage access. Select your shared ROM folder after granting access. A SAF selection alone does not provide the native filesystem access this mode needs.</string>
     <string name="grant_access">Grant direct filesystem access</string>
     <string name="choose_folder">Choose shared ROM folder</string>
@@ -15,7 +15,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="no_folder">No folder selected</string>
     <string name="path_hint">Absolute shared ROM folder path</string>
     <string name="use_path">Use typed folder path</string>
-    <string name="path_selected">Folder access verified. No picker grant was created for the typed path.</string>
+    <string name="path_selected">Shared folder access verified.</string>
     <string name="create_systems">Create system folders</string>
     <string name="continue_frontend">Save and start frontend</string>
     <string name="cancel_configuration">Cancel configuration</string>

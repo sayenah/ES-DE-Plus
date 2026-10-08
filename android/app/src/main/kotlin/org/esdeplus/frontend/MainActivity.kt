@@ -28,6 +28,12 @@ class MainActivity : SDLActivity() {
         ConfiguratorSession.recordEntry(intent)
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
     }
+    override fun onResume() {
+        super.onResume()
+        // Re-present a pending startup screen after backgrounding or unlock;
+        // user interaction never expires and HOME is still set only by entry.
+        if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+    }
     private fun updateWindowSize() {
         bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {
             windowManager.currentWindowMetrics.bounds.let { intArrayOf(it.width(), it.height()) }

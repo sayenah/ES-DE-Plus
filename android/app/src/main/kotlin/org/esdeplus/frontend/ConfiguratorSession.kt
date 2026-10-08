@@ -44,7 +44,7 @@ object ConfiguratorSession {
         val app = context.applicationContext
         val launch = Intent(app, ConfiguratorActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra("entry", entry).putExtra("message", message)
+            .putExtra("entry", entry).putExtra("message", message ?: resourceFailure)
         Handler(Looper.getMainLooper()).post { app.startActivity(launch) }
     }
 

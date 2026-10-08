@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.storage.StorageManager
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
@@ -198,7 +199,8 @@ class ConfiguratorActivity : Activity() {
 
     private fun chooseFolder() {
         try {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+            startActivityForResult(getSystemService(StorageManager::class.java).primaryStorageVolume
+                .createOpenDocumentTreeIntent().addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION), 2)
         } catch (error: ActivityNotFoundException) {

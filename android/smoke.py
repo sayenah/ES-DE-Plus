@@ -135,6 +135,24 @@ def resolved_component(action, data=None):
     return next((line.strip() for line in result.splitlines() if '/' in line and ' ' not in line.strip()), None)
 
 
+def component_enabled(component, enabled):
+    # Only PackageManager component availability is changed by privileged adbd.
+    # Grants/configuration are never injected; return to the ordinary shell
+    # before any user flow or file-provisioning evidence.
+    root = adb('root', check=False)
+    adb('wait-for-device')
+    assert shell('id', '-u').strip() == '0', root
+    try:
+        user = shell('am', 'get-current-user').strip()
+        shell('pm', 'enable' if enabled else 'disable-user', '--user', user, component)
+    finally:
+        adb('unroot', check=False)
+        adb('wait-for-device')
+    assert shell('id', '-u').strip() == '2000', 'Capability probe did not restore ordinary adbd'
+    with (evidence / 'capability-controls.txt').open('a') as output:
+        output.write(f'PackageManager component {component}: enabled={enabled}; adbd restored to UID 2000. No permission/configuration injection.\n')
+
+
 def configured_system(name):
     wait_for(lambda: 'Application startup time:' in log(), 'configured system view')
     assert 'Error:' not in log(), log()
@@ -180,13 +198,13 @@ try:
     if api >= 30:
         settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
         if settings_component:
-            shell('pm', 'disable-user', '--user', '0', settings_component)
+            component_enabled(settings_component, False)
             try:
                 ui('Grant direct filesystem access', dpad=True)
                 ui('All-files settings are unavailable')
                 screenshot('missing-all-files-settings-fallback')
             finally:
-                shell('pm', 'enable', '--user', '0', settings_component)
+                component_enabled(settings_component, True)
     ui('Grant direct filesystem access', dpad=True)
     if api == 29:
         ui('Deny')
@@ -225,13 +243,13 @@ try:
             key('KEYCODE_BACK')
     picker_component = resolved_component('android.intent.action.OPEN_DOCUMENT_TREE')
     if picker_component:
-        shell('pm', 'disable-user', '--user', '0', picker_component)
+        component_enabled(picker_component, False)
         try:
             ui('Choose shared ROM folder', dpad=True)
             ui('A folder picker is unavailable')
             screenshot('missing-picker-fallback')
         finally:
-            shell('pm', 'enable', '--user', '0', picker_component)
+            component_enabled(picker_component, True)
     ui('Choose shared ROM folder', dpad=True)
     nodes = hierarchy()
     if any(node_matches(n, 'A folder picker is unavailable') for n in nodes):
