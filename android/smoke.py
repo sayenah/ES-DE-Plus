@@ -434,15 +434,16 @@ try:
         adb('push', str(dummy), roms + '/nes/' + name)
     dummy.unlink()
     (evidence / 'scoped-adb-provisioning.txt').write_text('Ordinary shell UID 2000 populated the displayed app-owned ROM path using adb push.\n')
-    # Put the configurator in the background, then kill the recorded app PID
-    # under its own UID. am kill can retain recently backgrounded processes.
+    # Put the configurator in the background, then kill its process through
+    # ActivityManager. am kill can retain recently backgrounded processes;
+    # SELinux can prevent run-as from signaling the app's different domain.
     old_pid = shell('pidof', app).strip()
     assert old_pid.isdigit(), old_pid
     shell('am', 'start', '-a', 'android.settings.SETTINGS')
     wait_for(lambda: any(n.get('package', '').startswith('com.android.') and
                          n.get('package') != app for n in hierarchy()) and
              not any(n.get('package') == app for n in hierarchy()), 'configurator backgrounded')
-    private('kill', '-KILL', old_pid)
+    shell('am', 'force-stop', app)
     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'background configuration process death')
     start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
     ui('Use app-owned storage', dpad=True)
@@ -454,7 +455,8 @@ try:
     # Resource installation is uncommitted on a fresh start; remove resources
     # solely to guarantee a real copy for the interruption probe.
     private('rm', '-rf', 'files/resources', 'files/themes', 'files/resources-installed')
-    # Interrupt an actual first-run copy. STOP freezes every thread before force-stop.
+    # Interrupt an actual first-run copy through ActivityManager. Inspect the
+    # partial installation after the process is stopped, never before it.
     adb('logcat', '-c')
     follower = subprocess.Popen(['adb', 'logcat', '-v', 'brief', 'ES-DE-Plus:I', '*:S'],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -469,13 +471,13 @@ try:
                 if b'Installed resource: fonts/' in observed:
                     pid = shell('pidof', app).strip()
                     assert pid.isdigit(), pid
-                    private('kill', '-STOP', pid)
+                    shell('am', 'force-stop', app)
+                    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'resource-copy process stopped')
                     break
         else:
             raise AssertionError('No actual font copy observed to interrupt')
         assert private('test', '!', '-f', 'files/resources-installed') == ''
         assert private('find', 'files/resources/fonts', '-type', 'f').strip()
-        shell('am', 'force-stop', app)
     finally:
         follower.terminate()
         follower.wait(timeout=10)
