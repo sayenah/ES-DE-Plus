@@ -78,10 +78,13 @@ def key(code):
 try:
     # The debugging daemon needs access to app-owned external evidence. This
     # does not change the frontend's UID, manifest permissions or bridge results.
-    root = adb('root')
-    assert 'cannot run as root' not in root, root
+    # Restarting adbd may close the request's transport before its reply. Verify
+    # the resulting daemon UID after reconnecting, rather than trusting the reply.
+    root = adb('root', check=False)
     adb('wait-for-device')
-    (evidence / 'adb-access.txt').write_text(root + shell('id'))
+    identity = shell('id')
+    assert shell('id', '-u').strip() == '0', root + identity
+    (evidence / 'adb-access.txt').write_text(root + identity)
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     shell('am', 'force-stop', app)
