@@ -177,14 +177,21 @@ try:
     key('KEYCODE_DPAD_DOWN')  # Audio driver, then navigation volume.
     key('KEYCODE_DPAD_LEFT')
     screenshot('changed-sound-setting')
-    key('KEYCODE_ESCAPE')  # GuiSettings saves the actual user change.
-    key('KEYCODE_ESCAPE')
+    # Upstream's keyboard Back action is Backspace; Escape maps to Start and
+    # does not close GuiSettings. Closing the settings GUI runs its save funcs.
+    key('KEYCODE_DEL')
+    key('KEYCODE_DEL')
+    def volume_saved():
+        value = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"',
+                          shell('cat', settings, check=False))
+        return value and int(value.group(1)) < 70
+    wait_for(volume_saved, 'real navigation-volume change saved to settings')
     shell('am', 'force-stop', app)
     before = shell('cat', settings)
+    (evidence / 'preserved-settings.txt').write_text(before)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
     volume = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"', before)
     assert volume and int(volume.group(1)) < 70, 'Keyboard change to default navigation volume (70) was not saved'
-    (evidence / 'preserved-settings.txt').write_text(before)
     adb('logcat', '-c')
     launch()
     current_logcat = adb('logcat', '-d')
