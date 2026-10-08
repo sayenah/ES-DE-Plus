@@ -330,6 +330,9 @@ try:
         key('KEYCODE_ESCAPE')
         screenshot(name + '-menu')
         key('KEYCODE_DEL')
+        if home:
+            key('KEYCODE_BACK')
+            assert shell('pidof', app).strip() == pid, 'Warm HOME Back exited the frontend'
     shell('am', 'force-stop', app)
     start_entry()
     configured_system('direct-restart')
@@ -548,6 +551,22 @@ try:
     assert shell('cat', settings) == before, 'Directory-failure recovery changed settings'
 
     screenshot('scoped-restart-system-view')
+    for name, category, home in [('HomeEntry', 'android.intent.category.HOME', True),
+                                  ('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER', False),
+                                  ('MainActivity', 'android.intent.category.LAUNCHER', False)]:
+        shell('am', 'force-stop', app)
+        adb('logcat', '-c')
+        start_entry(name, category)
+        configured_system(name + '-cold')
+        pid = shell('pidof', app).strip()
+        key('KEYCODE_BACK')
+        if home:
+            assert shell('pidof', app).strip() == pid, 'Cold HOME Back exited the frontend'
+            assert 'cleanly shutting down' not in log(), log()
+        else:
+            wait_for(lambda: not shell('pidof', app, check=False).strip(), 'non-HOME Back exit')
+            assert 'cleanly shutting down' in log(), log()
+        save_logs(name + '-back')
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases and revoked permission\n')
 except BaseException:
     save_logs('failure')
