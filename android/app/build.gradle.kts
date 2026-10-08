@@ -44,7 +44,8 @@ android {
             cmake {
                 arguments += listOf("-DANDROID_APPLICATION_ID=$appId", "-DANDROID_VERSION_CODE=$appVersion",
                     "-DGLES=ON", "-DANDROID_PLATFORM=android-29", "-DANDROID_STL=c++_shared",
-                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DAPPLICATION_UPDATER=OFF")
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DAPPLICATION_UPDATER=OFF",
+                    "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=lib")
                 targets += listOf("main", "es-pdf-convert")
             }
         }

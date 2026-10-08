@@ -46,10 +46,17 @@ jobs:
             android/.deps/install
             android/libs
           key: android-ndk27-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
+      - name: Validate committed Gradle project
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew --no-daemon help 2>&1 | tee gradle-configure.log
       - name: Build both dependency ABIs
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
+          export JOBS=$(nproc)
+          echo "Dependency build parallelism: $JOBS"
           tools/Android_dependencies_build.sh arm64-v8a 2>&1 | tee android/deps-arm64.log
           tools/Android_dependencies_build.sh x86_64 2>&1 | tee android/deps-x86_64.log
       - name: Save completed dependency installs
