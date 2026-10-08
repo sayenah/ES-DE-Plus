@@ -180,13 +180,14 @@ def component_enabled(component, enabled):
     wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged capability control shell')
     try:
         user = shell('am', 'get-current-user').strip()
-        shell('pm', 'enable' if enabled else 'disable-user', '--user', user, component)
+        change = shell('pm', 'enable' if enabled else 'disable', '--user', user, component)
+        assert 'new state: ' + ('enabled' if enabled else 'disabled') in change, change
     finally:
         adb('unroot', check=False)
         adb('wait-for-device')
     wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after capability control')
     with (evidence / 'capability-controls.txt').open('a') as output:
-        output.write(f'PackageManager component {component}: enabled={enabled}; adbd restored to UID 2000. No permission/configuration injection.\n')
+        output.write(f'{change.strip()}; adbd restored to UID 2000. No permission/configuration injection.\n')
     return True
 
 
@@ -310,7 +311,11 @@ try:
                 root = next(n for n in nodes if n.get('resource-id', '').endswith('title') and n.get('text', '') not in ['Downloads', 'Recent', 'Images', 'Videos', 'Audio', 'Documents', 'Drive', 'Open from'])
             ui(root.get('text'))
         ui('ESDEPlusSmoke')
-        ui('Use this folder')
+        nodes = hierarchy()
+        confirmation = next(n for n in nodes if n.get('enabled') == 'true' and
+                            ('use this folder' in n.get('text', '').casefold() or
+                             'allow access to' in n.get('text', '').casefold()))
+        ui(confirmation.get('text'))
         if any(n.get('text', '').casefold() == 'allow' for n in hierarchy()):
             ui('Allow')
     ui('Save and start frontend', dpad=True)
