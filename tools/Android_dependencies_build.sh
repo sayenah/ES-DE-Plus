@@ -60,6 +60,7 @@ with open(sys.argv[2], 'w') as out:
     out.write('add_library(freeimage SHARED\n' + '\n'.join('"'+str(source/x)+'"' for x in files) + ')\n')
     out.write('target_include_directories(freeimage PRIVATE\n' + '\n'.join('"'+str(source/x)+'"' for x in incs) + ')\n')
     out.write('target_compile_definitions(freeimage PRIVATE FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0)\n')
+    out.write('set_source_files_properties("'+str(source/'Source/LibJXR/image/decode/segdec.c')+'" PROPERTIES COMPILE_DEFINITIONS "_byteswap_ulong=__builtin_bswap32")\n')
     out.write('target_compile_options(freeimage PRIVATE -Wno-narrowing -fexceptions -fvisibility=hidden)\n')
     out.write('target_link_libraries(freeimage PRIVATE log)\ninstall(TARGETS freeimage LIBRARY DESTINATION lib)\n')
 PY

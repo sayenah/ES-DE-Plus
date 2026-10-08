@@ -131,7 +131,7 @@ try:
     key('KEYCODE_ENTER')
     shell('am', 'force-stop', app)
     before = shell('cat', settings)
-    assert '<bool ' in before and '</config>' in before, 'Settings were not saved'
+    assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
     adb('logcat', '-c')
     launch()
     current_logcat = adb('logcat', '-d')
