@@ -14,8 +14,8 @@ No proprietary Android package or code is used.
 | Poppler / poppler-cpp | 26.06.0 | GPL-2.0-only | CPP on; utilities, tests, Qt5/6, GLib, Boost, NSS3, GPGME, LCMS, curl off; Android font backend; TIFF/OpenJPEG enabled |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
 | libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; host GPL utilities are not packaged |
-| gettext / libintl | 1.0 | LGPL-2.1-or-later (runtime) | Runtime intl only; `--disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf --with-included-libxml --enable-shared --disable-static`; host `msgfmt` is not packaged |
-| ICU | 78.3 | Unicode-3.0 / ICU | Static uc/i18n/data; `--enable-static --disable-shared --with-data-packaging=static --disable-tests --disable-samples --disable-extras --disable-icuio` |
+| gettext / libintl | 1.0 | LGPL-2.1-or-later (runtime) | Runtime intl only; `--disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf --with-included-libxml --with-libiconv-prefix=<ABI-prefix> --enable-shared --disable-static`; host `msgfmt` is not packaged |
+| ICU | 78.3 | Unicode-3.0 / ICU | Static uc/i18n/data; `--with-cross-build=<host-ICU-build> --enable-static --disable-shared --with-data-packaging=static --disable-tests --disable-samples --disable-extras --disable-icuio` |
 | SDL2 and vendored SDL Java | 2.32.10 (`release-2.32.10`) | zlib | Shared SDL2; test/static targets off; Java implementations unchanged, tag LICENSE.txt notice prepended intact |
 | OpenSSL crypto/ssl | 3.5.9 LTS | Apache-2.0 | Android target, API29, shared, no-tests, no-apps |
 | curl | 8.22.0 | curl (MIT-like) | Shared; OpenSSL on; CLI/tests, libpsl, SSH/SSH2, nghttp2, brotli, zstd, c-ares off |
@@ -34,9 +34,10 @@ No proprietary Android package or code is used.
 | dav1d | 1.5.3 | BSD-2-Clause | Shared; tools/tests off |
 | LunaSVG / plutovg | tracked subtree, LunaSVG 3.5.0 | MIT | Static; upstream CMake configuration |
 | rlottie | tracked subtree | MIT | Static; threading/modules off by upstream CMake |
-| GLM, RapidJSON, utfcpp, CImg | tracked subtree revisions | MIT; CImg CeCILL-C/CeCILL terms | Header-only native dependencies, existing notices |
+| GLM, RapidJSON, utfcpp, CImg | tracked subtree revisions | MIT; CImg CeCILL-C/CeCILL terms | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
 | libc++_shared | NDK 27.3.13750724 | Apache-2.0 with LLVM exception | Shared; NDK copy, API29 |
-| Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host compiler/runtime |
+| Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
+| JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
 | Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon are original MIT assets |
 
 Build-only: AGP **8.13.2**, Gradle wrapper **8.13**, Kotlin plugin **2.2.21**,
@@ -66,3 +67,15 @@ import. They remain unchanged and may appear in `libmain.so` read-only data;
 they do not define the ES-DE-Plus application identity. The identifier audit
 excludes only these upstream native literals, never manifest/resources/dex or
 the host's own code.
+
+Configuration templates used by the scripts: Autoconf commands also pass
+`--host=<ABI-triple> --prefix=<ABI-prefix>`. FFmpeg additionally passes
+`--prefix=<ABI-prefix> --target-os=android --arch=<aarch64|x86_64>`
+`--cpu=<armv8-a|x86-64> --enable-cross-compile --cc=<API29-clang>`
+`--cxx=<API29-clang++> --ar=<llvm-ar> --ranlib=<llvm-ranlib>`
+`--strip=<llvm-strip> --pkg-config=pkg-config --extra-cflags=-I<ABI-prefix>/include`
+and `--extra-ldflags=-L<ABI-prefix>/lib <16-KiB-linker-flags>`.
+Every CMake dependency command uses the NDK toolchain, `ANDROID_PLATFORM=android-29`,
+`ANDROID_STL=c++_shared`, `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON`, Release,
+position-independent code, the per-ABI install prefix/root, and unversioned Android
+SONAMEs. The scripts are the executable record of the complete commands.
