@@ -74,6 +74,22 @@ jobs:
           set -o pipefail
           cd android
           ./gradlew --no-daemon assembleDebug 2>&1 | tee assemble.log
+      - name: Record actual native outputs and Gradle metadata
+        run: |
+          python3 - <<'PYCODE'
+          import json, pathlib
+          destination = pathlib.Path('android/evidence')
+          destination.mkdir(exist_ok=True)
+          lines = []
+          for file in pathlib.Path('android/app/.cxx').rglob('*.so'):
+              lines.append(f'NATIVE FILE {file}')
+          for file in pathlib.Path('android/app/.cxx').rglob('android_gradle_build*.json'):
+              for name, library in json.loads(file.read_text()).get('libraries', {}).items():
+                  lines.append(f'GRADLE OUTPUT {name}: {library.get("output")} ABI={library.get("abi")}')
+          text = '\n'.join(lines) + '\n'
+          (destination / 'native-outputs.txt').write_text(text)
+          print(text)
+          PYCODE
       - name: Audit APK native closure and identity
         run: |
           set -o pipefail
