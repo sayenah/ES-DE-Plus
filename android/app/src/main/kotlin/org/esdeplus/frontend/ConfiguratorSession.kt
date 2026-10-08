@@ -51,7 +51,7 @@ object ConfiguratorSession {
     fun finishConfiguration() {
         configuring = false
         if (registered) MainActivity.nativeSetHold(false)
-        Log.i("ES-DE-Plus", "Configuration persisted; native hold released")
+        Log.i("ES-DE-Plus", "Native startup hold released")
     }
 
     // Only the native startup thread waits. User interaction has no timeout.

@@ -13,6 +13,7 @@ import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.system.Os
 import android.system.OsConstants
+import android.util.Log
 import java.io.File
 import java.io.IOException
 
@@ -181,5 +182,6 @@ class StorageModel(private val context: Context) {
                 .putString("roms", configuration.roms).putString("tree", configuration.tree)
                 .putBoolean("createSystems", configuration.createSystems).commit())
             throw IOException("Could not save configuration. Retry.")
+        Log.i("ES-DE-Plus", "Storage configuration committed mode=${configuration.mode}")
     }
 }

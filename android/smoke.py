@@ -195,6 +195,9 @@ def configured_system(name):
     wait_for(lambda: 'Application startup time:' in log(), 'configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
+    time.sleep(10)
+    if any(n.get('text') == 'Got it' for n in hierarchy()):
+        ui('Got it')
     screenshot(name)
     save_logs(name)
 
@@ -324,6 +327,8 @@ try:
             ui('Allow')
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
+    completion = adb('logcat', '-d')
+    assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
