@@ -206,6 +206,9 @@ class ConfiguratorActivity : Activity() {
         } catch (error: ActivityNotFoundException) {
             message = getString(R.string.no_picker)
             render()
+        } catch (error: SecurityException) {
+            message = getString(R.string.no_picker)
+            render()
         }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

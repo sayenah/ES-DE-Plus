@@ -290,8 +290,12 @@ try:
             component_enabled(picker_component, True)
     ui('Choose shared ROM folder', dpad=True)
     nodes = hierarchy()
-    if any(node_matches(n, 'A folder picker is unavailable') for n in nodes):
-        screenshot('picker-unavailable')
+    if any(node_matches(n, 'A folder picker is unavailable') or
+           node_matches(n, 'Folder selection cancelled') for n in nodes):
+        # Some devices resolve the action to a capability stub that immediately
+        # returns cancellation. The same visible typed-path fallback applies.
+        screenshot('picker-unavailable-or-returned-cancel')
+        save_logs('picker-capability')
         ui('Absolute shared ROM folder path')
         shell('input', 'text', shared)
         key('KEYCODE_BACK')  # Hide IME, preserve the real edit.
