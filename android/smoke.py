@@ -54,7 +54,8 @@ def log():
 
 
 def screenshot(name):
-    time.sleep(1)
+    # Give menu transitions and their cached backdrops time to finish rendering.
+    time.sleep(5)
     (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
 
 
@@ -65,6 +66,8 @@ def launch():
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
+    # Startup logging precedes the render loop's first frame/texture uploads.
+    time.sleep(10)
     # Dismiss the real Android immersive-mode tutorial if it is covering SDL.
     # Read its actual button bounds and send a tap; no setting/state is fabricated.
     hierarchy = '/data/local/tmp/esde-smoke-window.xml'
