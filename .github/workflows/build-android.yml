@@ -18,6 +18,22 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api29
+            api: 29
+            target: google_apis
+            profile: pixel_2
+          - image: api34
+            api: 34
+            target: google_apis
+            profile: pixel_2
+          - image: tv36
+            api: 36
+            target: android-tv
+            profile: tv_1080p
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
     steps:
@@ -199,14 +215,14 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: API 34 x86_64 frontend smoke
+      - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           arch: x86_64
-          target: google_apis
-          profile: pixel_2
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
@@ -217,7 +233,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-evidence
+          name: android-evidence-${{ matrix.image }}
           path: |
             android/*.log
             android/DEPENDENCY-LICENSES.md

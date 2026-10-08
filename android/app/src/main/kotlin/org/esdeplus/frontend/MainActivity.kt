@@ -2,17 +2,29 @@
 // ES-DE-Plus — written for ES-DE-Plus using SDL release-2.32.10 and Android SDK APIs.
 package org.esdeplus.frontend
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
-    private val bridge by lazy { NativeBridge(this) }
+    private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
+    override fun loadLibraries() {
+        super.loadLibraries()
+        ConfiguratorSession.registerNative()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
+        ConfiguratorSession.recordEntry(intent)
         super.onCreate(savedInstanceState)
         updateWindowSize()
         window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        ConfiguratorSession.recordEntry(intent)
+        if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
     }
     private fun updateWindowSize() {
         bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {

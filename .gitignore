@@ -136,4 +136,3 @@ CPackSourceConfig.cmake
 
 /android/local.properties
 /android/.kotlin/
-.idea/

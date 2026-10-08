@@ -1,3 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
-<resources><string name="app_name">ES-DE Plus</string></resources>
+<resources><string name="app_name">ES-DE Plus</string>
+    <string name="configure_title">Configure ES-DE Plus</string>
+    <string name="storage_choice">Choose a storage mode first. Application data stays in app-owned storage; official ES-DE data is never adopted.</string>
+    <string name="scoped_mode">Use app-owned storage (recommended)</string>
+    <string name="direct_mode">Use direct filesystem compatibility</string>
+    <string name="scoped_howto">ROM folder: %1$s
+How to add games: connect USB, install Android platform tools on your computer, enable USB debugging, and authorize the computer. Run adb push your-ROM-folder/. %2$s/ (organize games into system folders such as nes). No storage permission is required. Uninstalling removes app-owned games. SAF import is not available in this slice.</string>
+    <string name="direct_explanation">Compatibility mode requires broad storage access. Select your shared ROM folder after granting access. A SAF selection alone does not provide the native filesystem access this mode needs.</string>
+    <string name="grant_access">Grant direct filesystem access</string>
+    <string name="choose_folder">Choose shared ROM folder</string>
+    <string name="direct_howto">Selected ROM folder: %1$s
+How to add games: copy them here with USB file transfer or a file manager, in system folders such as nes.</string>
+    <string name="no_folder">No folder selected</string>
+    <string name="path_hint">Absolute shared ROM folder path</string>
+    <string name="use_path">Use typed folder path</string>
+    <string name="path_selected">Folder access verified. No picker grant was created for the typed path.</string>
+    <string name="create_systems">Create system folders</string>
+    <string name="continue_frontend">Save and start frontend</string>
+    <string name="cancel_configuration">Cancel configuration</string>
+    <string name="cancelled_recoverable">Configuration cancelled. Your selections are kept on this screen. Choose a mode and retry when ready; startup will wait for you.</string>
+    <string name="picker_cancelled">Folder selection cancelled. The previous selection has been kept.</string>
+    <string name="access_denied">Access was not granted. Retry or explicitly choose app-owned storage.</string>
+    <string name="no_all_files">All-files settings are unavailable on this device. Choose app-owned storage, or enable all-files access in the device settings and return here.</string>
+    <string name="no_picker">A folder picker is unavailable. Enter an absolute local ROM folder path below, or choose app-owned storage.</string>
+    <string name="configuration_failed">Configuration failed. Check the storage and retry.</string>
+    <string name="resource_failure">Resource installation failed. Restore available storage or remove the obstruction, then retry. Your games and settings are kept.</string>
+    <string name="retry">Retry startup</string>
+</resources>

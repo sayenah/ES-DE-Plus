@@ -21,9 +21,9 @@ class RuntimeSmoke : Instrumentation() {
             if (provisionOnly) {
                 // Create ordinary SDK-owned directories before adb pushes files.
                 // MainActivity is not launched and no resources/marker are installed.
-                val bridge = NativeBridge(targetContext)
-                bridge.getAppDataDirectory()
-                val roms = File(bridge.getROMDirectory(), "nes")
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                storage.verifyDirectory(storage.appData(), true)
+                val roms = File(storage.ownedROMs(), "nes")
                 check(roms.mkdirs() || roms.isDirectory)
                 result.putString("stream", "PROVISIONED: ${roms.absolutePath}\n")
                 finish(-1, result)
@@ -70,6 +70,17 @@ class RuntimeSmoke : Instrumentation() {
                 check(!repair.setupResources(identifier))
                 check(catalog.readBytes().contentEquals(original))
             } finally { catalog.writeBytes(original) }
+            val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+            for (uri in listOf(
+                "content://unsupported.provider/tree/primary%3AROMs",
+                "content://com.android.externalstorage.documents/tree/primary%3A..%2Fescape",
+                "content://com.android.externalstorage.documents/tree/primary%3AES-DE",
+                "content://com.android.externalstorage.documents/tree/unavailable-volume%3AROMs",
+                "content://com.android.externalstorage.documents/tree/primary%3AAndroid%2Fdata",
+                "content://com.android.externalstorage.documents/tree/primary%3AROMs/document/primary%3Aother")) {
+                try { storage.resolveTree(android.net.Uri.parse(uri)); error("Unsafe tree was accepted: $uri") }
+                catch (expected: java.io.IOException) { /* Real trust-boundary refusal. */ }
+            }
             val unavailable = NativeBridge(object : ContextWrapper(targetContext) {
                 override fun getExternalFilesDir(type: String?): File? = null
             })

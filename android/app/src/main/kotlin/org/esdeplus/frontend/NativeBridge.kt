@@ -7,14 +7,15 @@ import android.os.Build
 import android.os.Environment
 import android.util.AtomicFile
 import android.util.Log
+import org.esdeplus.frontend.bridge.StorageModel
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 
-class NativeBridge(private val context: Context) {
+class NativeBridge(private val context: Context, private val recoverStartup: Boolean = false) {
+    private val storage = StorageModel(context)
     @Volatile var windowSnapshot: IntArray = intArrayOf(0, 0)
     private var earlyCopyFailed = false
-    private val firstRun = !File(context.filesDir, "resources-installed").isFile
     private val tag = "ES-DE-Plus"
     private val marker get() = File(context.filesDir, "resources-installed")
     private data class Resource(val hash: String, val size: Long, val path: String)
@@ -85,41 +86,41 @@ class NativeBridge(private val context: Context) {
     @Synchronized fun setupFontFiles() { copyEarly("fonts/") }
     @Synchronized fun setupLocalizationFiles() { copyEarly("locale/") }
     private fun copyEarly(prefix: String) {
-        try { copyMatching(verifyEarly) { it.startsWith(prefix) } }
-        catch (error: Exception) {
-            earlyCopyFailed = true
-            Log.e(tag, "Early resource copy failed: $prefix", error)
+        while (true) {
+            try { copyMatching(verifyEarly) { it.startsWith(prefix) }; return }
+            catch (error: Exception) {
+                Log.e(tag, "Early resource copy failed: $prefix", error)
+                if (!recoverStartup) { earlyCopyFailed = true; return }
+                ConfiguratorSession.awaitResourceRetry(context, error.message ?: "Resource copy failed")
+            }
         }
     }
     @Synchronized fun setupResources(buildIdentifier: String): Boolean {
         if (earlyCopyFailed) return true
-        return try {
+        while (true) {
+          try {
             copyMatching(true) { true }
             if (!installed(true)) throw IOException("Incomplete resource installation")
             writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
             Log.i(tag, "Resource installation committed build=$buildIdentifier")
-            false
-        } catch (error: Exception) {
-            Log.e(tag, "Resource installation failed", error); true
+            return false
+          } catch (error: Exception) {
+            Log.e(tag, "Resource installation failed", error)
+            if (!recoverStartup) return true
+            ConfiguratorSession.awaitResourceRetry(context, error.message ?: "Resource copy failed")
+          }
         }
     }
-    private fun externalFiles(): File = context.getExternalFilesDir(null)
-        ?: throw IOException("App-specific external storage is unavailable")
-    private fun directory(file: File): String {
-        if (!file.isDirectory && !file.mkdirs()) throw IOException("Cannot create $file")
-        if (!file.canRead() || !file.canWrite()) throw IOException("Directory is unusable: $file")
-        return file.absolutePath
-    }
-    fun getAppDataDirectory(): String = directory(File(externalFiles(), "ES-DE-Plus"))
-    // FileData returns this value directly; createSystemDirectories concatenates
-    // system names, just as the desktop getROMDirectory guarantees a final slash.
-    fun getROMDirectory(): String = directory(File(externalFiles(), "ROMs")) + "/"
+    fun getAppDataDirectory(): String = storage.verifyDirectory(storage.appData(), true).path
+    // FileData/createSystemDirectories require the final slash.
+    fun getROMDirectory(): String = storage.validate(storage.load()
+        ?: throw IOException("Storage has not been configured" )).path + "/"
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")
     fun getExternalDirectory(): String = Environment.getExternalStorageDirectory().absolutePath
-    fun getCreateSystemDirectories(): Boolean = firstRun
-    fun checkConfigurationNeeded(): Boolean = false
+    fun getCreateSystemDirectories(): Boolean = storage.load()?.createSystems ?: false
+    fun checkConfigurationNeeded(): Boolean = storage.problem() != null
     fun checkEmulatorInstalled(packageName: String, activityName: String): Boolean = false
     fun checkRACoreInstalled(packageName: String, coreFile: String): Int = -2
     fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean): Array<String> = emptyArray()
@@ -134,6 +135,6 @@ class NativeBridge(private val context: Context) {
     fun getWifiStatus(): Int = 0
     fun getCellularStatus(): Int = 0
     fun getBatteryStatus(): IntArray = intArrayOf(-1, -1)
-    fun startConfigurator() { Log.i(tag, "configurator not available in this build") }
+    fun startConfigurator() { ConfiguratorSession.open(context, storage.problem()) }
     fun onNativeFrontendResume() {}
 }

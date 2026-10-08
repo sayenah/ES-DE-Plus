@@ -91,32 +91,173 @@ def key(code):
     time.sleep(0.4)
 
 
+def hierarchy():
+    location = '/data/local/tmp/esde-smoke-window.xml'
+    shell('uiautomator', 'dump', location)
+    xml = shell('cat', location)
+    (evidence / 'latest-ui.txt').write_text(xml)
+    return list(ET.fromstring(xml).iter('node'))
+
+
+def node_matches(node, label):
+    return label.casefold() in node.get('text', '').casefold() or label.casefold() in node.get('content-desc', '').casefold()
+
+
+def ui(label, dpad=False):
+    wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'UI: ' + label)
+    if dpad:
+        for _ in range(35):
+            nodes = hierarchy()
+            if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
+                key('KEYCODE_DPAD_CENTER')
+                return
+            key('KEYCODE_DPAD_DOWN')
+        raise AssertionError('D-pad cannot reach: ' + label)
+    node = next(n for n in hierarchy() if node_matches(n, label))
+    x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
+    shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+    time.sleep(1)
+
+
+def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
+    shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
+          '-n', app + '/org.esdeplus.frontend.' + name)
+
+
+def configured_system(name):
+    wait_for(lambda: 'Application startup time:' in log(), 'configured system view')
+    assert 'Error:' not in log(), log()
+    assert re.search(r'Total game count: 2\s', log()), log()
+    screenshot(name)
+    save_logs(name)
+
+
 try:
-    # The debugging daemon needs access to app-owned external evidence. This
-    # does not change the frontend's UID, manifest permissions or bridge results.
-    # Restarting adbd may close the request's transport before its reply. Verify
-    # the resulting daemon UID after reconnecting, rather than trusting the reply.
-    root = adb('root', check=False)
-    adb('wait-for-device')
-    identity = shell('id')
-    assert shell('id', '-u').strip() == '0', root + identity
-    (evidence / 'adb-access.txt').write_text(root + identity)
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     shell('am', 'force-stop', app)
     shell('pm', 'clear', app)
-    provisioning = shell('am', 'instrument', '-w', '-e', 'mode', 'provision',
-                         app + '/org.esdeplus.frontend.RuntimeSmoke')
-    assert 'PROVISIONED:' in provisioning, provisioning
-    (evidence / 'fixture-provisioning.txt').write_text(provisioning)
-    shell('am', 'force-stop', app)
-    private('test', '!', '-f', 'files/resources-installed')
-    # Provision ROMs using adb before any frontend launch, as AC-3 requires.
+    api = int(shell('getprop', 'ro.build.version.sdk').strip())
+    (evidence / 'image.txt').write_text(shell('getprop'))
+    # Genuine shared files, accessible to users through file transfer; no settings
+    # or preferences are written by the host-side automation.
+    shared = '/sdcard/ESDEPlusSmoke'
+    shell('mkdir', '-p', shared + '/nes')
     dummy = evidence / 'dummy.nes'
     dummy.write_bytes(b'\x00')
-    adb('push', str(dummy), roms + '/nes/Smoke Alpha.nes')
-    adb('push', str(dummy), roms + '/nes/Smoke Beta.nes')
+    for name in ['Smoke Alpha.nes', 'Smoke Beta.nes']:
+        adb('push', str(dummy), shared + '/nes/' + name)
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    ui('Cancel configuration', dpad=True)
+    ui('Configuration cancelled')
+    screenshot('home-cancel-recoverable')
+    assert shell('pidof', app).strip(), 'HOME cancellation killed the process'
+    key('KEYCODE_BACK')
+    ui('Configuration cancelled')
+    ui('Use direct filesystem compatibility', dpad=True)
+    screenshot('mode-before-permission')
+    ui('Grant direct filesystem access', dpad=True)
+    if api == 29:
+        ui('Deny')
+        ui('Access was not granted')
+        screenshot('permission-denied')
+        ui('Grant direct filesystem access', dpad=True)
+        ui('Allow')
+    else:
+        # The real platform Settings toggle, not appops or pm grant.
+        nodes = hierarchy()
+        toggle = next((n for n in nodes if n.get('checkable') == 'true'), None)
+        if toggle is None:
+            # TV's missing-capability fallback remains recoverable. Record it,
+            # then try the device's general all-files settings UI.
+            ui('All-files settings are unavailable')
+            screenshot('all-files-unavailable')
+            shell('am', 'start', '-a', 'android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION')
+            ui('ES-DE Plus')
+            nodes = hierarchy()
+            toggle = next(n for n in nodes if n.get('checkable') == 'true')
+        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle['bounds']))
+        shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+        screenshot('all-files-granted')
+        key('KEYCODE_BACK')
+    ui('Choose shared ROM folder', dpad=True)
+    nodes = hierarchy()
+    if any(node_matches(n, 'A folder picker is unavailable') for n in nodes):
+        screenshot('picker-unavailable')
+        ui('Absolute shared ROM folder path')
+        shell('input', 'text', shared)
+        key('KEYCODE_BACK')  # Hide IME, preserve the real edit.
+        ui('Use typed folder path', dpad=True)
+    else:
+        # Exercise cancellation without replacing the existing selection.
+        key('KEYCODE_BACK')
+        ui('Folder selection cancelled')
+        screenshot('picker-cancelled')
+        ui('Choose shared ROM folder', dpad=True)
+        nodes = hierarchy()
+        if not any(n.get('text') == 'ESDEPlusSmoke' for n in nodes):
+            ui('Show roots')
+            nodes = hierarchy()
+            root = next((n for n in nodes if n.get('text') in ['Internal storage', 'Pixel 2', 'Android TV', 'sdk_gphone_x86_64', 'sdk_gphone64_x86_64']), None)
+            if root is None:
+                root = next(n for n in nodes if n.get('resource-id', '').endswith('title') and 'Downloads' not in n.get('text', '') and 'Recent' not in n.get('text', ''))
+            ui(root['text'])
+        ui('ESDEPlusSmoke')
+        ui('Use this folder')
+        if any(n.get('text', '').casefold() == 'allow' for n in hierarchy()):
+            ui('Allow')
+    ui('Save and start frontend', dpad=True)
+    configured_system('direct-system-view')
+    # Cold/warm entry semantics: each alias reuses the SDL activity and updates
+    # HOME only through the HOME entry. No preference or native flag injection.
+    pid = shell('pidof', app).strip()
+    for name, category, home in [('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER', False),
+                                  ('HomeEntry', 'android.intent.category.HOME', True),
+                                  ('MainActivity', 'android.intent.category.LAUNCHER', False)]:
+        start_entry(name, category)
+        wait_for(lambda: f'HOME={str(home).lower()}' in adb('logcat', '-d'), 'entry HOME state')
+        assert shell('pidof', app).strip() == pid, 'Warm entry replaced the process'
+        (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
+        screenshot(name + '-warm')
+    shell('am', 'force-stop', app)
+    start_entry()
+    configured_system('direct-restart')
+    # Revoke actual access after persisted configuration; ordinary startup must
+    # show recovery, never substitute a directory or restart-loop HOME.
+    shell('am', 'force-stop', app)
+    if api == 29:
+        shell('pm', 'revoke', app, 'android.permission.WRITE_EXTERNAL_STORAGE')
+    else:
+        shell('appops', 'set', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    ui('Configure ES-DE Plus')
+    screenshot('revoked-access-recovery')
+    save_logs('revoked-access-recovery')
+    # Fresh app install state starts the independent scoped path through its UI.
+    # pm clear is a normal reset, never an injected storage preference.
+    shell('am', 'force-stop', app)
+    shell('pm', 'clear', app)
+    start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
+    ui('Use app-owned storage', dpad=True)
+    ui('How to add games')
+    screenshot('scoped-provisioning-howto')
+    # Demonstrate the displayed provisioning route as the ordinary shell UID.
+    # The app owns and creates this directory; no root or run-as is involved.
+    assert shell('id', '-u').strip() == '2000', shell('id')
+    shell('mkdir', '-p', roms + '/nes')
+    for name in ['Smoke Alpha.nes', 'Smoke Beta.nes']:
+        adb('push', str(dummy), roms + '/nes/' + name)
     dummy.unlink()
+    (evidence / 'scoped-adb-provisioning.txt').write_text('Ordinary shell UID 2000 populated the displayed app-owned ROM path using adb push.\n')
+    # Kill with configuration visible; Android restores it and its saved UI state.
+    shell('am', 'kill', app)
+    start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
+    ui('Use app-owned storage', dpad=True)
+    ui('Save and start frontend', dpad=True)
+    shell('am', 'force-stop', app)
+    # Resource installation is uncommitted on a fresh start; remove resources
+    # solely to guarantee a real copy for the interruption probe.
+    private('rm', '-rf', 'files/resources', 'files/themes', 'files/resources-installed')
     # Interrupt an actual first-run copy. STOP freezes every thread before force-stop.
     adb('logcat', '-c')
     follower = subprocess.Popen(['adb', 'logcat', '-v', 'brief', 'ES-DE-Plus:I', '*:S'],
@@ -228,37 +369,49 @@ try:
     assert 'cheap normal start, explicit hash/size repair, unavailable-storage rejection' in result, result
     assert 'invalid UTF-16' in checkjni, checkjni
     print('PASS: runtime bridge and real font-copy failure probes under CheckJNI', flush=True)
-    # Obstruct real SDK-selected directories, then launch the ordinary activity.
-    # JNI catches Java's IOException; startup must exit rather than change paths.
-    for directory, description in [('ES-DE-Plus', 'application-data directory'), ('ROMs', 'ROM directory')]:
+    # Ordinary startup against unavailable/obstructed selected storage is
+    # recoverable. Existing selections and user data must be preserved.
+    for directory in ['ES-DE-Plus', 'ROMs']:
         shell('am', 'force-stop', app)
         path = external + '/' + directory
         saved = path + '.smoke-saved'
         shell('mv', path, saved)
         try:
             shell('touch', path)
-            private('rm', '-f', 'files/logs/es_log.txt')
             adb('logcat', '-c')
-            shell('am', 'start', '-n', activity)
-            expected = 'Android startup failed: unusable ' + description
-            wait_for(lambda: expected in adb('logcat', '-d'), 'loud startup failure: ' + directory)
-            wait_for(lambda: not shell('pidof', app, check=False).strip(), 'frontend exits after directory failure')
-            failure_logcat = adb('logcat', '-d', '-v', 'threadtime')
-            diagnostic = private('cat', 'files/logs/es_log.txt')
-            assert expected in diagnostic, diagnostic
+            start_entry('HomeEntry', 'android.intent.category.HOME')
+            ui('Configure ES-DE Plus')
+            screenshot('blocked-' + directory + '-recoverable')
+            save_logs('blocked-' + directory)
+            assert shell('pidof', app).strip(), 'Storage error killed HOME frontend'
             private('test', '!', '-d', 'files/settings')
-            (evidence / ('blocked-' + directory + '-logcat.txt')).write_text(failure_logcat)
-            (evidence / ('blocked-' + directory + '-es_log.txt')).write_text(diagnostic)
         finally:
             shell('am', 'force-stop', app)
             shell('rm', '-f', path)
             shell('mv', saved, path)
-        print('PASS: unusable ' + description + ' exits with logcat/es_log diagnostics, without fallback', flush=True)
+        print('PASS: obstructed ' + directory + ' has recoverable UI without fallback', flush=True)
+    # A real resource-copy failure on the ordinary native startup path is shown
+    # to the user. Removing the obstruction and pressing Retry resumes startup.
+    shell('am', 'force-stop', app)
+    private('mv', 'files/resources/fonts', 'files/resources/fonts.smoke-saved')
+    try:
+        private('sh', '-c', 'echo obstruction > files/resources/fonts')
+        start_entry('HomeEntry', 'android.intent.category.HOME')
+        ui('Resource installation failed')
+        screenshot('resource-copy-failure')
+        private('rm', 'files/resources/fonts')
+        private('mv', 'files/resources/fonts.smoke-saved', 'files/resources/fonts')
+        ui('Retry startup', dpad=True)
+        configured_system('resource-copy-retry-system')
+    finally:
+        shell('am', 'force-stop', app)
+        private('mv', 'files/resources/fonts.smoke-saved', 'files/resources/fonts', check=False)
     adb('logcat', '-c')
     launch()
     assert shell('cat', settings) == before, 'Directory-failure recovery changed settings'
 
-    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, loud data/ROM-directory failure\n')
+    screenshot('scoped-restart-system-view')
+    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases and revoked permission\n')
 except BaseException:
     save_logs('failure')
     screenshot('failure')

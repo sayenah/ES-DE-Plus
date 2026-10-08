@@ -55,7 +55,7 @@ namespace
             std::ofstream diagnostic {logs + "/es_log.txt", std::ios::app};
             diagnostic << "Error: " << message << std::endl;
         }
-        std::exit(EXIT_FAILURE);
+        _exit(EXIT_FAILURE);
     }
 
     struct ActivityContext {
@@ -560,7 +560,6 @@ namespace Utils
             {
                 AndroidVariables::sHold = true;
                 callVoid("startConfigurator");
-                AndroidVariables::sHold = false;
             }
         } // namespace Android
     } // namespace Platform
@@ -659,7 +658,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_org_esdeplus_frontend_RuntimeSmoke_na
         return JNI_FALSE;
     if (launchGame("", "", "", "", "", "", "", "", {}, {}, {}, {}, {}, false) == 0)
         return JNI_FALSE;
-    startConfigurator();
+    // Configurator hold/completion is exercised by the host UI smoke.
     onResume();
     if (AndroidVariables::sHold || env->ExceptionCheck())
         return JNI_FALSE;
