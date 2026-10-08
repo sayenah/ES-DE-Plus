@@ -19,6 +19,9 @@
 
 #include "utf8.h"
 #include <array>
+#include <cstdlib>
+#include <fstream>
+#include <unistd.h>
 
 namespace AndroidVariables
 {
@@ -33,6 +36,28 @@ namespace AndroidVariables
 
 namespace
 {
+    bool usableDirectory(const std::string& path)
+    {
+        return !path.empty() && path.front() == '/' && Utils::FileSystem::isDirectory(path) &&
+               access(path.c_str(), R_OK | W_OK | X_OK) == 0;
+    }
+
+    [[noreturn]] void failStartupDirectory(const char* directory)
+    {
+        const std::string message {std::string {"Android startup failed: unusable "} + directory +
+                                   "; no data-directory fallback"};
+        __android_log_print(ANDROID_LOG_ERROR, ANDROID_APPLICATION_ID, "%s", message.c_str());
+        // The normal logger has not opened yet. Write diagnostics to internal
+        // storage when available, without selecting it as the user-data path.
+        if (usableDirectory(AndroidVariables::sInternalDataDirectory)) {
+            const std::string logs {AndroidVariables::sInternalDataDirectory + "/logs"};
+            Utils::FileSystem::createDirectory(logs);
+            std::ofstream diagnostic {logs + "/es_log.txt", std::ios::app};
+            diagnostic << "Error: " << message << std::endl;
+        }
+        std::exit(EXIT_FAILURE);
+    }
+
     struct ActivityContext {
         JNIEnv* env {nullptr};
         jobject activity {nullptr};
@@ -137,6 +162,7 @@ namespace
         }
         catch (const std::exception& error) {
             LOG(LogError) << "Android bridge: invalid UTF-16: " << error.what();
+            result.clear();
         }
         env->ReleaseStringChars(value, chars);
         return result;
@@ -505,9 +531,10 @@ namespace Utils
                 AndroidVariables::sInternalDataDirectory = callString("getInternalDataDirectory");
                 AndroidVariables::sExternalDataDirectory = callString("getAppDataDirectory");
 
-                if (AndroidVariables::sExternalDataDirectory.empty())
-                    AndroidVariables::sExternalDataDirectory =
-                        AndroidVariables::sInternalDataDirectory;
+                if (!usableDirectory(AndroidVariables::sInternalDataDirectory))
+                    failStartupDirectory("internal resource directory");
+                if (!usableDirectory(AndroidVariables::sExternalDataDirectory))
+                    failStartupDirectory("application-data directory");
 
                 FileSystemVariables::sAppDataDirectory = AndroidVariables::sExternalDataDirectory;
             }
@@ -515,6 +542,8 @@ namespace Utils
             void setROMDirectory()
             {
                 AndroidVariables::sROMDirectory = callString("getROMDirectory");
+                if (!usableDirectory(AndroidVariables::sROMDirectory))
+                    failStartupDirectory("ROM directory");
             }
 
             void setupFontFiles() { callVoid("setupFontFiles"); }
@@ -607,6 +636,16 @@ extern "C" JNIEXPORT jboolean JNICALL Java_org_esdeplus_frontend_RuntimeSmoke_na
         if (roundtrip != original || !Utils::FileSystem::exists(roundtrip))
             return JNI_FALSE;
     }
+    // A valid prefix followed by an unpaired surrogate must never escape as a
+    // partial pathname (L-9). Exercise the production conversion under CheckJNI.
+    const jchar invalidChars[] {'o', 'k', 0xd800};
+    jstring invalid {env->NewString(invalidChars, 3)};
+    if (invalid == nullptr)
+        return JNI_FALSE;
+    const std::string invalidResult {fromJString(env, invalid)};
+    env->DeleteLocalRef(invalid);
+    if (!invalidResult.empty() || env->ExceptionCheck())
+        return JNI_FALSE;
     using namespace Utils::Platform::Android;
     std::vector<std::pair<std::string, std::string>> apps;
     getInstalledApps(apps, false, false);

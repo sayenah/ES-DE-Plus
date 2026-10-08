@@ -225,8 +225,40 @@ try:
     assert 'Late-enabling -Xcheck:jni' in checkjni or 'CheckJNI' in checkjni, checkjni
     assert 'JNI DETECTED ERROR' not in checkjni and 'JNI WARNING' not in checkjni, checkjni
     assert 'Early resource copy failed: fonts/' in checkjni, checkjni
+    assert 'cheap normal start, explicit hash/size repair, unavailable-storage rejection' in result, result
+    assert 'invalid UTF-16' in checkjni, checkjni
     print('PASS: runtime bridge and real font-copy failure probes under CheckJNI', flush=True)
-    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes\n')
+    # Obstruct real SDK-selected directories, then launch the ordinary activity.
+    # JNI catches Java's IOException; startup must exit rather than change paths.
+    for directory, description in [('ES-DE-Plus', 'application-data directory'), ('ROMs', 'ROM directory')]:
+        shell('am', 'force-stop', app)
+        path = external + '/' + directory
+        saved = path + '.smoke-saved'
+        shell('mv', path, saved)
+        try:
+            shell('touch', path)
+            private('rm', '-f', 'files/logs/es_log.txt')
+            adb('logcat', '-c')
+            shell('am', 'start', '-n', activity)
+            expected = 'Android startup failed: unusable ' + description
+            wait_for(lambda: expected in adb('logcat', '-d'), 'loud startup failure: ' + directory)
+            wait_for(lambda: not shell('pidof', app, check=False).strip(), 'frontend exits after directory failure')
+            failure_logcat = adb('logcat', '-d', '-v', 'threadtime')
+            diagnostic = private('cat', 'files/logs/es_log.txt')
+            assert expected in diagnostic, diagnostic
+            private('test', '!', '-d', 'files/settings')
+            (evidence / ('blocked-' + directory + '-logcat.txt')).write_text(failure_logcat)
+            (evidence / ('blocked-' + directory + '-es_log.txt')).write_text(diagnostic)
+        finally:
+            shell('am', 'force-stop', app)
+            shell('rm', '-f', path)
+            shell('mv', saved, path)
+        print('PASS: unusable ' + description + ' exits with logcat/es_log diagnostics, without fallback', flush=True)
+    adb('logcat', '-c')
+    launch()
+    assert shell('cat', settings) == before, 'Directory-failure recovery changed settings'
+
+    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, loud data/ROM-directory failure\n')
 except BaseException:
     save_logs('failure')
     screenshot('failure')

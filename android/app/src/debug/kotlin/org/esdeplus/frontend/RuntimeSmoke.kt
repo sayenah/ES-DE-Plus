@@ -40,7 +40,43 @@ class RuntimeSmoke : Instrumentation() {
             check(directory.mkdirs() || directory.isDirectory)
             val game = File(directory, "Game\uD83D\uDE80.nes")
             game.writeBytes(byteArrayOf(0))
-            check(nativeProbe(directory.absolutePath, game.absolutePath)) { "Native bridge probe failed" }
+            try {
+                check(nativeProbe(directory.absolutePath, game.absolutePath)) { "Native bridge probe failed" }
+            } finally {
+                check(game.delete())
+                check(directory.delete())
+            }
+            // Same-size corruption stays untouched on the cheap normal-start
+            // path; explicit installation verifies hashes and repairs it. A size
+            // mismatch selects repair even with a committed marker.
+            val catalog = File(targetContext.filesDir, "resources/locale/en_US/LC_MESSAGES/en_US.mo")
+            val original = catalog.readBytes()
+            val identifier = File(targetContext.filesDir, "resources-installed").readLines().first()
+            try {
+                val changed = original.clone().also { it[0] = (it[0].toInt() xor 1).toByte() }
+                catalog.writeBytes(changed)
+                val normal = NativeBridge(targetContext)
+                normal.setupFontFiles()
+                normal.setupLocalizationFiles()
+                check(!normal.checkNeedResourceCopy(identifier)) { "Normal start hashes installed files" }
+                check(catalog.readBytes().contentEquals(changed)) { "Normal start re-read/hashed catalog contents" }
+                check(!normal.setupResources(identifier)) { "Explicit hash repair failed" }
+                check(catalog.readBytes().contentEquals(original))
+                catalog.appendBytes(byteArrayOf(0))
+                val repair = NativeBridge(targetContext)
+                check(repair.checkNeedResourceCopy(identifier)) { "Size mismatch was not detected" }
+                repair.setupFontFiles()
+                repair.setupLocalizationFiles()
+                check(!repair.setupResources(identifier))
+                check(catalog.readBytes().contentEquals(original))
+            } finally { catalog.writeBytes(original) }
+            val unavailable = NativeBridge(object : ContextWrapper(targetContext) {
+                override fun getExternalFilesDir(type: String?): File? = null
+            })
+            for (query in listOf(unavailable::getAppDataDirectory, unavailable::getROMDirectory)) {
+                try { query(); error("Unavailable storage silently selected another directory") }
+                catch (expected: java.io.IOException) { /* Required loud failure. */ }
+            }
             // A real file blocks directory creation in an isolated application-data root.
             val sandbox = File(targetContext.cacheDir, "resource-failure-probe")
             sandbox.deleteRecursively()
@@ -54,7 +90,7 @@ class RuntimeSmoke : Instrumentation() {
             check(blocked.setupResources("runtime-probe")) { "Font failure reported success" }
             check(!File(sandbox, "resources-installed").exists())
             sandbox.deleteRecursively()
-            result.putString("stream", "PASS: descriptors, CheckJNI 10000 calls, Unicode directory/file, sentinels, roots, real font-copy failure\n")
+            result.putString("stream", "PASS: descriptors, CheckJNI 10000 calls, Unicode directory/file, sentinels, roots, real font-copy failure, cheap normal start, explicit hash/size repair, unavailable-storage rejection\n")
             finish(-1, result)
         } catch (error: Throwable) {
             result.putString("stream", "FAIL: ${error.stackTraceToString()}\n")

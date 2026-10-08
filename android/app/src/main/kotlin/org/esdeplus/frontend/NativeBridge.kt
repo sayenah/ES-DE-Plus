@@ -17,14 +17,24 @@ class NativeBridge(private val context: Context) {
     private val firstRun = !File(context.filesDir, "resources-installed").isFile
     private val tag = "ES-DE-Plus"
     private val marker get() = File(context.filesDir, "resources-installed")
+    private data class Resource(val hash: String, val size: Long, val path: String)
+    private val manifest by lazy {
+        context.assets.open("resource-manifest.tsv").bufferedReader().use { it.readText() }
+    }
+    private val manifestHash by lazy {
+        MessageDigest.getInstance("SHA-256").digest(manifest.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
     private val entries by lazy {
-        context.assets.open("resource-manifest.tsv").bufferedReader().useLines { lines ->
+        manifest.lineSequence().filter { it.isNotEmpty() }.let { lines ->
             lines.map { line ->
-                val parts = line.split('\t', limit = 2)
-                require(parts.size == 2 && parts[0].matches(Regex("[a-f0-9]{64}")))
-                val path = parts[1]
+                val parts = line.split('\t', limit = 3)
+                require(parts.size == 3 && parts[0].matches(Regex("[a-f0-9]{64}")))
+                val size = parts[1].toLong()
+                require(size >= 0)
+                val path = parts[2]
                 require(!path.startsWith('/') && path.split('/').none { it == ".." || it.isEmpty() })
-                Pair(parts[0], path)
+                Resource(parts[0], size, path)
             }.toList()
         }
     }
@@ -38,10 +48,15 @@ class NativeBridge(private val context: Context) {
         }
         return md.digest().joinToString("") { "%02x".format(it) }
     }
-    private fun installed(): Boolean = entries.all { (hash, path) ->
+    private fun installed(verifyHashes: Boolean = false): Boolean = entries.all { (hash, size, path) ->
         val file = destination(path)
-        file.isFile && digest(file) == hash
+        file.isFile && file.length() == size && (!verifyHashes || digest(file) == hash)
     }
+    private fun currentManifest(): Boolean = marker.isFile &&
+        marker.readLines().getOrNull(1) == manifestHash
+    // On a normal start no installed resource contents are read. A new manifest,
+    // missing marker/file or size mismatch selects installation/repair verification.
+    private val verifyEarly by lazy { !currentManifest() || !installed() }
     private fun writeAtomic(file: File, write: (java.io.OutputStream) -> Unit) {
         if (!file.parentFile!!.isDirectory && !file.parentFile!!.mkdirs())
             throw IOException("Cannot create ${file.parent}")
@@ -50,18 +65,18 @@ class NativeBridge(private val context: Context) {
         try { write(stream); atomic.finishWrite(stream) }
         catch (error: Throwable) { atomic.failWrite(stream); throw error }
     }
-    private fun copyMatching(select: (String) -> Boolean) {
-        entries.filter { select(it.second) }.forEach { (hash, path) ->
+    private fun copyMatching(verifyHashes: Boolean, select: (String) -> Boolean) {
+        entries.filter { select(it.path) }.forEach { (hash, size, path) ->
             val output = destination(path)
-            if (!output.isFile || digest(output) != hash) {
+            if (!output.isFile || output.length() != size || (verifyHashes && digest(output) != hash)) {
                 writeAtomic(output) { stream -> context.assets.open(path).use { it.copyTo(stream) } }
-                if (digest(output) != hash) throw IOException("Resource verification failed: $path")
+                if (output.length() != size || digest(output) != hash) throw IOException("Resource verification failed: $path")
                 Log.i(tag, "Installed resource: $path")
             }
         }
     }
     @Synchronized fun checkNeedResourceCopy(buildIdentifier: String): Boolean = try {
-        val needed = !marker.isFile || marker.readText() != buildIdentifier || !installed()
+        val needed = !marker.isFile || marker.readText() != "$buildIdentifier\n$manifestHash" || !installed()
         Log.i(tag, "Resource copy required=$needed build=$buildIdentifier")
         needed
     } catch (error: Exception) {
@@ -70,7 +85,7 @@ class NativeBridge(private val context: Context) {
     @Synchronized fun setupFontFiles() { copyEarly("fonts/") }
     @Synchronized fun setupLocalizationFiles() { copyEarly("locale/") }
     private fun copyEarly(prefix: String) {
-        try { copyMatching { it.startsWith(prefix) } }
+        try { copyMatching(verifyEarly) { it.startsWith(prefix) } }
         catch (error: Exception) {
             earlyCopyFailed = true
             Log.e(tag, "Early resource copy failed: $prefix", error)
@@ -79,9 +94,9 @@ class NativeBridge(private val context: Context) {
     @Synchronized fun setupResources(buildIdentifier: String): Boolean {
         if (earlyCopyFailed) return true
         return try {
-            copyMatching { true }
-            if (!installed()) throw IOException("Incomplete resource installation")
-            writeAtomic(marker) { it.write(buildIdentifier.toByteArray(Charsets.UTF_8)) }
+            copyMatching(true) { true }
+            if (!installed(true)) throw IOException("Incomplete resource installation")
+            writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
             Log.i(tag, "Resource installation committed build=$buildIdentifier")
             false
         } catch (error: Exception) {
@@ -92,6 +107,7 @@ class NativeBridge(private val context: Context) {
         ?: throw IOException("App-specific external storage is unavailable")
     private fun directory(file: File): String {
         if (!file.isDirectory && !file.mkdirs()) throw IOException("Cannot create $file")
+        if (!file.canRead() || !file.canWrite()) throw IOException("Directory is unusable: $file")
         return file.absolutePath
     }
     fun getAppDataDirectory(): String = directory(File(externalFiles(), "ES-DE-Plus"))

@@ -24,7 +24,7 @@ val stageAssets by tasks.registering {
         }
         val entries = destination.walkTopDown().filter { it.isFile }.sortedBy { it.relativeTo(destination).invariantSeparatorsPath }.map { f ->
             val digest = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
-            "$digest\t${f.relativeTo(destination).invariantSeparatorsPath}"
+            "$digest\t${f.length()}\t${f.relativeTo(destination).invariantSeparatorsPath}"
         }.toList()
         destination.resolve("resource-manifest.tsv").writeText(entries.joinToString("\n", postfix = "\n"))
     }
