@@ -104,14 +104,16 @@ class ConfiguratorActivity : Activity() {
         text(getString(R.string.storage_choice))
         val scoped = button(R.string.scoped_mode) {
             guarded {
+                val owned = storage.verifyDirectory(storage.ownedROMs(), true).path
                 mode = "scoped"
-                path = storage.verifyDirectory(storage.ownedROMs(), true).path
+                path = owned
                 tree = ""
                 message = null
                 render()
             }
         }
         button(R.string.direct_mode) {
+            if (mode != "direct") { path = ""; tree = "" }
             mode = "direct"
             message = null
             render()

@@ -22,6 +22,7 @@ object ConfiguratorSession {
 
     fun recordEntry(intent: Intent) {
         entry = Intent(intent).replaceExtras(null as android.os.Bundle?)
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         home = intent.component?.className == MainActivity::class.java.name.substringBeforeLast('.') + ".HomeEntry" &&
             intent.hasCategory(Intent.CATEGORY_HOME)
         if (registered) MainActivity.nativeSetHomeApp(home)
