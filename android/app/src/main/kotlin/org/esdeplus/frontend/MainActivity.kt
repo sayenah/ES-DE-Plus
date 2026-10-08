@@ -48,6 +48,14 @@ class MainActivity : SDLActivity() {
             SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
         }
     }
+    override fun onDestroy() {
+        val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
+        // SDL first joins/stops its native thread. Only terminal Activity exit
+        // then ends the VM, flushing native atexit logs and resetting globals
+        // for the next launch; recreation and pending configuration keep it.
+        super.onDestroy()
+        if (terminal) kotlin.system.exitProcess(0)
+    }
     private fun updateWindowSize() {
         bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {
             windowManager.currentWindowMetrics.bounds.let { intArrayOf(it.width(), it.height()) }

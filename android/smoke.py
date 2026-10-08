@@ -211,6 +211,15 @@ def owned_fixture(action, directory):
     shell('am', 'force-stop', app)
 
 
+def clear_app():
+    shell('am', 'force-stop', app)
+    shell('pm', 'clear', app)
+    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'cleared app process stopped')
+    # PackageManager removes old tasks asynchronously; starting immediately
+    # can let that cleanup kill the new process as part of the old task.
+    time.sleep(1)
+
+
 def configured_system(name):
     wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
     assert 'Error:' not in log(), log()
@@ -225,8 +234,7 @@ def configured_system(name):
 try:
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
-    shell('am', 'force-stop', app)
-    shell('pm', 'clear', app)
+    clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
     (evidence / 'image.txt').write_text(shell('getprop'))
     # Genuine shared files, accessible to users through file transfer; no settings
@@ -421,8 +429,7 @@ try:
     save_logs('revoked-access-recovery')
     # Fresh app install state starts the independent scoped path through its UI.
     # pm clear is a normal reset, never an injected storage preference.
-    shell('am', 'force-stop', app)
-    shell('pm', 'clear', app)
+    clear_app()
     start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
     ui('Use app-owned storage', dpad=True)
     ui('How to add games')
@@ -624,10 +631,18 @@ try:
             assert 'cleanly shutting down' not in log(), log()
         else:
             wait_for(lambda: 'cleanly shutting down' in log(), 'non-HOME native Back shutdown')
+            wait_for(lambda: not shell('pidof', app, check=False).strip(), 'terminal native host exit')
             wait_for(lambda: bool(hierarchy()) and not any(n.get('package') == app for n in hierarchy()),
                      'non-HOME Back Activity exit')
         screenshot(name + '-after-back')
         save_logs(name + '-back')
+        if not home:
+            # Real user relaunch after quit, without another force-stop/reset.
+            start_entry(name, category)
+            configured_system(name + '-after-quit-relaunch')
+            key('KEYCODE_BACK')
+            wait_for(lambda: not shell('pidof', app, check=False).strip() and
+                     'cleanly shutting down' in log(), 'relaunch quits cleanly')
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases and revoked permission\n')
 except BaseException:
     save_logs('failure')
