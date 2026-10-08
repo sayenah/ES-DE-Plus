@@ -410,7 +410,10 @@ try:
     if api == 29:
         shell('pm', 'revoke', app, 'android.permission.WRITE_EXTERNAL_STORAGE')
     else:
-        shell('appops', 'set', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+        shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+        revoked = shell('appops', 'get', '--uid', app, 'MANAGE_EXTERNAL_STORAGE')
+        assert 'deny' in revoked, revoked
+        (evidence / 'revoked-all-files-appop.txt').write_text(revoked)
     start_entry('HomeEntry', 'android.intent.category.HOME')
     ui('Configure ' + label)
     screenshot('revoked-access-recovery')
