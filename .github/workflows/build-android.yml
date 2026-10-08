@@ -15,45 +15,6 @@ on:
 permissions:
   contents: read
 jobs:
-  measure-ndk29:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Measure candidate NDK 29 prebuilts under the strict rule
-        run: |
-          set -o pipefail
-          mkdir -p android/evidence
-          python3 - <<'PYCODE' | tee android/evidence/ndk29-prebuilts.txt
-          import hashlib, pathlib, subprocess
-          ndk = pathlib.Path('/usr/local/lib/android/sdk/ndk/29.0.14206865')
-          properties = (ndk / 'source.properties').read_text()
-          assert 'Pkg.Revision = 29.0.14206865' in properties
-          print(properties, flush=True)
-          toolchain = ndk / 'toolchains/llvm/prebuilt/linux-x86_64'
-          passed = []
-          for abi, triple in [('arm64-v8a', 'aarch64-linux-android'), ('x86_64', 'x86_64-linux-android')]:
-              runtime = toolchain / 'sysroot/usr/lib' / triple / 'libc++_shared.so'
-              output = subprocess.check_output([str(toolchain / 'bin/llvm-readelf'), '-lW', str(runtime)], text=True)
-              print(f'=== {abi} NDK 29.0.14206865 ===\nSHA256 {hashlib.sha256(runtime.read_bytes()).hexdigest()}\n{output}')
-              loads = [line.split() for line in output.splitlines() if line.split() and line.split()[0] == 'LOAD']
-              relros = [line.split() for line in output.splitlines() if line.split() and line.split()[0] == 'GNU_RELRO']
-              assert loads and relros, (abi, 'Missing program headers')
-              aligned = all(int(fields[-1], 16) >= 16384 for fields in loads)
-              for fields in relros:
-                  end = int(fields[2], 16) + int(fields[5], 16)
-                  print(f'RELRO end={end:#x} remainder={end % 16384:#x}')
-                  aligned = aligned and end % 16384 == 0
-              passed.append(aligned)
-              print(f'{"PASS" if aligned else "FAIL"} {abi}: strict LOAD/RELRO rule')
-          print(f'NDK29_STRICT_PASS={str(all(passed)).lower()}')
-          PYCODE
-      - name: Upload candidate measurement only
-        uses: actions/upload-artifact@v4
-        with:
-          name: ndk29-prebuilt-measurement
-          path: android/evidence/ndk29-prebuilts.txt
-          retention-days: 7
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -150,6 +111,33 @@ jobs:
           set -o pipefail
           mkdir -p android/evidence
           python3 android/check-elf.py android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/elf-closure.txt
+      - name: Verify an unmatched runtime keeps the strict RELRO rule
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, subprocess, tempfile, zipfile
+          apk = pathlib.Path('android/app/build/outputs/apk/debug/app-debug.apk')
+          zipalign = pathlib.Path('/usr/local/lib/android/sdk/build-tools/36.0.0/zipalign')
+          with tempfile.TemporaryDirectory() as temporary:
+              foreign = pathlib.Path(temporary) / 'foreign.apk'
+              aligned = pathlib.Path(temporary) / 'aligned.apk'
+              with zipfile.ZipFile(apk) as source, zipfile.ZipFile(foreign, 'w') as destination:
+                  for entry in source.infolist():
+                      data = source.read(entry)
+                      if entry.filename == 'lib/arm64-v8a/libc++_shared.so':
+                          # A valid ELF ABI-version byte changes the fingerprint
+                          # while retaining this stock file's unaligned RELRO.
+                          data = bytearray(data)
+                          data[8] ^= 1
+                      destination.writestr(entry, data)
+              subprocess.check_call([str(zipalign), '-f', '-P', '16', '4', str(foreign), str(aligned)])
+              audit = subprocess.run(['python3', 'android/check-elf.py', str(aligned)], capture_output=True, text=True)
+              assert audit.returncode != 0, 'Foreign runtime escaped the strict audit'
+              assert 'STRICT arm64-v8a/libc++_shared.so: SHA256=' in audit.stdout, audit.stdout
+              assert "'arm64-v8a', 'libc++_shared.so', 'Unaligned RELRO'" in audit.stdout, audit.stdout
+              summary = 'PASS: altered runtime retains its filename but is hash-unmatched and rejected by the strict RELRO check.\n'
+              pathlib.Path('android/evidence/prebuilt-fingerprint-probe.txt').write_text(summary)
+              print(summary)
+          PYCODE
       # Independent evidence remains useful after an audit failure. Failed checks
       # retain their failure status and keep the job red; none is skipped or waived.
       - name: Audit APK zip alignment and identity

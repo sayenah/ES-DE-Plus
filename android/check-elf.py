@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Audits the actual packaged ELF closure.
+import hashlib
 import os
 import pathlib
 import re
@@ -13,6 +14,7 @@ import zipfile
 apk = pathlib.Path(sys.argv[1])
 ndk = pathlib.Path(os.environ['ANDROID_NDK_HOME'])
 readelf = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf'
+print((ndk / 'source.properties').read_text())
 system = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libcamera2ndk.so', 'libmediandk.so', 'libEGL.so',
           'libGLESv1_CM.so', 'libGLESv2.so', 'libGLESv3.so', 'libOpenSLES.so', 'libaaudio.so', 'libz.so'}
 required = {'libmain.so', 'libSDL2.so', 'libes-pdf-convert.so', 'libc++_shared.so', 'libpoppler-cpp.so'}
@@ -42,6 +44,25 @@ def android_api(data):
     raise AssertionError('Missing Android API note')
 
 with tempfile.TemporaryDirectory() as temporary:
+    # AGP strips packaged libraries with --strip-unneeded. Hash the NDK's own
+    # file and its identically stripped form; neither filename nor build ID alone
+    # establishes that an APK entry is the supplied prebuilt (D-001(b) am. 2).
+    prebuilt_hashes = {}
+    for abi, triple in [('arm64-v8a', 'aarch64-linux-android'), ('x86_64', 'x86_64-linux-android')]:
+        supplied = readelf.parent.parent / 'sysroot/usr/lib' / triple / 'libc++_shared.so'
+        stripped = pathlib.Path(temporary) / f'ndk-{abi}.so'
+        subprocess.check_call([str(readelf.parent / 'llvm-strip'), '--strip-unneeded', '-o', str(stripped), str(supplied)])
+        original_hash = hashlib.sha256(supplied.read_bytes()).hexdigest()
+        stripped_hash = hashlib.sha256(stripped.read_bytes()).hexdigest()
+        prebuilt_hashes[abi] = {original_hash, stripped_hash}
+        print(f'NDK REFERENCE {abi}: original SHA256={original_hash} stripped SHA256={stripped_hash}')
+    # The vendor-prebuilt rule includes the APK alignment result, not only LOAD
+    # alignment. Execute the published command so this audit also stands alone.
+    zipalign = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/zipalign'
+    alignment = subprocess.run([str(zipalign), '-c', '-P', '16', '4', str(apk)], capture_output=True, text=True)
+    print(f'APK zipalign -c -P 16 4: {"PASS" if alignment.returncode == 0 else "FAIL"}')
+    print(alignment.stdout + alignment.stderr)
+    require(alignment.returncode == 0, ('APK', 'zipalign 16 KiB failed'))
     with zipfile.ZipFile(apk) as package:
         package.extractall(temporary)
     for abi, machine in [('arm64-v8a', 'AArch64'), ('x86_64', 'Advanced Micro Devices X86-64')]:
@@ -54,15 +75,22 @@ with tempfile.TemporaryDirectory() as temporary:
             output = subprocess.check_output([str(readelf), '-W', '-h', '-l', '-d', '-n', str(file)], text=True)
             print(f'=== {abi}/{name} ===\n{output}')
             require(machine in output, (abi, name, 'Wrong architecture'))
-            api = android_api(file.read_bytes())
+            data = file.read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            prebuilt = digest in prebuilt_hashes[abi]
+            print(f'{"NDK PREBUILT" if prebuilt else "STRICT"} {abi}/{name}: SHA256={digest}')
+            api = android_api(data)
             require(api <= 29, (abi, name, 'API too high', api))
             for line in output.splitlines():
                 fields = line.split()
                 if fields and fields[0] == 'LOAD':
                     require(int(fields[-1], 16) >= 16384, (abi, name, 'Unaligned LOAD', line))
                 if fields and fields[0] == 'GNU_RELRO':
-                    require((int(fields[2], 16) + int(fields[5], 16)) % 16384 == 0,
-                            (abi, name, 'Unaligned RELRO', line))
+                    end = int(fields[2], 16) + int(fields[5], 16)
+                    if prebuilt:
+                        print(f'NDK PREBUILT measured RELRO: {line.strip()} end={end:#x} remainder={end % 16384:#x}')
+                    else:
+                        require(end % 16384 == 0, (abi, name, 'Unaligned RELRO', line))
             matches = re.findall(r'\(SONAME\).*?\[(.*?)\]', output)
             # Upstream builds main as a MODULE loaded explicitly by SDL, not a
             # link dependency. Modules may omit SONAME; shared consumers may not.
@@ -76,8 +104,8 @@ with tempfile.TemporaryDirectory() as temporary:
         for name, needed in dependencies.items():
             require(set(needed) <= system | sonames.keys(), (abi, name, 'Unresolved DT_NEEDED', needed))
             print(f'CLOSURE {abi}/{name}: {", ".join(needed)}')
-        result = 'PASS' if len(failures) == previous_failures else 'FAIL'
-        print(f'{result} {abi}: architecture, API <=29, SONAME closure, LOAD/RELRO 16 KiB alignment')
+        result = 'PASS' if len(failures) == previous_failures and alignment.returncode == 0 else 'FAIL'
+        print(f'{result} {abi}: architecture, API <=29, SONAME closure, LOAD 16 KiB; strict built-library RELRO; hash-verified NDK prebuilt + APK zipalign')
 for failure in failures:
     print(f'FAIL: {failure}')
 sys.exit(bool(failures))

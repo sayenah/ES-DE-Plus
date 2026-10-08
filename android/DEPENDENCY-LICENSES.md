@@ -3,9 +3,13 @@
 Android slice 1 dependency inventory. The APK ELF lists, actual static consumer
 link inputs and final-toolchain CI evidence are attached to
 [PR #4](https://github.com/sayenah/ES-DE-Plus/pull/4).
-The toolchain is NDK 28.2.13676358 under D-001(b) am. 1. The ELF audit checks
-architecture, API notes, SONAME closure and 16 KiB LOAD/RELRO alignment for every
-packaged library, including the unmodified NDK runtime, with no exemptions.
+The toolchain remains NDK 28.2.13676358 under D-001(b) am. 2. Architecture,
+API notes and SONAME closure are checked for every packaged library. Libraries
+ES-DE-Plus builds retain strict 16 KiB LOAD alignment and the RELRO-end formula.
+NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identically
+AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
+measured RELRO values are printed and recorded below. An unmatched file follows
+the strict rule regardless of its filename.
 APKs remain inside CI pending G-1/G-2.
 Poppler and the upstream `ConvertPDF` implementation are GPL-2.0-only and are linked
 in process on Android. This inventory records that fact and does not decide G-2.
@@ -73,10 +77,35 @@ the identity audit records their packaged classes.
 | LunaSVG / plutovg | 3.5.0 / 1.3.2 (tracked subtree) | MIT | Static; upstream CMake configuration |
 | rlottie | 0.2 (tracked subtree) | MIT | Static; threading/modules off by upstream CMake |
 | GLM, RapidJSON, utfcpp, CImg | 1.0.0, 1.1.0, 4.0.6, 3.6.1 (tracked subtrees) | MIT; CImg CeCILL-C/CeCILL terms | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
-| libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; unmodified NDK copy; architecture, API note and 16 KiB LOAD/RELRO alignment checked by CI without exemptions; notice in `licenses/libcxx` |
+| libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; hash-verified NDK copy; architecture/API/SONAME, LOAD alignment and APK zipalign checked; measured RELRO and build IDs below under D-001(b) am. 2; notice in `licenses/libcxx` |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
 | Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon are original MIT assets |
+
+NDK prebuilt measurements (D-001(b) am. 2):
+
+[The r29 CI measurement](https://github.com/sayenah/ES-DE-Plus/actions/runs/37779000596/job/113317027716)
+ran `llvm-readelf -lW` on NDK **29.0.14206865**'s own runtimes. Both LOAD
+alignments were `0x4000`, but strict RELRO failed on both ABIs: arm64
+`0x148af8 + 0xa508 = 0x153000` (remainder `0x3000`), x86_64
+`0x13fbe0 + 0xa420 = 0x14a000` (remainder `0x2000`). The ruled fallback therefore
+keeps **28.2.13676358**. The shipped stock r28c measurements, independently
+matched against Google's public archive and the CI output, are:
+
+| NDK | ABI | GNU build ID | LOAD p_align | RELRO VirtAddr | RELRO MemSiz | End / remainder modulo 0x4000 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 28.2.13676358 | arm64-v8a | `7befe631535aa853c4f4ac1293e49dcea34c9b6e` | `0x4000` (all LOADs) | `0x12f898` | `0xa768` | `0x13a000` / `0x2000` |
+| 28.2.13676358 | x86_64 | `0f8f9b5a33c8898dc08ae1688f9b1d3d10ff68ab` | `0x4000` (all LOADs) | `0x129cc0` | `0xa340` | `0x134000` / `0x0` |
+
+The unstripped NDK files' SHA256 values are
+`ab4e6c71b96b851de45a8a9bd86369e7dbc2130a44b3b4520564be94847910f2`
+(arm64) and `e4cd73c8a3607269f3be58d15c21f78bff112e27f9398d6261e5f965668f8746`
+(x86_64). The auditor calculates these from the active NDK's own files, strips
+reference copies with the same `llvm-strip --strip-unneeded` operation AGP uses,
+and prints original, stripped-reference and actual packaged hashes. A match
+selects Google's [LOAD plus zipalign criteria](https://developer.android.com/guide/practices/page-sizes);
+all other libraries retain `(VirtAddr + MemSiz) % 0x4000 == 0`. CI also probes a
+runtime with the same filename and changed bytes, requiring strict rejection.
 
 Build-only: AGP **8.13.2**, Gradle wrapper **8.13**, Kotlin plugin **2.2.21**,
 JDK **17**, NDK **28.2.13676358**, minSdk **29**, compile/targetSdk **36**,
