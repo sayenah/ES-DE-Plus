@@ -134,15 +134,6 @@ CPackSourceConfig.cmake
 !/android/app/src/debug/
 !/android/app/src/debug/**
 
-# Android include-layout links to ignored downloaded sources
-/external/curl
-/external/ffmpeg-kit
-/external/freeimage
-/external/freetype
-/external/gettext
-/external/harfbuzz
-/external/icu
-/external/libgit2
-/external/pugixml
-/external/SDL_Android
-/external/poppler
+/android/local.properties
+/android/.kotlin/
+.idea/

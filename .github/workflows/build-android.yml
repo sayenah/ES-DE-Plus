@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       clean_cache:
-        description: Ignore the install cache for reproducibility evidence
+        description: Skip downloads and install caches for fully cold evidence
         type: boolean
         default: false
 permissions:
@@ -31,12 +31,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
       - name: Restore downloads
+        if: ${{ !inputs.clean_cache }}
         uses: actions/cache@v4
         with:
           path: android/.deps/downloads
           key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh') }}
       - name: Prepare source and include layout
-        run: tools/Android_dependencies_setup.sh
+        run: |
+          set -o pipefail
+          tools/Android_dependencies_setup.sh 2>&1 | tee android/source-archives.log
+      - name: Reject a corrupt source archive before extraction
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, subprocess, tempfile
+          script = pathlib.Path('tools/Android_dependencies_setup.sh').resolve()
+          with tempfile.TemporaryDirectory() as temporary:
+              root = pathlib.Path(temporary)
+              (root / '.clang-format').touch()
+              (root / 'external/utfcpp').mkdir(parents=True)
+              downloads = root / 'android/.deps/downloads'
+              downloads.mkdir(parents=True)
+              (downloads / 'icu.archive').write_bytes(b'corrupt source archive')
+              rejected = subprocess.run(['bash', str(script)], cwd=root, capture_output=True, text=True)
+              assert rejected.returncode != 0 and 'SHA256 mismatch' in rejected.stderr, rejected.stdout + rejected.stderr
+              assert not (root / 'android/.deps/sources/icu').exists(), 'Extraction preceded verification'
+              evidence = pathlib.Path('android/evidence')
+              evidence.mkdir(exist_ok=True)
+              (evidence / 'source-checksum-positive-control.txt').write_text('PASS: corrupt cache archive rejected before extraction.\n' + rejected.stderr)
+          PYCODE
       - name: Restore per-ABI dependencies
         id: deps
         if: ${{ !inputs.clean_cache }}
@@ -45,7 +67,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py') }}
       - name: Validate committed Gradle project
         run: |
           set -o pipefail
@@ -66,7 +88,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py') }}
       - name: Restore ABI-neutral generated headers
         run: tools/Android_dependencies_setup.sh
       - name: Assemble debug APK with committed wrapper
@@ -95,17 +117,42 @@ jobs:
           (destination / 'native-outputs.txt').write_text(text)
           print(text)
           PYCODE
+      - name: Assemble unsigned minified release APK
+        id: release
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee assemble-release.log
+          test -s app/build/outputs/mapping/release/mapping.txt
       - name: Check new native code compiler warnings
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
+          set -o pipefail
+          # AGP 8.13.2 writes Ninja stdout/stderr in intermediates/cxx/logs;
+          # .cxx holds the corresponding build metadata. Scan actual outputs.
+          python3 android/check-native-warnings.py android/app/.cxx android/app/build/intermediates/cxx | tee android/evidence/native-warnings.txt
+      - name: Native-warnings positive control
+        run: |
           python3 - <<'PYCODE'
-          import pathlib
-          files = ['InputOverlay.cpp', 'InputOverlay.h', 'PlatformUtilAndroid.cpp', 'PlatformUtilAndroid.h']
-          warnings = [line for line in pathlib.Path('android/assemble.log').read_text().splitlines()
-                      if 'warning:' in line and any(file in line for file in files)]
-          assert not warnings, '\n'.join(warnings)
-          print('PASS: no compiler warnings in the four new native files')
+          import os, pathlib, subprocess, tempfile
+          compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
+          with tempfile.TemporaryDirectory() as temporary:
+              source = pathlib.Path(temporary) / 'InputOverlay.cpp'
+              source.write_text('#warning ES-DE-Plus native-warnings positive control\n')
+              compiled = subprocess.run([str(compiler), '-fsyntax-only', str(source)], capture_output=True, text=True)
+              assert compiled.returncode == 0, compiled.stderr
+              log = pathlib.Path(temporary) / 'build_stderr_probe.txt'
+              log.write_text(compiled.stdout + compiled.stderr)
+              gate = subprocess.run(['python3', 'android/check-native-warnings.py', str(log)], capture_output=True, text=True)
+              assert gate.returncode == 1 and 'FAIL: native warnings' in gate.stdout, gate.stdout
+              assert 'native-warnings positive control' in gate.stdout, gate.stdout
+              pathlib.Path('android/evidence/native-warnings-positive-control.txt').write_text('PASS: real NDK compiler warning is rejected by the production gate.\n' + gate.stdout)
           PYCODE
+      - name: Audit minified release identity and kept JNI methods
+        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          python3 android/check-identity.py android/app/build/outputs/apk/release/app-release-unsigned.apk --release | tee android/evidence/release-identity.txt
       - name: Audit APK native closure
         run: |
           set -o pipefail

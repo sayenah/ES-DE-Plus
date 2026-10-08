@@ -26,11 +26,12 @@ jobs:
 
       - name: Check changed C++ formatting (clang-format 18)
         run: |
+          set -o pipefail
           sudo apt-get install -y clang-format-18
           clang-format-18 --version
           base=${{ github.event.pull_request.base.sha || github.event.before }}
           if ! git cat-file -e "$base" 2>/dev/null; then base=origin/main; fi
-          git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.cpp' '*.h' | while IFS= read -r file; do
+          git diff --name-only --diff-filter=ACMR "$base"...HEAD -- '*.cpp' '*.h' | while IFS= read -r file; do
             clang-format-18 --dry-run --Werror "$file"
           done
 
