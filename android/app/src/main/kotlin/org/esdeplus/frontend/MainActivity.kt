@@ -15,7 +15,7 @@ class MainActivity : SDLActivity() {
         window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
     }
     private fun updateWindowSize() {
-        bridge.windowSize = if (Build.VERSION.SDK_INT >= 30) {
+        bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {
             windowManager.currentWindowMetrics.bounds.let { intArrayOf(it.width(), it.height()) }
         } else {
             resources.displayMetrics.let { intArrayOf(it.widthPixels, it.heightPixels) }

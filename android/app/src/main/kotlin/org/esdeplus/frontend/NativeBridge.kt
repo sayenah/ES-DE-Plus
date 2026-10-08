@@ -12,7 +12,7 @@ import java.io.IOException
 import java.security.MessageDigest
 
 class NativeBridge(private val context: Context) {
-    @Volatile var windowSize: IntArray = intArrayOf(0, 0)
+    @Volatile var windowSnapshot: IntArray = intArrayOf(0, 0)
     private var earlyCopyFailed = false
     private val firstRun = !File(context.filesDir, "resources-installed").isFile
     private val tag = "ES-DE-Plus"
@@ -110,7 +110,7 @@ class NativeBridge(private val context: Context) {
         Log.i(tag, "Game launching unavailable in this build")
         return -1
     }
-    fun getWindowSize(): IntArray = windowSize.clone()
+    fun getWindowSize(): IntArray = windowSnapshot.clone()
     fun getDeviceInfo(): String = "${Build.MANUFACTURER} ${Build.MODEL} API ${Build.VERSION.SDK_INT}"
     fun getBluetoothStatus(): Int = 0
     fun getWifiStatus(): Int = 0
