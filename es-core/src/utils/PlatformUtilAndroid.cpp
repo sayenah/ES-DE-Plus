@@ -495,8 +495,9 @@ namespace Utils
                 if (value != nullptr)
                     context.env->DeleteLocalRef(value);
 
-                if (!info.empty())
+                if (!info.empty()) {
                     LOG(LogDebug) << "Android device: " << info;
+                }
             }
 
             void setDataDirectories()

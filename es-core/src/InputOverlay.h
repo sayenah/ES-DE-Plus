@@ -3,6 +3,8 @@
 #ifndef ES_CORE_INPUT_OVERLAY_H
 #define ES_CORE_INPUT_OVERLAY_H
 #if defined(__ANDROID__)
+// The open Android menu uses SDL keyboard hints beside the overlay settings.
+#include <SDL2/SDL_hints.h>
 #include <glm/mat4x4.hpp>
 class InputOverlay
 {
