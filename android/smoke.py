@@ -156,7 +156,11 @@ def component_enabled(component, enabled):
     # before any user flow or file-provisioning evidence.
     root = adb('root', check=False)
     adb('wait-for-device')
-    assert shell('id', '-u').strip() == '0', root
+    if shell('id', '-u').strip() != '0':
+        with (evidence / 'capability-controls.txt').open('a') as output:
+            output.write(f'Component availability control unavailable: {root.strip()}; actual capability UX exercised without privilege.\n')
+        assert shell('id', '-u').strip() == '2000'
+        return False
     try:
         user = shell('am', 'get-current-user').strip()
         shell('pm', 'enable' if enabled else 'disable-user', '--user', user, component)
@@ -166,6 +170,7 @@ def component_enabled(component, enabled):
     assert shell('id', '-u').strip() == '2000', 'Capability probe did not restore ordinary adbd'
     with (evidence / 'capability-controls.txt').open('a') as output:
         output.write(f'PackageManager component {component}: enabled={enabled}; adbd restored to UID 2000. No permission/configuration injection.\n')
+    return True
 
 
 def configured_system(name):
@@ -212,8 +217,7 @@ try:
     screenshot('mode-before-permission')
     if api >= 30:
         settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
-        if settings_component:
-            component_enabled(settings_component, False)
+        if settings_component and component_enabled(settings_component, False):
             try:
                 ui('Grant direct filesystem access', dpad=True)
                 ui('All-files settings are unavailable')
@@ -259,8 +263,7 @@ try:
         if general_settings:
             key('KEYCODE_BACK')
     picker_component = resolved_component('android.intent.action.OPEN_DOCUMENT_TREE')
-    if picker_component:
-        component_enabled(picker_component, False)
+    if picker_component and component_enabled(picker_component, False):
         try:
             ui('Choose shared ROM folder', dpad=True)
             ui('A folder picker is unavailable')
