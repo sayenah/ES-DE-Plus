@@ -97,7 +97,22 @@ def hierarchy():
     shell('uiautomator', 'dump', location)
     xml = shell('cat', location)
     (evidence / 'latest-ui.txt').write_text(xml)
-    return list(ET.fromstring(xml).iter('node'))
+    nodes = list(ET.fromstring(xml).iter('node'))
+    anr = next((n.get('text', '') for n in nodes if n.get('resource-id') == 'android:id/alertTitle' and
+                "isn't responding" in n.get('text', '')), None)
+    if anr:
+        assert label.casefold() not in anr.casefold(), 'Frontend ANR: ' + anr
+        # A system launcher ANR can obscure a healthy foreground activity.
+        # Record and close that external process through its real dialog.
+        screenshot('external-process-anr')
+        with (evidence / 'external-process-anr.txt').open('a') as output:
+            output.write(anr + '\n')
+        close = next(n for n in nodes if n.get('resource-id') == 'android:id/aerr_close')
+        x1, y1, x2, y2 = map(int, re.findall(r'\d+', close.attrib['bounds']))
+        shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+        time.sleep(1)
+        return hierarchy()
+    return nodes
 
 
 def node_matches(node, label):
@@ -106,6 +121,7 @@ def node_matches(node, label):
 
 def ui(label, dpad=False):
     if dpad:
+        wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'D-pad UI: ' + label)
         for _ in range(35):
             nodes = hierarchy()
             if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
