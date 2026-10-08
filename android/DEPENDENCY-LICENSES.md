@@ -57,3 +57,11 @@ Primary pin/toolchain sources:
 Dependency pins other than OpenSSL/curl come from D-001(d) and the public upstream
 `tools/macOS_dependencies_setup.sh`. Only host downloads and per-ABI installs are
 cached; tracked `external/` trees are never cache inputs or outputs.
+
+Upstream interoperability literals (D-002 am. 1):
+`es-app/src/guis/GuiGameImporter.cpp:814,893` use
+`org.es_de.frontend.desktop` to exclude upstream's Linux desktop shortcut from
+import. They remain unchanged and may appear in `libmain.so` read-only data;
+they do not define the ES-DE-Plus application identity. The identifier audit
+excludes only these upstream native literals, never manifest/resources/dex or
+the host's own code.

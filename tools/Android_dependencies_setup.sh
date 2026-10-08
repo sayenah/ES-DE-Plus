@@ -72,5 +72,16 @@ link "$sources/SDL" external/SDL_Android
 # Poppler's version header is generated during the per-ABI build.
 link "$sources/poppler" external/poppler
 mkdir -p "$sources/poppler/build"
-link "$root/android/.deps/install/arm64-v8a/include/poppler/cpp" "$sources/poppler/build/cpp"
+mkdir -p "$root/android/.deps/layout/poppler-cpp"
+link "$root/android/.deps/layout/poppler-cpp" "$sources/poppler/build/cpp"
+# Generated version metadata is architecture-independent, including on cache hits.
+for abi in arm64-v8a x86_64; do
+    header="$root/android/.deps/install/$abi/include/poppler/cpp/poppler-version.h"
+    if [[ -f $header ]]; then
+        cp "$header" "$root/android/.deps/layout/poppler-cpp/poppler-version.h"
+    fi
+done
+if [[ -f $root/android/.deps/install/arm64-v8a/include/poppler/cpp/poppler-version.h && -f $root/android/.deps/install/x86_64/include/poppler/cpp/poppler-version.h ]]; then
+    cmp "$root/android/.deps/install/arm64-v8a/include/poppler/cpp/poppler-version.h" "$root/android/.deps/install/x86_64/include/poppler/cpp/poppler-version.h"
+fi
 printf 'Dependency sources prepared without touching tracked subtrees.\n'

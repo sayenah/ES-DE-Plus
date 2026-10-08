@@ -617,6 +617,8 @@ extern "C" JNIEXPORT jboolean JNICALL Java_org_esdeplus_frontend_RuntimeSmoke_na
     if (getInternalDirectory().find("/data/user/") != 0 ||
         getExternalDirectory().find("/storage/emulated/") != 0)
         return JNI_FALSE;
+    if (launchGame("", "", "", "", "", "", "", "", {}, {}, {}, {}, {}, false) == 0)
+        return JNI_FALSE;
     startConfigurator();
     onResume();
     if (AndroidVariables::sHold || env->ExceptionCheck())
