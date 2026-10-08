@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. CI evidence only; no APK distribution.
+name: Build Android
+on:
+  push:
+    branches: ["feature/**"]
+  pull_request:
+    paths: ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", ".github/workflows/**"]
+  workflow_dispatch:
+    inputs:
+      clean_cache:
+        description: Ignore the install cache for reproducibility evidence
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
+      - name: Restore downloads
+        uses: actions/cache@v4
+        with:
+          path: android/.deps/downloads
+          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh') }}
+      - name: Prepare source and include layout
+        run: tools/Android_dependencies_setup.sh
+      - name: Restore per-ABI dependencies
+        id: deps
+        if: ${{ !inputs.clean_cache }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            android/.deps/install
+            android/libs
+          key: android-ndk27-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
+      - name: Build both dependency ABIs
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          tools/Android_dependencies_build.sh arm64-v8a 2>&1 | tee android/deps-arm64.log
+          tools/Android_dependencies_build.sh x86_64 2>&1 | tee android/deps-x86_64.log
+      - name: Check tracked subtree integrity
+        run: git diff --exit-code -- external/
+      - name: Upload dependency build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-evidence
+          path: |
+            android/*.log
+          retention-days: 7

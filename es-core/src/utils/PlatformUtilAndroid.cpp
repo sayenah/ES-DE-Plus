@@ -17,18 +17,19 @@
 #include <SDL2/SDL_system.h>
 #include <jni.h>
 
+#include "utf8.h"
 #include <array>
 
 namespace AndroidVariables
 {
-    bool sHold {false};
-    bool sIsHomeApp {false};
-    bool sResetTouchOverlay {false};
+    std::atomic<bool> sHold {false};
+    std::atomic<bool> sIsHomeApp {false};
+    std::atomic<bool> sResetTouchOverlay {false};
 
     std::string sExternalDataDirectory;
     std::string sInternalDataDirectory;
     std::string sROMDirectory;
-}
+} // namespace AndroidVariables
 
 namespace
 {
@@ -36,6 +37,7 @@ namespace
         JNIEnv* env {nullptr};
         jobject activity {nullptr};
         jclass activityClass {nullptr};
+        bool frame {false};
 
         ActivityContext()
         {
@@ -43,17 +45,38 @@ namespace
             if (env == nullptr)
                 return;
 
+            if (env->ExceptionCheck()) {
+                env->ExceptionDescribe();
+                env->ExceptionClear();
+                return;
+            }
+            frame = env->PushLocalFrame(64) == JNI_OK;
+            if (!frame) {
+                env->ExceptionClear();
+                return;
+            }
+
             activity = SDL_AndroidGetActivity();
             if (activity == nullptr)
                 return;
 
             activityClass = env->GetObjectClass(activity);
+            if (env->ExceptionCheck()) {
+                env->ExceptionDescribe();
+                env->ExceptionClear();
+                activityClass = nullptr;
+            }
         }
 
         ~ActivityContext()
         {
-            if (env != nullptr && activityClass != nullptr)
-                env->DeleteLocalRef(activityClass);
+            if (env != nullptr && frame) {
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                }
+                env->PopLocalFrame(nullptr);
+            }
         }
 
         explicit operator bool() const
@@ -62,19 +85,18 @@ namespace
         }
     };
 
-    void clearJavaException(JNIEnv* env, const char* method)
+    bool clearJavaException(JNIEnv* env, const char* method)
     {
         if (env == nullptr || !env->ExceptionCheck())
-            return;
+            return false;
 
         LOG(LogError) << "Android bridge: Java exception while calling " << method;
         env->ExceptionDescribe();
         env->ExceptionClear();
+        return true;
     }
 
-    jmethodID getMethod(ActivityContext& context,
-                        const char* method,
-                        const char* signature)
+    jmethodID getMethod(ActivityContext& context, const char* method, const char* signature)
     {
         if (!context)
             return nullptr;
@@ -87,35 +109,58 @@ namespace
 
     jstring toJString(JNIEnv* env, const std::string& value)
     {
-        return env->NewStringUTF(value.c_str());
+        std::u16string converted;
+        try {
+            utf8::utf8to16(value.begin(), value.end(), std::back_inserter(converted));
+        }
+        catch (const std::exception& error) {
+            LOG(LogError) << "Android bridge: invalid UTF-8: " << error.what();
+            return nullptr;
+        }
+        return env->NewString(reinterpret_cast<const jchar*>(converted.data()),
+                              static_cast<jsize>(converted.size()));
     }
 
     std::string fromJString(JNIEnv* env, jstring value)
     {
         if (env == nullptr || value == nullptr)
             return {};
-
-        const char* chars {env->GetStringUTFChars(value, nullptr)};
-        if (chars == nullptr)
+        const jsize length {env->GetStringLength(value)};
+        if (clearJavaException(env, "GetStringLength"))
             return {};
-
-        std::string result {chars};
-        env->ReleaseStringUTFChars(value, chars);
+        const jchar* chars {env->GetStringChars(value, nullptr)};
+        if (clearJavaException(env, "GetStringChars") || chars == nullptr)
+            return {};
+        std::string result;
+        try {
+            utf8::utf16to8(chars, chars + length, std::back_inserter(result));
+        }
+        catch (const std::exception& error) {
+            LOG(LogError) << "Android bridge: invalid UTF-16: " << error.what();
+        }
+        env->ReleaseStringChars(value, chars);
         return result;
     }
 
     jobjectArray toStringArray(JNIEnv* env, const std::vector<std::string>& values)
     {
         jclass stringClass {env->FindClass("java/lang/String")};
-        if (stringClass == nullptr)
+        if (clearJavaException(env, "FindClass") || stringClass == nullptr)
             return nullptr;
 
         jobjectArray array {
             env->NewObjectArray(static_cast<jsize>(values.size()), stringClass, nullptr)};
 
+        if (clearJavaException(env, "NewObjectArray") || array == nullptr)
+            return nullptr;
+
         for (size_t i {0}; i < values.size(); ++i) {
             jstring value {toJString(env, values[i])};
+            if (clearJavaException(env, "NewString") || value == nullptr)
+                return nullptr;
             env->SetObjectArrayElement(array, static_cast<jsize>(i), value);
+            if (clearJavaException(env, "SetObjectArrayElement"))
+                return nullptr;
             env->DeleteLocalRef(value);
         }
 
@@ -142,7 +187,8 @@ namespace
             return fallback;
 
         const jboolean result {context.env->CallBooleanMethod(context.activity, id)};
-        clearJavaException(context.env, method);
+        if (clearJavaException(context.env, method))
+            return fallback;
         return result == JNI_TRUE;
     }
 
@@ -154,9 +200,12 @@ namespace
             return fallback;
 
         jstring value {toJString(context.env, arg)};
+        if (clearJavaException(context.env, method) || value == nullptr)
+            return fallback;
         const jboolean result {context.env->CallBooleanMethod(context.activity, id, value)};
         context.env->DeleteLocalRef(value);
-        clearJavaException(context.env, method);
+        if (clearJavaException(context.env, method))
+            return fallback;
         return result == JNI_TRUE;
     }
 
@@ -168,7 +217,8 @@ namespace
             return fallback;
 
         const jint result {context.env->CallIntMethod(context.activity, id)};
-        clearJavaException(context.env, method);
+        if (clearJavaException(context.env, method))
+            return fallback;
         return static_cast<int>(result);
     }
 
@@ -178,18 +228,22 @@ namespace
                 int fallback)
     {
         ActivityContext context;
-        jmethodID id {
-            getMethod(context, method, "(Ljava/lang/String;Ljava/lang/String;)I")};
+        jmethodID id {getMethod(context, method, "(Ljava/lang/String;Ljava/lang/String;)I")};
         if (id == nullptr)
             return fallback;
 
         jstring firstValue {toJString(context.env, first)};
+        if (clearJavaException(context.env, method) || firstValue == nullptr)
+            return fallback;
         jstring secondValue {toJString(context.env, second)};
+        if (clearJavaException(context.env, method) || secondValue == nullptr)
+            return fallback;
         const jint result {
             context.env->CallIntMethod(context.activity, id, firstValue, secondValue)};
         context.env->DeleteLocalRef(firstValue);
         context.env->DeleteLocalRef(secondValue);
-        clearJavaException(context.env, method);
+        if (clearJavaException(context.env, method))
+            return fallback;
         return static_cast<int>(result);
     }
 
@@ -200,9 +254,9 @@ namespace
         if (id == nullptr)
             return {};
 
-        jstring value {
-            static_cast<jstring>(context.env->CallObjectMethod(context.activity, id))};
-        clearJavaException(context.env, method);
+        jstring value {static_cast<jstring>(context.env->CallObjectMethod(context.activity, id))};
+        if (clearJavaException(context.env, method))
+            return {};
 
         std::string result {fromJString(context.env, value)};
         if (value != nullptr)
@@ -210,8 +264,7 @@ namespace
         return result;
     }
 
-    std::pair<int, int> callIntPair(const char* method,
-                                    const std::pair<int, int>& fallback)
+    std::pair<int, int> callIntPair(const char* method, const std::pair<int, int>& fallback)
     {
         ActivityContext context;
         jmethodID id {getMethod(context, method, "()[I")};
@@ -220,7 +273,8 @@ namespace
 
         jintArray values {
             static_cast<jintArray>(context.env->CallObjectMethod(context.activity, id))};
-        clearJavaException(context.env, method);
+        if (clearJavaException(context.env, method))
+            return fallback;
         if (values == nullptr || context.env->GetArrayLength(values) < 2) {
             if (values != nullptr)
                 context.env->DeleteLocalRef(values);
@@ -229,6 +283,8 @@ namespace
 
         std::array<jint, 2> result {};
         context.env->GetIntArrayRegion(values, 0, 2, result.data());
+        if (clearJavaException(context.env, method))
+            return fallback;
         context.env->DeleteLocalRef(values);
         return {static_cast<int>(result[0]), static_cast<int>(result[1])};
     }
@@ -251,28 +307,31 @@ namespace Utils
     {
         namespace Android
         {
-            bool checkConfigurationNeeded()
-            {
-                return callBool("checkConfigurationNeeded", true);
-            }
+            bool checkConfigurationNeeded() { return callBool("checkConfigurationNeeded", true); }
 
             bool checkEmulatorInstalled(const std::string& packageName,
                                         const std::string& activityName)
             {
                 ActivityContext context;
-                jmethodID id {getMethod(
-                    context, "checkEmulatorInstalled",
-                    "(Ljava/lang/String;Ljava/lang/String;)Z")};
+                jmethodID id {getMethod(context, "checkEmulatorInstalled",
+                                        "(Ljava/lang/String;Ljava/lang/String;)Z")};
                 if (id == nullptr)
                     return false;
 
                 jstring packageValue {toJString(context.env, packageName)};
+                if (clearJavaException(context.env, "checkEmulatorInstalled") ||
+                    packageValue == nullptr)
+                    return false;
                 jstring activityValue {toJString(context.env, activityName)};
-                const jboolean result {context.env->CallBooleanMethod(
-                    context.activity, id, packageValue, activityValue)};
+                if (clearJavaException(context.env, "checkEmulatorInstalled") ||
+                    activityValue == nullptr)
+                    return false;
+                const jboolean result {context.env->CallBooleanMethod(context.activity, id,
+                                                                      packageValue, activityValue)};
                 context.env->DeleteLocalRef(packageValue);
                 context.env->DeleteLocalRef(activityValue);
-                clearJavaException(context.env, "checkEmulatorInstalled");
+                if (clearJavaException(context.env, "checkEmulatorInstalled"))
+                    return false;
                 return result == JNI_TRUE;
             }
 
@@ -281,8 +340,7 @@ namespace Utils
                 return callBool("checkNeedResourceCopy", buildIdentifier, true);
             }
 
-            int checkRACoreInstalled(const std::string& packageName,
-                                     const std::string& coreFile)
+            int checkRACoreInstalled(const std::string& packageName, const std::string& coreFile)
             {
                 return callInt("checkRACoreInstalled", packageName, coreFile, -2);
             }
@@ -292,25 +350,13 @@ namespace Utils
                 return callIntPair("getBatteryStatus", {-1, -1});
             }
 
-            int getBluetoothStatus()
-            {
-                return callInt("getBluetoothStatus");
-            }
+            int getBluetoothStatus() { return callInt("getBluetoothStatus"); }
 
-            int getCellularStatus()
-            {
-                return callInt("getCellularStatus");
-            }
+            int getCellularStatus() { return callInt("getCellularStatus"); }
 
-            bool getCreateSystemDirectories()
-            {
-                return callBool("getCreateSystemDirectories");
-            }
+            bool getCreateSystemDirectories() { return callBool("getCreateSystemDirectories"); }
 
-            std::string getExternalDirectory()
-            {
-                return callString("getExternalDirectory");
-            }
+            std::string getExternalDirectory() { return callString("getExternalDirectory"); }
 
             void getInstalledApps(std::vector<std::pair<std::string, std::string>>& appList,
                                   bool gamesOnly,
@@ -319,15 +365,15 @@ namespace Utils
                 appList.clear();
 
                 ActivityContext context;
-                jmethodID id {
-                    getMethod(context, "getInstalledApps", "(ZZ)[Ljava/lang/String;")};
+                jmethodID id {getMethod(context, "getInstalledApps", "(ZZ)[Ljava/lang/String;")};
                 if (id == nullptr)
                     return;
 
                 jobjectArray values {static_cast<jobjectArray>(context.env->CallObjectMethod(
                     context.activity, id, gamesOnly ? JNI_TRUE : JNI_FALSE,
                     includeMedia ? JNI_TRUE : JNI_FALSE))};
-                clearJavaException(context.env, "getInstalledApps");
+                if (clearJavaException(context.env, "getInstalledApps"))
+                    return;
 
                 if (values == nullptr)
                     return;
@@ -351,54 +397,57 @@ namespace Utils
                 context.env->DeleteLocalRef(values);
             }
 
-            std::string getInternalDirectory()
-            {
-                return callString("getInternalDirectory");
-            }
+            std::string getInternalDirectory() { return callString("getInternalDirectory"); }
 
-            int getWifiStatus()
-            {
-                return callInt("getWifiStatus");
-            }
+            int getWifiStatus() { return callInt("getWifiStatus"); }
 
-            std::pair<int, int> getWindowSize()
-            {
-                return callIntPair("getWindowSize", {0, 0});
-            }
+            std::pair<int, int> getWindowSize() { return callIntPair("getWindowSize", {0, 0}); }
 
-            int launchGame(
-                const std::string& packageName,
-                const std::string& activityName,
-                const std::string& action,
-                const std::string& category,
-                const std::string& mimeType,
-                const std::string& data,
-                const std::string& startPath,
-                const std::string& romPath,
-                const std::map<std::string, std::string>& extrasString,
-                const std::map<std::string, std::string>& extrasStringArray,
-                const std::map<std::string, std::string>& extrasInteger,
-                const std::map<std::string, std::string>& extrasBool,
-                const std::vector<std::string>& activityFlags,
-                bool launchOnOtherScreen)
+            int launchGame(const std::string& packageName,
+                           const std::string& activityName,
+                           const std::string& action,
+                           const std::string& category,
+                           const std::string& mimeType,
+                           const std::string& data,
+                           const std::string& startPath,
+                           const std::string& romPath,
+                           const std::map<std::string, std::string>& extrasString,
+                           const std::map<std::string, std::string>& extrasStringArray,
+                           const std::map<std::string, std::string>& extrasInteger,
+                           const std::map<std::string, std::string>& extrasBool,
+                           const std::vector<std::string>& activityFlags,
+                           bool launchOnOtherScreen)
             {
                 ActivityContext context;
-                jmethodID id {getMethod(
-                    context, "launchGame",
-                    "([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
-                    "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)I")};
+                jmethodID id {
+                    getMethod(context, "launchGame",
+                              "([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
+                              "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)I")};
                 if (id == nullptr)
                     return -1;
 
-                const std::vector<std::string> baseArguments {
-                    packageName, activityName, action, category, mimeType, data, startPath, romPath};
+                const std::vector<std::string> baseArguments {packageName, activityName, action,
+                                                              category,    mimeType,     data,
+                                                              startPath,   romPath};
 
                 jobjectArray baseArray {toStringArray(context.env, baseArguments)};
+                if (clearJavaException(context.env, "launchGame") || baseArray == nullptr)
+                    return -1;
                 jobjectArray stringArray {toStringArray(context.env, extrasString)};
+                if (clearJavaException(context.env, "launchGame") || stringArray == nullptr)
+                    return -1;
                 jobjectArray stringListArray {toStringArray(context.env, extrasStringArray)};
+                if (clearJavaException(context.env, "launchGame") || stringListArray == nullptr)
+                    return -1;
                 jobjectArray integerArray {toStringArray(context.env, extrasInteger)};
+                if (clearJavaException(context.env, "launchGame") || integerArray == nullptr)
+                    return -1;
                 jobjectArray boolArray {toStringArray(context.env, extrasBool)};
+                if (clearJavaException(context.env, "launchGame") || boolArray == nullptr)
+                    return -1;
                 jobjectArray flagArray {toStringArray(context.env, activityFlags)};
+                if (clearJavaException(context.env, "launchGame") || flagArray == nullptr)
+                    return -1;
 
                 const jint result {context.env->CallIntMethod(
                     context.activity, id, baseArray, stringArray, stringListArray, integerArray,
@@ -410,15 +459,13 @@ namespace Utils
                 context.env->DeleteLocalRef(integerArray);
                 context.env->DeleteLocalRef(boolArray);
                 context.env->DeleteLocalRef(flagArray);
-                clearJavaException(context.env, "launchGame");
+                if (clearJavaException(context.env, "launchGame"))
+                    return -1;
 
                 return static_cast<int>(result);
             }
 
-            void onResume()
-            {
-                callVoid("onNativeFrontendResume");
-            }
+            void onResume() { callVoid("onNativeFrontendResume"); }
 
             void printDeviceInfo()
             {
@@ -429,7 +476,8 @@ namespace Utils
 
                 jstring value {
                     static_cast<jstring>(context.env->CallObjectMethod(context.activity, id))};
-                clearJavaException(context.env, "getDeviceInfo");
+                if (clearJavaException(context.env, "getDeviceInfo"))
+                    return;
                 const std::string info {fromJString(context.env, value)};
                 if (value != nullptr)
                     context.env->DeleteLocalRef(value);
@@ -447,8 +495,7 @@ namespace Utils
                     AndroidVariables::sExternalDataDirectory =
                         AndroidVariables::sInternalDataDirectory;
 
-                FileSystemVariables::sAppDataDirectory =
-                    AndroidVariables::sExternalDataDirectory;
+                FileSystemVariables::sAppDataDirectory = AndroidVariables::sExternalDataDirectory;
             }
 
             void setROMDirectory()
@@ -456,15 +503,9 @@ namespace Utils
                 AndroidVariables::sROMDirectory = callString("getROMDirectory");
             }
 
-            void setupFontFiles()
-            {
-                callVoid("setupFontFiles");
-            }
+            void setupFontFiles() { callVoid("setupFontFiles"); }
 
-            void setupLocalizationFiles()
-            {
-                callVoid("setupLocalizationFiles");
-            }
+            void setupLocalizationFiles() { callVoid("setupLocalizationFiles"); }
 
             bool setupResources(const std::string& buildIdentifier)
             {
@@ -476,25 +517,26 @@ namespace Utils
             {
                 AndroidVariables::sHold = true;
                 callVoid("startConfigurator");
+                AndroidVariables::sHold = false;
             }
         } // namespace Android
     } // namespace Platform
 } // namespace Utils
 
 extern "C" JNIEXPORT void JNICALL
-Java_org_esde_plus_MainActivity_nativeSetHold(JNIEnv*, jclass, jboolean hold)
+Java_org_esdeplus_frontend_MainActivity_nativeSetHold(JNIEnv*, jclass, jboolean hold)
 {
     AndroidVariables::sHold = hold == JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_org_esde_plus_MainActivity_nativeSetHomeApp(JNIEnv*, jclass, jboolean isHomeApp)
+Java_org_esdeplus_frontend_MainActivity_nativeSetHomeApp(JNIEnv*, jclass, jboolean isHomeApp)
 {
     AndroidVariables::sIsHomeApp = isHomeApp == JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_org_esde_plus_MainActivity_nativeSetResetTouchOverlay(JNIEnv*, jclass, jboolean reset)
+Java_org_esdeplus_frontend_MainActivity_nativeSetResetTouchOverlay(JNIEnv*, jclass, jboolean reset)
 {
     AndroidVariables::sResetTouchOverlay = reset == JNI_TRUE;
 }

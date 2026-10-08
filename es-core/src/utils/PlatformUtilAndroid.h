@@ -12,6 +12,7 @@
 #ifndef ES_CORE_UTILS_PLATFORM_UTIL_ANDROID_H
 #define ES_CORE_UTILS_PLATFORM_UTIL_ANDROID_H
 
+#include <atomic>
 #include <map>
 #include <string>
 #include <utility>
@@ -19,14 +20,14 @@
 
 namespace AndroidVariables
 {
-    extern bool sHold;
-    extern bool sIsHomeApp;
-    extern bool sResetTouchOverlay;
+    extern std::atomic<bool> sHold;
+    extern std::atomic<bool> sIsHomeApp;
+    extern std::atomic<bool> sResetTouchOverlay;
 
     extern std::string sExternalDataDirectory;
     extern std::string sInternalDataDirectory;
     extern std::string sROMDirectory;
-}
+} // namespace AndroidVariables
 
 namespace Utils
 {
@@ -38,8 +39,7 @@ namespace Utils
             bool checkEmulatorInstalled(const std::string& packageName,
                                         const std::string& activityName);
             bool checkNeedResourceCopy(const std::string& buildIdentifier);
-            int checkRACoreInstalled(const std::string& packageName,
-                                     const std::string& coreFile);
+            int checkRACoreInstalled(const std::string& packageName, const std::string& coreFile);
 
             std::pair<int, int> getBatteryStatus();
             int getBluetoothStatus();
@@ -53,21 +53,20 @@ namespace Utils
             int getWifiStatus();
             std::pair<int, int> getWindowSize();
 
-            int launchGame(
-                const std::string& packageName,
-                const std::string& activityName,
-                const std::string& action,
-                const std::string& category,
-                const std::string& mimeType,
-                const std::string& data,
-                const std::string& startPath,
-                const std::string& romPath,
-                const std::map<std::string, std::string>& extrasString,
-                const std::map<std::string, std::string>& extrasStringArray,
-                const std::map<std::string, std::string>& extrasInteger,
-                const std::map<std::string, std::string>& extrasBool,
-                const std::vector<std::string>& activityFlags,
-                bool launchOnOtherScreen);
+            int launchGame(const std::string& packageName,
+                           const std::string& activityName,
+                           const std::string& action,
+                           const std::string& category,
+                           const std::string& mimeType,
+                           const std::string& data,
+                           const std::string& startPath,
+                           const std::string& romPath,
+                           const std::map<std::string, std::string>& extrasString,
+                           const std::map<std::string, std::string>& extrasStringArray,
+                           const std::map<std::string, std::string>& extrasInteger,
+                           const std::map<std::string, std::string>& extrasBool,
+                           const std::vector<std::string>& activityFlags,
+                           bool launchOnOtherScreen);
 
             void onResume();
             void printDeviceInfo();

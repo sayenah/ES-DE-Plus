@@ -35,10 +35,15 @@ es-de.worker.js
 /ROMs
 
 # Android
-/android
+/android/libs/
+/android/.gradle/
+/android/app/build/
+/android/app/.cxx/
+/android/.toolchain/
+/android/.deps/
+/android/evidence/
+/android_*/
 /logback.log
-es-core/src/InputOverlay.*
-es-core/src/utils/PlatformUtilAndroid.*
 
 # iOS
 ios/
@@ -47,7 +52,6 @@ CMakeScripts
 *.xcodeproj/
 es-de.xcarchive/
 es-app/src/UIKitMain.cpp
-es-core/src/InputOverlay.*
 es-core/src/utils/PlatformUtilIOS.*
 
 # AppImage
@@ -124,3 +128,5 @@ CPackSourceConfig.cmake
 # VSCode
 .vscode/
 .continueignore
+
+/android/*.log
