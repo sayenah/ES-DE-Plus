@@ -234,6 +234,18 @@ try:
     ui('Configuration cancelled')
     screenshot('configurator-recreated')
     save_logs('configurator-recreated')
+    held_pid = shell('pidof', app).strip()
+    density = int(re.findall(r'density: (\d+)', shell('wm', 'density'))[-1])
+    adb('logcat', '-c')
+    try:
+        shell('wm', 'density', str(density + 40))
+        wait_for(lambda: 'Configurator created savedState=true' in adb('logcat', '-d'), 'density configurator recreation')
+        assert shell('pidof', app).strip() == held_pid, 'Display-scale change destroyed the held SDL host'
+        ui('Configuration cancelled')
+        screenshot('configurator-density-recreated')
+        save_logs('configurator-density-recreated')
+    finally:
+        shell('wm', 'density', str(density))
     ui('Use direct filesystem compatibility', dpad=True)
     screenshot('mode-before-permission')
     if api >= 30:

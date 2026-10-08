@@ -12,7 +12,7 @@
         android:enableOnBackInvokedCallback="false"
         android:theme="@style/AppTheme" android:allowBackup="false" android:hasCode="true">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
-            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            android:configChanges="density|fontScale|layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
