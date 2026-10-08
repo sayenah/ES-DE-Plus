@@ -43,7 +43,7 @@ def wait_for(condition, description, timeout=90):
 
 
 def log():
-    return shell('cat', logpath, check=False)
+    return private('cat', logpath, check=False)
 
 
 def screenshot(name):
@@ -53,7 +53,7 @@ def screenshot(name):
 
 def launch():
     # Each stopped-process restart must produce new startup evidence.
-    shell('rm', '-f', logpath)
+    private('rm', '-f', logpath)
     shell('am', 'start', '-n', activity)
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
@@ -133,14 +133,14 @@ try:
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
     # Missing-emulator errors are expected in this phase; startup errors were checked above.
     shell('am', 'force-stop', app)
-    before = shell('cat', settings)
+    before = private('cat', settings)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
     adb('logcat', '-c')
     launch()
     current_logcat = adb('logcat', '-d')
     assert 'Resource copy required=false' in current_logcat, current_logcat
     assert 'Installed resource:' not in current_logcat, current_logcat
-    assert shell('cat', settings) == before, 'Settings changed on second launch'
+    assert private('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
     shell('am', 'force-stop', app)
@@ -152,7 +152,7 @@ try:
     launch()
     assert 'Installed resource: fonts/DejaVuSans.ttf' in adb('logcat', '-d')
     assert private('cat', 'files/themes/user-theme/keep.txt').strip() == 'user-content'
-    assert shell('cat', settings) == before
+    assert private('cat', settings) == before
     save_logs('deleted-file-recovery')
     print('PASS: deleted font restored despite marker; user theme and settings preserved', flush=True)
     shell('am', 'force-stop', app)

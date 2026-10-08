@@ -87,9 +87,24 @@ jobs:
           for file in pathlib.Path('android/app/.cxx').rglob('android_gradle_build*.json'):
               for name, library in json.loads(file.read_text()).get('libraries', {}).items():
                   lines.append(f'GRADLE OUTPUT {name}: {library.get("output")} ABI={library.get("abi")}')
+          for file in pathlib.Path('android/app/.cxx').rglob('build.ninja'):
+              for line in file.read_text().splitlines():
+                  if line.strip().startswith('LINK_LIBRARIES ='):
+                      lines.append(f'NATIVE LINK {file}: {line.strip()}')
           text = '\n'.join(lines) + '\n'
           (destination / 'native-outputs.txt').write_text(text)
           print(text)
+          PYCODE
+      - name: Check new native code compiler warnings
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib
+          files = ['InputOverlay.cpp', 'InputOverlay.h', 'PlatformUtilAndroid.cpp', 'PlatformUtilAndroid.h']
+          warnings = [line for line in pathlib.Path('android/assemble.log').read_text().splitlines()
+                      if 'warning:' in line and any(file in line for file in files)]
+          assert not warnings, '\n'.join(warnings)
+          print('PASS: no compiler warnings in the four new native files')
           PYCODE
       - name: Audit APK native closure
         run: |

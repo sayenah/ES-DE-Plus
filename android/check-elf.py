@@ -13,7 +13,7 @@ import zipfile
 apk = pathlib.Path(sys.argv[1])
 ndk = pathlib.Path(os.environ['ANDROID_NDK_HOME'])
 readelf = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf'
-system = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libEGL.so',
+system = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libcamera2ndk.so', 'libmediandk.so', 'libEGL.so',
           'libGLESv1_CM.so', 'libGLESv2.so', 'libGLESv3.so', 'libOpenSLES.so', 'libaaudio.so', 'libz.so'}
 required = {'libmain.so', 'libSDL2.so', 'libes-pdf-convert.so', 'libc++_shared.so', 'libpoppler-cpp.so'}
 failures = []
