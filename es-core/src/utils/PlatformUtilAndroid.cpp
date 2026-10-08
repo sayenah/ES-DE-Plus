@@ -14,6 +14,7 @@
 #include "Log.h"
 #include "utils/FileSystemUtil.h"
 
+#include <SDL2/SDL_hints.h>
 #include <SDL2/SDL_system.h>
 #include <jni.h>
 
@@ -574,6 +575,9 @@ Java_org_esdeplus_frontend_MainActivity_nativeSetHold(JNIEnv*, jclass, jboolean 
 extern "C" JNIEXPORT void JNICALL
 Java_org_esdeplus_frontend_MainActivity_nativeSetHomeApp(JNIEnv*, jclass, jboolean isHomeApp)
 {
+    // Let the upstream InputManager apply HOME and BackEventAppExit semantics
+    // before Android destroys the SDL activity and joins its native thread.
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
     AndroidVariables::sIsHomeApp = isHomeApp == JNI_TRUE;
 }
 

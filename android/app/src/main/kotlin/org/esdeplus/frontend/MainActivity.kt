@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import android.util.Log
+import android.view.KeyEvent
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
@@ -33,6 +34,19 @@ class MainActivity : SDLActivity() {
         // Re-present a pending startup screen after backgrounding or unlock;
         // user interaction never expires and HOME is still set only by entry.
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+    }
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (ConfiguratorSession.configuring) {
+            ConfiguratorSession.open(applicationContext)
+        } else if (mBrokenLibraries) {
+            finish()
+        } else {
+            // Gesture/system Back uses the same upstream input policy as the
+            // hardware Back key, including HOME and BackEventAppExit.
+            SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
+            SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
+        }
     }
     private fun updateWindowSize() {
         bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {

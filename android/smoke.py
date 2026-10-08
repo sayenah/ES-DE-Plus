@@ -382,6 +382,7 @@ try:
         if home:
             key('KEYCODE_BACK')
             assert shell('pidof', app).strip() == pid, 'Warm HOME Back exited the frontend'
+            assert any(n.get('package') == app for n in hierarchy()), 'Warm HOME Back left the frontend'
     shell('am', 'force-stop', app)
     start_entry()
     configured_system('direct-restart')
@@ -616,10 +617,13 @@ try:
         key('KEYCODE_BACK')
         if home:
             assert shell('pidof', app).strip() == pid, 'Cold HOME Back exited the frontend'
+            assert any(n.get('package') == app for n in hierarchy()), 'Cold HOME Back left the frontend'
             assert 'cleanly shutting down' not in log(), log()
         else:
-            wait_for(lambda: not shell('pidof', app, check=False).strip(), 'non-HOME Back exit')
-            assert 'cleanly shutting down' in log(), log()
+            wait_for(lambda: 'cleanly shutting down' in log(), 'non-HOME native Back shutdown')
+            wait_for(lambda: bool(hierarchy()) and not any(n.get('package') == app for n in hierarchy()),
+                     'non-HOME Back Activity exit')
+        screenshot(name + '-after-back')
         save_logs(name + '-back')
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases and revoked permission\n')
 except BaseException:
