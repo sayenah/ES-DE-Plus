@@ -121,7 +121,7 @@ def node_matches(node, label):
 
 def ui(label, dpad=False):
     if dpad:
-        wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'D-pad UI: ' + label)
+        wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
         for _ in range(35):
             nodes = hierarchy()
             if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
@@ -172,18 +172,19 @@ def component_enabled(component, enabled):
     # before any user flow or file-provisioning evidence.
     root = adb('root', check=False)
     adb('wait-for-device')
-    if shell('id', '-u').strip() != '0':
+    if 'cannot run as root' in root:
         with (evidence / 'capability-controls.txt').open('a') as output:
             output.write(f'Component availability control unavailable: {root.strip()}; actual capability UX exercised without privilege.\n')
         assert shell('id', '-u').strip() == '2000'
         return False
+    wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged capability control shell')
     try:
         user = shell('am', 'get-current-user').strip()
         shell('pm', 'enable' if enabled else 'disable-user', '--user', user, component)
     finally:
         adb('unroot', check=False)
         adb('wait-for-device')
-    assert shell('id', '-u').strip() == '2000', 'Capability probe did not restore ordinary adbd'
+    wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after capability control')
     with (evidence / 'capability-controls.txt').open('a') as output:
         output.write(f'PackageManager component {component}: enabled={enabled}; adbd restored to UID 2000. No permission/configuration injection.\n')
     return True
