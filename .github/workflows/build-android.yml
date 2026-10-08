@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
-      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -45,7 +45,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk27-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
       - name: Validate committed Gradle project
         run: |
           set -o pipefail
@@ -66,7 +66,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk27-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh') }}
       - name: Restore ABI-neutral generated headers
         run: tools/Android_dependencies_setup.sh
       - name: Assemble debug APK with committed wrapper

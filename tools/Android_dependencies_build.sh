@@ -11,8 +11,8 @@ case $abi in
     *) echo "Unsupported ABI: $abi"; exit 1 ;;
 esac
 root=$PWD
-ndk=${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME to NDK 27.3.13750724}
-grep -q 'Pkg.Revision = 27.3.13750724' "$ndk/source.properties"
+ndk=${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME to NDK 28.2.13676358}
+grep -q 'Pkg.Revision = 28.2.13676358' "$ndk/source.properties"
 case $(uname -s) in Linux) host=linux-x86_64 ;; Darwin) host=darwin-x86_64 ;; *) exit 1 ;; esac
 toolbin=$ndk/toolchains/llvm/prebuilt/$host/bin
 export PATH="$toolbin:$PATH"

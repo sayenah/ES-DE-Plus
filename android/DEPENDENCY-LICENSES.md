@@ -1,10 +1,11 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 
-Android slice 1 dependency inventory, reconciled against the actual APK ELF list
-for both ABIs at `7645fd5e7` in
-[CI run 37760868837](https://github.com/sayenah/ES-DE-Plus/actions/runs/37760868837).
-Architecture, API notes, SONAME closure and LOAD alignment pass; the RELRO check
-fails on the unmodified NDK libc++ for both ABIs. This is not a green build report.
+Android slice 1 dependency inventory. The APK ELF lists, actual static consumer
+link inputs and final-toolchain CI evidence are attached to
+[PR #4](https://github.com/sayenah/ES-DE-Plus/pull/4).
+The toolchain is NDK 28.2.13676358 under D-001(b) am. 1. The ELF audit checks
+architecture, API notes, SONAME closure and 16 KiB LOAD/RELRO alignment for every
+packaged library, including the unmodified NDK runtime, with no exemptions.
 APKs remain inside CI pending G-1/G-2.
 Poppler and the upstream `ConvertPDF` implementation are GPL-2.0-only and are linked
 in process on Android. This inventory records that fact and does not decide G-2.
@@ -43,12 +44,6 @@ APK entries; the CI `native-outputs.txt` records the actual Ninja link commands.
 Kotlin stdlib and its implicit JetBrains annotations dependency appear in dex;
 the identity audit records their packaged classes.
 
-Unresolved alignment evidence: NDK 27.3 libc++ has 16 KiB LOAD alignment, but its
-RELRO end is `0x143000` (arm64-v8a) / `0x139000` (x86_64), neither divisible by
-`0x4000`. The audit retains Android's documented RELRO check and exits with failure.
-Changing the pinned toolchain or deciding an alternative runtime/audit requires
-Fable's resolution; no binary is patched or substituted to manufacture a pass.
-
 | Component | Pin | License | Android configuration / packaging |
 | --- | --- | --- | --- |
 | ES-DE-Plus native frontend, bridge, overlay, host | PR revision | MIT | Clean-room host; shared `libmain.so` |
@@ -78,13 +73,13 @@ Fable's resolution; no binary is patched or substituted to manufacture a pass.
 | LunaSVG / plutovg | 3.5.0 / 1.3.2 (tracked subtree) | MIT | Static; upstream CMake configuration |
 | rlottie | 0.2 (tracked subtree) | MIT | Static; threading/modules off by upstream CMake |
 | GLM, RapidJSON, utfcpp, CImg | 1.0.0, 1.1.0, 4.0.6, 3.6.1 (tracked subtrees) | MIT; CImg CeCILL-C/CeCILL terms | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
-| libc++_shared | NDK 27.3.13750724 | Apache-2.0 with LLVM exception | Shared; unmodified NDK copy, Android API note 21 (compatible with minSdk 29); RELRO alignment check fails on both ABIs, recorded below |
+| libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; unmodified NDK copy; architecture, API note and 16 KiB LOAD/RELRO alignment checked by CI without exemptions; notice in `licenses/libcxx` |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
 | Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon are original MIT assets |
 
 Build-only: AGP **8.13.2**, Gradle wrapper **8.13**, Kotlin plugin **2.2.21**,
-JDK **17**, NDK **27.3.13750724**, minSdk **29**, compile/targetSdk **36**,
+JDK **17**, NDK **28.2.13676358**, minSdk **29**, compile/targetSdk **36**,
 SDK CMake **3.31.5**, clang-format **18.1.3** (Ubuntu `1:18.1.3-1ubuntu1`). Gradle's wrapper JAR is vendored from
 `gradle/gradle` tag `v8.13.0`, Apache-2.0 (`licenses/Gradle`).
 All dependency shared link commands pass both `-z max-page-size=16384` and
@@ -98,6 +93,7 @@ Primary pin/toolchain sources:
 [Kotlin Gradle compatibility](https://kotlinlang.org/docs/gradle-configure-project.html),
 [OpenSSL releases](https://openssl-library.org/source/),
 [curl releases](https://curl.se/download.html),
+[NDK r28 changelog](https://github.com/android/ndk/wiki/Changelog-r28),
 [Android 16 KiB requirements](https://developer.android.com/guide/practices/page-sizes).
 Dependency pins other than OpenSSL/curl come from D-001(d) and the public upstream
 `tools/macOS_dependencies_setup.sh`. Only host downloads and per-ABI installs are

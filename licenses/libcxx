@@ -2,7 +2,8 @@ SPDX-License-Identifier: MIT
 ES-DE-Plus — notice collection metadata written for ES-DE-Plus.
 The following third-party notices are retained verbatim and keep their original licences.
 
-Provenance: llvm-project llvmorg-18.1.8 libcxx/LICENSE.TXT; Apache-2.0 with LLVM exception and preserved legacy notices.
+Provenance: NDK r28's clang-r530567 toolchain family; LLVM base revision 3b5e7c83a6e226d5bd7ed2e9b67449b64812074c libcxx/LICENSE.TXT; Apache-2.0 with LLVM exception and preserved legacy notices.
+Public source: https://raw.githubusercontent.com/llvm/llvm-project/3b5e7c83a6e226d5bd7ed2e9b67449b64812074c/libcxx/LICENSE.TXT (notice text unchanged).
 
 ==============================================================================
 The LLVM Project is under the Apache License v2.0 with LLVM Exceptions:

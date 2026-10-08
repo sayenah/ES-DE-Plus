@@ -32,7 +32,7 @@ val stageAssets by tasks.registering {
 android {
     namespace = "org.esdeplus.frontend"
     compileSdk = 36
-    ndkVersion = "27.3.13750724"
+    ndkVersion = "28.2.13676358"
     defaultConfig {
         applicationId = appId
         minSdk = 29
