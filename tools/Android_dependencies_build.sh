@@ -143,16 +143,6 @@ mkdir -p "$work/ffmpeg"
     --disable-nonfree --enable-libdav1d --enable-zlib --extra-cflags="-I$prefix/include" \
     --extra-ldflags="-L$prefix/lib $LDFLAGS" --pkg-config=pkg-config
  make -j"$jobs"; make install)
-# Android loaders resolve unversioned SONAMEs. Upstream projects select those on Android;
-# copy the actual file content, never dangling version symlinks, into the APK input.
-python3 - "$prefix/lib" "$libs" "$ndk" "$host" "$triple" <<'PY'
-import pathlib, shutil, sys
-source, target = map(pathlib.Path, sys.argv[1:3])
-for library in source.glob('*.so*'):
-    if library.is_file():
-        shutil.copyfile(library, target / library.name)
-for name in ('libicudata.a', 'libicui18n.a', 'libicuuc.a', 'libpugixml.a'):
-    shutil.copyfile(source / name, target / name)
-shutil.copyfile(pathlib.Path(sys.argv[3]) / 'toolchains/llvm/prebuilt' / sys.argv[4] / 'sysroot/usr/lib' / sys.argv[5] / 'libc++_shared.so', target / 'libc++_shared.so')
-PY
+# Package only the upstream link inputs and recursive non-system DT_NEEDED closure.
+python3 android/package-dependencies.py "$prefix/lib" "$libs" "$ndk" "$host" "$triple"
 printf 'Built dependency closure for %s (API 29, 16 KiB).\n' "$abi"

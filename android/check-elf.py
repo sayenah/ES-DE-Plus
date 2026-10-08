@@ -104,6 +104,15 @@ with tempfile.TemporaryDirectory() as temporary:
         for name, needed in dependencies.items():
             require(set(needed) <= system | sonames.keys(), (abi, name, 'Unresolved DT_NEEDED', needed))
             print(f'CLOSURE {abi}/{name}: {", ".join(needed)}')
+        reachable = set()
+        pending = list(required)
+        while pending:
+            name = pending.pop()
+            if name in reachable:
+                continue
+            reachable.add(name)
+            pending.extend(dependency for dependency in dependencies.get(name, []) if dependency not in system)
+        require(reachable == libraries.keys(), (abi, 'Unreachable packaged libraries', sorted(libraries.keys() - reachable)))
         result = 'PASS' if len(failures) == previous_failures and alignment.returncode == 0 else 'FAIL'
         print(f'{result} {abi}: architecture, API <=29, SONAME closure, LOAD 16 KiB; strict built-library RELRO; hash-verified NDK prebuilt + APK zipalign')
 for failure in failures:

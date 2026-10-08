@@ -15,9 +15,12 @@ Poppler and the upstream `ConvertPDF` implementation are GPL-2.0-only and are li
 in process on Android. This inventory records that fact and does not decide G-2.
 No proprietary Android package or code is used.
 
-The APK contains these 34 shared-library entries for each ABI (the component table
-below gives versions, licences and configuration). The `libpng.so` install-time
-alias is excluded; every runtime consumer requests the packaged `libpng16.so`.
+The APK contains these 27 shared-library entries for each ABI (the component table
+below gives versions, licences and configuration). Packaging starts from the unchanged upstream CMake link list plus the NDK runtime,
+then follows recursive non-system DT_NEEDED entries. Unreachable libraries and
+install-time aliases are excluded; every PNG consumer requests `libpng16.so`.
+`libavdevice`, `libcharset`, HarfBuzz GPU/raster/vector, Ogg and `libtiffxx` are
+built under the same dependency configuration but are not packaged.
 
 | Component | Packaged entries |
 | --- | --- |
@@ -25,21 +28,20 @@ alias is excluded; every runtime consumer requests the packaged `libpng16.so`.
 | ConvertPDF | `libes-pdf-convert.so` |
 | SDL2 | `libSDL2.so` |
 | Poppler | `libpoppler.so`, `libpoppler-cpp.so` |
-| FFmpeg | `libavcodec.so`, `libavdevice.so`, `libavfilter.so`, `libavformat.so`, `libavutil.so`, `libswresample.so`, `libswscale.so` |
-| libiconv / bundled libcharset | `libiconv.so`, `libcharset.so` |
+| FFmpeg | `libavcodec.so`, `libavfilter.so`, `libavformat.so`, `libavutil.so`, `libswresample.so`, `libswscale.so` |
+| libiconv | `libiconv.so` |
 | gettext runtime | `libintl.so` |
 | FreeImage | `libfreeimage.so` |
 | FreeType | `libfreetype.so` |
-| HarfBuzz | `libharfbuzz.so`, `libharfbuzz-gpu.so`, `libharfbuzz-raster.so`, `libharfbuzz-vector.so` |
+| HarfBuzz | `libharfbuzz.so` |
 | libgit2 | `libgit2.so` |
 | curl | `libcurl.so` |
 | OpenSSL | `libcrypto.so`, `libssl.so` |
 | libjpeg-turbo | `libjpeg.so` |
 | libpng | `libpng16.so` |
-| libtiff | `libtiff.so`, `libtiffxx.so` |
+| libtiff | `libtiff.so` |
 | OpenJPEG | `libopenjp2.so` |
 | zstd | `libzstd.so` |
-| Ogg | `libogg.so` |
 | dav1d | `libdav1d.so` |
 | NDK C++ runtime | `libc++_shared.so` |
 
@@ -55,7 +57,7 @@ the identity audit records their packaged classes.
 | Poppler / poppler-cpp | 26.06.0 | GPL-2.0-only | `-DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -DENABLE_UTILS=OFF -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF -DENABLE_GPGME=OFF -DENABLE_LCMS=OFF -DENABLE_LIBCURL=OFF -DENABLE_LIBTIFF=ON -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF` |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
 | libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; host GPL utilities are not packaged |
-| libcharset (bundled with libiconv) | 1.5 within libiconv 1.19 | LGPL-2.1-or-later | Shared `libcharset.so`; same libiconv configure command and existing `licenses/libiconv` terms |
+| libcharset (bundled with libiconv) | 1.5 within libiconv 1.19 | LGPL-2.1-or-later | Build-only `libcharset.so`, not packaged; same libiconv configure command and existing `licenses/libiconv` terms |
 | gettext / libintl | 1.0 | LGPL-2.1-or-later (runtime) | Runtime intl only; `--disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf --with-included-libxml --with-libiconv-prefix=<ABI-prefix> --enable-shared --disable-static`; host `msgfmt` is not packaged |
 | ICU | 78.3 | Unicode-3.0 / ICU | Static uc/i18n/data; `--with-cross-build=<host-ICU-build> --enable-static --disable-shared --with-data-packaging=static --disable-tests --disable-samples --disable-extras --disable-icuio` |
 | SDL2 and vendored SDL Java | 2.32.10 (`release-2.32.10`) | zlib | Shared SDL2; test/static targets off; Java implementations unchanged, tag LICENSE.txt notice prepended intact |
@@ -64,7 +66,7 @@ the identity audit records their packaged classes.
 | FreeImage and its bundled codecs | 3.18.0 | FreeImage Public License or GPL-2.0; FIPL selected | Shared; `FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0`; bundled codec notices recorded in `licenses/FreeImage-bundled-codecs`; C++11, source-specific `_byteswap_ulong=__builtin_bswap32` for JPEG XR segdec.c and `-include wchar.h` for JXRGlueJxr.c |
 | FreeImage bundled JPEG, PNG, TIFF, ZLib, OpenJPEG, OpenEXR, LibRawLite, LibWebP, LibJXR | JPEG 9c, PNG 1.6.35, TIFF 4.0.9, zlib 1.2.11, OpenJPEG 2.0.0, OpenEXR/IlmBase 2.2.0, LibRaw 0.19.0, WebP 1.0.0, JPEG XR 1.1 | IJG/BSD/zlib/MIT; LibRaw LGPL-2.1-or-later or CDDL-1.0 | Static within FreeImage; `licenses/FreeImage-bundled-codecs` preserves the codec notices; LibRaw LGPL-2.1 selected; no LCMS |
 | libpng | 1.6.58 | libpng-2.0 | Shared; tests/tools off |
-| HarfBuzz | 14.2.1 | MIT | Shared core, GPU, raster and vector libraries; subset, ICU, FreeType integration off |
+| HarfBuzz | 14.2.1 | MIT | Shared core packaged; GPU, raster and vector outputs are build-only; subset, ICU, FreeType integration off |
 | FreeType | 2.14.3 | FTL or GPL-2.0; FTL selected | Shared; HarfBuzz, bzip2, brotli off |
 | zstd | 1.5.7 | BSD-3-Clause or GPL-2.0; BSD selected | Shared; programs/tests/static off |
 | libjpeg-turbo | 3.1.4.1 | BSD-3-Clause / IJG / zlib | Shared; turbojpeg/static off |
@@ -72,7 +74,7 @@ the identity audit records their packaged classes.
 | OpenJPEG | 2.5.4 | BSD-2-Clause | Shared; codec/tests off |
 | libgit2 | 1.9.4 | GPL-2.0 with linking exception | `-DBUILD_SHARED_LIBS=ON -DBUILD_TESTS=OFF -DBUILD_CLI=OFF -DUSE_SSH=OFF -DUSE_HTTPS=OpenSSL -DUSE_BUNDLED_ZLIB=OFF -DUSE_THREADS=ON`; linking exception retained |
 | pugixml | 1.15 | MIT | Static |
-| Ogg | 1.3.6 | BSD-3-Clause | Shared; tests off |
+| Ogg | 1.3.6 | BSD-3-Clause | Build-only shared output, not packaged; tests off |
 | dav1d | 1.5.3 | BSD-2-Clause | Shared; tools/tests off |
 | LunaSVG / plutovg | 3.5.0 / 1.3.2 (tracked subtree) | MIT | Static; upstream CMake configuration |
 | rlottie | 0.2 (tracked subtree) | MIT | Static; threading/modules off by upstream CMake |
@@ -147,3 +149,31 @@ Every CMake dependency command uses the NDK toolchain, `ANDROID_PLATFORM=android
 `ANDROID_STL=c++_shared`, `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON`, Release,
 position-independent code, the per-ABI install prefix/root, and unversioned Android
 SONAMEs. The scripts are the executable record of the complete commands.
+
+Source archives are pinned and verified **before extraction**, including cache hits.
+The checksum table lives in `tools/Android_dependencies_setup.sh`, whose content
+hash participates in both download/install cache keys. `clean_cache=true` skips
+both caches. Canonical public source-archive SHA256 values measured for this slice:
+
+| Archive component | SHA256 |
+| --- | --- |
+| SDL | `5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165` |
+| curl | `f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7` |
+| dav1d | `732010aa5ef461fa93355ed2c6c5fedb48ddc4b74e697eaabe8907eaeb943011` |
+| ffmpeg | `b6863adde98898f42602017462871b5f6333e65aec803fdd7a6308639c52edf3` |
+| freeimage | `f41379682f9ada94ea7b34fe86bf9ee00935a3147be41b6569c9605a53e438fd` |
+| freetype | `36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f` |
+| gettext | `85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a` |
+| harfbuzz | `a54a5d8e9380a41fbb762ce367bcbf7704792dfca0d93f1bbca86c5a57902e0e` |
+| icu | `3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0` |
+| jpeg | `ecae8008e2cc9ade2f2c1bb9d5e6d4fb73e7c433866a056bd82980741571a022` |
+| libgit2 | `824b73bd13647800fe4b566a1008ae77fea0e3e3424edab632fcfd8c0b14ba8b` |
+| libiconv | `88dd96a8c0464eca144fc791ae60cd31cd8ee78321e67397e25fc095c4a19aa6` |
+| libpng | `28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775` |
+| ogg | `5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061` |
+| openjpeg | `a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a` |
+| openssl | `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a` |
+| poppler | `4cb4e5a3dc8cb5eec751c8a23c8ba19f61f96dedc0cd07d2aee6b0c8e2cf6ba4` |
+| pugixml | `655ade57fa703fb421c2eb9a0113b5064bddb145d415dd1f88c79353d90d511a` |
+| tiff | `b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba` |
+| zstd | `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3` |
