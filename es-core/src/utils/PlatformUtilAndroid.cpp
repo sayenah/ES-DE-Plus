@@ -275,7 +275,10 @@ namespace
             static_cast<jintArray>(context.env->CallObjectMethod(context.activity, id))};
         if (clearJavaException(context.env, method))
             return fallback;
-        if (values == nullptr || context.env->GetArrayLength(values) < 2) {
+        const jsize size {values == nullptr ? 0 : context.env->GetArrayLength(values)};
+        if (clearJavaException(context.env, method))
+            return fallback;
+        if (values == nullptr || size < 2) {
             if (values != nullptr)
                 context.env->DeleteLocalRef(values);
             return fallback;
@@ -379,12 +382,22 @@ namespace Utils
                     return;
 
                 const jsize size {context.env->GetArrayLength(values)};
+                if (clearJavaException(context.env, "getInstalledApps"))
+                    return;
                 for (jsize i {0}; i + 1 < size; i += 2) {
                     jstring displayName {
                         static_cast<jstring>(context.env->GetObjectArrayElement(values, i))};
+                    if (clearJavaException(context.env, "getInstalledApps")) {
+                        appList.clear();
+                        return;
+                    }
                     jstring packageName {
                         static_cast<jstring>(context.env->GetObjectArrayElement(values, i + 1))};
 
+                    if (clearJavaException(context.env, "getInstalledApps")) {
+                        appList.clear();
+                        return;
+                    }
                     appList.emplace_back(fromJString(context.env, displayName),
                                          fromJString(context.env, packageName));
 

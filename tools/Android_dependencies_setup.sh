@@ -12,6 +12,7 @@ fetch() {
     local name=$1 url=$2 archive=$archives/$1.archive
     if [[ ! -f $archive ]]; then
         curl --fail --location --retry 3 "$url" -o "$archive.part"
+        tar -tf "$archive.part" >/dev/null
         mv "$archive.part" "$archive"
     fi
     if [[ ! -f $sources/$name/.ready ]]; then
@@ -33,7 +34,7 @@ fetch libgit2 https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.4.tar.gz
 fetch pugixml https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz
 fetch SDL https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz
 fetch ogg https://downloads.xiph.org/releases/ogg/libogg-1.3.6.tar.xz
-fetch dav1d https://code.videolan.org/videolan/dav1d/-/archive/1.5.3/dav1d-1.5.3.tar.gz
+fetch dav1d https://downloads.videolan.org/pub/videolan/dav1d/1.5.3/dav1d-1.5.3.tar.xz
 fetch ffmpeg https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.xz
 fetch libiconv https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.19.tar.gz
 fetch gettext https://ftp.gnu.org/pub/gnu/gettext/gettext-1.0.tar.gz

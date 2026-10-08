@@ -35,7 +35,7 @@ cm() {
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
         -DCMAKE_FIND_ROOT_PATH="$prefix" -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
+        -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
     cmake --build "$work/$name" --parallel "$jobs"
     cmake --install "$work/$name"
 }
@@ -76,14 +76,14 @@ cm openjpeg "$src/openjpeg" -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DBUILD_TES
 cm poppler "$src/poppler" -DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -DENABLE_UTILS=OFF \
     -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF \
     -DENABLE_GPGME=OFF -DENABLE_LCMS=OFF -DENABLE_LIBCURL=OFF -DENABLE_LIBTIFF=ON \
-    -DENABLE_LIBOPENJPEG=openjpeg2 -DENABLE_FONTCONFIG=OFF -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF \
+    -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF \
     -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF
 mkdir -p "$src/poppler/build/cpp"
 cp "$work/poppler/cpp/poppler-version.h" "$src/poppler/build/cpp/"
 # OpenSSL uses the NDK compiler selected via its Android target.
 mkdir -p "$work/openssl"
 (cd "$work/openssl"; ANDROID_NDK_ROOT="$ndk" "$src/openssl/Configure" "$openssl_arch" \
-    -D__ANDROID_API__=29 --prefix="$prefix" --libdir=lib shared no-tests no-apps "$LDFLAGS"
+    -D__ANDROID_API__=29 --prefix="$prefix" --libdir=lib shared no-tests no-apps -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
  make -j"$jobs"; make install_sw)
 cm curl "$src/curl" -DBUILD_SHARED_LIBS=ON -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF \
     -DCURL_USE_OPENSSL=ON -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_USE_LIBSSH=OFF \
