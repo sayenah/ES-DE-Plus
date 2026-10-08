@@ -84,4 +84,20 @@ done
 if [[ -f $root/android/.deps/install/arm64-v8a/include/poppler/cpp/poppler-version.h && -f $root/android/.deps/install/x86_64/include/poppler/cpp/poppler-version.h ]]; then
     cmp "$root/android/.deps/install/arm64-v8a/include/poppler/cpp/poppler-version.h" "$root/android/.deps/install/x86_64/include/poppler/cpp/poppler-version.h"
 fi
+# Public generated headers missing from the source archives. Both selected ABIs
+# must agree before these ABI-neutral include links are used by upstream CMake.
+for entry in 'libintl.h:gettext/gettext-runtime/intl/libintl.h' 'libavutil/avconfig.h:ffmpeg/libavutil/avconfig.h'; do
+    installed=${entry%%:*}
+    exposed=${entry#*:}
+    neutral="$root/android/.deps/layout/generated/$installed"
+    mkdir -p "$(dirname "$neutral")"
+    for abi in arm64-v8a x86_64; do
+        header="$root/android/.deps/install/$abi/include/$installed"
+        [[ ! -f $header ]] || cp "$header" "$neutral"
+    done
+    left="$root/android/.deps/install/arm64-v8a/include/$installed"
+    right="$root/android/.deps/install/x86_64/include/$installed"
+    if [[ -f $left && -f $right ]]; then cmp "$left" "$right"; fi
+    link "$neutral" "$sources/$exposed"
+done
 printf 'Dependency sources prepared without touching tracked subtrees.\n'

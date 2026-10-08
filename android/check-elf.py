@@ -55,10 +55,14 @@ with tempfile.TemporaryDirectory() as temporary:
                 if fields and fields[0] == 'GNU_RELRO':
                     assert (int(fields[2], 16) + int(fields[5], 16)) % 16384 == 0, (name, 'Unaligned RELRO', line)
             matches = re.findall(r'\(SONAME\).*?\[(.*?)\]', output)
-            assert matches == [name], (name, 'SONAME does not match APK entry', matches)
+            # Upstream builds main as a MODULE loaded explicitly by SDL, not a
+            # link dependency. Modules may omit SONAME; shared consumers may not.
+            assert matches == [name] or (name == 'libmain.so' and not matches), (name, 'SONAME does not match APK entry', matches)
             assert name not in sonames
             sonames[name] = file
             dependencies[name] = re.findall(r'\(NEEDED\).*?\[(.*?)\]', output)
+        if not re.findall(r'\(SONAME\).*?\[(.*?)\]', subprocess.check_output([str(readelf), '-d', str(libraries['libmain.so'])], text=True)):
+            assert all('libmain.so' not in needed for needed in dependencies.values()), 'MODULE without SONAME used as dependency'
         for name, needed in dependencies.items():
             assert set(needed) <= system | sonames.keys(), (abi, name, 'Unresolved DT_NEEDED', needed)
             print(f'CLOSURE {abi}/{name}: {", ".join(needed)}')

@@ -52,6 +52,8 @@ def screenshot(name):
 
 
 def launch():
+    # Each stopped-process restart must produce new startup evidence.
+    shell('rm', '-f', logpath)
     shell('am', 'start', '-n', activity)
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
@@ -122,13 +124,14 @@ try:
     shell('input', 'text', 'Smoke')
     key('KEYCODE_ENTER')
     screenshot('search-results')
-    # Attempt to launch a result. It must show the existing missing-emulator dialog.
+    # Move past the search header to the first result, then use the real launch path.
+    key('KEYCODE_DPAD_DOWN')
     key('KEYCODE_ENTER')
+    wait_for(lambda: "Couldn't launch game, emulator not found" in log(), 'existing missing-emulator error')
     screenshot('missing-emulator')
     save_logs('search-and-launch')
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
     # Missing-emulator errors are expected in this phase; startup errors were checked above.
-    key('KEYCODE_ENTER')
     shell('am', 'force-stop', app)
     before = shell('cat', settings)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
