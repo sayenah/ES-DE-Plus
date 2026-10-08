@@ -56,7 +56,7 @@ namespace
                 return;
             }
 
-            activity = SDL_AndroidGetActivity();
+            activity = static_cast<jobject>(SDL_AndroidGetActivity());
             if (activity == nullptr)
                 return;
 
