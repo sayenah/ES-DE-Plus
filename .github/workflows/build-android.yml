@@ -70,6 +70,7 @@ jobs:
       - name: Restore ABI-neutral generated headers
         run: tools/Android_dependencies_setup.sh
       - name: Assemble debug APK with committed wrapper
+        id: assemble
         run: |
           set -o pipefail
           cd android
@@ -90,19 +91,27 @@ jobs:
           (destination / 'native-outputs.txt').write_text(text)
           print(text)
           PYCODE
-      - name: Audit APK native closure and identity
+      - name: Audit APK native closure
         run: |
           set -o pipefail
           mkdir -p android/evidence
           python3 android/check-elf.py android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/elf-closure.txt
+      # Independent evidence remains useful after an audit failure. Failed checks
+      # retain their failure status and keep the job red; none is skipped or waived.
+      - name: Audit APK zip alignment and identity
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          set -o pipefail
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/zipalign.txt
           python3 android/check-identity.py android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/identity.txt
       - name: Enable KVM access
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: API 34 x86_64 frontend smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -113,6 +122,7 @@ jobs:
           disable-animations: true
           script: python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Check tracked subtree integrity
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/
       - name: Upload build and smoke evidence (no APK)
         if: always()

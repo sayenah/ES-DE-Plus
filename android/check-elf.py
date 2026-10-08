@@ -16,6 +16,13 @@ readelf = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf'
 system = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libEGL.so',
           'libGLESv1_CM.so', 'libGLESv2.so', 'libGLESv3.so', 'libOpenSLES.so', 'libaaudio.so', 'libz.so'}
 required = {'libmain.so', 'libSDL2.so', 'libes-pdf-convert.so', 'libc++_shared.so', 'libpoppler-cpp.so'}
+failures = []
+
+def require(condition, detail):
+    # Report every ABI/library even when one check fails. The audit still exits
+    # unsuccessfully; complete evidence must not hide failures later in the closure.
+    if not condition:
+        failures.append(detail)
 
 def android_api(data):
     # ELF64 little endian .note.android.ident; the descriptor starts with min API.
@@ -38,6 +45,7 @@ with tempfile.TemporaryDirectory() as temporary:
     with zipfile.ZipFile(apk) as package:
         package.extractall(temporary)
     for abi, machine in [('arm64-v8a', 'AArch64'), ('x86_64', 'Advanced Micro Devices X86-64')]:
+        previous_failures = len(failures)
         libraries = {p.name: p for p in (pathlib.Path(temporary) / 'lib' / abi).glob('*.so')}
         assert required <= libraries.keys(), (abi, 'Missing libraries', required - libraries.keys())
         sonames = {}
@@ -45,25 +53,31 @@ with tempfile.TemporaryDirectory() as temporary:
         for name, file in sorted(libraries.items()):
             output = subprocess.check_output([str(readelf), '-W', '-h', '-l', '-d', '-n', str(file)], text=True)
             print(f'=== {abi}/{name} ===\n{output}')
-            assert machine in output, (abi, name, 'Wrong architecture')
+            require(machine in output, (abi, name, 'Wrong architecture'))
             api = android_api(file.read_bytes())
-            assert api <= 29, (name, 'API too high', api)
+            require(api <= 29, (abi, name, 'API too high', api))
             for line in output.splitlines():
                 fields = line.split()
                 if fields and fields[0] == 'LOAD':
-                    assert int(fields[-1], 16) >= 16384, (name, 'Unaligned LOAD', line)
+                    require(int(fields[-1], 16) >= 16384, (abi, name, 'Unaligned LOAD', line))
                 if fields and fields[0] == 'GNU_RELRO':
-                    assert (int(fields[2], 16) + int(fields[5], 16)) % 16384 == 0, (name, 'Unaligned RELRO', line)
+                    require((int(fields[2], 16) + int(fields[5], 16)) % 16384 == 0,
+                            (abi, name, 'Unaligned RELRO', line))
             matches = re.findall(r'\(SONAME\).*?\[(.*?)\]', output)
             # Upstream builds main as a MODULE loaded explicitly by SDL, not a
             # link dependency. Modules may omit SONAME; shared consumers may not.
-            assert matches == [name] or (name == 'libmain.so' and not matches), (name, 'SONAME does not match APK entry', matches)
+            require(matches == [name] or (name == 'libmain.so' and not matches),
+                    (abi, name, 'SONAME does not match APK entry', matches))
             assert name not in sonames
             sonames[name] = file
             dependencies[name] = re.findall(r'\(NEEDED\).*?\[(.*?)\]', output)
         if not re.findall(r'\(SONAME\).*?\[(.*?)\]', subprocess.check_output([str(readelf), '-d', str(libraries['libmain.so'])], text=True)):
             assert all('libmain.so' not in needed for needed in dependencies.values()), 'MODULE without SONAME used as dependency'
         for name, needed in dependencies.items():
-            assert set(needed) <= system | sonames.keys(), (abi, name, 'Unresolved DT_NEEDED', needed)
+            require(set(needed) <= system | sonames.keys(), (abi, name, 'Unresolved DT_NEEDED', needed))
             print(f'CLOSURE {abi}/{name}: {", ".join(needed)}')
-        print(f'PASS {abi}: architecture, API <=29, SONAME closure, LOAD/RELRO 16 KiB alignment')
+        result = 'PASS' if len(failures) == previous_failures else 'FAIL'
+        print(f'{result} {abi}: architecture, API <=29, SONAME closure, LOAD/RELRO 16 KiB alignment')
+for failure in failures:
+    print(f'FAIL: {failure}', file=sys.stderr)
+sys.exit(bool(failures))
