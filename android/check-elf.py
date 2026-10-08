@@ -79,5 +79,5 @@ with tempfile.TemporaryDirectory() as temporary:
         result = 'PASS' if len(failures) == previous_failures else 'FAIL'
         print(f'{result} {abi}: architecture, API <=29, SONAME closure, LOAD/RELRO 16 KiB alignment')
 for failure in failures:
-    print(f'FAIL: {failure}', file=sys.stderr)
+    print(f'FAIL: {failure}')
 sys.exit(bool(failures))

@@ -4,6 +4,7 @@
 import pathlib
 import re
 import select
+import shlex
 import subprocess
 import sys
 import time
@@ -21,12 +22,17 @@ settings = external + '/ES-DE-Plus/settings/es_settings.xml'
 
 
 def adb(*args, check=True, binary=False):
-    return subprocess.run(['adb', *args], check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=not binary, timeout=90).stdout
+    result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=not binary, timeout=90)
+    if check and result.returncode:
+        print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
+        result.check_returncode()
+    return result.stdout
 
 
 def shell(*args, check=True):
-    return adb('shell', *args, check=check)
+    # adb shell joins arguments without escaping, including arguments to sh -c.
+    return adb('shell', shlex.join(args), check=check)
 
 
 def private(*args, check=True):
@@ -43,7 +49,7 @@ def wait_for(condition, description, timeout=90):
 
 
 def log():
-    return private('cat', logpath, check=False)
+    return shell('cat', logpath, check=False)
 
 
 def screenshot(name):
@@ -53,7 +59,7 @@ def screenshot(name):
 
 def launch():
     # Each stopped-process restart must produce new startup evidence.
-    private('rm', '-f', logpath)
+    shell('rm', '-f', logpath)
     shell('am', 'start', '-n', activity)
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
@@ -70,6 +76,12 @@ def key(code):
 
 
 try:
+    # The debugging daemon needs access to app-owned external evidence. This
+    # does not change the frontend's UID, manifest permissions or bridge results.
+    root = adb('root')
+    assert 'cannot run as root' not in root, root
+    adb('wait-for-device')
+    (evidence / 'adb-access.txt').write_text(root + shell('id'))
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     shell('am', 'force-stop', app)
@@ -110,6 +122,10 @@ try:
     print('PASS: killed during real copy, partial fonts exist, marker absent', flush=True)
     adb('logcat', '-c')
     launch()
+    processes = shell('ps', '-A', '-o', 'UID,NAME')
+    frontend = [line for line in processes.splitlines() if line.split()[-1] == app]
+    assert frontend and all(int(line.split()[0]) >= 10000 for line in frontend), processes
+    (evidence / 'frontend-uid.txt').write_text('\n'.join(frontend) + '\n')
     assert private('test', '-f', 'files/resources-installed') == ''
     private('test', '-f', 'files/resources/fonts/DejaVuSans.ttf')
     private('test', '-f', 'files/resources/locale/en_US/LC_MESSAGES/en_US.mo')
@@ -133,14 +149,14 @@ try:
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
     # Missing-emulator errors are expected in this phase; startup errors were checked above.
     shell('am', 'force-stop', app)
-    before = private('cat', settings)
+    before = shell('cat', settings)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
     adb('logcat', '-c')
     launch()
     current_logcat = adb('logcat', '-d')
     assert 'Resource copy required=false' in current_logcat, current_logcat
     assert 'Installed resource:' not in current_logcat, current_logcat
-    assert private('cat', settings) == before, 'Settings changed on second launch'
+    assert shell('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
     shell('am', 'force-stop', app)
@@ -152,7 +168,7 @@ try:
     launch()
     assert 'Installed resource: fonts/DejaVuSans.ttf' in adb('logcat', '-d')
     assert private('cat', 'files/themes/user-theme/keep.txt').strip() == 'user-content'
-    assert private('cat', settings) == before
+    assert shell('cat', settings) == before
     save_logs('deleted-file-recovery')
     print('PASS: deleted font restored despite marker; user theme and settings preserved', flush=True)
     shell('am', 'force-stop', app)
