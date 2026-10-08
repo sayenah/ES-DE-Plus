@@ -60,7 +60,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     private val verifyEarly by lazy { !currentManifest() || !installed() }
     private fun writeAtomic(file: File, write: (java.io.OutputStream) -> Unit) {
         if (!file.parentFile!!.isDirectory && !file.parentFile!!.mkdirs())
-            throw IOException("Cannot create ${file.parent}")
+            throw IOException(context.getString(R.string.directory_create_failed, file.parent))
         val atomic = AtomicFile(file)
         val stream = atomic.startWrite()
         try { write(stream); atomic.finishWrite(stream) }
@@ -71,7 +71,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
             val output = destination(path)
             if (!output.isFile || output.length() != size || (verifyHashes && digest(output) != hash)) {
                 writeAtomic(output) { stream -> context.assets.open(path).use { it.copyTo(stream) } }
-                if (output.length() != size || digest(output) != hash) throw IOException("Resource verification failed: $path")
+                if (output.length() != size || digest(output) != hash) throw IOException(context.getString(R.string.resource_verification_failed, path))
                 Log.i(tag, "Installed resource: $path")
             }
         }
@@ -91,7 +91,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
             catch (error: Exception) {
                 Log.e(tag, "Early resource copy failed: $prefix", error)
                 if (!recoverStartup) { earlyCopyFailed = true; return }
-                ConfiguratorSession.awaitResourceRetry(context, error.message ?: "Resource copy failed")
+                ConfiguratorSession.awaitResourceRetry(context, error.message ?: context.getString(R.string.resource_failure))
             }
         }
     }
@@ -100,21 +100,21 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         while (true) {
             try {
                 copyMatching(true) { true }
-                if (!installed(true)) throw IOException("Incomplete resource installation")
+                if (!installed(true)) throw IOException(context.getString(R.string.resource_installation_incomplete))
                 writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
                 Log.i(tag, "Resource installation committed build=$buildIdentifier")
                 return false
             } catch (error: Exception) {
                 Log.e(tag, "Resource installation failed", error)
                 if (!recoverStartup) return true
-                ConfiguratorSession.awaitResourceRetry(context, error.message ?: "Resource copy failed")
+                ConfiguratorSession.awaitResourceRetry(context, error.message ?: context.getString(R.string.resource_failure))
             }
         }
     }
     fun getAppDataDirectory(): String = storage.verifyDirectory(storage.appData(), true).path
     // FileData/createSystemDirectories require the final slash.
     fun getROMDirectory(): String = storage.validate(storage.load()
-        ?: throw IOException("Storage has not been configured")).path + "/"
+        ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")

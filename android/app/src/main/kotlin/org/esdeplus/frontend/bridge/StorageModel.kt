@@ -14,6 +14,7 @@ import android.provider.DocumentsContract
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
+import org.esdeplus.frontend.R
 import java.io.File
 import java.io.IOException
 
@@ -23,8 +24,10 @@ class StorageModel(private val context: Context) {
     private val preferences = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
     private val grants = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
+    private fun failure(id: Int, vararg values: Any) = IOException(context.getString(id, *values))
+
     fun externalFiles(): File = context.getExternalFilesDir(null)
-        ?: throw IOException("App-owned storage is unavailable. Reconnect the storage and retry.")
+        ?: throw failure(R.string.owned_storage_unavailable)
     fun appData(): File = File(externalFiles(), "ES-DE-Plus")
     fun ownedROMs(): File = File(externalFiles(), "ROMs")
 
@@ -40,18 +43,18 @@ class StorageModel(private val context: Context) {
     // application's UID. A URI grant alone never establishes POSIX access.
     fun verifyDirectory(directory: File, create: Boolean = false): File {
         if (create && !directory.isDirectory && !directory.mkdirs())
-            throw IOException("Cannot create $directory. Restore access and retry.")
+            throw failure(R.string.directory_create_failed, directory)
         val canonical = directory.canonicalFile
         if (!canonical.isDirectory || !Os.access(canonical.path,
                 OsConstants.R_OK or OsConstants.W_OK or OsConstants.X_OK) || canonical.list() == null)
-            throw IOException("Cannot read and write $directory. Restore access and retry.")
+            throw failure(R.string.directory_access_failed, directory)
         val probe = File.createTempFile(".esdeplus-access-", ".tmp", canonical)
         try {
             val bytes = byteArrayOf(69, 83, 68, 69)
             probe.outputStream().use { it.write(bytes); it.flush() }
-            if (!probe.readBytes().contentEquals(bytes)) throw IOException("Read/write check failed: $directory")
+            if (!probe.readBytes().contentEquals(bytes)) throw failure(R.string.directory_probe_failed, directory)
         } finally {
-            if (!probe.delete()) throw IOException("Cannot remove access check: $probe")
+            if (!probe.delete()) throw failure(R.string.directory_probe_remove_failed, probe)
         }
         return canonical
     }
@@ -62,9 +65,9 @@ class StorageModel(private val context: Context) {
         val manager = context.getSystemService(StorageManager::class.java)
         val volume = manager.storageVolumes.singleOrNull {
             if (volumeId == "primary") it.isPrimary else it.uuid?.equals(volumeId, true) == true
-        } ?: throw IOException("The selected current-user volume is unavailable.")
+        } ?: throw failure(R.string.volume_unavailable)
         if (volume.state != Environment.MEDIA_MOUNTED)
-            throw IOException("The selected volume is not mounted for read/write access.")
+            throw failure(R.string.volume_not_mounted)
         val suffix = "/Android/data/${context.packageName}/files"
         val roots = context.getExternalFilesDirs(null).filterNotNull().mapNotNull { owned ->
             val current = manager.getStorageVolume(owned)
@@ -72,9 +75,9 @@ class StorageModel(private val context: Context) {
             else owned.canonicalPath.takeIf { it.endsWith(suffix) }?.removeSuffix(suffix)?.let(::File)
         }
         val root = roots.singleOrNull()?.canonicalFile
-            ?: throw IOException("Cannot verify this volume for the current Android user.")
+            ?: throw failure(R.string.volume_user_unverified)
         if (Build.VERSION.SDK_INT >= 30 && volume.directory?.canonicalFile != root)
-            throw IOException("The selected volume mount has changed.")
+            throw failure(R.string.volume_mount_changed)
         return root
     }
 
@@ -82,33 +85,33 @@ class StorageModel(private val context: Context) {
         if (uri.scheme != "content" || uri.authority != "com.android.externalstorage.documents" ||
             !DocumentsContract.isTreeUri(uri) || uri.pathSegments.size != 2 ||
             uri.pathSegments.first() != "tree" || uri.query != null || uri.fragment != null)
-            throw IOException("Choose a local folder from this device's external-storage provider.")
+            throw failure(R.string.local_provider_required)
         val id = DocumentsContract.getTreeDocumentId(uri)
         val parts = id.split(':', limit = 2)
-        if (parts.size != 2 || parts[0].isEmpty()) throw IOException("Invalid storage tree.")
+        if (parts.size != 2 || parts[0].isEmpty()) throw failure(R.string.invalid_tree)
         val relative = parts[1]
         val segments = relative.split('/')
         if (relative.isEmpty() || segments.any { it.isEmpty() || it == "." || it == ".." ||
                 it.contains('\\') || it.contains('\u0000') })
-            throw IOException("Choose a folder inside the volume, not its root.")
+            throw failure(R.string.tree_root_refused)
         // The application never adopts or opens official application data.
         if (segments.any { it.equals("ES-DE", true) || it.equals(".emulationstation", true) } ||
             segments.first().equals("Android", true))
-            throw IOException("Choose a ROM folder outside Android and official ES-DE application data.")
+            throw failure(R.string.official_data_refused)
         val root = volumeRoot(parts[0])
         val result = File(root, relative).canonicalFile
-        if (!result.path.startsWith(root.path + "/")) throw IOException("Folder escapes the selected volume.")
+        if (!result.path.startsWith(root.path + "/")) throw failure(R.string.tree_escape_refused)
         val resolved = result.relativeTo(root).invariantSeparatorsPath.split('/')
         if (resolved.first().equals("Android", true) || resolved.any {
                 it.equals("ES-DE", true) || it.equals(".emulationstation", true) })
-            throw IOException("Choose a ROM folder outside Android and official ES-DE application data.")
+            throw failure(R.string.official_data_refused)
         return result
     }
 
     fun acceptTree(uri: Uri, flags: Int): File {
-        if (!broadAccess()) throw IOException("Direct filesystem access has not been granted.")
+        if (!broadAccess()) throw failure(R.string.direct_not_granted)
         if ((flags and grants) != grants || flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0)
-            throw IOException("The picker did not grant persistent read/write access.")
+            throw failure(R.string.persistent_access_required)
         val directory = verifyDirectory(resolveTree(uri))
         context.contentResolver.takePersistableUriPermission(uri, flags and grants)
         verifyGrant(uri)
@@ -118,24 +121,24 @@ class StorageModel(private val context: Context) {
     private fun verifyGrant(uri: Uri) {
         if (context.contentResolver.persistedUriPermissions.none {
                 it.uri == uri && it.isReadPermission && it.isWritePermission })
-            throw IOException("Folder access was revoked. Choose the folder again.")
+            throw failure(R.string.tree_access_revoked)
     }
 
     // Missing picker fallback is an explicitly typed path, still resolved through
     // the same current-user volume list and access checks. Never invent a URI grant.
     fun acceptPath(path: String): File {
-        if (!broadAccess()) throw IOException("Direct filesystem access has not been granted.")
-        if (!path.startsWith('/') || path.contains('\u0000')) throw IOException("Enter an absolute folder path.")
+        if (!broadAccess()) throw failure(R.string.direct_not_granted)
+        if (!path.startsWith('/') || path.contains('\u0000')) throw failure(R.string.absolute_path_required)
         val manager = context.getSystemService(StorageManager::class.java)
         val candidate = File(path).canonicalFile
-        val volume = manager.getStorageVolume(candidate) ?: throw IOException("Unknown storage volume.")
+        val volume = manager.getStorageVolume(candidate) ?: throw failure(R.string.unknown_volume)
         val root = volumeRoot(if (volume.isPrimary) "primary" else volume.uuid
-            ?: throw IOException("Unknown storage volume identifier."))
-        if (!candidate.path.startsWith(root.path + "/")) throw IOException("Choose a folder inside the volume.")
+            ?: throw failure(R.string.unknown_volume_id))
+        if (!candidate.path.startsWith(root.path + "/")) throw failure(R.string.folder_inside_volume)
         val relative = candidate.relativeTo(root).invariantSeparatorsPath
         val uri = DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents",
             "${if (volume.isPrimary) "primary" else volume.uuid}:$relative")
-        if (resolveTree(uri) != candidate) throw IOException("Folder mapping changed.")
+        if (resolveTree(uri) != candidate) throw failure(R.string.folder_mapping_changed)
         return verifyDirectory(candidate)
     }
 
@@ -151,37 +154,37 @@ class StorageModel(private val context: Context) {
         val roms = when (configuration.mode) {
             "scoped" -> {
                 if (configuration.roms != ownedROMs().canonicalPath || configuration.tree.isNotEmpty())
-                    throw IOException("App-owned storage location changed. Review the configuration.")
+                    throw failure(R.string.owned_location_changed)
                 verifyDirectory(ownedROMs(), true)
             }
             "direct" -> {
                 if (configuration.tree.isEmpty()) acceptPath(configuration.roms)
                 else {
-                    if (!broadAccess()) throw IOException("Direct filesystem access was revoked.")
+                    if (!broadAccess()) throw failure(R.string.direct_access_revoked)
                     val uri = Uri.parse(configuration.tree)
                     verifyGrant(uri)
                     val mapped = resolveTree(uri)
-                    if (mapped.path != configuration.roms) throw IOException("The selected volume or folder changed.")
+                    if (mapped.path != configuration.roms) throw failure(R.string.selected_folder_changed)
                     verifyDirectory(mapped)
                 }
             }
-            else -> throw IOException("Choose a storage mode.")
+            else -> throw failure(R.string.storage_mode_required)
         }
         return roms
     }
 
     fun problem(): String? = try {
-        val config = load() ?: throw IOException("Choose how to store games before continuing.")
+        val config = load() ?: throw failure(R.string.storage_choice_required)
         validate(config)
         null
-    } catch (error: Exception) { error.message ?: "Storage validation failed. Retry." }
+    } catch (error: Exception) { error.message ?: context.getString(R.string.storage_validation_failed) }
 
     fun save(configuration: Configuration) {
         validate(configuration)
         if (!preferences.edit().putString("mode", configuration.mode)
                 .putString("roms", configuration.roms).putString("tree", configuration.tree)
                 .putBoolean("createSystems", configuration.createSystems).commit())
-            throw IOException("Could not save configuration. Retry.")
+            throw failure(R.string.configuration_save_failed)
         Log.i("ES-DE-Plus", "Storage configuration committed mode=${configuration.mode}")
     }
 }

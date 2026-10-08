@@ -51,7 +51,7 @@ def wait_for(condition, description, timeout=90):
 
 
 def log():
-    return shell('cat', logpath, check=False)
+    return private('cat', logpath, check=False)
 
 
 def screenshot(name):
@@ -62,7 +62,7 @@ def screenshot(name):
 
 def launch():
     # Each stopped-process restart must produce new startup evidence.
-    shell('rm', '-f', logpath)
+    private('rm', '-f', logpath)
     shell('am', 'start', '-n', activity)
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
@@ -141,7 +141,7 @@ def ui(label, dpad=False):
 
 def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
     if not shell('pidof', app, check=False).strip():
-        shell('rm', '-f', logpath)
+        private('rm', '-f', logpath)
     shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
           '-n', app + '/org.esdeplus.frontend.' + name)
 
@@ -484,11 +484,11 @@ try:
     key('KEYCODE_DEL')
     def volume_saved():
         value = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"',
-                          shell('cat', settings, check=False))
+                          private('cat', settings, check=False))
         return value and int(value.group(1)) < 70
     wait_for(volume_saved, 'real navigation-volume change saved to settings')
     shell('am', 'force-stop', app)
-    before = shell('cat', settings)
+    before = private('cat', settings)
     (evidence / 'preserved-settings.txt').write_text(before)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
     volume = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"', before)
@@ -498,7 +498,7 @@ try:
     current_logcat = adb('logcat', '-d')
     assert 'Resource copy required=false' in current_logcat, current_logcat
     assert 'Installed resource:' not in current_logcat, current_logcat
-    assert shell('cat', settings) == before, 'Settings changed on second launch'
+    assert private('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
     shell('am', 'force-stop', app)
@@ -510,7 +510,7 @@ try:
     launch()
     assert 'Installed resource: fonts/DejaVuSans.ttf' in adb('logcat', '-d')
     assert private('cat', 'files/themes/user-theme/keep.txt').strip() == 'user-content'
-    assert shell('cat', settings) == before
+    assert private('cat', settings) == before
     save_logs('deleted-file-recovery')
     print('PASS: deleted font restored despite marker; user theme and settings preserved', flush=True)
     shell('am', 'force-stop', app)
@@ -532,9 +532,9 @@ try:
         shell('am', 'force-stop', app)
         path = external + '/' + directory
         saved = path + '.smoke-saved'
-        shell('mv', path, saved)
+        private('mv', path, saved)
         try:
-            shell('touch', path)
+            private('touch', path)
             adb('logcat', '-c')
             start_entry('HomeEntry', 'android.intent.category.HOME')
             ui('Configure ' + label)
@@ -544,8 +544,8 @@ try:
             private('test', '!', '-d', 'files/settings')
         finally:
             shell('am', 'force-stop', app)
-            shell('rm', '-f', path)
-            shell('mv', saved, path)
+            private('rm', '-f', path)
+            private('mv', saved, path)
         print('PASS: obstructed ' + directory + ' has recoverable UI without fallback', flush=True)
     # A real resource-copy failure on the ordinary native startup path is shown
     # to the user. Removing the obstruction and pressing Retry resumes startup.
@@ -565,7 +565,7 @@ try:
         private('mv', 'files/resources/fonts.smoke-saved', 'files/resources/fonts', check=False)
     adb('logcat', '-c')
     launch()
-    assert shell('cat', settings) == before, 'Directory-failure recovery changed settings'
+    assert private('cat', settings) == before, 'Directory-failure recovery changed settings'
 
     screenshot('scoped-restart-system-view')
     for name, category, home in [('HomeEntry', 'android.intent.category.HOME', True),
