@@ -287,7 +287,9 @@ try:
     if picker_component and component_enabled(picker_component, False):
         try:
             ui('Choose shared ROM folder', dpad=True)
-            ui('A folder picker is unavailable')
+            wait_for(lambda: any(node_matches(n, 'A folder picker is unavailable') or
+                                  node_matches(n, 'Folder selection cancelled') for n in hierarchy()),
+                     'missing picker returns a recoverable message')
             screenshot('missing-picker-fallback')
         finally:
             component_enabled(picker_component, True)

@@ -20,7 +20,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="continue_frontend">Save and start frontend</string>
     <string name="cancel_configuration">Cancel configuration</string>
     <string name="cancelled_recoverable">Configuration cancelled. Your selections are kept on this screen. Choose a mode and retry when ready; startup will wait for you.</string>
-    <string name="picker_cancelled">Folder selection cancelled. The previous selection has been kept.</string>
+    <string name="picker_cancelled">Folder selection cancelled. The previous selection has been kept. If the picker did not open, use a typed folder path below or choose app-owned storage.</string>
     <string name="access_denied">Access was not granted. Retry or explicitly choose app-owned storage.</string>
     <string name="no_all_files">All-files settings are unavailable on this device. Choose app-owned storage, or enable all-files access in the device settings and return here.</string>
     <string name="no_picker">A folder picker is unavailable. Enter an absolute local ROM folder path below, or choose app-owned storage.</string>
