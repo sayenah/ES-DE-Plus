@@ -5,6 +5,7 @@ package org.esdeplus.frontend
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import android.util.Log
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
@@ -22,6 +23,7 @@ class MainActivity : SDLActivity() {
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        Log.i("ES-DE-Plus", "SDL entry reused via onNewIntent")
         setIntent(intent)
         ConfiguratorSession.recordEntry(intent)
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)

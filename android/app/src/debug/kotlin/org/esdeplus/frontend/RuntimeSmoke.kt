@@ -10,14 +10,34 @@ import java.io.File
 
 class RuntimeSmoke : Instrumentation() {
     private var provisionOnly = false
+    private var storageOnly = false
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         provisionOnly = arguments?.getString("mode") == "provision"
+        storageOnly = arguments?.getString("mode") == "storage"
         start()
     }
     override fun onStart() {
         val result = Bundle()
         try {
+            if (storageOnly) {
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                val selected = storage.load() ?: error("Real configurator has not saved a selection")
+                check(selected.mode == "direct")
+                storage.validate(selected)
+                // Exercise loss of the SDK's current-user volume mapping using
+                // the real persisted selection; no preferences/grants are injected.
+                val missingVolume = org.esdeplus.frontend.bridge.StorageModel(object : ContextWrapper(targetContext) {
+                    override fun getExternalFilesDirs(type: String?): Array<File?> = emptyArray()
+                })
+                try { missingVolume.validate(selected); error("Unavailable volume was substituted") }
+                catch (expected: java.io.IOException) { /* Required recoverable refusal. */ }
+                check(storage.load() == selected)
+                storage.validate(selected)
+                result.putString("stream", "PASS: real persisted direct selection rejects unavailable current-user SDK volume mapping; no substitution or preference changes\n")
+                finish(-1, result)
+                return
+            }
             if (provisionOnly) {
                 // Create ordinary SDK-owned directories before adb pushes files.
                 // MainActivity is not launched and no resources/marker are installed.

@@ -121,6 +121,8 @@ def ui(label, dpad=False):
 
 
 def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
+    if not shell('pidof', app, check=False).strip():
+        shell('rm', '-f', logpath)
     shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
           '-n', app + '/org.esdeplus.frontend.' + name)
 
@@ -264,8 +266,10 @@ try:
     for name, category, home in [('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER', False),
                                   ('HomeEntry', 'android.intent.category.HOME', True),
                                   ('MainActivity', 'android.intent.category.LAUNCHER', False)]:
+        adb('logcat', '-c')
         start_entry(name, category)
-        wait_for(lambda: f'HOME={str(home).lower()}' in adb('logcat', '-d'), 'entry HOME state')
+        wait_for(lambda: 'SDL entry reused via onNewIntent' in adb('logcat', '-d') and
+                 f'HOME={str(home).lower()}' in adb('logcat', '-d'), 'warm entry and HOME state')
         assert shell('pidof', app).strip() == pid, 'Warm entry replaced the process'
         (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot(name + '-warm')
@@ -275,6 +279,25 @@ try:
     shell('am', 'force-stop', app)
     start_entry()
     configured_system('direct-restart')
+    shell('am', 'force-stop', app)
+    volume_probe = shell('am', 'instrument', '-w', '-e', 'mode', 'storage',
+                         app + '/org.esdeplus.frontend.RuntimeSmoke')
+    assert 'PASS: real persisted direct selection rejects unavailable' in volume_probe, volume_probe
+    (evidence / 'selected-volume-unavailable.txt').write_text(volume_probe)
+    # Remove the selected shared folder while retaining the real grant/selection.
+    # Failure must be a recovery screen; restore it and accept the same selection.
+    shell('am', 'force-stop', app)
+    shell('mv', shared, shared + '.smoke-saved')
+    try:
+        start_entry('HomeEntry', 'android.intent.category.HOME')
+        ui('Configure ' + label)
+        screenshot('selected-shared-folder-unavailable')
+        save_logs('selected-shared-folder-unavailable')
+        assert shell('pidof', app).strip(), 'Missing selected folder exited HOME'
+    finally:
+        shell('mv', shared + '.smoke-saved', shared)
+    ui('Save and start frontend', dpad=True)
+    configured_system('selected-folder-restored-system')
     # Revoke actual access after persisted configuration; ordinary startup must
     # show recovery, never substitute a directory or restart-loop HOME.
     shell('am', 'force-stop', app)
