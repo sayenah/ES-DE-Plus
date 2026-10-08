@@ -19,8 +19,8 @@ No proprietary Android package or code is used.
 | SDL2 and vendored SDL Java | 2.32.10 (`release-2.32.10`) | zlib | Shared SDL2; test/static targets off; Java implementations unchanged, tag LICENSE.txt notice prepended intact |
 | OpenSSL crypto/ssl | 3.5.9 LTS | Apache-2.0 | Android target, API29, shared, no-tests, no-apps |
 | curl | 8.22.0 | curl (MIT-like) | Shared; OpenSSL on; CLI/tests, libpsl, SSH/SSH2, nghttp2, brotli, zstd, c-ares off |
-| FreeImage and its bundled codecs | 3.18.0 | FreeImage Public License or GPL-2.0; FIPL selected | Shared; `FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0`; bundled codec notices retained in source archive |
-| FreeImage bundled JPEG, PNG, TIFF, ZLib, OpenJPEG, OpenEXR, LibRawLite, LibWebP, LibJXR | versions in FreeImage 3.18.0 source distribution | IJG/BSD/zlib/MIT; LibRaw LGPL-2.1-or-later or CDDL-1.0 | Static within FreeImage; full distribution notices apply; no LCMS |
+| FreeImage and its bundled codecs | 3.18.0 | FreeImage Public License or GPL-2.0; FIPL selected | Shared; `FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0`; bundled codec notices recorded in `licenses/FreeImage-bundled-codecs`; C++11, source-specific `_byteswap_ulong=__builtin_bswap32` for JPEG XR segdec.c and `-include wchar.h` for JXRGlueJxr.c |
+| FreeImage bundled JPEG, PNG, TIFF, ZLib, OpenJPEG, OpenEXR, LibRawLite, LibWebP, LibJXR | JPEG 9c, PNG 1.6.35, TIFF 4.0.9, zlib 1.2.11, OpenJPEG 2.0.0, OpenEXR/IlmBase 2.2.0, LibRaw 0.19.0, WebP 1.0.0, JPEG XR 1.1 | IJG/BSD/zlib/MIT; LibRaw LGPL-2.1-or-later or CDDL-1.0 | Static within FreeImage; `licenses/FreeImage-bundled-codecs` preserves the codec notices; LibRaw LGPL-2.1 selected; no LCMS |
 | libpng | 1.6.58 | libpng-2.0 | Shared; tests/tools off |
 | HarfBuzz | 14.2.1 | MIT | Shared; subset, ICU, FreeType integration off |
 | FreeType | 2.14.3 | FTL or GPL-2.0; FTL selected | Shared; HarfBuzz, bzip2, brotli off |
