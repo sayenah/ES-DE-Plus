@@ -101,7 +101,7 @@ cm poppler "$src/poppler" -DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -
     -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF \
     -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF
 mkdir -p "$root/android/.deps/layout/poppler-cpp"
-cp "$work/poppler/cpp/poppler-version.h" "$root/android/.deps/layout/poppler-cpp/"
+cp "$work/poppler/cpp/poppler-version.h" "$work/poppler/cpp/poppler_cpp_export.h" "$root/android/.deps/layout/poppler-cpp/"
 # OpenSSL uses the NDK compiler selected via its Android target.
 mkdir -p "$work/openssl"
 (cd "$work/openssl"; ANDROID_NDK_ROOT="$ndk" "$src/openssl/Configure" "$openssl_arch" \

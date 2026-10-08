@@ -74,16 +74,18 @@ link "$sources/poppler" external/poppler
 mkdir -p "$sources/poppler/build"
 mkdir -p "$root/android/.deps/layout/poppler-cpp"
 link "$root/android/.deps/layout/poppler-cpp" "$sources/poppler/build/cpp"
-# Generated version metadata is architecture-independent, including on cache hits.
-for abi in arm64-v8a x86_64; do
-    header="$root/android/.deps/install/$abi/include/poppler/cpp/poppler-version.h"
-    if [[ -f $header ]]; then
-        cp "$header" "$root/android/.deps/layout/poppler-cpp/poppler-version.h"
-    fi
+# Generated public headers are architecture-independent, including on cache hits.
+for generated in poppler-version.h poppler_cpp_export.h; do
+    for abi in arm64-v8a x86_64; do
+        header="$root/android/.deps/install/$abi/include/poppler/cpp/$generated"
+        if [[ -f $header ]]; then
+            cp "$header" "$root/android/.deps/layout/poppler-cpp/$generated"
+        fi
+    done
+    left="$root/android/.deps/install/arm64-v8a/include/poppler/cpp/$generated"
+    right="$root/android/.deps/install/x86_64/include/poppler/cpp/$generated"
+    if [[ -f $left && -f $right ]]; then cmp "$left" "$right"; fi
 done
-if [[ -f $root/android/.deps/install/arm64-v8a/include/poppler/cpp/poppler-version.h && -f $root/android/.deps/install/x86_64/include/poppler/cpp/poppler-version.h ]]; then
-    cmp "$root/android/.deps/install/arm64-v8a/include/poppler/cpp/poppler-version.h" "$root/android/.deps/install/x86_64/include/poppler/cpp/poppler-version.h"
-fi
 # Public generated headers missing from the source archives. Both selected ABIs
 # must agree before these ABI-neutral include links are used by upstream CMake.
 for entry in 'libintl.h:gettext/gettext-runtime/intl/libintl.h' 'libavutil/avconfig.h:ffmpeg/libavutil/avconfig.h'; do

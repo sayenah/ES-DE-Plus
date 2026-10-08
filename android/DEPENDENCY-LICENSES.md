@@ -41,10 +41,11 @@ No proprietary Android package or code is used.
 
 Build-only: AGP **8.13.2**, Gradle wrapper **8.13**, Kotlin plugin **2.2.21**,
 JDK **17**, NDK **27.3.13750724**, minSdk **29**, compile/targetSdk **36**,
-SDK CMake **3.31.5**, clang-format **18.1.8**. Gradle's wrapper JAR is vendored from
+SDK CMake **3.31.5**, clang-format **18.1.3** (Ubuntu `1:18.1.3-1ubuntu1`). Gradle's wrapper JAR is vendored from
 `gradle/gradle` tag `v8.13.0`, Apache-2.0 (`licenses/Gradle`).
 All non-CMake shared link commands pass both `-z max-page-size=16384` and
-`-z common-page-size=16384`; CMake uses `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON`.
+`-z common-page-size=16384`; CMake uses `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON`; the host also passes both
+page-size linker flags for SHARED and MODULE targets (including RELRO alignment).
 Android system libraries (bionic, zlib, log, Android, EGL/GLES, OpenSL ES/AAudio)
 are device-provided and are not bundled.
 

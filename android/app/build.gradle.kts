@@ -45,7 +45,9 @@ android {
                 arguments += listOf("-DANDROID_APPLICATION_ID=$appId", "-DANDROID_VERSION_CODE=$appVersion",
                     "-DGLES=ON", "-DANDROID_PLATFORM=android-29", "-DANDROID_STL=c++_shared",
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DAPPLICATION_UPDATER=OFF",
-                    "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=lib")
+                    "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=lib",
+                    "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384",
+                    "-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384")
                 targets += listOf("main", "es-pdf-convert")
             }
         }
