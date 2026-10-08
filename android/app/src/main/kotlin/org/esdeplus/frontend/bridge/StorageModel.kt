@@ -97,6 +97,10 @@ class StorageModel(private val context: Context) {
         val root = volumeRoot(parts[0])
         val result = File(root, relative).canonicalFile
         if (!result.path.startsWith(root.path + "/")) throw IOException("Folder escapes the selected volume.")
+        val resolved = result.relativeTo(root).invariantSeparatorsPath.split('/')
+        if (resolved.first().equals("Android", true) || resolved.any {
+                it.equals("ES-DE", true) || it.equals(".emulationstation", true) })
+            throw IOException("Choose a ROM folder outside Android and official ES-DE application data.")
         return result
     }
 

@@ -114,7 +114,10 @@ def ui(label, dpad=False):
             key('KEYCODE_DPAD_DOWN')
         raise AssertionError('D-pad cannot reach: ' + label)
     wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'UI: ' + label)
-    node = next(n for n in hierarchy() if node_matches(n, label))
+    nodes = hierarchy()
+    exact = [n for n in nodes if n.get('text', '').casefold() == label.casefold() or
+             n.get('content-desc', '').casefold() == label.casefold()]
+    node = exact[0] if exact else next(n for n in nodes if node_matches(n, label))
     x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
     shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(1)
@@ -133,6 +136,18 @@ def resolved_component(action, data=None):
         args += ['-d', data]
     result = shell(*args, check=False)
     return next((line.strip() for line in result.splitlines() if '/' in line and ' ' not in line.strip()), None)
+
+
+def permission_toggle():
+    # Phone settings can show one app; TV settings can show a list of apps.
+    # Select the switch in the smallest subtree containing our exact app label.
+    candidates = []
+    for parent in hierarchy():
+        children = list(parent.iter('node'))
+        switches = [n for n in children if n.get('checkable') == 'true']
+        if len(switches) == 1 and any(n.get('text', '').casefold() == label.casefold() for n in children):
+            candidates.append((len(children), switches[0]))
+    return min(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
 def component_enabled(component, enabled):
@@ -216,7 +231,7 @@ try:
         # The real platform Settings toggle, not appops or pm grant.
         nodes = hierarchy()
         general_settings = False
-        toggle = next((n for n in nodes if n.get('checkable') == 'true'), None)
+        toggle = permission_toggle()
         if toggle is None:
             # TV's missing-capability fallback remains recoverable. Record it,
             # then try the device's general all-files settings UI.
@@ -226,7 +241,7 @@ try:
             shell('am', 'start', '-a', 'android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION')
             ui(label)
             nodes = hierarchy()
-            toggle = next(n for n in nodes if n.get('checkable') == 'true')
+            toggle = permission_toggle()
         if not general_settings:
             # Return without granting once: denial is visible and recoverable.
             key('KEYCODE_BACK')
@@ -234,9 +249,11 @@ try:
             screenshot('all-files-denied')
             ui('Grant direct filesystem access', dpad=True)
             nodes = hierarchy()
-            toggle = next(n for n in nodes if n.get('checkable') == 'true')
-        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle['bounds']))
+            toggle = permission_toggle()
+        assert toggle is not None, 'No permission switch associated with our application'
+        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
         shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+        wait_for(lambda: permission_toggle() is not None and permission_toggle().get('checked') == 'true', 'real app all-files grant')
         screenshot('all-files-granted')
         key('KEYCODE_BACK')
         if general_settings:
@@ -268,10 +285,10 @@ try:
         if not any(n.get('text') == 'ESDEPlusSmoke' for n in nodes):
             ui('Show roots')
             nodes = hierarchy()
-            root = next((n for n in nodes if n.get('text') in ['Internal storage', 'Pixel 2', 'Android TV', 'sdk_gphone_x86_64', 'sdk_gphone64_x86_64']), None)
+            root = next((n for n in nodes if n.get('text') in ['Internal storage', 'Internal shared storage', shell('getprop', 'ro.product.model').strip()]), None)
             if root is None:
-                root = next(n for n in nodes if n.get('resource-id', '').endswith('title') and 'Downloads' not in n.get('text', '') and 'Recent' not in n.get('text', ''))
-            ui(root['text'])
+                root = next(n for n in nodes if n.get('resource-id', '').endswith('title') and n.get('text', '') not in ['Downloads', 'Recent', 'Images', 'Videos', 'Audio', 'Documents', 'Drive', 'Open from'])
+            ui(root.get('text'))
         ui('ESDEPlusSmoke')
         ui('Use this folder')
         if any(n.get('text', '').casefold() == 'allow' for n in hierarchy()):
