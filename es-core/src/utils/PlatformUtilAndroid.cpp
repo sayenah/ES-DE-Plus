@@ -554,4 +554,76 @@ Java_org_esdeplus_frontend_MainActivity_nativeSetResetTouchOverlay(JNIEnv*, jcla
     AndroidVariables::sResetTouchOverlay = reset == JNI_TRUE;
 }
 
+#if !defined(NDEBUG)
+// CI runtime probe exercises the production bridge; it does not replace its results.
+extern "C" JNIEXPORT jboolean JNICALL Java_org_esdeplus_frontend_RuntimeSmoke_nativeProbe(
+    JNIEnv* env, jclass, jstring directory, jstring game)
+{
+    ActivityContext context;
+    if (!context)
+        return JNI_FALSE;
+    const std::pair<const char*, const char*> methods[] {
+        {"checkConfigurationNeeded", "()Z"},
+        {"checkEmulatorInstalled", "(Ljava/lang/String;Ljava/lang/String;)Z"},
+        {"checkNeedResourceCopy", "(Ljava/lang/String;)Z"},
+        {"checkRACoreInstalled", "(Ljava/lang/String;Ljava/lang/String;)I"},
+        {"getBatteryStatus", "()[I"},
+        {"getBluetoothStatus", "()I"},
+        {"getCellularStatus", "()I"},
+        {"getCreateSystemDirectories", "()Z"},
+        {"getExternalDirectory", "()Ljava/lang/String;"},
+        {"getInstalledApps", "(ZZ)[Ljava/lang/String;"},
+        {"getInternalDirectory", "()Ljava/lang/String;"},
+        {"getWifiStatus", "()I"},
+        {"getWindowSize", "()[I"},
+        {"getDeviceInfo", "()Ljava/lang/String;"},
+        {"getInternalDataDirectory", "()Ljava/lang/String;"},
+        {"getAppDataDirectory", "()Ljava/lang/String;"},
+        {"getROMDirectory", "()Ljava/lang/String;"},
+        {"setupFontFiles", "()V"},
+        {"setupLocalizationFiles", "()V"},
+        {"setupResources", "(Ljava/lang/String;)Z"},
+        {"startConfigurator", "()V"},
+        {"onNativeFrontendResume", "()V"},
+        {"launchGame", "([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
+                       "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)I"}};
+    for (const auto& method : methods) {
+        if (getMethod(context, method.first, method.second) == nullptr)
+            return JNI_FALSE;
+    }
+    for (int i {0}; i < 10000; ++i) {
+        const auto size {Utils::Platform::Android::getWindowSize()};
+        if (size.first <= 0 || size.second <= 0 || env->ExceptionCheck())
+            return JNI_FALSE;
+    }
+    for (jstring path : {directory, game}) {
+        const std::string original {fromJString(env, path)};
+        jstring converted {toJString(env, original)};
+        if (clearJavaException(env, "Unicode probe") || converted == nullptr)
+            return JNI_FALSE;
+        const std::string roundtrip {fromJString(env, converted)};
+        env->DeleteLocalRef(converted);
+        if (roundtrip != original || !Utils::FileSystem::exists(roundtrip))
+            return JNI_FALSE;
+    }
+    using namespace Utils::Platform::Android;
+    std::vector<std::pair<std::string, std::string>> apps;
+    getInstalledApps(apps, false, false);
+    if (checkConfigurationNeeded() || checkEmulatorInstalled("", "") ||
+        checkRACoreInstalled("", "") != -2 || !apps.empty() || getBluetoothStatus() != 0 ||
+        getWifiStatus() != 0 || getCellularStatus() != 0 ||
+        getBatteryStatus() != std::make_pair(-1, -1))
+        return JNI_FALSE;
+    if (getInternalDirectory().find("/data/user/") != 0 ||
+        getExternalDirectory().find("/storage/emulated/") != 0)
+        return JNI_FALSE;
+    startConfigurator();
+    onResume();
+    if (AndroidVariables::sHold || env->ExceptionCheck())
+        return JNI_FALSE;
+    LOG(LogInfo) << "Android bridge runtime probe passed: 10000 calls, UTF-16 and sentinels";
+    return JNI_TRUE;
+}
+#endif
+
 #endif // __ANDROID__

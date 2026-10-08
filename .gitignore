@@ -130,3 +130,6 @@ CPackSourceConfig.cmake
 .continueignore
 
 /android/*.log
+/android/__pycache__/
+!/android/app/src/debug/
+!/android/app/src/debug/**

@@ -136,7 +136,7 @@ with open(sys.argv[2], 'w') as out:
     out.write('cmake_minimum_required(VERSION 3.13)\nproject(FreeImage LANGUAGES C CXX)\n')
     out.write('add_library(freeimage SHARED\n' + '\n'.join('"'+str(source/x)+'"' for x in files) + ')\n')
     out.write('target_include_directories(freeimage PRIVATE\n' + '\n'.join('"'+str(source/x)+'"' for x in incs) + ')\n')
-    out.write('target_compile_definitions(freeimage PRIVATE FREEIMAGE_LIB NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0)\n')
+    out.write('target_compile_definitions(freeimage PRIVATE FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0)\n')
     out.write('target_compile_options(freeimage PRIVATE -Wno-narrowing -fexceptions -fvisibility=hidden)\n')
     out.write('target_link_libraries(freeimage PRIVATE log)\ninstall(TARGETS freeimage LIBRARY DESTINATION lib)\n')
 PY
