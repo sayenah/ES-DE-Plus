@@ -51,8 +51,8 @@ class MainActivity : SDLActivity() {
     override fun onDestroy() {
         val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
         // SDL first joins/stops its native thread. Only terminal Activity exit
-        // then ends the VM, flushing native atexit logs and resetting globals
-        // for the next launch; recreation and pending configuration keep it.
+        // then ends the VM, resetting native globals for the next launch;
+        // recreation and pending configuration keep the process alive.
         super.onDestroy()
         if (terminal) kotlin.system.exitProcess(0)
     }

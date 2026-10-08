@@ -235,6 +235,16 @@ def configured_system(name):
     save_logs(name)
 
 
+def native_shutdown(pid):
+    # Android Runtime.exit skips native atexit cleanup, so the final buffered
+    # es_log line is not evidence of SDL completion. Require the actual native
+    # return and successful VM exit, both from this frontend process.
+    lines = [line for line in adb('logcat', '-d', '-v', 'threadtime').splitlines()
+             if re.search(r'\s' + re.escape(pid) + r'\s', line)]
+    return (any('Finished main function' in line for line in lines) and
+            any('VM exiting with result code 0' in line for line in lines))
+
+
 try:
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
@@ -628,13 +638,14 @@ try:
         start_entry(name, category)
         configured_system(name + '-cold')
         pid = shell('pidof', app).strip()
+        assert pid.isdigit(), 'Cold entry has no frontend process'
         key('KEYCODE_BACK')
         if home:
             assert shell('pidof', app).strip() == pid, 'Cold HOME Back exited the frontend'
             assert any(n.get('package') == app for n in hierarchy()), 'Cold HOME Back left the frontend'
             assert 'cleanly shutting down' not in log(), log()
         else:
-            wait_for(lambda: 'cleanly shutting down' in log(), 'non-HOME native Back shutdown')
+            wait_for(lambda: native_shutdown(pid), 'non-HOME native Back completion and successful VM exit')
             wait_for(lambda: not shell('pidof', app, check=False).strip(), 'terminal native host exit')
             wait_for(lambda: bool(hierarchy()) and not any(n.get('package') == app for n in hierarchy()),
                      'non-HOME Back Activity exit')
@@ -644,9 +655,11 @@ try:
             # Real user relaunch after quit, without another force-stop/reset.
             start_entry(name, category)
             configured_system(name + '-after-quit-relaunch')
+            relaunched_pid = shell('pidof', app).strip()
+            assert relaunched_pid.isdigit() and relaunched_pid != pid, 'Quit/relaunch did not create a fresh native host'
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
-                     'cleanly shutting down' in log(), 'relaunch quits cleanly')
+                     native_shutdown(relaunched_pid), 'relaunch quits cleanly')
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases and revoked permission\n')
 except BaseException:
     save_logs('failure')
