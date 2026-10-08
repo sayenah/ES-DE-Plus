@@ -98,23 +98,23 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     @Synchronized fun setupResources(buildIdentifier: String): Boolean {
         if (earlyCopyFailed) return true
         while (true) {
-          try {
-            copyMatching(true) { true }
-            if (!installed(true)) throw IOException("Incomplete resource installation")
-            writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
-            Log.i(tag, "Resource installation committed build=$buildIdentifier")
-            return false
-          } catch (error: Exception) {
-            Log.e(tag, "Resource installation failed", error)
-            if (!recoverStartup) return true
-            ConfiguratorSession.awaitResourceRetry(context, error.message ?: "Resource copy failed")
-          }
+            try {
+                copyMatching(true) { true }
+                if (!installed(true)) throw IOException("Incomplete resource installation")
+                writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
+                Log.i(tag, "Resource installation committed build=$buildIdentifier")
+                return false
+            } catch (error: Exception) {
+                Log.e(tag, "Resource installation failed", error)
+                if (!recoverStartup) return true
+                ConfiguratorSession.awaitResourceRetry(context, error.message ?: "Resource copy failed")
+            }
         }
     }
     fun getAppDataDirectory(): String = storage.verifyDirectory(storage.appData(), true).path
     // FileData/createSystemDirectories require the final slash.
     fun getROMDirectory(): String = storage.validate(storage.load()
-        ?: throw IOException("Storage has not been configured" )).path + "/"
+        ?: throw IOException("Storage has not been configured")).path + "/"
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")

@@ -10,7 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.net.Uri
 import android.provider.Settings
-import android.view.View
+import android.util.Log
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -41,6 +41,7 @@ class ConfiguratorActivity : Activity() {
         permissionPending = state?.getBoolean("permissionPending") ?: false
         resourceError = state?.getBoolean("resourceError") ?: (ConfiguratorSession.resourceFailure != null)
         message = state?.getString("message") ?: intent.getStringExtra("message") ?: storage.problem()
+        Log.i("ES-DE-Plus", "Configurator created savedState=${state != null} mode=$mode")
         render()
     }
 
@@ -90,16 +91,13 @@ class ConfiguratorActivity : Activity() {
             setPadding(32, 20, 32, 20)
         }
         setContentView(ScrollView(this).apply { addView(content) })
-        text(getString(R.string.configure_title))
+        text(getString(R.string.configure_title, getString(R.string.app_name)))
         message?.let(::text)
         if (resourceError) {
             text(getString(R.string.resource_failure))
             button(R.string.retry) {
-                if (!ConfiguratorSession.retryResources()) returnToFrontend()
-                else {
-                    ConfiguratorSession.finishConfiguration()
-                    finish()
-                }
+                ConfiguratorSession.retryResources()
+                returnToFrontend()
             }.requestFocus()
             return
         }
@@ -187,8 +185,8 @@ class ConfiguratorActivity : Activity() {
         if (permissionPending) {
             permissionPending = false
             message = if (storage.broadAccess()) null else getString(R.string.access_denied)
-            render()
         }
+        render()
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)

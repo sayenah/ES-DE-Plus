@@ -10,19 +10,19 @@ import android.util.Log
 
 object ConfiguratorSession {
     private val monitor = Object()
-    private var registered = false
+    @Volatile private var registered = false
     @Volatile var configuring = false
         private set
     @Volatile var resourceFailure: String? = null
         private set
     private var retry = 0
-    private var entry = Intent()
+    @Volatile private var entry = Intent()
     @Volatile var home = false
         private set
 
     fun recordEntry(intent: Intent) {
         entry = Intent(intent).replaceExtras(null as android.os.Bundle?)
-        home = intent.component?.className == MainActivity::class.java.packageName + ".HomeEntry" &&
+        home = intent.component?.className == MainActivity::class.java.name.substringBeforeLast('.') + ".HomeEntry" &&
             intent.hasCategory(Intent.CATEGORY_HOME)
         if (registered) MainActivity.nativeSetHomeApp(home)
         Log.i("ES-DE-Plus", "Entry component=${intent.component} HOME=$home")
@@ -67,6 +67,7 @@ object ConfiguratorSession {
 
     fun retryResources(): Boolean = synchronized(monitor) {
         if (resourceFailure == null) return@synchronized false
+        finishConfiguration()
         retry++
         monitor.notifyAll()
         true

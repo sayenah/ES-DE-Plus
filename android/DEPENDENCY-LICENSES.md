@@ -82,7 +82,7 @@ the identity audit records their packaged classes.
 | libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; hash-verified NDK copy; architecture/API/SONAME, LOAD alignment and APK zipalign checked; measured RELRO and build IDs below under D-001(b) am. 2; notice in `licenses/libcxx` |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
-| Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon are original MIT assets |
+| Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon/TV banner are original MIT assets |
 
 NDK prebuilt measurements (D-001(b) am. 2):
 

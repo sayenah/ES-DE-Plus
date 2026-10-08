@@ -14,6 +14,7 @@ apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
            if line.startswith('esde.applicationId='))
 activity = app + '/org.esdeplus.frontend.MainActivity'
+label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
 evidence = pathlib.Path('android/evidence')
 evidence.mkdir(parents=True, exist_ok=True)
 external = f'/sdcard/Android/data/{app}/files'
@@ -104,7 +105,6 @@ def node_matches(node, label):
 
 
 def ui(label, dpad=False):
-    wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'UI: ' + label)
     if dpad:
         for _ in range(35):
             nodes = hierarchy()
@@ -113,6 +113,7 @@ def ui(label, dpad=False):
                 return
             key('KEYCODE_DPAD_DOWN')
         raise AssertionError('D-pad cannot reach: ' + label)
+    wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'UI: ' + label)
     node = next(n for n in hierarchy() if node_matches(n, label))
     x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
     shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
@@ -122,6 +123,14 @@ def ui(label, dpad=False):
 def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
     shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
           '-n', app + '/org.esdeplus.frontend.' + name)
+
+
+def resolved_component(action, data=None):
+    args = ['cmd', 'package', 'resolve-activity', '--brief', '-a', action]
+    if data:
+        args += ['-d', data]
+    result = shell(*args, check=False)
+    return next((line.strip() for line in result.splitlines() if '/' in line and ' ' not in line.strip()), None)
 
 
 def configured_system(name):
@@ -154,8 +163,28 @@ try:
     assert shell('pidof', app).strip(), 'HOME cancellation killed the process'
     key('KEYCODE_BACK')
     ui('Configuration cancelled')
+    # Resize a real display while the native caller is held. Android recreates
+    # the plain-view activity; its selections and static registration survive.
+    adb('logcat', '-c')
+    television = 'tv' in shell('getprop', 'ro.build.characteristics')
+    shell('wm', 'size', '1280x720' if television else '720x1280')
+    wait_for(lambda: 'Configurator created savedState=true' in adb('logcat', '-d'), 'configurator recreation')
+    shell('wm', 'size', 'reset')
+    ui('Configuration cancelled')
+    screenshot('configurator-recreated')
+    save_logs('configurator-recreated')
     ui('Use direct filesystem compatibility', dpad=True)
     screenshot('mode-before-permission')
+    if api >= 30:
+        settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
+        if settings_component:
+            shell('pm', 'disable-user', '--user', '0', settings_component)
+            try:
+                ui('Grant direct filesystem access', dpad=True)
+                ui('All-files settings are unavailable')
+                screenshot('missing-all-files-settings-fallback')
+            finally:
+                shell('pm', 'enable', '--user', '0', settings_component)
     ui('Grant direct filesystem access', dpad=True)
     if api == 29:
         ui('Deny')
@@ -166,20 +195,41 @@ try:
     else:
         # The real platform Settings toggle, not appops or pm grant.
         nodes = hierarchy()
+        general_settings = False
         toggle = next((n for n in nodes if n.get('checkable') == 'true'), None)
         if toggle is None:
             # TV's missing-capability fallback remains recoverable. Record it,
             # then try the device's general all-files settings UI.
+            general_settings = True
             ui('All-files settings are unavailable')
             screenshot('all-files-unavailable')
             shell('am', 'start', '-a', 'android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION')
-            ui('ES-DE Plus')
+            ui(label)
+            nodes = hierarchy()
+            toggle = next(n for n in nodes if n.get('checkable') == 'true')
+        if not general_settings:
+            # Return without granting once: denial is visible and recoverable.
+            key('KEYCODE_BACK')
+            ui('Access was not granted')
+            screenshot('all-files-denied')
+            ui('Grant direct filesystem access', dpad=True)
             nodes = hierarchy()
             toggle = next(n for n in nodes if n.get('checkable') == 'true')
         x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle['bounds']))
         shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
         screenshot('all-files-granted')
         key('KEYCODE_BACK')
+        if general_settings:
+            key('KEYCODE_BACK')
+    picker_component = resolved_component('android.intent.action.OPEN_DOCUMENT_TREE')
+    if picker_component:
+        shell('pm', 'disable-user', '--user', '0', picker_component)
+        try:
+            ui('Choose shared ROM folder', dpad=True)
+            ui('A folder picker is unavailable')
+            screenshot('missing-picker-fallback')
+        finally:
+            shell('pm', 'enable', '--user', '0', picker_component)
     ui('Choose shared ROM folder', dpad=True)
     nodes = hierarchy()
     if any(node_matches(n, 'A folder picker is unavailable') for n in nodes):
@@ -219,6 +269,9 @@ try:
         assert shell('pidof', app).strip() == pid, 'Warm entry replaced the process'
         (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot(name + '-warm')
+        key('KEYCODE_ESCAPE')
+        screenshot(name + '-menu')
+        key('KEYCODE_DEL')
     shell('am', 'force-stop', app)
     start_entry()
     configured_system('direct-restart')
@@ -230,7 +283,7 @@ try:
     else:
         shell('appops', 'set', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
     start_entry('HomeEntry', 'android.intent.category.HOME')
-    ui('Configure ES-DE Plus')
+    ui('Configure ' + label)
     screenshot('revoked-access-recovery')
     save_logs('revoked-access-recovery')
     # Fresh app install state starts the independent scoped path through its UI.
@@ -249,10 +302,17 @@ try:
         adb('push', str(dummy), roms + '/nes/' + name)
     dummy.unlink()
     (evidence / 'scoped-adb-provisioning.txt').write_text('Ordinary shell UID 2000 populated the displayed app-owned ROM path using adb push.\n')
-    # Kill with configuration visible; Android restores it and its saved UI state.
+    # Put the configurator in the background, then actually kill its process.
+    # am kill deliberately does not kill a foreground process.
+    old_pid = shell('pidof', app).strip()
+    shell('am', 'start', '-a', 'android.settings.SETTINGS')
     shell('am', 'kill', app)
+    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'background configuration process death')
     start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
     ui('Use app-owned storage', dpad=True)
+    assert shell('pidof', app).strip() != old_pid, 'Process-death probe did not restart the native host'
+    screenshot('configurator-after-process-death')
+    save_logs('configurator-after-process-death')
     ui('Save and start frontend', dpad=True)
     shell('am', 'force-stop', app)
     # Resource installation is uncommitted on a fresh start; remove resources
@@ -380,7 +440,7 @@ try:
             shell('touch', path)
             adb('logcat', '-c')
             start_entry('HomeEntry', 'android.intent.category.HOME')
-            ui('Configure ES-DE Plus')
+            ui('Configure ' + label)
             screenshot('blocked-' + directory + '-recoverable')
             save_logs('blocked-' + directory)
             assert shell('pidof', app).strip(), 'Storage error killed HOME frontend'
