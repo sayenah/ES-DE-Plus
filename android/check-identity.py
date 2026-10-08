@@ -80,7 +80,6 @@ with zipfile.ZipFile(apk) as archive:
                 assert forbidden.encode(encoding) not in data, (entry, encoding)
         assert not entry.endswith(('.jks', '.keystore')), entry
     assert archive.read('assets/graphics/splash.svg') == pathlib.Path('android/branding/splash.svg').read_bytes()
-    assert 'res/drawable/placeholder_icon.xml' in archive.namelist()
 for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/'):
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
@@ -110,6 +109,38 @@ label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@na
 aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt'
 badging = subprocess.check_output([str(aapt), 'dump', 'badging', str(apk)], text=True)
 print(badging)
+# Release resource optimization shortens filenames. Follow the manifest's real
+# icon entry and compare its compiled vector, rather than assuming a ZIP path.
+icons = set(re.findall(r"^application-icon-\d+:'([^']+)'$", badging, re.M))
+assert icons, 'No manifest-selected application icon'
+placeholder = ET.parse('android/app/src/main/res/drawable/placeholder_icon.xml').getroot()
+for icon in sorted(icons):
+    tree = subprocess.check_output([str(aapt), 'dump', 'xmltree', str(apk), icon], text=True)
+    print(f'PACKAGED ICON {icon}\n{tree}')
+    nodes = re.split(r'^\s*E:\s+(\w+).*$', tree, flags=re.M)[1:]
+    expected_nodes = list(placeholder.iter())
+    assert nodes[::2] == [node.tag for node in expected_nodes], (icon, 'Icon geometry differs')
+    for expected, body in zip(expected_nodes, nodes[1::2]):
+        attributes = dict(re.findall(r'^\s*A:\s+android:(\w+)\([^)]*\)=(.*)$', body, re.M))
+        expected_attributes = {name.rsplit('}', 1)[-1]: value for name, value in expected.attrib.items()}
+        assert attributes.keys() == expected_attributes.keys(), (icon, attributes)
+        for name, value in expected_attributes.items():
+            actual = attributes[name]
+            if name == 'pathData':
+                assert re.match(r'^"([^"]*)"', actual).group(1) == value, (icon, name, actual)
+                continue
+            kind, data = re.match(r'\(type 0x([0-9a-f]+)\)0x([0-9a-f]+)', actual).groups()
+            kind, data = int(kind, 16), int(data, 16)
+            if name == 'fillColor':
+                assert 28 <= kind <= 31 and data == (int(value[1:], 16) | 0xff000000), (icon, name, actual)
+            elif name in ('width', 'height'):
+                # Android complex dimensions: signed 24-bit mantissa and radix.
+                mantissa = struct.unpack('<i', struct.pack('<I', data))[0] >> 8
+                dimension = mantissa * (1, 1/128, 1/32768, 1/8388608)[(data >> 4) & 3]
+                assert kind == 5 and (data & 15) == 1 and value.endswith('dp') and dimension == float(value[:-2]), (icon, name, actual)
+            else:
+                assert kind == 4 and struct.unpack('<f', struct.pack('<I', data))[0] == float(value), (icon, name, actual)
+print('PASS: manifest-selected compiled icon matches the original placeholder vector')
 assert ('application-debuggable' in badging) != release
 assert f"package: name='{application_id}'" in badging
 assert f"application-label:'{label}'" in badging
