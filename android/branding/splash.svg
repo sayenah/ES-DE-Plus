@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. Original placeholder. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+    <rect width="640" height="360" fill="#142838"/>
+    <path fill="#58d8b0" d="M300 110h40v50h50v40h-50v50h-40v-50h-50v-40h50z"/>
+</svg>

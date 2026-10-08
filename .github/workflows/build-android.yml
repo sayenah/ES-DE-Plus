@@ -1,0 +1,226 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. CI evidence only; no APK distribution.
+name: Build Android
+on:
+  push:
+    branches: ["feature/**"]
+  pull_request:
+    paths: ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", ".github/workflows/**"]
+  workflow_dispatch:
+    inputs:
+      clean_cache:
+        description: Skip downloads and install caches for fully cold evidence
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
+      - name: Restore downloads
+        if: ${{ !inputs.clean_cache }}
+        uses: actions/cache@v4
+        with:
+          path: android/.deps/downloads
+          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh') }}
+      - name: Prepare source and include layout
+        run: |
+          set -o pipefail
+          tools/Android_dependencies_setup.sh 2>&1 | tee android/source-archives.log
+      - name: Reject a corrupt source archive before extraction
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, subprocess, tempfile
+          script = pathlib.Path('tools/Android_dependencies_setup.sh').resolve()
+          with tempfile.TemporaryDirectory() as temporary:
+              root = pathlib.Path(temporary)
+              (root / '.clang-format').touch()
+              (root / 'external/utfcpp').mkdir(parents=True)
+              downloads = root / 'android/.deps/downloads'
+              downloads.mkdir(parents=True)
+              (downloads / 'icu.archive').write_bytes(b'corrupt source archive')
+              rejected = subprocess.run(['bash', str(script)], cwd=root, capture_output=True, text=True)
+              assert rejected.returncode != 0 and 'SHA256 mismatch' in rejected.stderr, rejected.stdout + rejected.stderr
+              assert not (root / 'android/.deps/sources/icu').exists(), 'Extraction preceded verification'
+              evidence = pathlib.Path('android/evidence')
+              evidence.mkdir(exist_ok=True)
+              (evidence / 'source-checksum-positive-control.txt').write_text('PASS: corrupt cache archive rejected before extraction.\n' + rejected.stderr)
+          PYCODE
+      - name: Restore per-ABI dependencies
+        id: deps
+        if: ${{ !inputs.clean_cache }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            android/.deps/install
+            android/libs
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py') }}
+      - name: Validate committed Gradle project
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew --no-daemon help 2>&1 | tee gradle-configure.log
+      - name: Build both dependency ABIs
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          export JOBS=$(nproc)
+          echo "Dependency build parallelism: $JOBS"
+          tools/Android_dependencies_build.sh arm64-v8a 2>&1 | tee android/deps-arm64.log
+          tools/Android_dependencies_build.sh x86_64 2>&1 | tee android/deps-x86_64.log
+      - name: Save completed dependency installs
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            android/.deps/install
+            android/libs
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py') }}
+      - name: Restore ABI-neutral generated headers
+        run: tools/Android_dependencies_setup.sh
+      - name: Assemble debug APK with committed wrapper
+        id: assemble
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee assemble.log
+      - name: Record actual native outputs and Gradle metadata
+        run: |
+          python3 - <<'PYCODE'
+          import json, pathlib
+          destination = pathlib.Path('android/evidence')
+          destination.mkdir(exist_ok=True)
+          lines = []
+          for file in pathlib.Path('android/app/.cxx').rglob('*.so'):
+              lines.append(f'NATIVE FILE {file}')
+          for file in pathlib.Path('android/app/.cxx').rglob('android_gradle_build*.json'):
+              for name, library in json.loads(file.read_text()).get('libraries', {}).items():
+                  lines.append(f'GRADLE OUTPUT {name}: {library.get("output")} ABI={library.get("abi")}')
+          for file in pathlib.Path('android/app/.cxx').rglob('build.ninja'):
+              for line in file.read_text().splitlines():
+                  if line.strip().startswith('LINK_LIBRARIES ='):
+                      lines.append(f'NATIVE LINK {file}: {line.strip()}')
+          text = '\n'.join(lines) + '\n'
+          (destination / 'native-outputs.txt').write_text(text)
+          print(text)
+          PYCODE
+      - name: Assemble unsigned minified release APK
+        id: release
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee assemble-release.log
+          test -s app/build/outputs/mapping/release/mapping.txt
+      - name: Check new native code compiler warnings
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          # AGP 8.13.2 writes Ninja stdout/stderr in intermediates/cxx/logs;
+          # .cxx holds the corresponding build metadata. Scan actual outputs.
+          python3 android/check-native-warnings.py android/app/.cxx android/app/build/intermediates/cxx | tee android/evidence/native-warnings.txt
+      - name: Native-warnings positive control
+        run: |
+          python3 - <<'PYCODE'
+          import os, pathlib, subprocess, tempfile
+          compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
+          with tempfile.TemporaryDirectory() as temporary:
+              source = pathlib.Path(temporary) / 'InputOverlay.cpp'
+              source.write_text('#warning ES-DE-Plus native-warnings positive control\n')
+              compiled = subprocess.run([str(compiler), '-fsyntax-only', str(source)], capture_output=True, text=True)
+              assert compiled.returncode == 0, compiled.stderr
+              log = pathlib.Path(temporary) / 'build_stderr_probe.txt'
+              log.write_text(compiled.stdout + compiled.stderr)
+              gate = subprocess.run(['python3', 'android/check-native-warnings.py', str(log)], capture_output=True, text=True)
+              assert gate.returncode == 1 and 'FAIL: native warnings' in gate.stdout, gate.stdout
+              assert 'native-warnings positive control' in gate.stdout, gate.stdout
+              pathlib.Path('android/evidence/native-warnings-positive-control.txt').write_text('PASS: real NDK compiler warning is rejected by the production gate.\n' + gate.stdout)
+          PYCODE
+      - name: Audit minified release identity and kept JNI methods
+        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          python3 android/check-identity.py android/app/build/outputs/apk/release/app-release-unsigned.apk --release | tee android/evidence/release-identity.txt
+      - name: Audit APK native closure
+        run: |
+          set -o pipefail
+          mkdir -p android/evidence
+          python3 android/check-elf.py android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/elf-closure.txt
+      - name: Verify an unmatched runtime keeps the strict RELRO rule
+        run: |
+          python3 - <<'PYCODE'
+          import pathlib, subprocess, tempfile, zipfile
+          apk = pathlib.Path('android/app/build/outputs/apk/debug/app-debug.apk')
+          zipalign = pathlib.Path('/usr/local/lib/android/sdk/build-tools/36.0.0/zipalign')
+          with tempfile.TemporaryDirectory() as temporary:
+              foreign = pathlib.Path(temporary) / 'foreign.apk'
+              aligned = pathlib.Path(temporary) / 'aligned.apk'
+              with zipfile.ZipFile(apk) as source, zipfile.ZipFile(foreign, 'w') as destination:
+                  for entry in source.infolist():
+                      data = source.read(entry)
+                      if entry.filename == 'lib/arm64-v8a/libc++_shared.so':
+                          # A valid ELF ABI-version byte changes the fingerprint
+                          # while retaining this stock file's unaligned RELRO.
+                          data = bytearray(data)
+                          data[8] ^= 1
+                      destination.writestr(entry, data)
+              subprocess.check_call([str(zipalign), '-f', '-P', '16', '4', str(foreign), str(aligned)])
+              audit = subprocess.run(['python3', 'android/check-elf.py', str(aligned)], capture_output=True, text=True)
+              assert audit.returncode != 0, 'Foreign runtime escaped the strict audit'
+              assert 'STRICT arm64-v8a/libc++_shared.so: SHA256=' in audit.stdout, audit.stdout
+              assert "'arm64-v8a', 'libc++_shared.so', 'Unaligned RELRO'" in audit.stdout, audit.stdout
+              summary = 'PASS: altered runtime retains its filename but is hash-unmatched and rejected by the strict RELRO check.\n'
+              pathlib.Path('android/evidence/prebuilt-fingerprint-probe.txt').write_text(summary)
+              print(summary)
+          PYCODE
+      # Independent evidence remains useful after an audit failure. Failed checks
+      # retain their failure status and keep the job red; none is skipped or waived.
+      - name: Audit APK zip alignment and identity
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/zipalign.txt
+          python3 android/check-identity.py android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/identity.txt
+      - name: Enable KVM access
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: API 34 x86_64 frontend smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Check tracked subtree integrity
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        run: git diff --exit-code -- external/
+      - name: Upload build and smoke evidence (no APK)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-evidence
+          path: |
+            android/*.log
+            android/DEPENDENCY-LICENSES.md
+            android/evidence/*.txt
+            android/evidence/*.png
+          retention-days: 7

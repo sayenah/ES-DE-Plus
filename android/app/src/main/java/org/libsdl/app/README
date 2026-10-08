@@ -1,0 +1,7 @@
+SPDX-License-Identifier: MIT
+ES-DE-Plus — this provenance note was written for ES-DE-Plus.
+
+SDL Java sources vendored (implementation unchanged) from libsdl-org/SDL release-2.32.10,
+android-project/app/src/main/java/org/libsdl/app/*.java (zlib license).
+The tag has no per-file license headers; its upstream LICENSE.txt notice is
+prepended intact to each Java file. See licenses/SDL.
