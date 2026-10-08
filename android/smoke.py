@@ -459,9 +459,13 @@ try:
     # Interrupt an actual first-run copy through ActivityManager. Inspect the
     # partial installation after the process is stopped, never before it.
     adb('logcat', '-c')
-    follower = subprocess.Popen(['adb', 'logcat', '-v', 'brief', 'ES-DE-Plus:I', '*:S'],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     shell('am', 'start', '-n', activity)
+    wait_for(lambda: shell('pidof', app, check=False).strip().isdigit(), 'copy-probe process started')
+    copy_pid = shell('pidof', app).strip()
+    # PID filtering also excludes messages already buffered by the prior
+    # configurator process; clearing logcat alone does not bind this probe.
+    follower = subprocess.Popen(['adb', 'logcat', '--pid=' + copy_pid, '-v', 'brief', 'ES-DE-Plus:I', '*:S'],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     deadline = time.monotonic() + 60
     observed = b''
     try:
@@ -470,8 +474,7 @@ try:
             if readable:
                 observed += follower.stdout.read1(65536)
                 if b'Installed resource: fonts/' in observed:
-                    pid = shell('pidof', app).strip()
-                    assert pid.isdigit(), pid
+                    assert shell('pidof', app).strip() == copy_pid, 'Copy-probe process changed'
                     shell('am', 'force-stop', app)
                     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'resource-copy process stopped')
                     break
