@@ -64,13 +64,15 @@ def launch():
     shell('am', 'start', '-n', activity)
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
+    assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
     # Dismiss the real Android immersive-mode tutorial if it is covering SDL.
     # Read its actual button bounds and send a tap; no setting/state is fabricated.
     hierarchy = '/data/local/tmp/esde-smoke-window.xml'
     shell('uiautomator', 'dump', hierarchy)
     window = shell('cat', hierarchy)
+    (evidence / 'frontend-ui.txt').write_text(window)
     for node in ET.fromstring(window).iter('node'):
-        if node.get('package') == 'com.android.systemui' and node.get('text') == 'Got it':
+        if node.get('text') == 'Got it':
             x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
             time.sleep(0.5)
@@ -167,9 +169,22 @@ try:
     save_logs('search-and-launch')
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
     # Missing-emulator errors are expected in this phase; startup errors were checked above.
+    key('KEYCODE_ENTER')  # Dismiss the existing missing-emulator message.
+    key('KEYCODE_ESCAPE')
+    for _ in range(3):  # SEARCH, SCRAPER, UI SETTINGS, then SOUND SETTINGS.
+        key('KEYCODE_DPAD_DOWN')
+    key('KEYCODE_ENTER')
+    key('KEYCODE_DPAD_DOWN')  # Audio driver, then navigation volume.
+    key('KEYCODE_DPAD_LEFT')
+    screenshot('changed-sound-setting')
+    key('KEYCODE_ESCAPE')  # GuiSettings saves the actual user change.
+    key('KEYCODE_ESCAPE')
     shell('am', 'force-stop', app)
     before = shell('cat', settings)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
+    volume = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"', before)
+    assert volume and int(volume.group(1)) < 70, 'Keyboard change to default navigation volume (70) was not saved'
+    (evidence / 'preserved-settings.txt').write_text(before)
     adb('logcat', '-c')
     launch()
     current_logcat = adb('logcat', '-d')
