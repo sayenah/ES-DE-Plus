@@ -21,6 +21,7 @@ external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
 settings = external + '/ES-DE-Plus/settings/es_settings.xml'
+startup_baseline = ''
 
 
 def adb(*args, check=True, binary=False):
@@ -51,7 +52,7 @@ def wait_for(condition, description, timeout=90):
 
 
 def log():
-    return private('cat', logpath, check=False)
+    return shell('cat', logpath, check=False)
 
 
 def screenshot(name):
@@ -62,24 +63,18 @@ def screenshot(name):
 
 def launch():
     # Each stopped-process restart must produce new startup evidence.
-    private('rm', '-f', logpath)
+    global startup_baseline
+    startup_baseline = log()
     shell('am', 'start', '-n', activity)
-    wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
+    wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh frontend startup/system loading')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
     # Startup logging precedes the render loop's first frame/texture uploads.
     time.sleep(10)
-    # Dismiss the real Android immersive-mode tutorial if it is covering SDL.
-    # Read its actual button bounds and send a tap; no setting/state is fabricated.
-    hierarchy = '/data/local/tmp/esde-smoke-window.xml'
-    shell('uiautomator', 'dump', hierarchy)
-    window = shell('cat', hierarchy)
-    (evidence / 'frontend-ui.txt').write_text(window)
-    for node in ET.fromstring(window).iter('node'):
-        if node.get('text') == 'Got it':
-            x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
-            shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-            time.sleep(0.5)
+    # Dismiss the real Android immersive-mode tutorial through its actual UI.
+    wait_for(lambda: bool(hierarchy()), 'frontend UI hierarchy')
+    if any(node.get('text') == 'Got it' for node in hierarchy()):
+        ui('Got it')
 
 
 def save_logs(name):
@@ -94,8 +89,13 @@ def key(code):
 
 def hierarchy():
     location = '/data/local/tmp/esde-smoke-window.xml'
-    shell('uiautomator', 'dump', location)
-    xml = shell('cat', location)
+    shell('rm', '-f', location)
+    dump = shell('uiautomator', 'dump', location, check=False)
+    xml = shell('cat', location, check=False)
+    if not xml.strip().startswith('<?xml'):
+        with (evidence / 'ui-dump-retries.txt').open('a') as output:
+            output.write(dump + '\n')
+        return []
     (evidence / 'latest-ui.txt').write_text(xml)
     nodes = list(ET.fromstring(xml).iter('node'))
     anr = next((n.get('text', '') for n in nodes if n.get('resource-id') == 'android:id/alertTitle' and
@@ -140,8 +140,9 @@ def ui(label, dpad=False):
 
 
 def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
+    global startup_baseline
     if not shell('pidof', app, check=False).strip():
-        private('rm', '-f', logpath)
+        startup_baseline = log()
     shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
           '-n', app + '/org.esdeplus.frontend.' + name)
 
@@ -191,8 +192,18 @@ def component_enabled(component, enabled):
     return True
 
 
+def owned_fixture(action, directory):
+    result = shell('am', 'instrument', '-w', '-e', 'mode', 'owned-fixture',
+                   '-e', 'action', action, '-e', 'directory', directory,
+                   app + '/org.esdeplus.frontend.RuntimeSmoke')
+    assert f'PASS: SDK-context owned fixture {action} {directory}' in result, result
+    with (evidence / 'owned-fixtures.txt').open('a') as output:
+        output.write(result)
+    shell('am', 'force-stop', app)
+
+
 def configured_system(name):
-    wait_for(lambda: 'Application startup time:' in log(), 'configured system view')
+    wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
     time.sleep(10)
@@ -496,11 +507,11 @@ try:
     key('KEYCODE_DEL')
     def volume_saved():
         value = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"',
-                          private('cat', settings, check=False))
+                          shell('cat', settings, check=False))
         return value and int(value.group(1)) < 70
     wait_for(volume_saved, 'real navigation-volume change saved to settings')
     shell('am', 'force-stop', app)
-    before = private('cat', settings)
+    before = shell('cat', settings)
     (evidence / 'preserved-settings.txt').write_text(before)
     assert '<bool ' in before and '<string ' in before, 'Settings were not saved'
     volume = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"', before)
@@ -510,7 +521,7 @@ try:
     current_logcat = adb('logcat', '-d')
     assert 'Resource copy required=false' in current_logcat, current_logcat
     assert 'Installed resource:' not in current_logcat, current_logcat
-    assert private('cat', settings) == before, 'Settings changed on second launch'
+    assert shell('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
     shell('am', 'force-stop', app)
@@ -522,7 +533,7 @@ try:
     launch()
     assert 'Installed resource: fonts/DejaVuSans.ttf' in adb('logcat', '-d')
     assert private('cat', 'files/themes/user-theme/keep.txt').strip() == 'user-content'
-    assert private('cat', settings) == before
+    assert shell('cat', settings) == before
     save_logs('deleted-file-recovery')
     print('PASS: deleted font restored despite marker; user theme and settings preserved', flush=True)
     shell('am', 'force-stop', app)
@@ -542,11 +553,8 @@ try:
     # recoverable. Existing selections and user data must be preserved.
     for directory in ['ES-DE-Plus', 'ROMs']:
         shell('am', 'force-stop', app)
-        path = external + '/' + directory
-        saved = path + '.smoke-saved'
-        private('mv', path, saved)
+        owned_fixture('block', directory)
         try:
-            private('touch', path)
             adb('logcat', '-c')
             start_entry('HomeEntry', 'android.intent.category.HOME')
             ui('Configure ' + label)
@@ -556,8 +564,7 @@ try:
             private('test', '!', '-d', 'files/settings')
         finally:
             shell('am', 'force-stop', app)
-            private('rm', '-f', path)
-            private('mv', saved, path)
+            owned_fixture('restore', directory)
         print('PASS: obstructed ' + directory + ' has recoverable UI without fallback', flush=True)
     # A real resource-copy failure on the ordinary native startup path is shown
     # to the user. Removing the obstruction and pressing Retry resumes startup.
@@ -577,7 +584,7 @@ try:
         private('mv', 'files/resources/fonts.smoke-saved', 'files/resources/fonts', check=False)
     adb('logcat', '-c')
     launch()
-    assert private('cat', settings) == before, 'Directory-failure recovery changed settings'
+    assert shell('cat', settings) == before, 'Directory-failure recovery changed settings'
 
     screenshot('scoped-restart-system-view')
     for name, category, home in [('HomeEntry', 'android.intent.category.HOME', True),

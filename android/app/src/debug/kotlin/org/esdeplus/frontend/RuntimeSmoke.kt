@@ -11,15 +11,42 @@ import java.io.File
 class RuntimeSmoke : Instrumentation() {
     private var provisionOnly = false
     private var storageOnly = false
+    private var ownedAction: String? = null
+    private var ownedDirectory: String? = null
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
+        if (arguments?.getString("mode") == "owned-fixture") {
+            ownedAction = arguments.getString("action")
+            ownedDirectory = arguments.getString("directory")
+        }
         start()
     }
     override fun onStart() {
         val result = Bundle()
         try {
+            if (ownedAction != null) {
+                check(ownedDirectory in listOf("ES-DE-Plus", "ROMs"))
+                val root = targetContext.getExternalFilesDir(null) ?: error("SDK-owned volume unavailable")
+                val directory = File(root, ownedDirectory!!)
+                val saved = File(root, ownedDirectory + ".smoke-saved")
+                when (ownedAction) {
+                    "block" -> {
+                        check(!saved.exists() && directory.isDirectory)
+                        check(directory.renameTo(saved))
+                        directory.writeText("Directory obstruction")
+                    }
+                    "restore" -> {
+                        check(saved.isDirectory && directory.isFile)
+                        check(directory.delete() && saved.renameTo(directory))
+                    }
+                    else -> error("Unknown owned fixture action")
+                }
+                result.putString("stream", "PASS: SDK-context owned fixture $ownedAction $ownedDirectory; no preferences changed\n")
+                finish(-1, result)
+                return
+            }
             if (storageOnly) {
                 val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
                 val selected = storage.load() ?: error("Real configurator has not saved a selection")
