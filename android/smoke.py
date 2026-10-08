@@ -48,6 +48,10 @@ def shell(*args, check=True):
 
 
 def private(*args, check=True):
+    if args and args[0] == 'test':
+        # test is a shell builtin; older Android images need not ship an
+        # executable applet that run-as can exec directly.
+        return shell('run-as', app, 'sh', '-c', shlex.join(args), check=check)
     return shell('run-as', app, *args, check=check)
 
 
