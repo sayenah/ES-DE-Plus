@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
@@ -63,6 +64,16 @@ def launch():
     shell('am', 'start', '-n', activity)
     wait_for(lambda: 'Application startup time:' in log(), 'frontend startup/system loading')
     assert 'Error:' not in log(), log()
+    # Dismiss the real Android immersive-mode tutorial if it is covering SDL.
+    # Read its actual button bounds and send a tap; no setting/state is fabricated.
+    hierarchy = '/data/local/tmp/esde-smoke-window.xml'
+    shell('uiautomator', 'dump', hierarchy)
+    window = shell('cat', hierarchy)
+    for node in ET.fromstring(window).iter('node'):
+        if node.get('package') == 'com.android.systemui' and node.get('text') == 'Got it':
+            x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
+            shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+            time.sleep(0.5)
 
 
 def save_logs(name):
@@ -89,10 +100,15 @@ try:
     shell('setprop', 'debug.checkjni', '1')
     shell('am', 'force-stop', app)
     shell('pm', 'clear', app)
+    provisioning = shell('am', 'instrument', '-w', '-e', 'mode', 'provision',
+                         app + '/org.esdeplus.frontend.RuntimeSmoke')
+    assert 'PROVISIONED:' in provisioning, provisioning
+    (evidence / 'fixture-provisioning.txt').write_text(provisioning)
+    shell('am', 'force-stop', app)
+    private('test', '!', '-f', 'files/resources-installed')
     # Provision ROMs using adb before any frontend launch, as AC-3 requires.
     dummy = evidence / 'dummy.nes'
     dummy.write_bytes(b'\x00')
-    shell('mkdir', '-p', roms + '/nes')
     adb('push', str(dummy), roms + '/nes/Smoke Alpha.nes')
     adb('push', str(dummy), roms + '/nes/Smoke Beta.nes')
     dummy.unlink()

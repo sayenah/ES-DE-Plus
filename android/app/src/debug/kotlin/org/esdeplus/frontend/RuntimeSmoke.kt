@@ -9,10 +9,26 @@ import android.os.Bundle
 import java.io.File
 
 class RuntimeSmoke : Instrumentation() {
-    override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
+    private var provisionOnly = false
+    override fun onCreate(arguments: Bundle?) {
+        super.onCreate(arguments)
+        provisionOnly = arguments?.getString("mode") == "provision"
+        start()
+    }
     override fun onStart() {
         val result = Bundle()
         try {
+            if (provisionOnly) {
+                // Create ordinary SDK-owned directories before adb pushes files.
+                // MainActivity is not launched and no resources/marker are installed.
+                val bridge = NativeBridge(targetContext)
+                bridge.getAppDataDirectory()
+                val roms = File(bridge.getROMDirectory(), "nes")
+                check(roms.mkdirs() || roms.isDirectory)
+                result.putString("stream", "PROVISIONED: ${roms.absolutePath}\n")
+                finish(-1, result)
+                return
+            }
             val activity = startActivitySync(Intent(targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             val deadline = System.nanoTime() + 60_000_000_000L

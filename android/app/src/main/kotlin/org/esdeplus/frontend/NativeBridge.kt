@@ -95,7 +95,9 @@ class NativeBridge(private val context: Context) {
         return file.absolutePath
     }
     fun getAppDataDirectory(): String = directory(File(externalFiles(), "ES-DE-Plus"))
-    fun getROMDirectory(): String = directory(File(externalFiles(), "ROMs"))
+    // FileData returns this value directly; createSystemDirectories concatenates
+    // system names, just as the desktop getROMDirectory guarantees a final slash.
+    fun getROMDirectory(): String = directory(File(externalFiles(), "ROMs")) + "/"
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")
