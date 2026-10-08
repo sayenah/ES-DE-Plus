@@ -25,8 +25,17 @@ startup_baseline = ''
 
 
 def adb(*args, check=True, binary=False):
-    result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=not binary, timeout=90)
+    # Retry only read-only log collection after a transient transport closure.
+    # UI actions, process changes and assertions are never replayed here.
+    for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
+        result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=not binary, timeout=90)
+        if not result.returncode:
+            break
+        if args[:2] == ('logcat', '-d'):
+            with (evidence / 'logcat-transport-retries.txt').open('a') as output:
+                output.write(f'Attempt {attempt + 1}: exit {result.returncode}; {result.stderr}\n')
+            time.sleep(1)
     if check and result.returncode:
         print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
         result.check_returncode()
@@ -422,11 +431,15 @@ try:
         adb('push', str(dummy), roms + '/nes/' + name)
     dummy.unlink()
     (evidence / 'scoped-adb-provisioning.txt').write_text('Ordinary shell UID 2000 populated the displayed app-owned ROM path using adb push.\n')
-    # Put the configurator in the background, then actually kill its process.
-    # am kill deliberately does not kill a foreground process.
+    # Put the configurator in the background, then kill the recorded app PID
+    # under its own UID. am kill can retain recently backgrounded processes.
     old_pid = shell('pidof', app).strip()
+    assert old_pid.isdigit(), old_pid
     shell('am', 'start', '-a', 'android.settings.SETTINGS')
-    shell('am', 'kill', app)
+    wait_for(lambda: any(n.get('package', '').startswith('com.android.') and
+                         n.get('package') != app for n in hierarchy()) and
+             not any(n.get('package') == app for n in hierarchy()), 'configurator backgrounded')
+    private('kill', '-KILL', old_pid)
     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'background configuration process death')
     start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
     ui('Use app-owned storage', dpad=True)
