@@ -89,11 +89,11 @@ object LaunchSmoke {
             equal(latch.await(10, TimeUnit.SECONDS), true, "Separate-UID recipient observation")
             return observation.get().also { evidence.append(it).append('\n') }
         }
-        fun mode(value: String) {
+        fun configureQuery(value: String) {
             equal(receive(base(), arrayOf("queryMode", value)).getString("queryMode"), value, "Receiver configuration")
         }
         fun query(mode: String, expected: Int) {
-            mode(mode)
+            configureQuery(mode)
             val begin = SystemClock.elapsedRealtimeNanos()
             val actual = bridge.checkRACoreInstalled(stub, "test_libretro_android.so")
             val elapsed = TimeUnit.NANOSECONDS.toMillis(SystemClock.elapsedRealtimeNanos() - begin)
@@ -144,6 +144,10 @@ object LaunchSmoke {
             equal(received.getLong("size"), bytes.size.toLong(), "Provider size")
             for (key in listOf("writeDenied", "deleteDenied", "insertDenied", "updateDenied", "boundary0", "boundary1", "boundary2"))
                 equal(received.getBoolean(key), true, "Recipient boundary $key")
+            context.revokeUriPermission(provider, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val revoked = receive(base(), arrayOf("ROM", provider.toString()))
+            equal(revoked.has("readError"), true, "Revoked provider grant denies recipient")
+            equal(receive(base("%ROMPROVIDER%")).getString("sha256"), expectedHash, "Fresh exact grant restores recipient read")
             // Direct production provider calls check containment independently
             // of Android's external UID permission enforcement.
             context.contentResolver.openInputStream(provider)!!.use { equal(it.readBytes().contentEquals(bytes), true, "Provider positive read") }

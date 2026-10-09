@@ -90,7 +90,15 @@ class AppDiscovery(private val context: Context) {
     companion object {
         fun filename(label: String, component: String): String {
             val clean = label.replace(Regex("[\\p{Cc}\\p{Cf}/\\\\:*?\"<>|]"), "_").trim(' ', '.').ifEmpty { "App" }
-            val stem = clean.codePoints().limit(48).toArray().let { String(it, 0, it.size) }
+            val stem = StringBuilder()
+            var bytes = 0
+            for (point in clean.codePoints().toArray()) {
+                val character = String(Character.toChars(point))
+                val size = character.toByteArray(Charsets.UTF_8).size
+                if (bytes + size > 160) break
+                stem.append(character)
+                bytes += size
+            }
             val hash = MessageDigest.getInstance("SHA-256").digest(component.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
             return "$stem [$hash]"

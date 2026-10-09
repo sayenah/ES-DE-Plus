@@ -478,6 +478,22 @@ def configured_system(name):
     save_logs(name)
 
 
+def launch_contract_probes(mode):
+    shell('am', 'force-stop', app)
+    adb('logcat', '-c')
+    result = shell('am', 'instrument', '-w', '-e', 'mode', 'launch-probe',
+                   app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / ('launch-contract-' + mode + '.txt')).write_text(result)
+    smoke_checks.probe_passed(result,
+        'PASS: PR-C launch/discovery/provider/query probes; assertion positive controls rejected')
+    (evidence / ('launch-contract-' + mode + '-logcat.txt')).write_text(adb('logcat', '-d', '-v', 'threadtime'))
+    shell('am', 'force-stop', 'org.esdeplus.stub')
+    shell('am', 'force-stop', app)
+    launch()
+    screenshot('launch-contract-' + mode + '-returned-frontend')
+    save_logs('launch-contract-' + mode + '-returned-frontend')
+
+
 def native_shutdown(pid):
     # Android Runtime.exit skips native atexit cleanup, so the final buffered
     # es_log line is not evidence of SDL completion. Require the actual native
@@ -520,6 +536,7 @@ try:
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
     print(adb('install', '-r', str(apk)), flush=True)
+    print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     clear_app()
     retained = shell('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
@@ -529,6 +546,8 @@ try:
         'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
     clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
+    if api == 29:
+        shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
     (evidence / 'image.txt').write_text(shell('getprop'))
     # Genuine shared files, accessible to users through file transfer; no settings
     # or preferences are written by the host-side automation.
@@ -689,6 +708,7 @@ try:
         cancelled_grant_retained()
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
+    launch_contract_probes('direct')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
@@ -892,6 +912,7 @@ try:
     private('test', '-f', 'files/themes/linear-es-de/theme.xml')
     screenshot('system-view')
     save_logs('first-launch-recovered')
+    launch_contract_probes('scoped')
     # Real keyboard navigation: open the menu, its first SEARCH entry, type, accept.
     key('KEYCODE_ESCAPE')
     screenshot('main-menu-search')

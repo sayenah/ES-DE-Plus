@@ -50,8 +50,16 @@ jobs:
         if: matrix.image == 'api29'
         run: |
           curl --fail --location --retry 3 https://buildbot.libretro.com/stable/1.22.2/android/RetroArch.apk -o "$RUNNER_TEMP/RetroArch.apk"
-          sha256sum "$RUNNER_TEMP/RetroArch.apk"
+          mkdir -p android/evidence
+          sha256sum "$RUNNER_TEMP/RetroArch.apk" | tee android/evidence/retroarch-pin.txt
           rm "$RUNNER_TEMP/RetroArch.apk"
+      - name: Record initial pin observation (text only)
+        if: matrix.image == 'api29'
+        uses: actions/upload-artifact@v4
+        with:
+          name: retroarch-pin-observation-${{ github.sha }}
+          path: android/evidence/retroarch-pin.txt
+          retention-days: 7
       - name: Restore downloads
         if: ${{ !inputs.clean_cache }}
         uses: actions/cache@v4
@@ -94,7 +102,7 @@ jobs:
         run: |
           set -o pipefail
           cd android
-          ./gradlew --no-daemon help 2>&1 | tee gradle-configure.log
+          ./gradlew --no-daemon help :app:compileDebugKotlin :stub-emulator:assembleDebug 2>&1 | tee gradle-configure.log
       - name: Build both dependency ABIs
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
