@@ -612,14 +612,16 @@ def gamelist_recipient_flow(mode):
         search_launch('Smoke', mode + '-provider-search')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
         wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
-                 shell('dumpsys', 'window', 'windows')), 'recipient focused window')
+                 shell('dumpsys', 'window')), 'recipient focused window')
+        (evidence / ('gamelist-recipient-' + mode + '-window.txt')).write_text(shell('dumpsys', 'window'))
         observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         launch_checks.recipient(observation, frontend_uid, b'\x00')
         (evidence / ('gamelist-recipient-' + mode + '.txt')).write_text(json.dumps(observation, ensure_ascii=False, indent=2))
         screenshot('gamelist-recipient-' + mode)
         save_logs('gamelist-recipient-' + mode)
         key('KEYCODE_BACK')
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'return from recipient to frontend')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from recipient to frontend')
+        (evidence / ('gamelist-return-' + mode + '-window.txt')).write_text(shell('dumpsys', 'window'))
         launch_checks.equal(shell('pidof', app).strip(), pid, 'Return resumes same frontend process')
         screenshot('gamelist-return-' + mode)
         if mode == 'scoped':
@@ -687,7 +689,7 @@ def gamelist_recipient_flow(mode):
         screenshot('imported-app-launched-' + mode)
         save_logs('imported-app-launched-' + mode)
         key('KEYCODE_BACK')
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'imported app returns to frontend')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'imported app returns to frontend')
         screenshot('imported-app-return-' + mode)
     except Exception:
         screenshot(mode + '-gamelist-failure')
@@ -745,7 +747,7 @@ def real_retroarch_flow():
         launch_checks.equal('Core query cleanup: com.retroarch result=-1' in current, True, 'Real core query cleanup/timeout')
         shell('am', 'force-stop', 'com.retroarch')
         start_entry()
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'return from real RetroArch')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from real RetroArch')
         screenshot('real-retroarch-return')
     finally:
         shell('am', 'force-stop', app)
