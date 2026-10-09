@@ -337,7 +337,15 @@ def real_system_home():
         (evidence / 'system-home-set-default.txt').write_text(changed + '\n' + output)
         screenshot('system-home-reused')
         key('KEYCODE_BACK')
-        assert shell('pidof', app).strip() == pid and any(n.get('package') == app for n in hierarchy())
+        assert shell('pidof', app).strip() == pid, 'System HOME Back ended the frontend process'
+        wait_for(lambda: any(n.get('package') == app for n in hierarchy()),
+                 'system HOME Back retains foreground frontend', timeout=30)
+        back_dump, back_records = activity_records()
+        assert len(back_records) == 1 and back_records[0][1:] == records[0][1:], back_dump
+        assert 'topResumedActivity=ActivityRecord{' + records[0][2] + '}' in back_dump, back_dump
+        (evidence / 'system-home-back-activities.txt').write_text(back_dump)
+        screenshot('system-home-back')
+        save_logs('system-home-back')
     finally:
         restored = shell('cmd', 'package', 'set-home-activity', original)
         (evidence / 'system-home-default-restored.txt').write_text(original + '\n' + restored)
