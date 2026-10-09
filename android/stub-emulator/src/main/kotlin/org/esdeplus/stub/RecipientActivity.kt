@@ -22,6 +22,10 @@ open class RecipientActivity : Activity() {
         if (control != null) {
             check(getSharedPreferences("query", MODE_PRIVATE).edit().putString("mode", control).commit())
             Log.i("ESDEPlus-recipient", "Query mode configured=$control")
+            if (control == "storage-permission" && android.os.Build.VERSION.SDK_INT >= 30) {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")))
+            }
             intent.getStringExtra("replyPackage")?.let {
                 sendBroadcast(Intent("org.esdeplus.stub.OBSERVATION").setPackage(it)
                     .putExtra("json", JSONObject().put("queryMode", control).toString()))

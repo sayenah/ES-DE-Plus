@@ -61,7 +61,7 @@ class StorageModel(private val context: Context) {
 
     // SDK-owned app paths and StorageManager's current-user volume list agree
     // before any mapping is accepted. No /storage/<UUID> or user-0 guesswork.
-    private fun volumeRoot(volumeId: String): File {
+    internal fun volumeRoot(volumeId: String): File {
         val manager = context.getSystemService(StorageManager::class.java)
         val volume = manager.storageVolumes.singleOrNull {
             if (volumeId == "primary") it.isPrimary else it.uuid?.equals(volumeId, true) == true

@@ -99,7 +99,11 @@ most one second including lock acquisition, then removes the receiver.
 Installed/absent/timeout/unknown are `1`/`0`/`-1`/`-2`. Only a valid timely core
 list can report absence; Android 14+ also requires the broadcasting package's
 platform-reported identity. Missing identity, malformed replies and query
-failures report unknown and allow launching. Stable RetroArch releases through
+failures report unknown and allow launching.
+The public reply carries no request ID; after a failed query, absence in a later
+reply is ambiguous and reports unknown for the rest of that frontend process.
+An installed-core reply can still confirm presence.
+Stable RetroArch releases through
 v1.22.2 do not answer this broadcast: the check times out and launching proceeds.
 CI verifies this with the official pinned v1.22.2 release, downloaded and
 SHA-256 checked in the runner, installed separately and never uploaded.

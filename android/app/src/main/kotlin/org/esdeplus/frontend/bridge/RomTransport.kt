@@ -5,7 +5,6 @@ package org.esdeplus.frontend.bridge
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
@@ -54,14 +53,7 @@ class RomTransport(private val context: Context) {
         val manager = context.getSystemService(StorageManager::class.java)
         val volume = manager.getStorageVolume(file) ?: error("ROM volume is unavailable")
         require(volume.state == Environment.MEDIA_MOUNTED)
-        val suffix = "/Android/data/${context.packageName}/files"
-        val roots = context.getExternalFilesDirs(null).filterNotNull().mapNotNull { owned ->
-            val mapped = manager.getStorageVolume(owned)
-            if (mapped == null || mapped.isPrimary != volume.isPrimary || mapped.uuid != volume.uuid) null
-            else owned.canonicalPath.takeIf { it.endsWith(suffix) }?.removeSuffix(suffix)?.let(::File)
-        }
-        val root = roots.singleOrNull()?.canonicalFile ?: error("Current-user volume cannot be verified")
-        if (Build.VERSION.SDK_INT >= 30) require(volume.directory?.canonicalFile == root)
+        val root = storage.volumeRoot(if (volume.isPrimary) "primary" else volume.uuid ?: error("Unknown volume ID"))
         require(file.path.startsWith(root.path + "/"))
         val relative = file.relativeTo(root).invariantSeparatorsPath
         require(!relative.startsWith("Android/", true)) { "External-storage SAF cannot expose app-owned Android/data ROMs" }

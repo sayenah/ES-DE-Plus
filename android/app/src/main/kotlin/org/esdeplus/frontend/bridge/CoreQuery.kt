@@ -27,6 +27,7 @@ class CoreQuery(private val context: Context) {
         var registered = false
         var thread: HandlerThread? = null
         val result = AtomicInteger(-1)
+        val uncertainAbsence = java.util.concurrent.atomic.AtomicBoolean(false)
         val delivered = CountDownLatch(1)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(receiving: Context, intent: Intent) {
@@ -35,15 +36,21 @@ class CoreQuery(private val context: Context) {
                     reply(intent, coreFile, if (Build.VERSION.SDK_INT >= 34) sentFromPackage else null,
                         packageName, Build.VERSION.SDK_INT >= 34)
                 } catch (error: Exception) { -2 }
-                if (result.compareAndSet(-1, value)) delivered.countDown()
+                if (SystemClock.elapsedRealtimeNanos() >= deadline) return
+                // The public reply has no request identifier. After a failed
+                // query, a later empty list might belong to that old request;
+                // never let it veto a different game launch in this process.
+                val safe = if (value == 0 && uncertainAbsence.get()) -2 else value
+                if (result.compareAndSet(-1, safe)) delivered.countDown()
             }
         }
         try {
             locked = lock.tryLock((deadline - SystemClock.elapsedRealtimeNanos()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
-            if (!locked) return -2
+            if (!locked) { result.set(-2); return -2 }
+            uncertainAbsence.set(packageName in uncertainPackages)
             @Suppress("DEPRECATION")
             val info = context.packageManager.getApplicationInfo(packageName, 0)
-            if (!info.enabled) return -2
+            if (!info.enabled) { result.set(-2); return -2 }
             thread = HandlerThread("ESDEPlus-core-replies").apply { start() }
             val handler = Handler(thread.looper)
             val filter = IntentFilter(RESULT)
@@ -60,14 +67,17 @@ class CoreQuery(private val context: Context) {
             return result.get()
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
+            result.set(-2)
             return -2
         } catch (error: Exception) {
             Log.w("ES-DE-Plus", "Optional core query unavailable: $packageName", error)
+            result.set(-2)
             return -2
         } finally {
             try { if (registered) context.unregisterReceiver(receiver) }
             finally {
                 thread?.quit()
+                if (locked && result.get() < 0) uncertainPackages.add(packageName)
                 if (locked) lock.unlock()
                 Log.i("ES-DE-Plus", "Core query cleanup: $packageName result=${result.get()} elapsedMs=${TimeUnit.NANOSECONDS.toMillis(SystemClock.elapsedRealtimeNanos() - started)}")
             }
@@ -78,6 +88,8 @@ class CoreQuery(private val context: Context) {
         const val QUERY = "com.retroarch.QUERY_INSTALLED_CORES"
         const val RESULT = "com.retroarch.INSTALLED_CORES_RESULT"
         private val lock = ReentrantLock()
+        // Accessed only by the serialized waiter while it owns lock.
+        private val uncertainPackages = mutableSetOf<String>()
         fun reply(intent: Intent, coreFile: String, sender: String?, expected: String, requireSender: Boolean): Int {
             if (intent.action != RESULT || (requireSender && sender != expected)) return -2
             val cores = intent.getStringArrayExtra("CORES") ?: return -2

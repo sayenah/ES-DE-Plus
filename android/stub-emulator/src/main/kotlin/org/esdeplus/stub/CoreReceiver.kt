@@ -24,7 +24,7 @@ class CoreReceiver : BroadcastReceiver() {
                 when (mode) {
                     "malformed" -> response.putExtra("CORES", "wrong type")
                     "oversized" -> response.putExtra("CORES", Array(4097) { "test" })
-                    "absent" -> response.putExtra("CORES", arrayOf("other"))
+                    "absent", "late" -> response.putExtra("CORES", arrayOf("other"))
                     else -> response.putExtra("CORES", arrayOf("test"))
                 }
                 if (Build.VERSION.SDK_INT >= 34 && mode != "anonymous")

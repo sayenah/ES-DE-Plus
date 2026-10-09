@@ -216,9 +216,13 @@ object LaunchSmoke {
                 equal(selected.getString("component").substringBefore('/'), stub, "Target never leaves package")
             }
             val raw = receive(base("%ROM%"))
-            if (Build.VERSION.SDK_INT == 29) equal(raw.getString("sha256"), expectedHash, "Legacy recipient raw path bytes")
-            else evidence.append("RAW PATH recipient observation above; app-owned/scoped file access requires emulator-side access; no read success claimed.\n")
             val configuration = StorageModel(context).load()!!
+            if (Build.VERSION.SDK_INT == 29 || configuration.mode == "direct")
+                equal(raw.getString("sha256"), expectedHash, "Recipient raw path bytes with emulator-side permission")
+            else {
+                equal(raw.has("readError"), true, "App-owned raw path cannot be read by another app on API 30+")
+                evidence.append("CAPABILITY: API 30+ app-owned raw path refuses separate-UID read; use ROMPROVIDER.\n")
+            }
             if (configuration.mode == "direct") {
                 val saf = transport.saf(rom.path)
                 val data = receive(base("%ROMSAF%"))
@@ -263,8 +267,22 @@ object LaunchSmoke {
             }, true, "Games filter excludes non-games")
             query("valid", 1); query("absent", 0); query("malformed", -2); query("oversized", -2)
             query("none", -1); query("unrelated", -1); query("late", -1)
+            query("absent", -2)  // a reply without a request ID cannot safely veto after a failed query
             Thread.sleep(1300)
             query("valid", 1)
+            val cannotDispatch = object : ContextWrapper(orderedContext) {
+                override fun sendBroadcast(intent: Intent) { throw SecurityException("Dispatch failure probe") }
+            }
+            equal(CoreQuery(cannotDispatch).query(stub, "test_libretro_android.so"), -2, "Failed query dispatch")
+            equal(registered.get(), false, "Dispatch failure unregisters receiver")
+            val cannotRegister = object : ContextWrapper(context) {
+                override fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter,
+                    permission: String?, scheduler: Handler?): Intent? = throw SecurityException("Registration failure probe")
+                override fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter,
+                    permission: String?, scheduler: Handler?, flags: Int): Intent? = throw SecurityException("Registration failure probe")
+            }
+            equal(CoreQuery(cannotRegister).query(stub, "test_libretro_android.so"), -2, "Failed query registration")
+            query("valid", 1)  // failure paths release serialization and delivery resources
             if (Build.VERSION.SDK_INT >= 34) query("anonymous", -2)
             if (Build.VERSION.SDK_INT >= 34) {
                 configureQuery("none")

@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. CI-only recipient. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <application android:label="ES-DE Plus recipient" android:allowBackup="false"
         android:appCategory="game" android:requestLegacyExternalStorage="true"
         android:icon="@android:drawable/ic_menu_view" android:banner="@android:drawable/ic_menu_view"

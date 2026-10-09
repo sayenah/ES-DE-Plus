@@ -219,33 +219,37 @@ def resolved_component(action, data=None):
     return next((line.strip() for line in result.splitlines() if '/' in line and ' ' not in line.strip()), None)
 
 
-def permission_row():
+def permission_row(app_label=None):
     # Phone settings can show one app; TV settings can show a list of apps.
     # Select the switch in the smallest subtree containing our exact app label.
     candidates = []
     for parent in hierarchy():
         children = list(parent.iter('node'))
         switches = [n for n in children if n.get('checkable') == 'true']
-        if len(switches) == 1 and any(n.get('text', '').casefold() == label.casefold() for n in children):
+        if len(switches) == 1 and any(n.get('text', '').casefold() == (app_label or label).casefold() for n in children):
             candidates.append((len(children), parent))
     return min(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
-def permission_toggle():
-    row = permission_row()
+def permission_toggle(app_label=None):
+    row = permission_row(app_label)
     return next(n for n in row.iter('node') if n.get('checkable') == 'true') if row is not None else None
 
 
-def grant_from_settings():
+def grant_from_settings(app_label=None, recipient=False):
     # Both app-specific and generic Settings are opened by the application.
     # A generic phone list needs its real app row; TV exposes switches inline.
     wait_for(lambda: bool(hierarchy()), 'all-files Settings UI')
-    if permission_toggle() is None:
-        ui(label)
-    wait_for(lambda: permission_toggle() is not None, 'app-associated all-files switch')
+    if permission_toggle(app_label) is None:
+        ui(app_label or label)
+    wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
+    if recipient and permission_toggle(app_label).get('checked') == 'true':
+        screenshot('recipient-all-files-already-granted')
+        key('KEYCODE_BACK')
+        return
     if television:
         for _ in range(40):
-            row = permission_row()
+            row = permission_row(app_label)
             focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
             if focused:
                 screenshot('tv-all-files-switch-focused')
@@ -255,13 +259,15 @@ def grant_from_settings():
         else:
             raise AssertionError('TV D-pad cannot reach our all-files switch')
     else:
-        toggle = permission_toggle()
+        toggle = permission_toggle(app_label)
         x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
         shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-    wait_for(lambda: permission_toggle() is not None and permission_toggle().get('checked') == 'true',
+    wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
              'real app all-files grant')
-    screenshot('all-files-granted')
+    screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
     key('KEYCODE_BACK')
+    if recipient:
+        return
     if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
     wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') for n in hierarchy()),
@@ -483,6 +489,16 @@ def configured_system(name):
 
 
 def launch_contract_probes(mode):
+    if api >= 30 and mode.startswith('direct'):
+        # A raw-path emulator needs its own explicitly granted filesystem
+        # permission. Drive the recipient's real Settings flow under its UID;
+        # provider grants are tested separately and never widened.
+        shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity',
+              '--es', 'queryMode', 'storage-permission')
+        grant_from_settings('ES-DE Plus recipient', recipient=True)
+        (evidence / ('recipient-filesystem-permission-' + mode + '.txt')).write_text(
+            'Recipient opened its own all-files Settings; actual app-associated switch selected.\n' +
+            shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE'))
     shell('am', 'force-stop', app)
     adb('logcat', '-c')
     result = shell('am', 'instrument', '-w', '-e', 'mode', 'launch-probe',
@@ -534,6 +550,7 @@ def gamelist_recipient_flow(mode):
         (evidence / (mode + '-' + name + '.txt')).write_text((temporary / name).read_text())
     def start_custom():
         shell('am', 'force-stop', app)
+        adb('logcat', '-c')
         launch()
     def failed_target(name):
         start_custom()
@@ -548,7 +565,8 @@ def gamelist_recipient_flow(mode):
         frontend_uid = int(shell('run-as', app, 'id', '-u').strip())
         search_launch('Smoke')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
-        wait_for(lambda: 'org.esdeplus.stub/' in shell('dumpsys', 'window', 'windows'), 'recipient window')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
+                 shell('dumpsys', 'window', 'windows')), 'recipient focused window')
         observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         launch_checks.recipient(observation, frontend_uid, b'\x00')
         (evidence / ('gamelist-recipient-' + mode + '.txt')).write_text(json.dumps(observation, ensure_ascii=False, indent=2))
@@ -881,6 +899,8 @@ try:
         cancelled_grant_retained()
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
+    completion = adb('logcat', '-d')
+    assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     launch_contract_probes('direct')
     shell('am', 'force-stop', app)
     revoked_tree = shell('am', 'instrument', '-w', '-e', 'mode', 'revoke-tree',
@@ -901,8 +921,6 @@ try:
             'CAPABILITY: real typed-path selection already has no persisted tree')
         configured_system('direct-typed-path-system')
     launch_contract_probes('direct-typed')
-    completion = adb('logcat', '-d')
-    assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
