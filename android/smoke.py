@@ -239,6 +239,29 @@ def activity_records():
     return dump, records
 
 
+def select_tree(folder):
+    nodes = hierarchy()
+    if not any(n.get('text') == folder for n in nodes):
+        ui('Show roots')
+        nodes = hierarchy()
+        root = next((n for n in nodes if n.get('text') in ['Internal storage', 'Internal shared storage', shell('getprop', 'ro.product.model').strip()]), None)
+        if root is None:
+            root = next(n for n in nodes if n.get('resource-id', '').endswith('title') and n.get('text', '') not in ['Downloads', 'Recent', 'Images', 'Videos', 'Audio', 'Documents', 'Drive', 'Open from'])
+        ui(root.get('text'))
+    ui(folder)
+    confirmation = next(n for n in hierarchy() if n.get('enabled') == 'true' and
+                        ('use this folder' in n.get('text', '').casefold() or
+                         'allow access to' in n.get('text', '').casefold()))
+    ui(confirmation.get('text'))
+    if any(n.get('text', '').casefold() == 'allow' for n in hierarchy()):
+        ui('Allow')
+
+
+def grant_count(expected):
+    counts = re.findall(r'Persisted tree grant count=(\d+)', adb('logcat', '-d'))
+    return bool(counts) and int(counts[-1]) == expected
+
+
 def destroy_held(name):
     dump, records = activity_records()
     assert any(r[0] == 'ConfiguratorActivity' for r in records), dump
@@ -516,22 +539,20 @@ try:
         ui('Folder selection cancelled')
         screenshot('picker-cancelled')
         ui('Choose shared ROM folder', dpad=True)
-        nodes = hierarchy()
-        if not any(n.get('text') == 'ESDEPlusSmoke' for n in nodes):
-            ui('Show roots')
-            nodes = hierarchy()
-            root = next((n for n in nodes if n.get('text') in ['Internal storage', 'Internal shared storage', shell('getprop', 'ro.product.model').strip()]), None)
-            if root is None:
-                root = next(n for n in nodes if n.get('resource-id', '').endswith('title') and n.get('text', '') not in ['Downloads', 'Recent', 'Images', 'Videos', 'Audio', 'Documents', 'Drive', 'Open from'])
-            ui(root.get('text'))
-        ui('ESDEPlusSmoke')
-        nodes = hierarchy()
-        confirmation = next(n for n in nodes if n.get('enabled') == 'true' and
-                            ('use this folder' in n.get('text', '').casefold() or
-                             'allow access to' in n.get('text', '').casefold()))
-        ui(confirmation.get('text'))
-        if any(n.get('text', '').casefold() == 'allow' for n in hierarchy()):
-            ui('Allow')
+        select_tree('ESDEPlusSmoke')
+        wait_for(lambda: grant_count(1), 'actual pending persisted tree grant')
+        ui('Cancel configuration', dpad=True)
+        wait_for(lambda: grant_count(0), 'cancel releases pending persisted grant')
+        save_logs('cancel-releases-pending-grant')
+        ui('Choose shared ROM folder', dpad=True)
+        select_tree('ESDEPlusSmoke')
+        shell('mkdir', '-p', '/sdcard/ESDEPlusOtherFolder')
+        ui('Choose shared ROM folder', dpad=True)
+        select_tree('ESDEPlusOtherFolder')
+        wait_for(lambda: grant_count(1), 'new selection releases superseded pending grant')
+        save_logs('selection-releases-pending-grant')
+        ui('Choose shared ROM folder', dpad=True)
+        select_tree('ESDEPlusSmoke')
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
@@ -813,6 +834,16 @@ try:
     assert shell('cat', settings) == before, 'Directory-failure recovery changed settings'
 
     screenshot('scoped-restart-system-view')
+    shell('am', 'force-stop', app)
+    private('test', '-d', roms + '/3do')
+    private('rm', '-rf', roms + '/3do')
+    private('sh', '-c', 'echo user-scoped-metadata > ' + shlex.quote(roms + '/nes/systeminfo.txt'))
+    start_entry()
+    configured_system('scoped-one-shot-restart')
+    private('test', '!', '-d', roms + '/3do')
+    assert private('cat', roms + '/nes/systeminfo.txt').strip() == 'user-scoped-metadata'
+    assert 'Creating system directories' not in log(), log()
+    (evidence / 'one-shot-scoped.txt').write_text('PASS: deleted app-owned 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
     for name, category, home in [('HomeEntry', 'android.intent.category.HOME', True),
                                   ('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER', False),
                                   ('MainActivity', 'android.intent.category.LAUNCHER', False)]:
@@ -843,7 +874,7 @@ try:
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
                      native_shutdown(relaunched_pid), 'relaunch quits cleanly')
-    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases and revoked permission\n')
+    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; API 34 additionally real system HOME over drawer launch. Saved-state probe outcome is recorded separately.\n')
 except BaseException:
     save_logs('failure')
     screenshot('failure')

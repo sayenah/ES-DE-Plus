@@ -64,8 +64,8 @@ class MainActivity : SDLActivity() {
         val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
         Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring}")
         // SDL first joins/stops its native thread. Only terminal Activity exit
-        // then ends the VM, resetting native globals for the next launch;
-        // recreation and pending configuration keep the process alive.
+        // then ends the VM, resetting native globals for the next launch.
+        // During configuration the native quit poll ends the process instead.
         super.onDestroy()
         Log.i("ES-DE-Plus", "SDL activity destroy join returned")
         live = null
