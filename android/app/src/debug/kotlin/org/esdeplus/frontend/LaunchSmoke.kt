@@ -88,7 +88,7 @@ object LaunchSmoke {
         var symlinkCapability = "ROM volume supports a real symlink; provider refusal exercised."
         try { Os.symlink(outside.path, link.path) }
         catch (error: android.system.ErrnoException) {
-            if (error.errno !in listOf(android.system.OsConstants.EPERM, android.system.OsConstants.EOPNOTSUPP,
+            if (error.errno !in listOf(android.system.OsConstants.EPERM, android.system.OsConstants.EACCES, android.system.OsConstants.EOPNOTSUPP,
                     android.system.OsConstants.ENOSYS)) throw error
             symlinkCapability = "CAPABILITY: ROM volume refused symlink creation (errno=${error.errno}); canonical containment exercised on the genuine SDK-owned internal filesystem."
         }

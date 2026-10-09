@@ -20,13 +20,14 @@ class CoreReceiver : BroadcastReceiver() {
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 val response = Intent(if (mode == "unrelated") "org.esdeplus.stub.UNRELATED"
-                    else "com.retroarch.INSTALLED_CORES_RESULT")
+                    else "com.retroarch.INSTALLED_CORES_RESULT").addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
                 when (mode) {
                     "malformed" -> response.putExtra("CORES", "wrong type")
                     "oversized" -> response.putExtra("CORES", Array(4097) { "test" })
                     "absent", "late" -> response.putExtra("CORES", arrayOf("other"))
                     else -> response.putExtra("CORES", arrayOf("test"))
                 }
+                android.util.Log.i("ESDEPlus-recipient", "Core broadcast mode=$mode count=${response.getStringArrayExtra("CORES")?.size}")
                 if (Build.VERSION.SDK_INT >= 34 && mode != "anonymous")
                     context.sendBroadcast(response, null, BroadcastOptions.makeBasic().setShareIdentityEnabled(true).toBundle())
                 else context.sendBroadcast(response)

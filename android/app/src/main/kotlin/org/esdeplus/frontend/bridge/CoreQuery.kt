@@ -62,7 +62,8 @@ class CoreQuery(private val context: Context) {
             registered = true
             Log.i("ES-DE-Plus", "Core query registered before dispatch: $packageName")
             if (SystemClock.elapsedRealtimeNanos() >= deadline) return -1
-            context.sendBroadcast(Intent(QUERY).setPackage(packageName).addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES))
+            context.sendBroadcast(Intent(QUERY).setPackage(packageName).addFlags(
+                Intent.FLAG_INCLUDE_STOPPED_PACKAGES or Intent.FLAG_RECEIVER_FOREGROUND))
             delivered.await((deadline - SystemClock.elapsedRealtimeNanos()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
             return result.get()
         } catch (error: InterruptedException) {
