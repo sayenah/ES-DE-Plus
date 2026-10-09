@@ -356,7 +356,7 @@ def real_system_home():
                  'system HOME Back retains resumed frontend activity', timeout=30)
         back_dump, back_records = activity_records()
         assert len(back_records) == 1 and back_records[0][1:] == records[0][1:], back_dump
-        focus = shell('dumpsys', 'window', 'windows')
+        focus = shell('dumpsys', 'window')
         assert re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focus), focus
         (evidence / 'system-home-back-activities.txt').write_text(back_dump)
         (evidence / 'system-home-back-window.txt').write_text(focus)
@@ -908,13 +908,13 @@ try:
 
     screenshot('scoped-restart-system-view')
     shell('am', 'force-stop', app)
-    private('test', '-d', roms + '/3do')
-    private('rm', '-rf', roms + '/3do')
-    private('sh', '-c', 'echo user-scoped-metadata > ' + shlex.quote(roms + '/nes/systeminfo.txt'))
+    shell('test', '-d', roms + '/3do')
+    shell('rm', '-rf', roms + '/3do')
+    shell('sh', '-c', 'echo user-scoped-metadata > ' + shlex.quote(roms + '/nes/systeminfo.txt'))
     start_entry()
     configured_system('scoped-one-shot-restart')
-    private('test', '!', '-d', roms + '/3do')
-    assert private('cat', roms + '/nes/systeminfo.txt').strip() == 'user-scoped-metadata'
+    shell('test', '!', '-d', roms + '/3do')
+    assert shell('cat', roms + '/nes/systeminfo.txt').strip() == 'user-scoped-metadata'
     assert 'Creating system directories' not in log(), log()
     (evidence / 'one-shot-scoped.txt').write_text('PASS: deleted app-owned 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
     for name, category, home in [('HomeEntry', 'android.intent.category.HOME', True),
