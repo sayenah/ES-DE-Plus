@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Shared smoke assertions and positive controls.
 import pathlib
+import re
 
 
 def no_generation(output):
@@ -26,9 +27,14 @@ def onboarding_disabled(changed):
     assert changed, 'Cannot disable stock TV onboarding component'
 
 
-def onboarding_clear(nodes, package):
-    assert any(n.get('package') == package for n in nodes), 'Stock launcher UI missing'
+def onboarding_clear(nodes, package, frontend=None):
+    assert any(n.get('package') in {package, frontend} - {None} for n in nodes), 'Launcher/frontend UI missing'
     assert not any(n.get('package') == package and n.get('text') == 'Dismiss' for n in nodes), 'Stock onboarding remains visible'
+
+
+def stock_onboarding_focused(window, package):
+    focus = next((line for line in window.splitlines() if 'mCurrentFocus=' in line), '')
+    return bool(re.search(re.escape(package) + r'/(?:\.|' + re.escape(package) + r'\.)dialog\.ShowDialogsActivity', focus))
 
 
 def held_restored(records, nodes, pid, old_pid, app):
@@ -71,6 +77,12 @@ def positive_controls():
     onboarding_clear([{'package': 'stock.launcher', 'text': 'Home'}], 'stock.launcher')
     reject('onboarding dialog still visible', lambda: onboarding_clear([{'package': 'stock.launcher', 'text': 'Dismiss'}], 'stock.launcher'))
     reject('missing stock UI after dismissal', lambda: onboarding_clear([], 'stock.launcher'))
+    onboarding_clear([{'package': 'smoke.app'}], 'stock.launcher', 'smoke.app')
+    reject('unrelated UI after dismissal', lambda: onboarding_clear([{'package': 'other.app'}], 'stock.launcher', 'smoke.app'))
+    focus = 'mCurrentFocus=Window{x u0 stock.launcher/.dialog.ShowDialogsActivity}'
+    probe_passed('focused' if stock_onboarding_focused(focus, 'stock.launcher') else '', 'focused')
+    reject('frontend Dismiss button is not stock onboarding', lambda: probe_passed(
+        'focused' if stock_onboarding_focused('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}', 'stock.launcher') else '', 'focused'))
     records = [('HomeEntry', '7'), ('ConfiguratorActivity', '7')]
     nodes = [{'package': 'smoke.app', 'text': 'Configure ES-DE Plus'}]
     held_restored(records, nodes, '200', '100', 'smoke.app')

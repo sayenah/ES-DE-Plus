@@ -24,6 +24,10 @@ roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
 settings = external + '/ES-DE-Plus/settings/es_settings.xml'
 startup_baseline = ''
+stock_package = 'com.google.android.tvlauncher'
+onboarding_guard = False
+dismissing_onboarding = False
+last_onboarding_check = 0.0
 
 
 def adb(*args, check=True, binary=False):
@@ -60,6 +64,8 @@ def private(*args, check=True):
 def wait_for(condition, description, timeout=90):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if timeout >= 30:
+            dismiss_stock_onboarding()
         if condition():
             return
         time.sleep(0.25)
@@ -132,6 +138,34 @@ def hierarchy():
 
 def node_matches(node, label):
     return label.casefold() in node.get('text', '').casefold() or label.casefold() in node.get('content-desc', '').casefold()
+
+
+def dismiss_stock_onboarding(force=False):
+    global dismissing_onboarding, last_onboarding_check
+    if not onboarding_guard or dismissing_onboarding:
+        return
+    if not force and time.monotonic() - last_onboarding_check < 2:
+        return
+    last_onboarding_check = time.monotonic()
+    window = shell('dumpsys', 'window', 'windows')
+    if not smoke_checks.stock_onboarding_focused(window, stock_package):
+        return
+    dismissing_onboarding = True
+    try:
+        nodes = hierarchy()
+        smoke_checks.probe_passed('Dismiss' if any(n.get('package') == stock_package and
+            n.get('text') == 'Dismiss' for n in nodes) else '', 'Dismiss')
+        with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+            output.write('Actual focused stock ShowDialogsActivity; dismissing external onboarding only.\n' +
+                         window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
+        screenshot('tv-onboarding-before-dismiss')
+        ui('Dismiss')
+        smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
+        screenshot('tv-onboarding-dismissed')
+        # No frontend launch, task focus change, process restart or assertion
+        # retry is performed. The original condition still has to pass.
+    finally:
+        dismissing_onboarding = False
 
 
 def ui(label, dpad=False):
@@ -462,7 +496,7 @@ try:
     if television:
         # Google's TV image launches this dialog asynchronously over other
         # apps. Disable only that external onboarding component before testing.
-        onboarding = 'com.google.android.tvlauncher/com.google.android.tvlauncher.dialog.ShowDialogsActivity'
+        onboarding = stock_package + '/' + stock_package + '.dialog.ShowDialogsActivity'
         # dumpsys' resolver table omits activities without intent filters.
         # The installed stock package owns this explicitly addressed dialog;
         # pm disable validates that the component itself exists.
@@ -472,21 +506,18 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Stock TV ShowDialogsActivity disabled before frontend smoke; frontend assertions unchanged.\n')
             else:
-                # Production TV images refuse adbd root. Let the stock HOME
-                # load its first-run content and dismiss the actual promotion
-                # before it can steal focus during the frontend smoke.
-                stock_package = onboarding.split('/')[0]
+                # Promotions are optional and may arrive after content loads.
+                # Prepare the actual stock UI, dismiss any present onboarding,
+                # and retain the same guard for a late external dialog.
+                onboarding_guard = True
                 shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME',
                       '-n', stock_package + '/.MainActivity')
-                wait_for(lambda: any(n.get('package') == stock_package and n.get('text') == 'Dismiss'
-                                     for n in hierarchy()), 'stock TV onboarding Dismiss button', timeout=360)
-                screenshot('tv-onboarding-before-dismiss')
-                ui('Dismiss')
-                nodes = hierarchy()
-                smoke_checks.onboarding_clear(nodes, stock_package)
-                screenshot('tv-onboarding-dismissed')
+                wait_for(lambda: any(n.get('package') == stock_package for n in hierarchy()), 'stock TV HOME UI')
+                dismiss_stock_onboarding(force=True)
+                smoke_checks.onboarding_clear(hierarchy(), stock_package)
+                screenshot('tv-onboarding-preamble')
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
-                    'Actual stock TV onboarding dismissed through its Dismiss button before frontend smoke.\n' +
+                    'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
