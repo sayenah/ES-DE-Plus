@@ -10,20 +10,80 @@ import java.io.File
 
 class RuntimeSmoke : Instrumentation() {
     private var provisionOnly = false
+    private var storageOnly = false
+    private var ownedAction: String? = null
+    private var ownedDirectory: String? = null
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         provisionOnly = arguments?.getString("mode") == "provision"
+        storageOnly = arguments?.getString("mode") == "storage"
+        if (arguments?.getString("mode") == "owned-fixture") {
+            ownedAction = arguments.getString("action")
+            ownedDirectory = arguments.getString("directory")
+        }
         start()
     }
     override fun onStart() {
         val result = Bundle()
         try {
+            if (ownedAction != null) {
+                check(ownedDirectory in listOf("ES-DE-Plus", "ROMs"))
+                val root = targetContext.getExternalFilesDir(null) ?: error("SDK-owned volume unavailable")
+                val directory = File(root, ownedDirectory!!)
+                val saved = File(root, ownedDirectory + ".smoke-saved")
+                when (ownedAction) {
+                    "block" -> {
+                        check(!saved.exists() && directory.isDirectory)
+                        check(directory.renameTo(saved))
+                        directory.writeText("Directory obstruction")
+                    }
+                    "restore" -> {
+                        check(saved.isDirectory && directory.isFile)
+                        check(directory.delete() && saved.renameTo(directory))
+                    }
+                    "edit-systems" -> {
+                        check(ownedDirectory == "ROMs")
+                        val removed = File(directory, "3do")
+                        check(removed.isDirectory && removed.deleteRecursively())
+                        File(directory, "nes/systeminfo.txt").writeText("user-scoped-metadata\n")
+                    }
+                    "verify-systems" -> {
+                        check(ownedDirectory == "ROMs")
+                        check(!File(directory, "3do").exists()) { "Deleted system folder was regenerated" }
+                        check(File(directory, "nes/systeminfo.txt").readText() == "user-scoped-metadata\n") {
+                            "User system metadata was overwritten"
+                        }
+                    }
+                    else -> error("Unknown owned fixture action")
+                }
+                result.putString("stream", "PASS: SDK-context owned fixture $ownedAction $ownedDirectory; no preferences changed\n")
+                finish(-1, result)
+                return
+            }
+            if (storageOnly) {
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                val selected = storage.load() ?: error("Real configurator has not saved a selection")
+                check(selected.mode == "direct")
+                storage.validate(selected)
+                // Exercise loss of the SDK's current-user volume mapping using
+                // the real persisted selection; no preferences/grants are injected.
+                val missingVolume = org.esdeplus.frontend.bridge.StorageModel(object : ContextWrapper(targetContext) {
+                    override fun getExternalFilesDirs(type: String?): Array<File?> = emptyArray()
+                })
+                try { missingVolume.validate(selected); error("Unavailable volume was substituted") }
+                catch (expected: java.io.IOException) { /* Required recoverable refusal. */ }
+                check(storage.load() == selected)
+                storage.validate(selected)
+                result.putString("stream", "PASS: real persisted direct selection rejects unavailable current-user SDK volume mapping; no substitution or preference changes\n")
+                finish(-1, result)
+                return
+            }
             if (provisionOnly) {
                 // Create ordinary SDK-owned directories before adb pushes files.
                 // MainActivity is not launched and no resources/marker are installed.
-                val bridge = NativeBridge(targetContext)
-                bridge.getAppDataDirectory()
-                val roms = File(bridge.getROMDirectory(), "nes")
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                storage.verifyDirectory(storage.appData(), true)
+                val roms = File(storage.ownedROMs(), "nes")
                 check(roms.mkdirs() || roms.isDirectory)
                 result.putString("stream", "PROVISIONED: ${roms.absolutePath}\n")
                 finish(-1, result)
@@ -70,6 +130,17 @@ class RuntimeSmoke : Instrumentation() {
                 check(!repair.setupResources(identifier))
                 check(catalog.readBytes().contentEquals(original))
             } finally { catalog.writeBytes(original) }
+            val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+            for (uri in listOf(
+                "content://unsupported.provider/tree/primary%3AROMs",
+                "content://com.android.externalstorage.documents/tree/primary%3A..%2Fescape",
+                "content://com.android.externalstorage.documents/tree/primary%3AES-DE",
+                "content://com.android.externalstorage.documents/tree/unavailable-volume%3AROMs",
+                "content://com.android.externalstorage.documents/tree/primary%3AAndroid%2Fdata",
+                "content://com.android.externalstorage.documents/tree/primary%3AROMs/document/primary%3Aother")) {
+                try { storage.resolveTree(android.net.Uri.parse(uri)); error("Unsafe tree was accepted: $uri") }
+                catch (expected: java.io.IOException) { /* Real trust-boundary refusal. */ }
+            }
             val unavailable = NativeBridge(object : ContextWrapper(targetContext) {
                 override fun getExternalFilesDir(type: String?): File? = null
             })

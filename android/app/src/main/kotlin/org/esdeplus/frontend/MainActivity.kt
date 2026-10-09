@@ -2,17 +2,77 @@
 // ES-DE-Plus — written for ES-DE-Plus using SDL release-2.32.10 and Android SDK APIs.
 package org.esdeplus.frontend
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import android.util.Log
+import android.view.KeyEvent
+import android.content.res.Configuration
+import java.lang.ref.WeakReference
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
-    private val bridge by lazy { NativeBridge(this) }
+    private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
+    override fun loadLibraries() {
+        super.loadLibraries()
+        ConfiguratorSession.registerNative()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
+        live = WeakReference(this)
+        Log.i("ES-DE-Plus", "Creating sole SDL activity task=$taskId")
+        ConfiguratorSession.recordEntry(intent)
         super.onCreate(savedInstanceState)
         updateWindowSize()
         window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        Log.i("ES-DE-Plus", "SDL entry reused via onNewIntent")
+        receiveEntry(intent)
+    }
+    fun receiveEntry(intent: Intent) {
+        setIntent(intent)
+        ConfiguratorSession.recordEntry(intent)
+        if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+    }
+    override fun onConfigurationChanged(configuration: Configuration) {
+        super.onConfigurationChanged(configuration)
+        updateWindowSize()
+        Log.i("ES-DE-Plus", "SDL activity configuration handled task=$taskId")
+    }
+    override fun onResume() {
+        super.onResume()
+        // Re-present a pending startup screen after backgrounding or unlock;
+        // user interaction never expires and HOME is still set only by entry.
+        if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+    }
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (ConfiguratorSession.configuring) {
+            ConfiguratorSession.open(applicationContext)
+        } else if (mBrokenLibraries) {
+            finish()
+        } else {
+            // Gesture/system Back uses the same upstream input policy as the
+            // hardware Back key, including HOME and BackEventAppExit.
+            SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_BACK)
+            SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_BACK)
+        }
+    }
+    override fun onDestroy() {
+        val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
+        Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring}")
+        // Task clear can destroy the root before pausing the configurator.
+        // Save its scalar snapshot without calling a retained Activity.
+        if (ConfiguratorSession.configuring) ConfiguratorSession.persistPendingDraft(applicationContext)
+        // SDL first joins/stops its native thread. Only terminal Activity exit
+        // then ends the VM, resetting native globals for the next launch.
+        // During configuration the native quit poll ends the process instead.
+        super.onDestroy()
+        Log.i("ES-DE-Plus", "SDL activity destroy join returned")
+        live = null
+        if (terminal) kotlin.system.exitProcess(0)
     }
     private fun updateWindowSize() {
         bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {
@@ -48,7 +108,10 @@ class MainActivity : SDLActivity() {
     fun startConfigurator() = bridge.startConfigurator()
     fun onNativeFrontendResume() = bridge.onNativeFrontendResume()
     companion object {
+        private var live: WeakReference<MainActivity>? = null
+        fun liveInstance(): MainActivity? = live?.get()?.takeUnless { it.isDestroyed }
         @JvmStatic external fun nativeSetHold(hold: Boolean)
+        @JvmStatic external fun nativeWaitForConfiguration()
         @JvmStatic external fun nativeSetHomeApp(home: Boolean)
         @JvmStatic external fun nativeSetResetTouchOverlay(reset: Boolean)
     }

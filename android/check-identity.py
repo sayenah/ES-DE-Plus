@@ -146,3 +146,63 @@ assert f"package: name='{application_id}'" in badging
 assert f"application-label:'{label}'" in badging
 assert "sdkVersion:'29'" in badging and "targetSdkVersion:'36'" in badging
 print(f'PASS APK identity audit: {application_id}, label={label}, original placeholder icon/splash; only exact upstream desktop literals allowed in libmain.so')
+
+# Inspect packaged manifest values, including release output, rather than only
+# trusting the source declarations or aapt's selected launchable activity.
+manifest_tree = subprocess.check_output([str(aapt), 'dump', 'xmltree', str(apk), 'AndroidManifest.xml'], text=True)
+print('PACKAGED MANIFEST\n' + manifest_tree)
+stack = []
+manifest_nodes = []
+for line in manifest_tree.splitlines():
+    element = re.match(r'^(\s*)E: ([\w-]+)', line)
+    if element:
+        depth = len(element[1])
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        node = {'tag': element[2], 'attributes': {}, 'children': []}
+        if stack:
+            stack[-1][1]['children'].append(node)
+        stack.append((depth, node))
+        manifest_nodes.append(node)
+    else:
+        attribute = re.match(r'^\s*A: (?:android:)?(\w+)(?:\([^)]*\))?=(.*)$', line)
+        if attribute and stack:
+            stack[-1][1]['attributes'][attribute[1]] = attribute[2]
+
+def string_attribute(node, name):
+    return re.match(r'^"([^"]*)"', node['attributes'][name])[1]
+
+def integer_attribute(node, name):
+    return int(re.match(r'^\(type 0x[0-9a-f]+\)0x([0-9a-f]+)', node['attributes'][name])[1], 16)
+
+activities = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity'}
+main = activities['org.esdeplus.frontend.MainActivity']
+configurator = activities['org.esdeplus.frontend.ConfiguratorActivity']
+assert 'taskAffinity' not in configurator['attributes'], 'Configurator must share the SDL task affinity'
+assert integer_attribute(main, 'launchMode') == 2, 'SDL activity must be singleTask'
+assert integer_attribute(main, 'exported') == 0xffffffff
+assert integer_attribute(configurator, 'exported') == 0
+aliases = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity-alias'}
+for alias, category in [('HomeEntry', 'HOME'), ('LeanbackEntry', 'LEANBACK_LAUNCHER')]:
+    node = aliases['org.esdeplus.frontend.' + alias]
+    assert string_attribute(node, 'targetActivity') == 'org.esdeplus.frontend.MainActivity'
+    assert integer_attribute(node, 'exported') == 0xffffffff
+    categories = [string_attribute(child, 'name') for intent in node['children']
+                  if intent['tag'] == 'intent-filter' for child in intent['children'] if child['tag'] == 'category']
+    assert 'android.intent.category.' + category in categories
+    assert ('android.intent.category.HOME' in categories) == (alias == 'HomeEntry')
+permissions = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'uses-permission'}
+for permission in ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']:
+    assert integer_attribute(permissions['android.permission.' + permission], 'maxSdkVersion') == 29
+assert 'android.permission.MANAGE_EXTERNAL_STORAGE' in permissions
+application = next(n for n in manifest_nodes if n['tag'] == 'application')
+assert string_attribute(application, 'appComponentFactory') == 'org.esdeplus.frontend.FrontendActivityFactory'
+assert ('nativeWaitForConfiguration', '()V') in classes['Lorg/esdeplus/frontend/MainActivity;']
+assert integer_attribute(application, 'requestLegacyExternalStorage') == 0xffffffff
+assert 'banner' in application['attributes']
+features = {string_attribute(n, 'name'): n for n in manifest_nodes
+            if n['tag'] == 'uses-feature' and 'name' in n['attributes']}
+assert integer_attribute(features['android.software.leanback'], 'required') == 0
+for name in ['nativeSetHold', 'nativeSetHomeApp', 'nativeSetResetTouchOverlay']:
+    assert (name, '(Z)V') in classes['Lorg/esdeplus/frontend/MainActivity;']
+print('PASS: packaged launcher aliases, singleTask, configurator export, API-specific permissions, TV banner/feature and static native callbacks')
