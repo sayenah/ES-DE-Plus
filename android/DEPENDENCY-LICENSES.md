@@ -1,5 +1,7 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 
+Distributed Android APKs are GPL-2.0 combined works; complete corresponding source is public in this repository, whose own source remains MIT-licensed ([D-004](../docs/decision-log.md)).
+
 Android slice 1 dependency inventory. The APK ELF lists, actual static consumer
 link inputs and final-toolchain CI evidence are attached to
 [PR #4](https://github.com/sayenah/ES-DE-Plus/pull/4).
@@ -10,9 +12,8 @@ NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identical
 AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
 measured RELRO values are printed and recorded below. An unmatched file follows
 the strict rule regardless of its filename.
-APKs remain inside CI pending G-1/G-2.
 Poppler and the upstream `ConvertPDF` implementation are GPL-2.0-only and are linked
-in process on Android. This inventory records that fact and does not decide G-2.
+in process on Android, as upstream does.
 No proprietary Android package or code is used.
 
 The APK contains these 27 shared-library entries for each ABI (the component table

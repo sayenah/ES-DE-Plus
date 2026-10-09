@@ -52,5 +52,11 @@ it does not claim character-by-character navigation of every TV keyboard layout.
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
 then drives real configurator/permission screens on API 29, API 34 and Android TV
-API 36 x86_64. Only logs, screenshots and audits are uploaded. APK distribution
-remains parked under the identity/licensing gates recorded in `docs/handoff.md`.
+API 36 x86_64. CI uploads logs, screenshots, audits and one debug-signed APK per
+run with 7-day retention; release signing remains a separate decision.
+
+ES-DE-Plus is a fork of ES-DE whose own source remains MIT-licensed. As upstream
+does, its Android builds link the GPL-2.0-only PDF converter and Poppler in process,
+so distributed ES-DE-Plus Android APKs are GPL-2.0 combined works whose complete
+corresponding source is public in this repository. See
+[the Android dependency inventory](DEPENDENCY-LICENSES.md) for component licences.
