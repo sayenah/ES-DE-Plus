@@ -32,11 +32,6 @@ class GameLauncher(private val context: Context) {
             }
             if (result.contains("%ROM%")) result = result.replace("%ROM%", transport.raw(rom))
             result = result.replace("%BASENAME%", File(rom).nameWithoutExtension)
-            if (result.startsWith("%INJECT%=")) {
-                val file = File(transport.raw(result.removePrefix("%INJECT%=")))
-                require(file.isFile && file.length() <= 65536) { "Injected launch value is not a bounded file" }
-                result = file.readText().trimEnd('\r', '\n')
-            }
             return result
         }
         if (base[2].isNotEmpty()) intent.action = base[2]
