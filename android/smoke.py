@@ -434,7 +434,9 @@ try:
     # Resize a real display while the native caller is held. Android recreates
     # the plain-view activity; its selections and static registration survive.
     adb('logcat', '-c')
-    television = 'tv' in shell('getprop', 'ro.build.characteristics')
+    features = shell('pm', 'list', 'features')
+    (evidence / 'device-features.txt').write_text(features)
+    television = 'feature:android.software.leanback' in features.splitlines()
     shell('wm', 'size', '1280x720' if television else '720x1280')
     wait_for(lambda: 'Configurator created savedState=true' in adb('logcat', '-d'), 'configurator recreation')
     shell('wm', 'size', 'reset')
