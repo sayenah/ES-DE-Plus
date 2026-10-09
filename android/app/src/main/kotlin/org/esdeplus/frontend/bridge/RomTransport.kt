@@ -55,7 +55,9 @@ class RomTransport(private val context: Context) {
         val root = storage.volumeRoot(if (volume.isPrimary) "primary" else volume.uuid ?: error("Unknown volume ID"))
         require(file.path.startsWith(root.path + "/"))
         val relative = file.relativeTo(root).invariantSeparatorsPath
-        require(!relative.startsWith("Android/", true)) { "External-storage SAF cannot expose app-owned Android/data ROMs" }
+        require(listOf("Android/data", "Android/obb").none {
+            relative.equals(it, true) || relative.startsWith("$it/", true)
+        }) { "External-storage SAF cannot expose Android/data or Android/obb ROMs" }
         val id = "${if (volume.isPrimary) "primary" else volume.uuid ?: error("Unknown volume ID")}:$relative"
         val grant = context.contentResolver.persistedUriPermissions.firstOrNull {
             if (!it.isReadPermission || it.uri.authority != "com.android.externalstorage.documents" ||

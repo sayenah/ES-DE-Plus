@@ -232,7 +232,7 @@ def discovery_manifest(nodes):
     return len(actual)
 
 count = discovery_manifest(manifest_nodes)
-for fault in ['package', 'signature', 'broad-query', 'provider-export']:
+for fault in ['package', 'signature', 'broad-query', 'provider-export', 'provider-grants', 'provider-path']:
     malformed = copy.deepcopy(manifest_nodes)
     queries = next(n for n in malformed if n['tag'] == 'queries')
     if fault == 'package':
@@ -242,13 +242,27 @@ for fault in ['package', 'signature', 'broad-query', 'provider-export']:
         queries['children'] = [n for n in queries['children'] if n['tag'] != 'intent']
     elif fault == 'broad-query':
         malformed.append({'tag': 'uses-permission', 'attributes': {'name': '"android.permission.QUERY_ALL_PACKAGES"'}, 'children': []})
-    else:
+    elif fault == 'provider-export':
         next(n for n in malformed if n['tag'] == 'provider')['attributes']['exported'] = '(type 0x12)0xffffffff'
+    elif fault == 'provider-grants':
+        next(n for n in malformed if n['tag'] == 'provider')['attributes']['grantUriPermissions'] = '(type 0x12)0x0'
+    else:
+        next(n for n in malformed if n['tag'] == 'provider')['children'].append(
+            {'tag': 'grant-uri-permission', 'attributes': {}, 'children': []})
     try:
         discovery_manifest(malformed)
     except AssertionError:
         print('PASS: discovery manifest positive control rejected: ' + fault)
     else:
         raise AssertionError('Manifest positive control escaped: ' + fault)
-assert not any(n.startswith('Lorg/esdeplus/stub/') for n in classes), 'CI recipient must never be in the frontend APK'
+def frontend_only(definitions):
+    assert not any(n.startswith('Lorg/esdeplus/stub/') for n in definitions), 'CI recipient must never be in the frontend APK'
+
+frontend_only(classes)
+try:
+    frontend_only([*classes, 'Lorg/esdeplus/stub/RecipientActivity;'])
+except AssertionError:
+    print('PASS: separate recipient code positive control rejected')
+else:
+    raise AssertionError('Recipient code positive control escaped')
 print(f'PASS: {count} bundled emulator packages, both launcher signatures, exact-grant non-exported provider; no broad visibility or stub code')
