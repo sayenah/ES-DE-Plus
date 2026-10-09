@@ -65,6 +65,23 @@ object LaunchSmoke {
         return "PASS: user file prepared under frontend UID; assertion positive controls rejected\n"
     }
 
+    fun cleanupImporter(context: Context, name: String): String {
+        if (name.isNotEmpty()) {
+            equal(File(name).name == name && name.endsWith(".app") && !name.contains('\\'),
+                true, "Imported-file cleanup scope")
+            val file = File(RomTransport(context).root(), "androidapps/$name")
+            if (file.exists()) {
+                equal(file.readText().trim(), "$stub/$stub.RecipientActivity", "Only the verified test import is removed")
+                equal(file.delete(), true, "App UID removes its imported file")
+            }
+            equal(file.exists(), false, "Imported test file removed")
+        }
+        val temp = File(StorageModel(context).appData(), "importer_temp")
+        equal(temp.deleteRecursively(), true, "Importer temporary files removed")
+        equal(temp.exists(), false, "Importer temporary directory removed")
+        return "PASS: importer probe cleaned under frontend UID; assertion positive controls rejected\n"
+    }
+
     fun revokeTree(context: Context): String {
         val storage = StorageModel(context)
         val configuration = storage.load() ?: error("Configuration is required")

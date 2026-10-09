@@ -106,7 +106,8 @@ An installed-core reply can still confirm presence.
 Stable RetroArch releases through
 v1.22.2 do not answer this broadcast: the check times out and launching proceeds.
 CI verifies this with the official pinned v1.22.2 release, downloaded and
-SHA-256 checked in the runner, installed separately and never uploaded.
+SHA-256 checked in the runner, installed separately and never uploaded. This
+release APK declares Android `versionName` `1.22.2_GIT`, verified exactly in CI.
 
 The `stub-emulator` module is a separate-UID, debug-only CI recipient written
 for ES-DE Plus; it is never included in the frontend APK or a release variant.

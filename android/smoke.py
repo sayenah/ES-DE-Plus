@@ -576,6 +576,16 @@ def user_file(relative, contents=None):
     shell('am', 'force-stop', app)
 
 
+def cleanup_importer(name):
+    shell('am', 'force-stop', app)
+    result = shell('am', 'instrument', '-w', '-e', 'mode', 'cleanup-importer', '-e', 'file', name or '',
+                   app + '/org.esdeplus.frontend.RuntimeSmoke')
+    smoke_checks.probe_passed(result, 'PASS: importer probe cleaned under frontend UID; assertion positive controls rejected')
+    with (evidence / 'user-configuration-preparation.txt').open('a') as output:
+        output.write('Importer cleanup: ' + str(name) + '\n' + result + '\n')
+    shell('am', 'force-stop', app)
+
+
 def gamelist_recipient_flow(mode):
     user_root = shared if mode.startswith('direct') else roms
     temporary = evidence / 'launch-custom'
@@ -615,6 +625,7 @@ def gamelist_recipient_flow(mode):
         screenshot(mode + '-' + name + '-target-error')
         save_logs(mode + '-' + name + '-target-error')
         launch_checks.equal(bool(shell('pidof', app).strip()), True, 'Frontend survives target failure')
+    imported_name = None
     try:
         start_custom()
         pid = shell('pidof', app).strip()
@@ -686,7 +697,8 @@ def gamelist_recipient_flow(mode):
         screenshot('importer-selection-' + mode)
         key('KEYCODE_INSERT')  # real Y/import action
         wait_for(lambda: 'Imported 1 entry for system "androidapps"' in log(), 'import one native app')
-        imported = user_root + '/androidapps/' + pathlib.PurePosixPath(recipient_path).name
+        imported_name = pathlib.PurePosixPath(recipient_path).name
+        imported = user_root + '/androidapps/' + imported_name
         launch_checks.equal(shell('cat', imported).strip(), 'org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', 'Importer target file')
         screenshot('importer-imported-' + mode)
         save_logs('importer-imported-' + mode)
@@ -710,7 +722,7 @@ def gamelist_recipient_flow(mode):
         shell('am', 'force-stop', 'org.esdeplus.stub')
         for name in ['es_systems.xml', 'es_find_rules.xml']:
             user_file('custom_systems/' + name)
-        shell('rm', '-rf', user_root + '/androidapps', external + '/ES-DE-Plus/importer_temp')
+        cleanup_importer(imported_name)
         launch()
 
 
@@ -721,7 +733,7 @@ def real_retroarch_flow():
     print(adb('install', '-r', str(apk_path)), flush=True)
     package = shell('dumpsys', 'package', 'com.retroarch')
     version = re.search(r'versionName=([^\s]+)', package).group(1)
-    launch_checks.equal(version, '1.22.2', 'Installed official RetroArch version')
+    launch_checks.equal(version, '1.22.2_GIT', 'Installed official RetroArch versionName')
     (evidence / 'real-retroarch-package.txt').write_text(package)
     shell('am', 'force-stop', app)
     original = shell('cat', settings)

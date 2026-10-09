@@ -15,12 +15,14 @@ class RuntimeSmoke : Instrumentation() {
     private var ownedDirectory: String? = null
     private var followupMode: String? = null
     private var userFileArguments: Bundle? = null
+    private var importedTarget = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
         followupMode = arguments?.getString("mode")
         if (followupMode in listOf("write-user-file", "remove-user-file")) userFileArguments = arguments
+        if (followupMode == "cleanup-importer") importedTarget = arguments?.getString("file").orEmpty()
         if (arguments?.getString("mode") == "owned-fixture") {
             ownedAction = arguments.getString("action")
             ownedDirectory = arguments.getString("directory")
@@ -30,6 +32,11 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode == "cleanup-importer") {
+                result.putString("stream", LaunchSmoke.cleanupImporter(targetContext, importedTarget))
+                finish(-1, result)
+                return
+            }
             if (userFileArguments != null) {
                 result.putString("stream", LaunchSmoke.userFile(targetContext,
                     userFileArguments!!.getString("relative")!!,
