@@ -54,7 +54,8 @@ class ConfiguratorActivity : Activity() {
         permissionPending = draft?.getBoolean("permissionPending") ?: false
         resourceError = ConfiguratorSession.resourceFailure != null ||
             (!ConfiguratorSession.configuring && draft?.getBoolean("resourceError") == true)
-        message = intent.getStringExtra("message") ?: draft?.getString("message") ?: storage.problem()
+        message = if (state != null) state.getString("message")
+            else intent.getStringExtra("message") ?: draft?.getString("message") ?: storage.problem()
         if (!intent.hasExtra("entry") && draft?.containsKey("entry") == true) {
             @Suppress("DEPRECATION")
             val entry = draft.getParcelable<Intent>("entry")
