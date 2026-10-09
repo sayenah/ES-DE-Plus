@@ -71,9 +71,17 @@ object LaunchSmoke {
         val root = transport.root()
         val directory = File(root, "nes/Transport 🚀")
         equal(directory.mkdirs() || directory.isDirectory, true, "Probe directory")
-        val rom = File(directory, "Game 🚀 #?%+,;.nes")
         val bytes = byteArrayOf(69, 83, 68, 69, 0, -1, 42)
-        rom.writeBytes(bytes)
+        var rom = File(directory, "Game 🚀 #?%+,;.nes")
+        var filenameCapability = "ROM volume supports Unicode and all requested reserved URI characters."
+        try { rom.writeBytes(bytes) }
+        catch (error: java.io.FileNotFoundException) {
+            val errno = (error.cause as? android.system.ErrnoException)?.errno
+            if (errno !in listOf(android.system.OsConstants.EPERM, android.system.OsConstants.EINVAL)) throw error
+            rom = File(directory, "Game 🚀 #%+,;.nes")
+            rom.writeBytes(bytes)  // Actual writable-file control differs only by '?'.
+            filenameCapability = "CAPABILITY: ROM volume refused the filename containing '?' (errno=$errno); the real transport file retains Unicode, #, %, +, comma and semicolon."
+        }
         val sibling = File(directory, "sibling.nes").apply { writeBytes(bytes) }
         val outside = File(context.filesDir, "outside-rom.nes").apply { writeBytes(bytes) }
         val link = File(directory, "escape.nes")
@@ -108,6 +116,7 @@ object LaunchSmoke {
             context.registerReceiver(receiver, filter, null, Handler(handlerThread.looper))
         }
         val evidence = StringBuilder()
+        evidence.append(filenameCapability).append('\n')
         evidence.append(symlinkCapability).append('\n')
         val registered = java.util.concurrent.atomic.AtomicBoolean(false)
         val orderedContext = object : ContextWrapper(context) {
