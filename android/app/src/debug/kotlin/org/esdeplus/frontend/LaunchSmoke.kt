@@ -239,6 +239,16 @@ object LaunchSmoke {
                 val selected = receive(base(activity = name))
                 equal(selected.getString("component").substringBefore('/'), stub, "Target never leaves package")
             }
+            equal(receive(base(activity = ".TelevisionOnly"), arrayOf("queryMode", "phone-off"))
+                .getString("queryMode"), "phone-off", "Recipient disables its own phone launchers")
+            try {
+                equal(bridge.checkEmulatorInstalled(stub, ".RecipientActivity"), false, "Disabled phone launcher")
+                equal(receive(base(activity = "")).getString("component"), "$stub/$stub.TelevisionOnly",
+                    "Package-only Leanback fallback with no phone launcher")
+            } finally {
+                equal(receive(base(activity = ".TelevisionOnly"), arrayOf("queryMode", "restore-launchers"))
+                    .getString("queryMode"), "restore-launchers", "Recipient restores its own phone launchers")
+            }
             val raw = receive(base("%ROM%"))
             val configuration = StorageModel(context).load()!!
             if (Build.VERSION.SDK_INT == 29 || configuration.mode == "direct")

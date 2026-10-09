@@ -31,6 +31,13 @@ open class RecipientActivity : Activity() {
         val control = intent.getStringExtra("queryMode")
         if (control != null) {
             check(getSharedPreferences("query", MODE_PRIVATE).edit().putString("mode", control).commit())
+            if (control == "phone-off" || control == "restore-launchers") {
+                val state = if (control == "phone-off") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo"))
+                    packageManager.setComponentEnabledSetting(android.content.ComponentName(packageName, "$packageName.$name"),
+                        state, android.content.pm.PackageManager.DONT_KILL_APP)
+            }
             Log.i("ESDEPlus-recipient", "Query mode configured=$control")
             if (control == "storage-permission" && android.os.Build.VERSION.SDK_INT >= 30) {
                 startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
