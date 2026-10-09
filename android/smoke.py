@@ -622,6 +622,26 @@ def gamelist_recipient_flow(mode):
         wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'return from recipient to frontend')
         launch_checks.equal(shell('pidof', app).strip(), pid, 'Return resumes same frontend process')
         screenshot('gamelist-return-' + mode)
+        if mode == 'scoped':
+            unsupported = ET.fromstring((temporary / 'es_systems.xml').read_text())
+            command = unsupported.find('system/command')
+            command.text = command.text.replace('%ROMPROVIDER%', '%ROMSAF%')
+            user_file('custom_systems/es_systems.xml', ET.tostring(unsupported, encoding='unicode'))
+            try:
+                start_custom()
+                failed_pid = shell('pidof', app).strip()
+                search_launch('Smoke', mode + '-unsupported-saf-search')
+                wait_for(lambda: 'Launch terminated with nonzero return value -1' in log(),
+                         'app-owned SAF native launch error', timeout=20)
+                # The existing info popup lasts six seconds; capture it while
+                # visible rather than waiting the general screenshot delay.
+                time.sleep(0.5)
+                (evidence / 'scoped-unsupported-saf-popup.png').write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
+                save_logs('scoped-unsupported-saf-popup')
+                launch_checks.equal(shell('pidof', app).strip(), failed_pid, 'Unsupported SAF leaves frontend alive')
+                launch_checks.equal('Activity launch accepted:' in adb('logcat', '-d'), False, 'Unsupported SAF never dispatches')
+            finally:
+                user_file('custom_systems/es_systems.xml', (temporary / 'es_systems.xml').read_text())
         if component_enabled('org.esdeplus.stub/.RecipientActivity', False):
             try:
                 failed_target('disabled')
