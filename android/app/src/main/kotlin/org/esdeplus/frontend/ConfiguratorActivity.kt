@@ -141,6 +141,7 @@ class ConfiguratorActivity : Activity() {
 
     private fun render() {
         captureControls()
+        val retainedFocus = focusId
         pathInput = null
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -253,7 +254,7 @@ class ConfiguratorActivity : Activity() {
             }
         }
         button(R.string.cancel_configuration) { cancelled() }
-        (content.findViewById<android.view.View>(focusId)?.takeIf { it.isFocusable && it.isEnabled }
+        (content.findViewById<android.view.View>(retainedFocus)?.takeIf { it.isFocusable && it.isEnabled }
             ?: scoped).requestFocus()
         rememberDraft()
     }

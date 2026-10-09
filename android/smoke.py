@@ -277,6 +277,12 @@ def destroy_held(name):
     wait_for(lambda: shell('pidof', app, check=False).strip() != old_pid,
              'held native host ends on actual Activity destruction', timeout=5)
     elapsed = time.monotonic() - started
+    # pidof may observe process teardown before logcat delivers its last write.
+    # Keep the real five-second process bound and wait separately for evidence.
+    wait_for(lambda: any('SDL_QUIT observed during configuration hold; ending process' in line and
+                         re.search(r'\s' + old_pid + r'\s', line)
+                         for line in adb('logcat', '-d', '-v', 'threadtime').splitlines()),
+             'old process SDL_QUIT diagnostic delivered', timeout=5)
     output = adb('logcat', '-d', '-v', 'threadtime')
     old_lines = '\n'.join(line for line in output.splitlines() if re.search(r'\s' + old_pid + r'\s', line))
     assert 'Destroying SDL activity held=true' in old_lines, output
@@ -596,13 +602,15 @@ try:
     shell('am', 'force-stop', app)
     # Preserve user-edited system metadata and a genuinely deleted empty system
     # across an ordinary restart, in addition to checking the consumed flag.
-    private('test', '-d', shared + '/3do')
-    private('rm', '-rf', shared + '/3do')
-    private('sh', '-c', 'echo user-system-metadata > ' + shlex.quote(shared + '/nes/systeminfo.txt'))
+    # These are user edits to the shared directory through ordinary adb, the
+    # same access used to provision its ROMs. run-as has a separate mount view.
+    shell('test', '-d', shared + '/3do')
+    shell('rm', '-rf', shared + '/3do')
+    shell('sh', '-c', 'echo user-system-metadata > ' + shlex.quote(shared + '/nes/systeminfo.txt'))
     start_entry()
     configured_system('direct-restart')
-    private('test', '!', '-d', shared + '/3do')
-    assert private('cat', shared + '/nes/systeminfo.txt').strip() == 'user-system-metadata'
+    shell('test', '!', '-d', shared + '/3do')
+    assert shell('cat', shared + '/nes/systeminfo.txt').strip() == 'user-system-metadata'
     assert 'Creating system directories' not in log(), log()
     (evidence / 'one-shot-direct.txt').write_text('PASS: deleted 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
     if api == 34:
