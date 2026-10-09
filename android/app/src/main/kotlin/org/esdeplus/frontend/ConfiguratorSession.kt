@@ -7,10 +7,8 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.Bundle
-import android.os.Parcel
-import android.util.AtomicFile
 import android.util.Log
-import java.io.File
+import java.io.IOException
 
 object ConfiguratorSession {
     private val monitor = Object()
@@ -22,6 +20,8 @@ object ConfiguratorSession {
     @Volatile private var entry = Intent()
     @Volatile var home = false
         private set
+    private val draftStrings = listOf("mode", "path", "tree", "typedPath", "message")
+    private val draftBooleans = listOf("createSystems", "permissionPending", "resourceError")
 
     fun recordEntry(intent: Intent) {
         entry = Intent(intent).replaceExtras(null as android.os.Bundle?)
@@ -77,28 +77,32 @@ object ConfiguratorSession {
     // App-private draft, separate from accepted storage configuration and
     // upstream user-data files. Persist before SDL destruction can end the VM.
     fun saveDraft(context: Context, state: Bundle) {
-        val parcel = Parcel.obtain()
-        try {
-            parcel.writeBundle(state)
-            val file = AtomicFile(File(context.filesDir, "configurator-draft"))
-            val output = file.startWrite()
-            try { output.write(parcel.marshall()); file.finishWrite(output) }
-            catch (error: Throwable) { file.failWrite(output); throw error }
-            Log.i("ES-DE-Plus", "Configurator draft saved")
-        } finally { parcel.recycle() }
+        val editor = context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE).edit().clear()
+        for (key in draftStrings) editor.putString(key, state.getString(key))
+        for (key in draftBooleans) editor.putBoolean(key, state.getBoolean(key))
+        editor.putInt("focusId", state.getInt("focusId"))
+        @Suppress("DEPRECATION")
+        val entry = state.getParcelable<Intent>("entry")
+        editor.putString("entry", entry?.toUri(Intent.URI_INTENT_SCHEME))
+        if (!editor.commit()) throw IOException(context.getString(R.string.configuration_save_failed))
+        Log.i("ES-DE-Plus", "Configurator draft saved")
     }
 
     fun loadDraft(context: Context): Bundle? {
-        val file = AtomicFile(File(context.filesDir, "configurator-draft"))
-        if (!file.baseFile.exists()) return null
-        val parcel = Parcel.obtain()
-        return try {
-            val data = file.readFully()
-            parcel.unmarshall(data, 0, data.size)
-            parcel.setDataPosition(0)
-            parcel.readBundle(MainActivity::class.java.classLoader)
-        } finally { parcel.recycle() }
+        val preferences = context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE)
+        if (!preferences.contains("mode")) return null
+        return Bundle().apply {
+            for (key in draftStrings) putString(key, preferences.getString(key, null))
+            for (key in draftBooleans) putBoolean(key, preferences.getBoolean(key, false))
+            putInt("focusId", preferences.getInt("focusId", 0))
+            preferences.getString("entry", null)?.let {
+                putParcelable("entry", Intent.parseUri(it, Intent.URI_INTENT_SCHEME))
+            }
+        }
     }
 
-    fun clearDraft(context: Context) { AtomicFile(File(context.filesDir, "configurator-draft")).delete() }
+    fun clearDraft(context: Context) {
+        if (!context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE).edit().clear().commit())
+            throw IOException(context.getString(R.string.configuration_save_failed))
+    }
 }
