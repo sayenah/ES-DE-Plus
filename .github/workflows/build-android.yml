@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# ES-DE-Plus — written for ES-DE-Plus. CI evidence only; no APK distribution.
+# ES-DE-Plus — written for ES-DE-Plus. CI evidence and debug APK distribution (D-003).
 name: Build Android
 on:
   push:
@@ -239,4 +239,18 @@ jobs:
             android/DEPENDENCY-LICENSES.md
             android/evidence/*.txt
             android/evidence/*.png
+          retention-days: 7
+      - name: Name debug APK artefact
+        id: apk-name
+        if: matrix.image == 'api34'
+        env:
+          APK_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: echo "sha=${APK_COMMIT:0:9}" >> "$GITHUB_OUTPUT"
+      - name: Upload debug APK
+        if: matrix.image == 'api34'
+        uses: actions/upload-artifact@v4
+        with:
+          name: es-de-plus-debug-apk-${{ steps.apk-name.outputs.sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 7
