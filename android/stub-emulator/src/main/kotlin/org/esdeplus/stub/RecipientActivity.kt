@@ -18,6 +18,16 @@ import java.security.MessageDigest
 open class RecipientActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        observe(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        observe(intent)
+    }
+
+    private fun observe(intent: Intent) {
         val control = intent.getStringExtra("queryMode")
         if (control != null) {
             check(getSharedPreferences("query", MODE_PRIVATE).edit().putString("mode", control).commit())
