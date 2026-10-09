@@ -33,5 +33,7 @@
             </intent-filter>
         </activity-alias>
         <activity android:name=".ConfiguratorActivity" android:exported="false" android:launchMode="singleTop" />
+        <provider android:name=".bridge.RomProvider" android:authorities="${applicationId}.roms"
+            android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>

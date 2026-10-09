@@ -1,10 +1,42 @@
 // SPDX-License-Identifier: MIT
 // ES-DE-Plus — written for ES-DE-Plus from the upstream resource and native contracts.
 import java.security.MessageDigest
+import javax.xml.parsers.DocumentBuilderFactory
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 val appId = providers.gradleProperty("esde.applicationId").get()
 val appVersion = providers.gradleProperty("esde.versionCode").get().toInt()
 val stagedAssets = layout.buildDirectory.dir("generated/assets/frontend")
+val queryManifest = layout.buildDirectory.file("generated/visibility/AndroidManifest.xml")
+val generateQueries by tasks.registering {
+    inputs.file("../../resources/systems/android/es_find_rules.xml")
+    inputs.file("src/main/AndroidManifest.xml")
+    outputs.file(queryManifest)
+    doLast {
+        val document = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(file("../../resources/systems/android/es_find_rules.xml"))
+        val rules = document.getElementsByTagName("rule")
+        val packages = sortedSetOf<String>()
+        for (i in 0 until rules.length) {
+            val rule = rules.item(i) as org.w3c.dom.Element
+            if (rule.getAttribute("type") != "androidpackage") continue
+            val entries = rule.getElementsByTagName("entry")
+            for (j in 0 until entries.length) {
+                val name = entries.item(j).textContent.trim().substringBefore('/')
+                require(name.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")))
+                packages.add(name)
+            }
+        }
+        val output = queryManifest.get().asFile
+        output.parentFile.mkdirs()
+        val queries = """<queries>
+${packages.joinToString("\n") { "<package android:name=\"$it\" />" }}
+<intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+<intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
+</queries>
+"""
+        output.writeText(file("src/main/AndroidManifest.xml").readText().replace("<application", queries + "<application"))
+    }
+}
 val stageAssets by tasks.registering {
     inputs.dir("../../resources")
     inputs.dir("../../locale/po")
@@ -54,6 +86,7 @@ android {
     }
     externalNativeBuild { cmake { path = file("../../CMakeLists.txt"); version = "3.31.5" } }
     sourceSets.getByName("main") {
+        manifest.srcFile(queryManifest)
         assets.srcDir(stagedAssets)
         jniLibs.srcDir("../libs")
     }
@@ -74,4 +107,4 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
 }
-tasks.named("preBuild") { dependsOn(stageAssets) }
+tasks.named("preBuild") { dependsOn(stageAssets, generateQueries) }

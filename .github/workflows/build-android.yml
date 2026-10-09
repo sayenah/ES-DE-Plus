@@ -5,7 +5,7 @@ on:
   push:
     branches: ["feature/**"]
   pull_request:
-    paths: ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", ".github/workflows/**"]
+    paths: ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", "resources/systems/android/**", ".github/workflows/**"]
   workflow_dispatch:
     inputs:
       clean_cache:
@@ -46,6 +46,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
+      - name: Observe official stable RetroArch pin (CI only)
+        if: matrix.image == 'api29'
+        run: |
+          curl --fail --location --retry 3 https://buildbot.libretro.com/stable/1.22.2/android/RetroArch.apk -o "$RUNNER_TEMP/RetroArch.apk"
+          sha256sum "$RUNNER_TEMP/RetroArch.apk"
+          rm "$RUNNER_TEMP/RetroArch.apk"
       - name: Restore downloads
         if: ${{ !inputs.clean_cache }}
         uses: actions/cache@v4

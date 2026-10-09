@@ -28,6 +28,11 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode == "launch-probe") {
+                result.putString("stream", LaunchSmoke.run(targetContext))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "retained-configurator") {
                 // Deterministically reproduce a retained configurator below a
                 // new SDL activity. No timing retry, native quit injection or
