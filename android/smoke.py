@@ -135,12 +135,23 @@ def node_matches(node, label):
 def ui(label, dpad=False):
     if dpad:
         wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
-        for _ in range(35):
+        direction = 'KEYCODE_DPAD_DOWN'
+        last_focus = None
+        for _ in range(50):
             nodes = hierarchy()
             if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
                 key('KEYCODE_DPAD_CENTER')
                 return
-            key('KEYCODE_DPAD_DOWN')
+            focused = next((n for n in nodes if n.get('focused') == 'true'), None)
+            target = next((n for n in nodes if node_matches(n, label) and n.get('focusable') == 'true'), None)
+            if focused is not None and target is not None:
+                current_y = sum(map(int, re.findall(r'\d+', focused.attrib['bounds'])[1::2]))
+                target_y = sum(map(int, re.findall(r'\d+', target.attrib['bounds'])[1::2]))
+                direction = 'KEYCODE_DPAD_UP' if target_y < current_y else 'KEYCODE_DPAD_DOWN'
+            elif focused is not None and focused.attrib == last_focus:
+                direction = 'KEYCODE_DPAD_UP' if direction == 'KEYCODE_DPAD_DOWN' else 'KEYCODE_DPAD_DOWN'
+            last_focus = focused.attrib.copy() if focused is not None else None
+            key(direction)
         raise AssertionError('D-pad cannot reach: ' + label)
     wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'UI: ' + label)
     nodes = hierarchy()
@@ -178,6 +189,127 @@ def permission_toggle():
         if len(switches) == 1 and any(n.get('text', '').casefold() == label.casefold() for n in children):
             candidates.append((len(children), switches[0]))
     return min(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def grant_from_settings():
+    # Both app-specific and generic Settings are opened by the application.
+    # A generic phone list needs its real app row; TV exposes switches inline.
+    wait_for(lambda: bool(hierarchy()), 'all-files Settings UI')
+    if permission_toggle() is None:
+        ui(label)
+    wait_for(lambda: permission_toggle() is not None, 'app-associated all-files switch')
+    if television:
+        for _ in range(40):
+            focused = False
+            for parent in hierarchy():
+                children = list(parent.iter('node'))
+                if (sum(n.get('checkable') == 'true' for n in children) == 1 and
+                        any(n.get('text', '').casefold() == label.casefold() for n in children) and
+                        any(n.get('focused') == 'true' for n in children)):
+                    focused = True
+                    break
+            if focused:
+                screenshot('tv-all-files-switch-focused')
+                key('KEYCODE_DPAD_CENTER')
+                break
+            key('KEYCODE_DPAD_DOWN')
+        else:
+            raise AssertionError('TV D-pad cannot reach our all-files switch')
+    else:
+        toggle = permission_toggle()
+        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
+        shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+    wait_for(lambda: permission_toggle() is not None and permission_toggle().get('checked') == 'true',
+             'real app all-files grant')
+    screenshot('all-files-granted')
+    key('KEYCODE_BACK')
+    if not any(n.get('package') == app for n in hierarchy()):
+        key('KEYCODE_BACK')
+    wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') for n in hierarchy()),
+             'configurator returned from all-files Settings')
+
+
+def activity_records():
+    dump = shell('dumpsys', 'activity', 'activities')
+    records = []
+    for record in re.findall(r'Hist\s+#\d+: ActivityRecord\{([^}]+)\}', dump):
+        match = re.search(r'\bu\d+ ' + re.escape(app) + r'/([^\s]+) t(\d+)', record)
+        if match:
+            records.append((match[1].rsplit('.', 1)[-1], match[2], record))
+    return dump, records
+
+
+def destroy_held(name):
+    dump, records = activity_records()
+    assert any(r[0] == 'ConfiguratorActivity' for r in records), dump
+    assert len({r[1] for r in records}) == 1 and len(records) == 2, dump
+    (evidence / (name + '-before-activities.txt')).write_text(dump)
+    old_pid = shell('pidof', app).strip()
+    adb('logcat', '-c')
+    started = time.monotonic()
+    # Clear the actual HOME frontend/configurator task through ActivityManager.
+    # The exported entry is used; no test-only finish or native quit injection.
+    result = shell('am', 'start', '--activity-new-task', '--activity-clear-task',
+                   '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME',
+                   '-n', app + '/org.esdeplus.frontend.HomeEntry')
+    wait_for(lambda: shell('pidof', app, check=False).strip() != old_pid,
+             'held native host ends on actual Activity destruction', timeout=5)
+    elapsed = time.monotonic() - started
+    output = adb('logcat', '-d', '-v', 'threadtime')
+    old_lines = '\n'.join(line for line in output.splitlines() if re.search(r'\s' + old_pid + r'\s', line))
+    assert 'Destroying SDL activity held=true' in old_lines, output
+    assert 'SDL_QUIT observed during configuration hold; ending process' in old_lines, output
+    assert 'Configurator draft saved' in old_lines, output
+    assert 'ANR in ' + app not in output and 'JNI DETECTED ERROR' not in output, output
+    (evidence / (name + '-destroy.txt')).write_text(
+        f'Actual am task clear: {result}\nOld PID {old_pid}; exited in {elapsed:.3f}s.\n' + output)
+    # _exit ends the entire process, including the pending UI join; a post-join
+    # Java callback is not claimed on this path. Normal quits still assert it.
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'held configuration restored')
+    screenshot(name + '-restored')
+    save_logs(name + '-restored')
+
+
+def real_system_home():
+    resolved = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
+                     '-c', 'android.intent.category.HOME')
+    original = next(line.strip() for line in resolved.splitlines() if '/' in line and ' ' not in line.strip())
+    shell('am', 'force-stop', app)
+    try:
+        changed = shell('cmd', 'package', 'set-home-activity', app + '/org.esdeplus.frontend.HomeEntry')
+        assert 'Success' in changed, changed
+        # Open the real stock drawer, then tap this application's launcher icon.
+        shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME', '-n', original)
+        width, height = map(int, re.findall(r'(\d+)x(\d+)', shell('wm', 'size'))[-1])
+        shell('input', 'swipe', str(width // 2), str(height - 100), str(width // 2), '100', '500')
+        ui(label)
+        configured_system('system-home-drawer-launch')
+        pid = shell('pidof', app).strip()
+        before, records = activity_records()
+        assert len(records) == 1 and records[0][0] == 'MainActivity', before
+        assert re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=standard', before), before
+        assert 'HOME=false' in adb('logcat', '-d'), 'Drawer launch did not clear HOME'
+        (evidence / 'system-home-before-activities.txt').write_text(before)
+        adb('logcat', '-c')
+        key('KEYCODE_HOME')
+        wait_for(lambda: 'HOME=true' in adb('logcat', '-d') and len(activity_records()[1]) == 1,
+                 'system HOME forwards to sole SDL instance')
+        after, current = activity_records()
+        assert current[0][1:] == records[0][1:], (before, after)
+        assert shell('pidof', app).strip() == pid, 'System HOME changed PID'
+        output = adb('logcat', '-d', '-v', 'threadtime')
+        assert 'Creating sole SDL activity' not in output and 'Running main function' not in output, output
+        assert 'Forwarding entry to sole SDL activity' in output or 'SDL entry reused via onNewIntent' in output, output
+        (evidence / 'system-home-after-activities.txt').write_text(after)
+        (evidence / 'system-home-set-default.txt').write_text(changed + '\n' + output)
+        screenshot('system-home-reused')
+        key('KEYCODE_BACK')
+        assert shell('pidof', app).strip() == pid and any(n.get('package') == app for n in hierarchy())
+    finally:
+        restored = shell('cmd', 'package', 'set-home-activity', original)
+        (evidence / 'system-home-default-restored.txt').write_text(original + '\n' + restored)
+        assert 'Success' in restored, restored
 
 
 def component_enabled(component, enabled):
@@ -288,6 +420,35 @@ try:
         save_logs('configurator-density-recreated')
     finally:
         shell('wm', 'density', str(density))
+    if api >= 31:
+        previous_weight = shell('settings', 'get', 'secure', 'font_weight_adjustment').strip()
+        before_records = activity_records()[1]
+        adb('logcat', '-c')
+        requested_weight = '300' if previous_weight != '300' else '0'
+        try:
+            shell('settings', 'put', 'secure', 'font_weight_adjustment',
+                  requested_weight)
+            wait_for(lambda: 'fontWeightAdjustment=' + requested_weight in
+                     shell('dumpsys', 'activity', 'activities'), 'actual font-weight configuration changed')
+            assert shell('pidof', app).strip() == held_pid
+            after_records = activity_records()[1]
+            assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
+                r for r in before_records if r[0] != 'ConfiguratorActivity'), (before_records, after_records)
+            assert 'Creating sole SDL activity' not in adb('logcat', '-d')
+            (evidence / 'font-weight-held-activities.txt').write_text(activity_records()[0])
+            save_logs('font-weight-held')
+            screenshot('font-weight-held')
+        finally:
+            if previous_weight == 'null':
+                shell('settings', 'delete', 'secure', 'font_weight_adjustment')
+            else:
+                shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
+    ui('Use app-owned storage', dpad=True)
+    ui('Create system folders', dpad=True)
+    destroy_held('destroy-initial-held')
+    ui('How to add games')
+    assert any(n.get('text') == 'Create system folders' and n.get('checked') == 'false' for n in hierarchy())
+    ui('Create system folders', dpad=True)
     ui('Use direct filesystem compatibility', dpad=True)
     screenshot('mode-before-permission')
     if api >= 30:
@@ -295,8 +456,11 @@ try:
         if settings_component and component_enabled(settings_component, False):
             try:
                 ui('Grant direct filesystem access', dpad=True)
-                ui('All-files settings are unavailable')
-                screenshot('missing-all-files-settings-fallback')
+                grant_from_settings()
+                screenshot('generic-all-files-settings-return')
+                # Revoke only for the subsequent denial/grant UI probe.
+                shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+                start_entry('HomeEntry', 'android.intent.category.HOME')
             finally:
                 component_enabled(settings_component, True)
     ui('Grant direct filesystem access', dpad=True)
@@ -307,36 +471,26 @@ try:
         ui('Grant direct filesystem access', dpad=True)
         ui('Allow')
     else:
-        # The real platform Settings toggle, not appops or pm grant.
-        nodes = hierarchy()
-        general_settings = False
-        toggle = permission_toggle()
-        if toggle is None:
-            # TV's missing-capability fallback remains recoverable. Record it,
-            # then try the device's general all-files settings UI.
-            general_settings = True
-            ui('All-files settings are unavailable')
-            screenshot('all-files-unavailable')
-            shell('am', 'start', '-a', 'android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION')
-            ui(label)
-            nodes = hierarchy()
-            toggle = permission_toggle()
-        if not general_settings:
-            # Return without granting once: denial is visible and recoverable.
-            key('KEYCODE_BACK')
-            ui('Access was not granted')
-            screenshot('all-files-denied')
-            ui('Grant direct filesystem access', dpad=True)
-            nodes = hierarchy()
-            toggle = permission_toggle()
-        assert toggle is not None, 'No permission switch associated with our application'
-        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
-        shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-        wait_for(lambda: permission_toggle() is not None and permission_toggle().get('checked') == 'true', 'real app all-files grant')
-        screenshot('all-files-granted')
+        # Return without granting once, from either app-specific or generic UI.
         key('KEYCODE_BACK')
-        if general_settings:
+        if not any(n.get('package') == app for n in hierarchy()):
             key('KEYCODE_BACK')
+        ui('Access was not granted')
+        screenshot('all-files-denied')
+        ui('Grant direct filesystem access', dpad=True)
+        grant_from_settings()
+    # Real editable field and focus survive an Activity resume/re-render.
+    ui('Absolute shared ROM folder path', dpad=television)
+    if television:
+        (evidence / 'tv-path-ime.txt').write_text(shell('dumpsys', 'input_method'))
+        screenshot('tv-path-ime-open')
+    shell('input', 'text', shared)
+    key('KEYCODE_BACK')
+    shell('am', 'start', '-a', 'android.settings.SETTINGS')
+    key('KEYCODE_BACK')
+    wait_for(lambda: any(n.get('class') == 'android.widget.EditText' and n.get('text') == shared and
+                         n.get('focused') == 'true' for n in hierarchy()), 'typed text and D-pad focus retained on resume')
+    screenshot('typed-path-focus-preserved')
     picker_component = resolved_component('android.intent.action.OPEN_DOCUMENT_TREE')
     if picker_component and component_enabled(picker_component, False):
         try:
@@ -355,9 +509,6 @@ try:
         # returns cancellation. The same visible typed-path fallback applies.
         screenshot('picker-unavailable-or-returned-cancel')
         save_logs('picker-capability')
-        ui('Absolute shared ROM folder path')
-        shell('input', 'text', shared)
-        key('KEYCODE_BACK')  # Hide IME, preserve the real edit.
         ui('Use typed folder path', dpad=True)
     else:
         # Exercise cancellation without replacing the existing selection.
@@ -406,8 +557,19 @@ try:
             assert shell('pidof', app).strip() == pid, 'Warm HOME Back exited the frontend'
             assert any(n.get('package') == app for n in hierarchy()), 'Warm HOME Back left the frontend'
     shell('am', 'force-stop', app)
+    # Preserve user-edited system metadata and a genuinely deleted empty system
+    # across an ordinary restart, in addition to checking the consumed flag.
+    private('test', '-d', shared + '/3do')
+    private('rm', '-rf', shared + '/3do')
+    private('sh', '-c', 'echo user-system-metadata > ' + shlex.quote(shared + '/nes/systeminfo.txt'))
     start_entry()
     configured_system('direct-restart')
+    private('test', '!', '-d', shared + '/3do')
+    assert private('cat', shared + '/nes/systeminfo.txt').strip() == 'user-system-metadata'
+    assert 'Creating system directories' not in log(), log()
+    (evidence / 'one-shot-direct.txt').write_text('PASS: deleted 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
+    if api == 34:
+        real_system_home()
     shell('am', 'force-stop', app)
     volume_probe = shell('am', 'instrument', '-w', '-e', 'mode', 'storage',
                          app + '/org.esdeplus.frontend.RuntimeSmoke')
@@ -441,11 +603,10 @@ try:
     ui('Configure ' + label)
     screenshot('revoked-access-recovery')
     save_logs('revoked-access-recovery')
-    # Fresh app install state starts the independent scoped path through its UI.
-    # pm clear is a normal reset, never an injected storage preference.
-    clear_app()
-    start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
+    # Recover through an explicit scoped choice, without pm clear hiding old
+    # persisted grants. The accepted shared grant must be released on save.
     ui('Use app-owned storage', dpad=True)
+    ui('Create system folders', dpad=True)
     ui('How to add games')
     screenshot('scoped-provisioning-howto')
     # Demonstrate the displayed provisioning route as the ordinary shell UID.
@@ -465,14 +626,34 @@ try:
     wait_for(lambda: any(n.get('package', '').startswith('com.android.') and
                          n.get('package') != app for n in hierarchy()) and
              not any(n.get('package') == app for n in hierarchy()), 'configurator backgrounded')
-    shell('am', 'force-stop', app)
-    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'background configuration process death')
-    start_entry('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER')
-    ui('Use app-owned storage', dpad=True)
-    assert shell('pidof', app).strip() != old_pid, 'Process-death probe did not restart the native host'
+    wait_for(lambda: 'Configurator instance state saved mode=scoped' in adb('logcat', '-d'),
+             'framework instance state saved while backgrounded')
+    task_dump, task_records = activity_records()
+    saved_task = next(r[1] for r in task_records if r[0] == 'ConfiguratorActivity')
+    shell('am', 'kill', app)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and shell('pidof', app, check=False).strip() == old_pid:
+        time.sleep(0.5)
+    if shell('pidof', app, check=False).strip() != old_pid:
+        adb('logcat', '-c')
+        shell('am', 'task', 'focus', saved_task)
+        ui('How to add games')
+        wait_for(lambda: 'Configurator created savedState=true mode=scoped' in adb('logcat', '-d'),
+                 'framework Bundle restored after honest background am kill')
+        (evidence / 'saved-state-restore.txt').write_text('PASS: am kill ended the background process; retained task restored the actual saved Bundle.\n' + task_dump + '\n' + adb('logcat', '-d'))
+    else:
+        (evidence / 'saved-state-restore.txt').write_text('EVIDENCE GAP: am kill retained this background process; OS process-death saved-Bundle restoration was not driven. The force-stop/draft probe follows.\n' + task_dump)
+        shell('am', 'force-stop', app)
+        wait_for(lambda: not shell('pidof', app, check=False).strip(), 'background configuration process death')
+        start_entry('HomeEntry', 'android.intent.category.HOME')
+        ui('How to add games')
+    assert shell('pidof', app).strip() != old_pid, 'Process-death probe did not restart the host'
     screenshot('configurator-after-process-death')
     save_logs('configurator-after-process-death')
     ui('Save and start frontend', dpad=True)
+    wait_for(lambda: 'Storage configuration committed mode=scoped' in adb('logcat', '-d') and
+             'Persisted tree grant count=0' in adb('logcat', '-d'), 'scoped save releases actual shared grants')
+    save_logs('scoped-save-releases-grants')
     shell('am', 'force-stop', app)
     # Resource installation is uncommitted on a fresh start; remove resources
     # solely to guarantee a real copy for the interruption probe.
@@ -618,6 +799,8 @@ try:
         start_entry('HomeEntry', 'android.intent.category.HOME')
         ui('Resource installation failed')
         screenshot('resource-copy-failure')
+        destroy_held('destroy-resource-held')
+        ui('Resource installation failed')
         private('rm', 'files/resources/fonts')
         private('mv', 'files/resources/fonts.smoke-saved', 'files/resources/fonts')
         ui('Retry startup', dpad=True)

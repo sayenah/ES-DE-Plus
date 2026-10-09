@@ -113,8 +113,13 @@ class StorageModel(private val context: Context) {
         if ((flags and grants) != grants || flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0)
             throw failure(R.string.persistent_access_required)
         val directory = verifyDirectory(resolveTree(uri))
-        context.contentResolver.takePersistableUriPermission(uri, flags and grants)
-        verifyGrant(uri)
+        try {
+            context.contentResolver.takePersistableUriPermission(uri, flags and grants)
+            verifyGrant(uri)
+        } catch (error: Exception) {
+            releaseUnselectedGrants()
+            throw error
+        }
         return directory
     }
 
@@ -146,7 +151,34 @@ class StorageModel(private val context: Context) {
         if (!preferences.contains("mode")) return null
         return Configuration(preferences.getString("mode", "")!!,
             preferences.getString("roms", "")!!, preferences.getString("tree", "")!!,
-            preferences.getBoolean("createSystems", true))
+            preferences.getBoolean("createSystems", false))
+    }
+
+    // Consume durably before the native caller creates folders. Later starts
+    // must not regenerate user-deleted systems or overwrite systeminfo files.
+    @Synchronized fun consumeCreateSystemDirectories(): Boolean {
+        if (!preferences.getBoolean("createSystems", false)) return false
+        if (!preferences.edit().putBoolean("createSystems", false).commit())
+            throw failure(R.string.configuration_save_failed)
+        Log.i("ES-DE-Plus", "System-folder creation request consumed")
+        return true
+    }
+
+    fun releaseUnselectedGrants(pendingTree: String = "") {
+        val keep = setOf(load()?.tree.orEmpty(), pendingTree)
+        for (permission in context.contentResolver.persistedUriPermissions) {
+            if (permission.uri.toString() in keep) continue
+            val flags = (if (permission.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                (if (permission.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+            try {
+                context.contentResolver.releasePersistableUriPermission(permission.uri, flags)
+                Log.i("ES-DE-Plus", "Released unselected persisted tree grant")
+            } catch (error: SecurityException) {
+                // A provider can revoke a grant between enumeration/release.
+                Log.w("ES-DE-Plus", "Persisted tree grant is no longer available", error)
+            }
+        }
+        Log.i("ES-DE-Plus", "Persisted tree grant count=${context.contentResolver.persistedUriPermissions.size}")
     }
 
     fun validate(configuration: Configuration): File {
@@ -186,5 +218,6 @@ class StorageModel(private val context: Context) {
                 .putBoolean("createSystems", configuration.createSystems).commit())
             throw failure(R.string.configuration_save_failed)
         Log.i("ES-DE-Plus", "Storage configuration committed mode=${configuration.mode}")
+        releaseUnselectedGrants()
     }
 }

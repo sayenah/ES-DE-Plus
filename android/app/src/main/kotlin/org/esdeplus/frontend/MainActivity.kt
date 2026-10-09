@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.os.Build
 import android.util.Log
 import android.view.KeyEvent
+import android.content.res.Configuration
+import java.lang.ref.WeakReference
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
@@ -17,6 +19,8 @@ class MainActivity : SDLActivity() {
         ConfiguratorSession.registerNative()
     }
     override fun onCreate(savedInstanceState: Bundle?) {
+        live = WeakReference(this)
+        Log.i("ES-DE-Plus", "Creating sole SDL activity task=$taskId")
         ConfiguratorSession.recordEntry(intent)
         super.onCreate(savedInstanceState)
         updateWindowSize()
@@ -25,9 +29,17 @@ class MainActivity : SDLActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         Log.i("ES-DE-Plus", "SDL entry reused via onNewIntent")
+        receiveEntry(intent)
+    }
+    fun receiveEntry(intent: Intent) {
         setIntent(intent)
         ConfiguratorSession.recordEntry(intent)
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+    }
+    override fun onConfigurationChanged(configuration: Configuration) {
+        super.onConfigurationChanged(configuration)
+        updateWindowSize()
+        Log.i("ES-DE-Plus", "SDL activity configuration handled task=$taskId")
     }
     override fun onResume() {
         super.onResume()
@@ -50,10 +62,13 @@ class MainActivity : SDLActivity() {
     }
     override fun onDestroy() {
         val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
+        Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring}")
         // SDL first joins/stops its native thread. Only terminal Activity exit
         // then ends the VM, resetting native globals for the next launch;
         // recreation and pending configuration keep the process alive.
         super.onDestroy()
+        Log.i("ES-DE-Plus", "SDL activity destroy join returned")
+        live = null
         if (terminal) kotlin.system.exitProcess(0)
     }
     private fun updateWindowSize() {
@@ -90,7 +105,10 @@ class MainActivity : SDLActivity() {
     fun startConfigurator() = bridge.startConfigurator()
     fun onNativeFrontendResume() = bridge.onNativeFrontendResume()
     companion object {
+        private var live: WeakReference<MainActivity>? = null
+        fun liveInstance(): MainActivity? = live?.get()?.takeUnless { it.isDestroyed }
         @JvmStatic external fun nativeSetHold(hold: Boolean)
+        @JvmStatic external fun nativeWaitForConfiguration()
         @JvmStatic external fun nativeSetHomeApp(home: Boolean)
         @JvmStatic external fun nativeSetResetTouchOverlay(reset: Boolean)
     }

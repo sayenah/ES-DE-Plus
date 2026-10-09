@@ -14,12 +14,14 @@
 #include "Log.h"
 #include "utils/FileSystemUtil.h"
 
+#include <SDL2/SDL.h>
 #include <SDL2/SDL_hints.h>
 #include <SDL2/SDL_system.h>
 #include <jni.h>
 
 #include "utf8.h"
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <unistd.h>
@@ -37,6 +39,33 @@ namespace AndroidVariables
 
 namespace
 {
+    void prepareConfigurationWait()
+    {
+        // Initial configuration and early font copying precede SDL video init.
+        // Enable the event queue before presenting a screen that can outlive it.
+        if (SDL_WasInit(SDL_INIT_EVENTS) == 0 && SDL_InitSubSystem(SDL_INIT_EVENTS) != 0) {
+            __android_log_print(ANDROID_LOG_ERROR, ANDROID_APPLICATION_ID,
+                                "Cannot initialize startup quit events: %s", SDL_GetError());
+            _exit(EXIT_FAILURE);
+        }
+    }
+
+    void waitForConfiguration()
+    {
+        while (AndroidVariables::sHold) {
+            // SDLActivity sends SDL_QUIT before joining its native thread. Do
+            // not leave that UI join waiting on user interaction or Java wait().
+            if (SDL_HasEvent(SDL_QUIT)) {
+                __android_log_print(ANDROID_LOG_INFO, ANDROID_APPLICATION_ID,
+                                    "SDL_QUIT observed during configuration hold; ending process");
+                Log::flush();
+                std::fflush(nullptr);
+                _exit(EXIT_SUCCESS);
+            }
+            SDL_Delay(10);
+        }
+    }
+
     bool usableDirectory(const std::string& path)
     {
         return !path.empty() && path.front() == '/' && Utils::FileSystem::isDirectory(path) &&
@@ -559,8 +588,10 @@ namespace Utils
 
             void startConfigurator()
             {
+                prepareConfigurationWait();
                 AndroidVariables::sHold = true;
                 callVoid("startConfigurator");
+                waitForConfiguration();
             }
         } // namespace Android
     } // namespace Platform
@@ -569,7 +600,15 @@ namespace Utils
 extern "C" JNIEXPORT void JNICALL
 Java_org_esdeplus_frontend_MainActivity_nativeSetHold(JNIEnv*, jclass, jboolean hold)
 {
+    if (hold == JNI_TRUE)
+        prepareConfigurationWait();
     AndroidVariables::sHold = hold == JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_esdeplus_frontend_MainActivity_nativeWaitForConfiguration(JNIEnv*, jclass)
+{
+    waitForConfiguration();
 }
 
 extern "C" JNIEXPORT void JNICALL

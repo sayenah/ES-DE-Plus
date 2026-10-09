@@ -6,7 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.Bundle
+import android.os.Parcel
+import android.util.AtomicFile
 import android.util.Log
+import java.io.File
 
 object ConfiguratorSession {
     private val monitor = Object()
@@ -15,7 +19,6 @@ object ConfiguratorSession {
         private set
     @Volatile var resourceFailure: String? = null
         private set
-    private var retry = 0
     @Volatile private var entry = Intent()
     @Volatile var home = false
         private set
@@ -58,19 +61,44 @@ object ConfiguratorSession {
     // Retry wakes that thread; the failed operation is executed again there.
     fun awaitResourceRetry(context: Context, message: String) {
         synchronized(monitor) {
-            val previous = retry
             resourceFailure = message
             open(context, message)
-            while (retry == previous) monitor.wait()
-            resourceFailure = null
         }
+        MainActivity.nativeWaitForConfiguration()
+        synchronized(monitor) { resourceFailure = null }
     }
 
     fun retryResources(): Boolean = synchronized(monitor) {
         if (resourceFailure == null) return@synchronized false
         finishConfiguration()
-        retry++
-        monitor.notifyAll()
         true
     }
+
+    // App-private draft, separate from accepted storage configuration and
+    // upstream user-data files. Persist before SDL destruction can end the VM.
+    fun saveDraft(context: Context, state: Bundle) {
+        val parcel = Parcel.obtain()
+        try {
+            parcel.writeBundle(state)
+            val file = AtomicFile(File(context.filesDir, "configurator-draft"))
+            val output = file.startWrite()
+            try { output.write(parcel.marshall()); file.finishWrite(output) }
+            catch (error: Throwable) { file.failWrite(output); throw error }
+            Log.i("ES-DE-Plus", "Configurator draft saved")
+        } finally { parcel.recycle() }
+    }
+
+    fun loadDraft(context: Context): Bundle? {
+        val file = AtomicFile(File(context.filesDir, "configurator-draft"))
+        if (!file.baseFile.exists()) return null
+        val parcel = Parcel.obtain()
+        return try {
+            val data = file.readFully()
+            parcel.unmarshall(data, 0, data.size)
+            parcel.setDataPosition(0)
+            parcel.readBundle(MainActivity::class.java.classLoader)
+        } finally { parcel.recycle() }
+    }
+
+    fun clearDraft(context: Context) { AtomicFile(File(context.filesDir, "configurator-draft")).delete() }
 }

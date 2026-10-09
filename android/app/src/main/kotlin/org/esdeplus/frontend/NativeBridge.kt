@@ -103,6 +103,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
                 if (!installed(true)) throw IOException(context.getString(R.string.resource_installation_incomplete))
                 writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
                 Log.i(tag, "Resource installation committed build=$buildIdentifier")
+                if (recoverStartup && !ConfiguratorSession.configuring) ConfiguratorSession.clearDraft(context)
                 return false
             } catch (error: Exception) {
                 Log.e(tag, "Resource installation failed", error)
@@ -119,7 +120,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")
     fun getExternalDirectory(): String = Environment.getExternalStorageDirectory().absolutePath
-    fun getCreateSystemDirectories(): Boolean = storage.load()?.createSystems ?: false
+    fun getCreateSystemDirectories(): Boolean = storage.consumeCreateSystemDirectories()
     fun checkConfigurationNeeded(): Boolean = storage.problem() != null
     fun checkEmulatorInstalled(packageName: String, activityName: String): Boolean = false
     fun checkRACoreInstalled(packageName: String, coreFile: String): Int = -2

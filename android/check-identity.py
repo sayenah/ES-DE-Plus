@@ -178,6 +178,7 @@ def integer_attribute(node, name):
 activities = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity'}
 main = activities['org.esdeplus.frontend.MainActivity']
 configurator = activities['org.esdeplus.frontend.ConfiguratorActivity']
+assert 'taskAffinity' not in configurator['attributes'], 'Configurator must share the SDL task affinity'
 assert integer_attribute(main, 'launchMode') == 2, 'SDL activity must be singleTask'
 assert integer_attribute(main, 'exported') == 0xffffffff
 assert integer_attribute(configurator, 'exported') == 0
@@ -195,6 +196,8 @@ for permission in ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']:
     assert integer_attribute(permissions['android.permission.' + permission], 'maxSdkVersion') == 29
 assert 'android.permission.MANAGE_EXTERNAL_STORAGE' in permissions
 application = next(n for n in manifest_nodes if n['tag'] == 'application')
+assert string_attribute(application, 'appComponentFactory') == 'org.esdeplus.frontend.FrontendActivityFactory'
+assert ('nativeWaitForConfiguration', '()V') in classes['Lorg/esdeplus/frontend/MainActivity;']
 assert integer_attribute(application, 'requestLegacyExternalStorage') == 0xffffffff
 assert 'banner' in application['attributes']
 features = {string_attribute(n, 'name'): n for n in manifest_nodes
