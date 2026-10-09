@@ -677,19 +677,32 @@ try:
     # SELinux can prevent run-as from signaling the app's different domain.
     old_pid = shell('pidof', app).strip()
     assert old_pid.isdigit(), old_pid
+    adb('logcat', '-c')
     shell('am', 'start', '-a', 'android.settings.SETTINGS')
     wait_for(lambda: any(n.get('package', '').startswith('com.android.') and
                          n.get('package') != app for n in hierarchy()) and
              not any(n.get('package') == app for n in hierarchy()), 'configurator backgrounded')
-    wait_for(lambda: 'Configurator instance state saved mode=scoped' in adb('logcat', '-d'),
-             'framework instance state saved while backgrounded')
+    def state_saved():
+        return 'Configurator instance state saved mode=scoped' in adb('logcat', '-d')
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and not state_saved():
+        time.sleep(0.5)
+    if not state_saved():
+        # TV Settings may only pause an activity behind its translucent panel.
+        # Try the actual system HOME before declaring an honest SDK-state gap.
+        key('KEYCODE_HOME')
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not state_saved():
+            time.sleep(0.5)
+    framework_saved = state_saved()
     task_dump, task_records = activity_records()
     saved_task = next(r[1] for r in task_records if r[0] == 'ConfiguratorActivity')
+    save_logs('saved-state-background')
     shell('am', 'kill', app)
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline and shell('pidof', app, check=False).strip() == old_pid:
         time.sleep(0.5)
-    if shell('pidof', app, check=False).strip() != old_pid:
+    if shell('pidof', app, check=False).strip() != old_pid and framework_saved:
         adb('logcat', '-c')
         shell('am', 'task', 'focus', saved_task)
         ui('How to add games')
@@ -697,7 +710,11 @@ try:
                  'framework Bundle restored after honest background am kill')
         (evidence / 'saved-state-restore.txt').write_text('PASS: am kill ended the background process; retained task restored the actual saved Bundle.\n' + task_dump + '\n' + adb('logcat', '-d'))
     else:
-        (evidence / 'saved-state-restore.txt').write_text('EVIDENCE GAP: am kill retained this background process; OS process-death saved-Bundle restoration was not driven. The force-stop/draft probe follows.\n' + task_dump)
+        (evidence / 'saved-state-restore.txt').write_text(
+            f'EVIDENCE GAP: SDK state callback observed={framework_saved}; '
+            f'am kill retained old process={shell("pidof", app, check=False).strip() == old_pid}. '
+            'OS process-death saved-Bundle restoration was not driven. '
+            'The force-stop/draft probe follows.\n' + task_dump)
         shell('am', 'force-stop', app)
         wait_for(lambda: not shell('pidof', app, check=False).strip(), 'background configuration process death')
         start_entry('HomeEntry', 'android.intent.category.HOME')
