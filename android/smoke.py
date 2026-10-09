@@ -10,6 +10,9 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 import smoke_checks
+import launch_checks
+import json
+import os
 
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
@@ -19,6 +22,7 @@ label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@na
 evidence = pathlib.Path('android/evidence')
 evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
+(evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
@@ -492,6 +496,175 @@ def launch_contract_probes(mode):
     launch()
     screenshot('launch-contract-' + mode + '-returned-frontend')
     save_logs('launch-contract-' + mode + '-returned-frontend')
+    gamelist_recipient_flow(mode)
+
+
+def search_launch(term):
+    key('KEYCODE_ESCAPE')
+    key('KEYCODE_ENTER')
+    shell('input', 'text', term)
+    key('KEYCODE_ENTER')
+    key('KEYCODE_DPAD_DOWN')
+    key('KEYCODE_ENTER')
+
+
+def gamelist_recipient_flow(mode):
+    custom = external + '/ES-DE-Plus/custom_systems'
+    user_root = shared if mode.startswith('direct') else roms
+    temporary = evidence / 'launch-custom'
+    temporary.mkdir(exist_ok=True)
+    systems = ET.Element('systemList')
+    for name, command in [('nes', '%EMULATOR_PROBE% %ACTION%=android.intent.action.VIEW %CATEGORY%=android.intent.category.DEFAULT %DATA%=%ROMPROVIDER%'),
+                          ('androidapps', '%ANDROIDAPP%=%FILEINJECT%')]:
+        system = ET.SubElement(systems, 'system')
+        for tag, value in [('name', name), ('fullname', name), ('path', '%ROMPATH%/' + name),
+                           ('extension', '.nes' if name == 'nes' else '.app'), ('command', command),
+                           ('platform', name), ('theme', name)]:
+            ET.SubElement(system, tag).text = value
+    ET.ElementTree(systems).write(temporary / 'es_systems.xml', encoding='utf-8', xml_declaration=True)
+    rules = ET.Element('ruleList')
+    emulator = ET.SubElement(rules, 'emulator', name='PROBE')
+    rule = ET.SubElement(emulator, 'rule', type='androidpackage')
+    ET.SubElement(rule, 'entry').text = 'org.esdeplus.stub/.RecipientActivity'
+    ET.ElementTree(rules).write(temporary / 'es_find_rules.xml', encoding='utf-8', xml_declaration=True)
+    shell('am', 'force-stop', app)
+    shell('mkdir', '-p', custom)
+    for name in ['es_systems.xml', 'es_find_rules.xml']:
+        adb('push', str(temporary / name), custom + '/' + name)
+        (evidence / (mode + '-' + name + '.txt')).write_text((temporary / name).read_text())
+    def start_custom():
+        shell('am', 'force-stop', app)
+        launch()
+    def failed_target(name):
+        start_custom()
+        search_launch('Smoke')
+        wait_for(lambda: "Couldn't launch game, emulator not found" in log(), name + ' target visible error')
+        screenshot(mode + '-' + name + '-target-error')
+        save_logs(mode + '-' + name + '-target-error')
+        launch_checks.equal(bool(shell('pidof', app).strip()), True, 'Frontend survives target failure')
+    try:
+        start_custom()
+        pid = shell('pidof', app).strip()
+        frontend_uid = int(shell('run-as', app, 'id', '-u').strip())
+        search_launch('Smoke')
+        wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
+        wait_for(lambda: 'org.esdeplus.stub/' in shell('dumpsys', 'window', 'windows'), 'recipient window')
+        observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+        launch_checks.recipient(observation, frontend_uid, b'\x00')
+        (evidence / ('gamelist-recipient-' + mode + '.txt')).write_text(json.dumps(observation, ensure_ascii=False, indent=2))
+        screenshot('gamelist-recipient-' + mode)
+        save_logs('gamelist-recipient-' + mode)
+        key('KEYCODE_BACK')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'return from recipient to frontend')
+        launch_checks.equal(shell('pidof', app).strip(), pid, 'Return resumes same frontend process')
+        screenshot('gamelist-return-' + mode)
+        if component_enabled('org.esdeplus.stub/.RecipientActivity', False):
+            try:
+                failed_target('disabled')
+            finally:
+                component_enabled('org.esdeplus.stub/.RecipientActivity', True)
+        shell('am', 'force-stop', app)
+        adb('uninstall', 'org.esdeplus.stub')
+        failed_target('removed')
+        adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
+        if api == 29:
+            shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
+        start_custom()
+        key('KEYCODE_ESCAPE')
+        for _ in range(7):
+            key('KEYCODE_DPAD_DOWN')
+        key('KEYCODE_ENTER')  # UTILITIES
+        key('KEYCODE_ENTER')  # GAME IMPORTER
+        screenshot('importer-' + mode)
+        key('KEYCODE_INSERT')  # real Y/start importer action
+        temp_files = external + '/ES-DE-Plus/importer_temp/files'
+        wait_for(lambda: bool(shell('ls', temp_files, check=False).strip()), 'real app importer inventory files')
+        time.sleep(3)  # finish the actual importer thread and selector animation
+        paths = shell('find', temp_files, '-type', 'f').splitlines()
+        paths.sort(key=lambda path: pathlib.PurePosixPath(path).stem.upper())
+        recipient_path = next(path for path in paths if shell('cat', path).strip() ==
+                              'org.esdeplus.stub/org.esdeplus.stub.RecipientActivity')
+        for _ in range(paths.index(recipient_path)):
+            key('KEYCODE_DPAD_DOWN')
+        key('KEYCODE_ENTER')  # select this app only
+        screenshot('importer-selection-' + mode)
+        key('KEYCODE_INSERT')  # real Y/import action
+        wait_for(lambda: 'Imported 1 entry for system "androidapps"' in log(), 'import one native app')
+        imported = user_root + '/androidapps/' + pathlib.PurePosixPath(recipient_path).name
+        launch_checks.equal(shell('cat', imported).strip(), 'org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', 'Importer target file')
+        screenshot('importer-imported-' + mode)
+        save_logs('importer-imported-' + mode)
+        key('KEYCODE_DEL')  # close importer; its real callback rescans
+        wait_for(lambda: 'Total game count: 3' in log(), 'importer callback rescans gamelist')
+        time.sleep(5)
+        adb('logcat', '-c')
+        search_launch('recipient')
+        wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'imported app gamelist launch')
+        screenshot('imported-app-launched-' + mode)
+        save_logs('imported-app-launched-' + mode)
+        key('KEYCODE_BACK')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'imported app returns to frontend')
+        screenshot('imported-app-return-' + mode)
+    finally:
+        shell('am', 'force-stop', app)
+        shell('am', 'force-stop', 'org.esdeplus.stub')
+        shell('rm', '-f', custom + '/es_systems.xml', custom + '/es_find_rules.xml')
+        shell('rm', '-rf', user_root + '/androidapps', external + '/ES-DE-Plus/importer_temp')
+        launch()
+
+
+def real_retroarch_flow():
+    apk_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'RetroArch.apk'
+    # Download/verification occurs in CI before this smoke. No copy enters the
+    # checkout or the evidence upload's explicitly enumerated text/image paths.
+    print(adb('install', '-r', str(apk_path)), flush=True)
+    package = shell('dumpsys', 'package', 'com.retroarch')
+    version = re.search(r'versionName=([^\s]+)', package).group(1)
+    launch_checks.equal(version, '1.22.2', 'Installed official RetroArch version')
+    (evidence / 'real-retroarch-package.txt').write_text(package)
+    shell('am', 'force-stop', app)
+    original = shell('cat', settings)
+    document = ET.fromstring(original)
+    enabled = document.find("bool[@name='RetroArchCoreQueryExperimental']")
+    if enabled is None:
+        enabled = ET.SubElement(document, 'bool', name='RetroArchCoreQueryExperimental')
+    enabled.set('value', 'true')
+    edited = evidence / 'retroarch-query-settings.txt'
+    edited.write_text(ET.tostring(document, encoding='unicode'))
+    adb('push', str(edited), settings)
+    try:
+        adb('logcat', '-c')
+        launch()
+        search_launch('Smoke')
+        wait_for(lambda: 'Timed out attempting to query RetroArch, proceeding with game launch anyway' in log(), 'bundled RetroArch query timeout proceeds')
+        wait_for(lambda: 'com.retroarch/com.retroarch.browser.retroactivity.RetroActivityFuture' in
+                 shell('dumpsys', 'activity', 'activities'), 'unchanged bundled rule launches real RetroArch activity')
+        native = log()
+        launch_checks.equal('Emulator core is not installed' in native, False, 'Stable query never vetoes launch')
+        current = adb('logcat', '-d', '-v', 'threadtime')
+        smoke_checks.probe_passed(current, 'Activity launch accepted: ComponentInfo{com.retroarch/')
+        # Capture RetroArch's own process messages and ActivityManager's actual
+        # activity/Intent record; no real core/game load is asserted.
+        wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 'real RetroArch process')
+        recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
+        recipient_log = adb('logcat', '-d', '--pid=' + recipient_pid, '-v', 'threadtime')
+        launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
+        (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
+        (evidence / 'real-retroarch-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        screenshot('real-retroarch-launched')
+        save_logs('real-retroarch-launch')
+        launch_checks.equal('Core query cleanup: com.retroarch result=-1' in current, True, 'Real core query cleanup/timeout')
+        shell('am', 'force-stop', 'com.retroarch')
+        start_entry()
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'return from real RetroArch')
+        screenshot('real-retroarch-return')
+    finally:
+        shell('am', 'force-stop', app)
+        shell('am', 'force-stop', 'com.retroarch')
+        restored = evidence / 'retroarch-settings-restored.txt'
+        restored.write_text(original)
+        adb('push', str(restored), settings)
+        adb('uninstall', 'com.retroarch')
 
 
 def native_shutdown(pid):
@@ -709,6 +882,25 @@ try:
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
     launch_contract_probes('direct')
+    shell('am', 'force-stop', app)
+    revoked_tree = shell('am', 'instrument', '-w', '-e', 'mode', 'revoke-tree',
+                         app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'revoked-tree-launch.txt').write_text(revoked_tree)
+    shell('am', 'force-stop', app)
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    if 'PASS: real selected tree revoked' in revoked_tree:
+        ui('Configure ' + label)
+        screenshot('revoked-tree-recovery')
+        save_logs('revoked-tree-recovery')
+        ui('Use typed folder path', dpad=True)
+        ui('Save and start frontend', dpad=True)
+        configured_system('direct-typed-path-system')
+        wait_for(lambda: grant_count(0), 'typed-path recovery has no persisted tree grant')
+    else:
+        smoke_checks.probe_passed(revoked_tree,
+            'CAPABILITY: real typed-path selection already has no persisted tree')
+        configured_system('direct-typed-path-system')
+    launch_contract_probes('direct-typed')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
@@ -1066,7 +1258,8 @@ try:
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
                      native_shutdown(relaunched_pid), 'relaunch quits cleanly')
-    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; API 34 additionally real system HOME over drawer launch. Saved-state probe outcome is recorded separately.\n')
+    real_retroarch_flow()
+    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
 except BaseException:
     save_logs('failure')
     screenshot('failure')

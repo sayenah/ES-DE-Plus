@@ -101,6 +101,11 @@ class GameLauncher(private val context: Context) {
             while (i < value.length) {
                 val c = value[i++]
                 if (c == '\\' && i < value.length && value[i] == ',') item.append(value[i++])
+                else if (c == '\\' && i + 1 < value.length && value[i] == '\\' && value[i + 1] == ',') {
+                    // INSTALL.md's XML example represents an escaped comma
+                    // with two backslashes. Accept that spelling as well.
+                    item.append(','); i += 2
+                }
                 else if (c == ',') { result.add(item.toString()); item.clear() }
                 else item.append(c)
             }

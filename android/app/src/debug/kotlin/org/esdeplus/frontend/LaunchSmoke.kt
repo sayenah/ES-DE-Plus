@@ -3,6 +3,7 @@
 package org.esdeplus.frontend
 
 import android.app.Instrumentation
+import android.app.BroadcastOptions
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
@@ -47,6 +48,23 @@ object LaunchSmoke {
         error("Refusal assertion accepted its positive control: $label")
     }
 
+    fun revokeTree(context: Context): String {
+        val storage = StorageModel(context)
+        val configuration = storage.load() ?: error("Configuration is required")
+        if (configuration.tree.isEmpty()) return "CAPABILITY: real typed-path selection already has no persisted tree\n"
+        val rom = File(configuration.roms, "nes/Smoke Alpha.nes")
+        val base = arrayOf(stub, ".RecipientActivity", "", "", "", "%ROMPROVIDER%", configuration.roms, rom.path)
+        // Build through the production path before removing the real grant;
+        // no preference or permission is fabricated.
+        equal(GameLauncher(context).intent(base, empty, empty, empty, empty, empty).data?.authority,
+            context.packageName + ".roms", "Valid grant before revocation")
+        context.contentResolver.releasePersistableUriPermission(Uri.parse(configuration.tree),
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        equal(NativeBridge(context).launchGame(base, empty, empty, empty, empty, empty, false), -1, "Revoked selected tree refuses launch")
+        equal(storage.load(), configuration, "Revocation never substitutes configuration")
+        return "PASS: real selected tree revoked; production launch refused; original selection retained\n"
+    }
+
     fun run(context: Context): String {
         val bridge = NativeBridge(context)
         val transport = RomTransport(context)
@@ -78,6 +96,29 @@ object LaunchSmoke {
             context.registerReceiver(receiver, filter, null, Handler(handlerThread.looper))
         }
         val evidence = StringBuilder()
+        val registered = java.util.concurrent.atomic.AtomicBoolean(false)
+        val orderedContext = object : ContextWrapper(context) {
+            override fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter,
+                permission: String?, scheduler: Handler?): Intent? {
+                val result = super.registerReceiver(receiver, filter, permission, scheduler)
+                registered.set(true)
+                return result
+            }
+            override fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter,
+                permission: String?, scheduler: Handler?, flags: Int): Intent? {
+                val result = super.registerReceiver(receiver, filter, permission, scheduler, flags)
+                registered.set(true)
+                return result
+            }
+            override fun sendBroadcast(intent: Intent) {
+                equal(registered.get(), true, "Registration precedes query dispatch")
+                super.sendBroadcast(intent)
+            }
+            override fun unregisterReceiver(receiver: BroadcastReceiver) {
+                super.unregisterReceiver(receiver)
+                registered.set(false)
+            }
+        }
         fun base(data: String = "", activity: String = ".RecipientActivity") =
             arrayOf(stub, activity, "android.intent.action.VIEW", "android.intent.category.DEFAULT", "application/octet-stream", data, directory.path, rom.path)
         fun receive(arguments: Array<String>, strings: Array<String> = empty, lists: Array<String> = empty,
@@ -95,9 +136,10 @@ object LaunchSmoke {
         fun query(mode: String, expected: Int) {
             configureQuery(mode)
             val begin = SystemClock.elapsedRealtimeNanos()
-            val actual = bridge.checkRACoreInstalled(stub, "test_libretro_android.so")
+            val actual = CoreQuery(orderedContext).query(stub, "test_libretro_android.so")
             val elapsed = TimeUnit.NANOSECONDS.toMillis(SystemClock.elapsedRealtimeNanos() - begin)
             equal(actual, expected, "Core query $mode")
+            equal(registered.get(), false, "Query receiver cleaned up $mode")
             equal(elapsed <= 1000, true, "One total deadline $mode ($elapsed ms)")
             evidence.append("QUERY $mode result=$actual elapsedMs=$elapsed\n")
         }
@@ -116,10 +158,11 @@ object LaunchSmoke {
             val boundaries = arrayOf(transport.provider(sibling.path).toString(),
                 provider.buildUpon().path("/rom/../outside-rom.nes").build().toString(),
                 Uri.Builder().scheme("content").authority(provider.authority).appendPath("rom")
-                    .appendPath("nes/Transport 🚀/escape.nes").build().toString())
+                    .appendPath(provider.pathSegments[1]).appendPath("nes/Transport 🚀/escape.nes").build().toString())
             val received = receive(base("%ROMPROVIDER%"),
                 arrayOf("literal", "雪", "plain", "%ROM%"),
-                arrayOf("words", "one,t\\,wo,雪", "deniedUris", boundaries.joinToString(",") { it.replace(",", "\\,") }),
+                arrayOf("words", "one,t\\,wo,雪", "documented", "pone,p\\\\,two,pthree",
+                    "deniedUris", boundaries.joinToString(",") { it.replace(",", "\\,") }),
                 arrayOf("number", "-2147483648"), arrayOf("yes", "1", "no", "false"),
                 arrayOf("%ACTIVITY_CLEAR_TOP%", "%ACTIVITY_NO_HISTORY%"))
             equal(received.getString("sha256"), expectedHash, "Provider recipient bytes")
@@ -134,6 +177,7 @@ object LaunchSmoke {
             val extras = received.getJSONObject("extras")
             equal(extras.getJSONObject("words").getString("type"), "[Ljava.lang.String;", "Array type")
             equal(extras.getJSONObject("words").getJSONArray("value").toString(), "[\"one\",\"t,wo\",\"雪\"]", "Escaped commas")
+            equal(extras.getJSONObject("documented").getJSONArray("value").toString(), "[\"pone\",\"p,two\",\"pthree\"]", "INSTALL.md array spelling")
             equal(extras.getJSONObject("number").getString("type"), "java.lang.Integer", "Integer type")
             equal(extras.getJSONObject("number").getInt("value"), Int.MIN_VALUE, "Integer value")
             equal(extras.getJSONObject("yes").getBoolean("value"), true, "Boolean true")
@@ -155,6 +199,9 @@ object LaunchSmoke {
             refused("Directory") { transport.provider(directory.path) }
             refused("App-data file") { transport.provider(outside.path) }
             refused("Traversal") { transport.providerFile(provider.buildUpon().path("/rom/../outside-rom.nes").build()) }
+            refused("Retired root grant") { transport.providerFile(Uri.Builder().scheme("content")
+                .authority(provider.authority).appendPath("rom").appendPath("retired-root")
+                .appendPath(provider.pathSegments[2]).build()) }
             for (value in listOf("2147483648", "-2147483649", "nan"))
                 refused("Integer range $value") { launcher.intent(base(), empty, empty, arrayOf("number", value), empty, empty) }
             refused("Boolean validation") { launcher.intent(base(), empty, empty, empty, arrayOf("bool", "maybe"), empty) }
@@ -197,6 +244,8 @@ object LaunchSmoke {
             equal(names.distinct().size, names.size, "Collision resistant names")
             equal(AppDiscovery.filename("Collision/🚀", "a" ) != AppDiscovery.filename("Collision\\🚀", "b"), true, "Sanitized-label collision")
             equal(AppDiscovery.filename("雪", "a"), AppDiscovery.filename("雪", "a"), "Deterministic Unicode filename")
+            equal(AppDiscovery.filename("🚀".repeat(100), "long").toByteArray(Charsets.UTF_8).size + 4 <= 255,
+                true, "Filesystem byte-length limit with extension")
             equal(names.all { !it.contains('/') && !it.contains('\\') }, true, "Filesystem-safe inventory")
             val temp = File(StorageModel(context).appData(), "importer_temp")
             for (name in names) {
@@ -217,6 +266,17 @@ object LaunchSmoke {
             Thread.sleep(1300)
             query("valid", 1)
             if (Build.VERSION.SDK_INT >= 34) query("anonymous", -2)
+            if (Build.VERSION.SDK_INT >= 34) {
+                configureQuery("none")
+                val wrongSender = object : ContextWrapper(context) {
+                    override fun sendBroadcast(intent: Intent) {
+                        super.sendBroadcast(intent)
+                        context.sendBroadcast(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()),
+                            null, BroadcastOptions.makeBasic().setShareIdentityEnabled(true).toBundle())
+                    }
+                }
+                equal(CoreQuery(wrongSender).query(stub, "test_libretro_android.so"), -2, "Actual platform wrong-sender reply")
+            }
             equal(bridge.checkRACoreInstalled("org.esdeplus.missing", "test_libretro_android.so"), -2, "Absent package query")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", "wrong", stub, true), -2, "Wrong sender reply")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", stub, stub, true), 0, "Authenticated empty reply positive control")

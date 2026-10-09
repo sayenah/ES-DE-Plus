@@ -10,6 +10,7 @@ import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import java.io.File
+import java.security.MessageDigest
 
 class RomTransport(private val context: Context) {
     private val storage = StorageModel(context)
@@ -27,17 +28,25 @@ class RomTransport(private val context: Context) {
 
     fun provider(path: String): Uri {
         val file = file(path)
+        val root = root()
         return Uri.Builder().scheme("content").authority(context.packageName + ".roms")
-            .appendPath("rom").appendPath(file.relativeTo(root()).invariantSeparatorsPath).build()
+            .appendPath("rom").appendPath(rootIdentity(root)).appendPath(file.relativeTo(root).invariantSeparatorsPath).build()
     }
 
     fun providerFile(uri: Uri): File {
         require(uri.scheme == "content" && uri.authority == context.packageName + ".roms" &&
-            uri.query == null && uri.fragment == null && uri.pathSegments.size == 2 && uri.pathSegments[0] == "rom")
-        val relative = uri.pathSegments[1]
+            uri.query == null && uri.fragment == null && uri.pathSegments.size == 3 && uri.pathSegments[0] == "rom")
+        val root = root()
+        // A grant from an earlier directory selection must not expose a file
+        // with the same relative name in a newly selected ROM directory.
+        require(uri.pathSegments[1] == rootIdentity(root))
+        val relative = uri.pathSegments[2]
         require(relative.split('/').none { it.isEmpty() || it == "." || it == ".." || it.contains('\\') || it.contains('\u0000') })
-        return file(File(root(), relative).path)
+        return file(File(root, relative).path)
     }
+
+    private fun rootIdentity(root: File): String = MessageDigest.getInstance("SHA-256")
+        .digest(root.path.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     @Suppress("DEPRECATION")
     fun saf(path: String): Uri {

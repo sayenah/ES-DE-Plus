@@ -74,7 +74,10 @@ class AppDiscovery(private val context: Context) {
                 val name = filename(info.loadLabel(pm).toString(), component)
                 // Artwork is optional; a bad drawable never removes an otherwise launchable app.
                 try { png(info.loadIcon(pm), File(temp, "icons/$name.png")) }
-                catch (error: Exception) { Log.w("ES-DE-Plus", "Cannot stage app icon: $component", error) }
+                catch (error: Exception) {
+                    Log.w("ES-DE-Plus", "Cannot load app icon, using platform default: $component", error)
+                    png(pm.defaultActivityIcon, File(temp, "icons/$name.png"))
+                }
                 if (includeMedia) {
                     try {
                         val artwork = info.loadBanner(pm) ?: info.loadLogo(pm)

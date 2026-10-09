@@ -33,6 +33,11 @@ class RuntimeSmoke : Instrumentation() {
                 finish(-1, result)
                 return
             }
+            if (followupMode == "revoke-tree") {
+                result.putString("stream", LaunchSmoke.revokeTree(targetContext))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "retained-configurator") {
                 // Deterministically reproduce a retained configurator below a
                 // new SDL activity. No timing retry, native quit injection or

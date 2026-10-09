@@ -70,7 +70,8 @@ The provider exposes only the configured ROM directory in direct mode or the
 app-owned ROM directory in scoped mode. It refuses directories, traversal,
 symlink escapes and writes, and checks containment each time a file is opened.
 The grant covers one file: siblings such as a `.bin` beside a `.cue` receive no
-access. Multi-file games need emulator-side access through `%ROMSAF%` or a
+access. A grant from a previous ROM-directory selection cannot expose a file
+with the same relative name in a new selection. Multi-file games need emulator-side access through `%ROMSAF%` or a
 filesystem path. A successful activity launch cannot confirm whether the
 recipient subsequently reads or loads the game.
 

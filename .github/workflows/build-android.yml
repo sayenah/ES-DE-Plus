@@ -46,20 +46,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
-      - name: Observe official stable RetroArch pin (CI only)
-        if: matrix.image == 'api29'
+      - name: Download and verify pinned stable RetroArch (CI only)
         run: |
           curl --fail --location --retry 3 https://buildbot.libretro.com/stable/1.22.2/android/RetroArch.apk -o "$RUNNER_TEMP/RetroArch.apk"
           mkdir -p android/evidence
-          sha256sum "$RUNNER_TEMP/RetroArch.apk" | tee android/evidence/retroarch-pin.txt
-          rm "$RUNNER_TEMP/RetroArch.apk"
-      - name: Record initial pin observation (text only)
-        if: matrix.image == 'api29'
-        uses: actions/upload-artifact@v4
-        with:
-          name: retroarch-pin-observation-${{ github.sha }}
-          path: android/evidence/retroarch-pin.txt
-          retention-days: 7
+          expected=2eca60b3a540697cd7676edea2fbabdfaf54c3ae958584168231981099d2868a
+          echo "$expected  $RUNNER_TEMP/RetroArch.apk" | sha256sum --check
+          printf 'corrupt positive control' > "$RUNNER_TEMP/retroarch-corrupt.tmp"
+          if echo "$expected  $RUNNER_TEMP/retroarch-corrupt.tmp" | sha256sum --check; then
+            echo 'Corrupt RetroArch escaped checksum verification'; exit 1
+          fi
+          rm "$RUNNER_TEMP/retroarch-corrupt.tmp"
+          printf 'Official stable v1.22.2; SHA256 %s; corrupt positive control rejected.\n' "$expected" | tee android/evidence/retroarch-pin.txt
       - name: Restore downloads
         if: ${{ !inputs.clean_cache }}
         uses: actions/cache@v4
