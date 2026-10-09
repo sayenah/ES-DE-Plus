@@ -179,7 +179,7 @@ def resolved_component(action, data=None):
     return next((line.strip() for line in result.splitlines() if '/' in line and ' ' not in line.strip()), None)
 
 
-def permission_toggle():
+def permission_row():
     # Phone settings can show one app; TV settings can show a list of apps.
     # Select the switch in the smallest subtree containing our exact app label.
     candidates = []
@@ -187,8 +187,13 @@ def permission_toggle():
         children = list(parent.iter('node'))
         switches = [n for n in children if n.get('checkable') == 'true']
         if len(switches) == 1 and any(n.get('text', '').casefold() == label.casefold() for n in children):
-            candidates.append((len(children), switches[0]))
+            candidates.append((len(children), parent))
     return min(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def permission_toggle():
+    row = permission_row()
+    return next(n for n in row.iter('node') if n.get('checkable') == 'true') if row is not None else None
 
 
 def grant_from_settings():
@@ -200,14 +205,8 @@ def grant_from_settings():
     wait_for(lambda: permission_toggle() is not None, 'app-associated all-files switch')
     if television:
         for _ in range(40):
-            focused = False
-            for parent in hierarchy():
-                children = list(parent.iter('node'))
-                if (sum(n.get('checkable') == 'true' for n in children) == 1 and
-                        any(n.get('text', '').casefold() == label.casefold() for n in children) and
-                        any(n.get('focused') == 'true' for n in children)):
-                    focused = True
-                    break
+            row = permission_row()
+            focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
             if focused:
                 screenshot('tv-all-files-switch-focused')
                 key('KEYCODE_DPAD_CENTER')
@@ -397,6 +396,7 @@ def native_shutdown(pid):
     lines = [line for line in adb('logcat', '-d', '-v', 'threadtime').splitlines()
              if re.search(r'\s' + re.escape(pid) + r'\s', line)]
     return (any('Finished main function' in line for line in lines) and
+            any('SDL activity destroy join returned' in line for line in lines) and
             any('VM exiting with result code 0' in line for line in lines))
 
 
@@ -453,6 +453,11 @@ try:
                   requested_weight)
             wait_for(lambda: 'fontWeightAdjustment=' + requested_weight in
                      shell('dumpsys', 'activity', 'activities'), 'actual font-weight configuration changed')
+            # Make the hidden host process its pending configuration through a
+            # real re-entry; it immediately re-presents the held configurator.
+            start_entry('HomeEntry', 'android.intent.category.HOME')
+            wait_for(lambda: 'SDL activity configuration handled' in adb('logcat', '-d'),
+                     'held SDL host handles the actual font-weight change')
             assert shell('pidof', app).strip() == held_pid
             after_records = activity_records()[1]
             assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
@@ -671,9 +676,12 @@ try:
     assert shell('pidof', app).strip() != old_pid, 'Process-death probe did not restart the host'
     screenshot('configurator-after-process-death')
     save_logs('configurator-after-process-death')
+    adb('logcat', '-c')
     ui('Save and start frontend', dpad=True)
     wait_for(lambda: 'Storage configuration committed mode=scoped' in adb('logcat', '-d') and
              'Persisted tree grant count=0' in adb('logcat', '-d'), 'scoped save releases actual shared grants')
+    wait_for(lambda: 'HOME=true' in adb('logcat', '-d') and len(activity_records()[1]) == 1,
+             'process-death configurator return starts recorded HOME entry on one SDL host')
     save_logs('scoped-save-releases-grants')
     shell('am', 'force-stop', app)
     # Resource installation is uncommitted on a fresh start; remove resources
