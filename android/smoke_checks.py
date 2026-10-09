@@ -30,6 +30,7 @@ def held_restored(records, nodes, pid, old_pid, app):
     assert pid.isdigit() and pid != old_pid, f'Host did not restart: {old_pid} -> {pid}'
     assert len(records) == 2 and len({r[1] for r in records}) == 1, records
     assert sum(r[0] == 'ConfiguratorActivity' for r in records) == 1, records
+    assert sum(r[0] in ('MainActivity', 'HomeEntry', 'LeanbackEntry') for r in records) == 1, records
     assert any(n.get('package') == app and
                n.get('text', '').startswith('Configure ') for n in nodes), nodes
 
@@ -70,6 +71,7 @@ def positive_controls():
     reject('missing configurator record', lambda: held_restored(records[:1], nodes, '200', '100', 'smoke.app'))
     reject('separate configurator task', lambda: held_restored([records[0], ('ConfiguratorActivity', '8')], nodes, '200', '100', 'smoke.app'))
     reject('two frontend records', lambda: held_restored([records[0], records[0]], nodes, '200', '100', 'smoke.app'))
+    reject('redirect substituted for native host', lambda: held_restored([('FrontendRedirectActivity', '7'), records[1]], nodes, '200', '100', 'smoke.app'))
     reject('stock launcher obscures configuration', lambda: held_restored(records, [], '200', '100', 'smoke.app'))
     return 'PASS: production smoke assertions reject: ' + ', '.join(rejected) + '.\n'
 
