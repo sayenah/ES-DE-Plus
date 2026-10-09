@@ -22,6 +22,7 @@ object ConfiguratorSession {
         private set
     private val draftStrings = listOf("mode", "path", "tree", "typedPath", "message")
     private val draftBooleans = listOf("createSystems", "permissionPending", "resourceError")
+    @Volatile private var pendingDraft: Bundle? = null
 
     fun recordEntry(intent: Intent) {
         entry = Intent(intent).replaceExtras(null as android.os.Bundle?)
@@ -76,6 +77,10 @@ object ConfiguratorSession {
 
     // App-private draft, separate from accepted storage configuration and
     // upstream user-data files. Persist before SDL destruction can end the VM.
+    fun rememberDraft(state: Bundle) { pendingDraft = Bundle(state) }
+
+    fun persistPendingDraft(context: Context) { pendingDraft?.let { saveDraft(context, it) } }
+
     fun saveDraft(context: Context, state: Bundle) {
         val editor = context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE).edit().clear()
         for (key in draftStrings) editor.putString(key, state.getString(key))
@@ -104,5 +109,6 @@ object ConfiguratorSession {
     fun clearDraft(context: Context) {
         if (!context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE).edit().clear().commit())
             throw IOException(context.getString(R.string.configuration_save_failed))
+        pendingDraft = null
     }
 }

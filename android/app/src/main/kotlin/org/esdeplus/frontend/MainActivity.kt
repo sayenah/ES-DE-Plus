@@ -63,6 +63,9 @@ class MainActivity : SDLActivity() {
     override fun onDestroy() {
         val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
         Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring}")
+        // Task clear can destroy the root before pausing the configurator.
+        // Save its scalar snapshot without calling a retained Activity.
+        if (ConfiguratorSession.configuring) ConfiguratorSession.persistPendingDraft(applicationContext)
         // SDL first joins/stops its native thread. Only terminal Activity exit
         // then ends the VM, resetting native globals for the next launch.
         // During configuration the native quit poll ends the process instead.

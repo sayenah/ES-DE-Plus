@@ -282,6 +282,7 @@ def destroy_held(name):
     assert 'Destroying SDL activity held=true' in old_lines, output
     assert 'SDL_QUIT observed during configuration hold; ending process' in old_lines, output
     assert 'Configurator draft saved' in old_lines, output
+    assert old_lines.index('Configurator draft saved') < old_lines.index('SDL_QUIT observed'), output
     assert 'ANR in ' + app not in output and 'JNI DETECTED ERROR' not in output, output
     (evidence / (name + '-destroy.txt')).write_text(
         f'Actual am task clear: {result}\nOld PID {old_pid}; exited in {elapsed:.3f}s.\n' + output)
@@ -574,9 +575,15 @@ try:
                                   ('MainActivity', 'android.intent.category.LAUNCHER', False)]:
         adb('logcat', '-c')
         start_entry(name, category)
-        wait_for(lambda: 'SDL entry reused via onNewIntent' in adb('logcat', '-d') and
+        wait_for(lambda: ('SDL entry reused via onNewIntent' in adb('logcat', '-d') or
+                         'Forwarding entry to sole SDL activity' in adb('logcat', '-d')) and
                  f'HOME={str(home).lower()}' in adb('logcat', '-d'), 'warm entry and HOME state')
         assert shell('pidof', app).strip() == pid, 'Warm entry replaced the process'
+        entry_log = adb('logcat', '-d')
+        assert 'Creating sole SDL activity' not in entry_log and 'Running main function' not in entry_log
+        assert len(activity_records()[1]) == 1, activity_records()[0]
+        if home:
+            assert 'SDL entry reused via onNewIntent' in entry_log, 'Same-type HOME re-entry did not use onNewIntent'
         (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot(name + '-warm')
         key('KEYCODE_ESCAPE')

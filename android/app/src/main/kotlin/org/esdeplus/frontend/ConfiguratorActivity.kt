@@ -76,6 +76,7 @@ class ConfiguratorActivity : Activity() {
 
     override fun onSaveInstanceState(state: Bundle) {
         captureControls()
+        rememberDraft()
         writeState(state)
         super.onSaveInstanceState(state)
         if (!completed) ConfiguratorSession.saveDraft(this, state)
@@ -84,6 +85,7 @@ class ConfiguratorActivity : Activity() {
 
     override fun onPause() {
         captureControls()
+        rememberDraft()
         if (!completed) ConfiguratorSession.saveDraft(this, Bundle().also(::writeState))
         super.onPause()
     }
@@ -91,6 +93,12 @@ class ConfiguratorActivity : Activity() {
     private fun captureControls() {
         pathInput?.let { typedPath = it.text.toString() }
         if (::content.isInitialized) content.findFocus()?.let { focusId = it.id }
+    }
+
+    private fun rememberDraft() {
+        if (completed) return
+        captureControls()
+        ConfiguratorSession.rememberDraft(Bundle().also(::writeState))
     }
 
     private fun writeState(state: Bundle) {
@@ -119,6 +127,7 @@ class ConfiguratorActivity : Activity() {
         it.setText(label)
         it.id = label
         it.isFocusable = true
+        it.setOnFocusChangeListener { _, focused -> if (focused) rememberDraft() }
         it.setOnClickListener { action() }
         content.addView(it)
     }
@@ -143,11 +152,14 @@ class ConfiguratorActivity : Activity() {
         if (resourceError) {
             text(getString(R.string.resource_failure))
             button(R.string.retry) {
-                if (!ConfiguratorSession.retryResources()) ConfiguratorSession.finishConfiguration()
-                completed = true
-                ConfiguratorSession.clearDraft(this)
-                returnToFrontend()
+                guarded {
+                    ConfiguratorSession.clearDraft(this)
+                    completed = true
+                    if (!ConfiguratorSession.retryResources()) ConfiguratorSession.finishConfiguration()
+                    returnToFrontend()
+                }
             }.requestFocus()
+            rememberDraft()
             return
         }
         text(getString(R.string.storage_choice))
@@ -189,9 +201,11 @@ class ConfiguratorActivity : Activity() {
                         override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) {}
                         override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
                             typedPath = value?.toString().orEmpty()
+                            rememberDraft()
                         }
                         override fun afterTextChanged(value: Editable?) {}
                     })
+                    setOnFocusChangeListener { _, focused -> if (focused) rememberDraft() }
                     setOnKeyListener { _, code, event ->
                         when (code) {
                             KeyEvent.KEYCODE_DPAD_CENTER -> {
@@ -226,13 +240,14 @@ class ConfiguratorActivity : Activity() {
             setText(R.string.create_systems)
             id = R.string.create_systems
             isChecked = createSystems
-            setOnCheckedChangeListener { _, checked -> createSystems = checked }
+            setOnCheckedChangeListener { _, checked -> createSystems = checked; rememberDraft() }
+            setOnFocusChangeListener { _, focused -> if (focused) rememberDraft() }
         })
         button(R.string.continue_frontend) {
             guarded {
                 storage.save(StorageModel.Configuration(mode, path, tree, createSystems))
-                completed = true
                 ConfiguratorSession.clearDraft(this)
+                completed = true
                 ConfiguratorSession.finishConfiguration()
                 returnToFrontend()
             }
@@ -240,6 +255,7 @@ class ConfiguratorActivity : Activity() {
         button(R.string.cancel_configuration) { cancelled() }
         (content.findViewById<android.view.View>(focusId)?.takeIf { it.isFocusable && it.isEnabled }
             ?: scoped).requestFocus()
+        rememberDraft()
     }
 
     private fun requestAccess() {
@@ -252,6 +268,7 @@ class ConfiguratorActivity : Activity() {
                 Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))) {
                 try {
                     permissionPending = true
+                    rememberDraft()
                     startActivity(permissionIntent)
                     return
                 } catch (error: ActivityNotFoundException) {
