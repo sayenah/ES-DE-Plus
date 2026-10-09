@@ -22,8 +22,8 @@ settings, collections and logs stay in the current user's app-specific external
   If the picker is missing, enter an absolute local folder path; this fallback
   verifies the same volumes/access and creates no URI grant. If all-files settings
   are both missing, use app-owned storage or grant access through device settings.
-  Accepting another folder releases superseded pending grants; cancel keeps only
-  the saved folder's grant. Saving app-owned mode releases the old shared grant.
+  Accepting another folder releases superseded pending grants; cancel keeps the
+  displayed selection and its grant. Saving app-owned mode releases the old shared grant.
 
 **Create system folders** is a one-shot request on configuration save. The request
 is persisted as consumed before native creation begins. Later starts never
@@ -39,7 +39,9 @@ Configuration uses ordinary Android views and works with a D-pad. Back/cancel
 keeps a recoverable screen and the current selections; startup waits without a
 user timeout. The configurator shares the frontend task. Removing that task while
 held saves its draft and ends the native wait on SDL's quit event; relaunch restores
-the draft. The SDK activity factory redirects duplicate HOME/standard-task entries
+the same session's draft. A start needing no configuration clears an abandoned
+draft. A retained configurator moves above a new frontend without destroying it.
+The SDK activity factory redirects duplicate HOME/standard-task entries
 before a second SDL host can initialise. Storage failures require restoring access or explicitly choosing
 another mode. Failed resource installation presents Retry; partial resources are
 verified and repaired without replacing user games, settings or themes.

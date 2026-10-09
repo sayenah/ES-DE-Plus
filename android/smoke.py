@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import smoke_checks
 
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
@@ -17,6 +18,7 @@ activity = app + '/org.esdeplus.frontend.MainActivity'
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
 evidence = pathlib.Path('android/evidence')
 evidence.mkdir(parents=True, exist_ok=True)
+(evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
@@ -261,6 +263,11 @@ def grant_count(expected):
     return bool(counts) and int(counts[-1]) == expected
 
 
+def cancelled_grant_retained():
+    counts = re.findall(r'Persisted tree grant count=(\d+)', adb('logcat', '-d'))
+    smoke_checks.grants(int(counts[-1]) if counts else None, 1)
+
+
 def destroy_held(name):
     dump, records = activity_records()
     assert any(r[0] == 'ConfiguratorActivity' for r in records), dump
@@ -295,7 +302,14 @@ def destroy_held(name):
     # _exit ends the entire process, including the pending UI join; a post-join
     # Java callback is not claimed on this path. Normal quits still assert it.
     start_entry('HomeEntry', 'android.intent.category.HOME')
-    wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'held configuration restored')
+    def restored():
+        try:
+            smoke_checks.held_restored(activity_records()[1], hierarchy(), shell('pidof', app).strip(), old_pid, app)
+            return True
+        except AssertionError:
+            return False
+    wait_for(restored, 'held configuration restored on a new host in the same task')
+    (evidence / (name + '-restored-activities.txt')).write_text(activity_records()[0])
     screenshot(name + '-restored')
     save_logs(name + '-restored')
 
@@ -442,8 +456,26 @@ def native_shutdown(pid):
 
 
 try:
+    features = shell('pm', 'list', 'features')
+    (evidence / 'device-features.txt').write_text(features)
+    television = 'feature:android.software.leanback' in features.splitlines()
+    if television:
+        # Google's TV image launches this dialog asynchronously over other
+        # apps. Disable only that external onboarding component before testing.
+        onboarding = 'com.google.android.tvlauncher/com.google.android.tvlauncher.dialog.ShowDialogsActivity'
+        package = shell('dumpsys', 'package', onboarding.split('/')[0])
+        if onboarding.split('/')[1] in package:
+            smoke_checks.onboarding_disabled(component_enabled(onboarding, False))
+            (evidence / 'tv-onboarding-preamble.txt').write_text(
+                'Stock TV ShowDialogsActivity disabled before frontend smoke; frontend assertions unchanged.\n')
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
+    clear_app()
+    retained = shell('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
+                     app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'retained-configurator-probe.txt').write_text(retained)
+    smoke_checks.probe_passed(retained,
+        'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
     clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
     (evidence / 'image.txt').write_text(shell('getprop'))
@@ -465,9 +497,6 @@ try:
     # Resize a real display while the native caller is held. Android recreates
     # the plain-view activity; its selections and static registration survive.
     adb('logcat', '-c')
-    features = shell('pm', 'list', 'features')
-    (evidence / 'device-features.txt').write_text(features)
-    television = 'feature:android.software.leanback' in features.splitlines()
     shell('wm', 'size', '1280x720' if television else '720x1280')
     wait_for(lambda: 'Configurator created savedState=true' in adb('logcat', '-d'), 'configurator recreation')
     shell('wm', 'size', 'reset')
@@ -594,8 +623,8 @@ try:
         select_tree('ESDEPlusSmoke')
         wait_for(lambda: grant_count(1), 'actual pending persisted tree grant')
         ui('Cancel configuration', dpad=True)
-        wait_for(lambda: grant_count(0), 'cancel releases pending persisted grant')
-        save_logs('cancel-releases-pending-grant')
+        cancelled_grant_retained()
+        save_logs('cancel-retains-selected-grant')
         ui('Choose shared ROM folder', dpad=True)
         select_tree('ESDEPlusSmoke')
         shell('mkdir', '-p', '/sdcard/ESDEPlusOtherFolder')
@@ -605,6 +634,8 @@ try:
         save_logs('selection-releases-pending-grant')
         ui('Choose shared ROM folder', dpad=True)
         select_tree('ESDEPlusSmoke')
+        ui('Cancel configuration', dpad=True)
+        cancelled_grant_retained()
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
@@ -618,10 +649,11 @@ try:
         adb('logcat', '-c')
         start_entry(name, category)
         wait_for(lambda: ('SDL entry reused via onNewIntent' in adb('logcat', '-d') or
-                         'Forwarding entry to sole SDL activity' in adb('logcat', '-d')) and
+                         'Focused redirect forwarding' in adb('logcat', '-d')) and
                  f'HOME={str(home).lower()}' in adb('logcat', '-d'), 'warm entry and HOME state')
         assert shell('pidof', app).strip() == pid, 'Warm entry replaced the process'
         entry_log = adb('logcat', '-d')
+        smoke_checks.warm_entry(entry_log, home)
         assert 'Creating sole SDL activity' not in entry_log and 'Running main function' not in entry_log
         assert len(activity_records()[1]) == 1, activity_records()[0]
         if home:
@@ -647,7 +679,7 @@ try:
     configured_system('direct-restart')
     shell('test', '!', '-d', shared + '/3do')
     assert shell('cat', shared + '/nes/systeminfo.txt').strip() == 'user-system-metadata'
-    assert 'Creating system directories' not in log(), log()
+    smoke_checks.no_generation(log())
     (evidence / 'one-shot-direct.txt').write_text('PASS: deleted 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
     if api == 34:
         real_system_home()
@@ -656,6 +688,12 @@ try:
                          app + '/org.esdeplus.frontend.RuntimeSmoke')
     assert 'PASS: real persisted direct selection rejects unavailable' in volume_probe, volume_probe
     (evidence / 'selected-volume-unavailable.txt').write_text(volume_probe)
+    shell('am', 'force-stop', app)
+    session_probe = shell('am', 'instrument', '-w', '-e', 'mode', 'configurator-session',
+                          app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'configurator-session-probe.txt').write_text(session_probe)
+    smoke_checks.probe_passed(session_probe,
+        'PASS: session-matched draft only; no-config startup clears abandoned draft; positive controls rejected')
     # Remove the selected shared folder while retaining the real grant/selection.
     # Failure must be a recovery screen; restore it and accept the same selection.
     shell('am', 'force-stop', app)
@@ -922,7 +960,7 @@ try:
     start_entry()
     configured_system('scoped-one-shot-restart')
     restarted_log = log()
-    assert 'Creating system directories' not in restarted_log, restarted_log
+    smoke_checks.no_generation(restarted_log)
     shell('am', 'force-stop', app)
     owned_fixture('verify-systems', 'ROMs')
     (evidence / 'one-shot-scoped.txt').write_text('PASS: SDK-context filesystem probe: deleted app-owned 3do stayed absent; edited NES systeminfo.txt unchanged on restart. No preferences or grants changed.\n' + restarted_log)

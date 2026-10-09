@@ -121,7 +121,12 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     @Suppress("DEPRECATION")
     fun getExternalDirectory(): String = Environment.getExternalStorageDirectory().absolutePath
     fun getCreateSystemDirectories(): Boolean = storage.consumeCreateSystemDirectories()
-    fun checkConfigurationNeeded(): Boolean = storage.problem() != null
+    fun checkConfigurationNeeded(): Boolean {
+        val needed = storage.problem() != null
+        if (recoverStartup && !needed && !ConfiguratorSession.configuring)
+            ConfiguratorSession.clearDraft(context)
+        return needed
+    }
     fun checkEmulatorInstalled(packageName: String, activityName: String): Boolean = false
     fun checkRACoreInstalled(packageName: String, coreFile: String): Int = -2
     fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean): Array<String> = emptyArray()
