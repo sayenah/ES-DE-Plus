@@ -553,8 +553,20 @@ def search_launch(term, name):
     key('KEYCODE_ENTER')
 
 
+def user_file(relative, contents=None):
+    shell('am', 'force-stop', app)
+    arguments = ['am', 'instrument', '-w', '-e', 'mode',
+                 'remove-user-file' if contents is None else 'write-user-file', '-e', 'relative', relative]
+    if contents is not None:
+        arguments += ['-e', 'contents', contents]
+    result = shell(*arguments, app + '/org.esdeplus.frontend.RuntimeSmoke')
+    smoke_checks.probe_passed(result, 'PASS: user file prepared under frontend UID; assertion positive controls rejected')
+    with (evidence / 'user-configuration-preparation.txt').open('a') as output:
+        output.write(relative + '\n' + result + '\n')
+    shell('am', 'force-stop', app)
+
+
 def gamelist_recipient_flow(mode):
-    custom = external + '/ES-DE-Plus/custom_systems'
     user_root = shared if mode.startswith('direct') else roms
     temporary = evidence / 'launch-custom'
     temporary.mkdir(exist_ok=True)
@@ -576,9 +588,8 @@ def gamelist_recipient_flow(mode):
     ET.SubElement(rule, 'entry').text = 'org.esdeplus.stub/.RecipientActivity'
     ET.ElementTree(rules).write(temporary / 'es_find_rules.xml', encoding='utf-8', xml_declaration=True)
     shell('am', 'force-stop', app)
-    shell('mkdir', '-p', custom)
     for name in ['es_systems.xml', 'es_find_rules.xml']:
-        adb('push', str(temporary / name), custom + '/' + name)
+        user_file('custom_systems/' + name, (temporary / name).read_text())
         (evidence / (mode + '-' + name + '.txt')).write_text((temporary / name).read_text())
     def start_custom():
         shell('am', 'force-stop', app)
@@ -665,7 +676,8 @@ def gamelist_recipient_flow(mode):
     finally:
         shell('am', 'force-stop', app)
         shell('am', 'force-stop', 'org.esdeplus.stub')
-        shell('rm', '-f', custom + '/es_systems.xml', custom + '/es_find_rules.xml')
+        for name in ['es_systems.xml', 'es_find_rules.xml']:
+            user_file('custom_systems/' + name)
         shell('rm', '-rf', user_root + '/androidapps', external + '/ES-DE-Plus/importer_temp')
         launch()
 
@@ -688,7 +700,7 @@ def real_retroarch_flow():
     enabled.set('value', 'true')
     edited = evidence / 'retroarch-query-settings.txt'
     edited.write_text(ET.tostring(document, encoding='unicode'))
-    adb('push', str(edited), settings)
+    user_file('settings/es_settings.xml', edited.read_text())
     try:
         adb('logcat', '-c')
         launch()
@@ -720,7 +732,7 @@ def real_retroarch_flow():
         shell('am', 'force-stop', 'com.retroarch')
         restored = evidence / 'retroarch-settings-restored.txt'
         restored.write_text(original)
-        adb('push', str(restored), settings)
+        user_file('settings/es_settings.xml', original)
         adb('uninstall', 'com.retroarch')
 
 

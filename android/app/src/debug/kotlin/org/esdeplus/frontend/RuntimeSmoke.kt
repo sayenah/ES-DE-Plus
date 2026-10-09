@@ -14,11 +14,13 @@ class RuntimeSmoke : Instrumentation() {
     private var ownedAction: String? = null
     private var ownedDirectory: String? = null
     private var followupMode: String? = null
+    private var userFileArguments: Bundle? = null
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
         followupMode = arguments?.getString("mode")
+        if (followupMode in listOf("write-user-file", "remove-user-file")) userFileArguments = arguments
         if (arguments?.getString("mode") == "owned-fixture") {
             ownedAction = arguments.getString("action")
             ownedDirectory = arguments.getString("directory")
@@ -28,6 +30,13 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (userFileArguments != null) {
+                result.putString("stream", LaunchSmoke.userFile(targetContext,
+                    userFileArguments!!.getString("relative")!!,
+                    if (followupMode == "write-user-file") userFileArguments!!.getString("contents")!! else null))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "launch-probe") {
                 result.putString("stream", LaunchSmoke.run(targetContext))
                 finish(-1, result)

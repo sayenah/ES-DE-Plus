@@ -48,6 +48,23 @@ object LaunchSmoke {
         error("Refusal assertion accepted its positive control: $label")
     }
 
+    fun userFile(context: Context, relative: String, contents: String?): String {
+        // App-owned user configuration must be prepared through the actual
+        // application's UID; adb sync cannot write it on all Android images.
+        equal(relative in listOf("custom_systems/es_systems.xml", "custom_systems/es_find_rules.xml",
+            "settings/es_settings.xml"), true, "Probe user-file scope")
+        val file = File(StorageModel(context).appData(), relative)
+        if (contents == null) {
+            if (file.exists()) equal(file.delete(), true, "Remove probe user file")
+            equal(file.exists(), false, "Probe user file removed")
+        } else {
+            equal(file.parentFile!!.mkdirs() || file.parentFile!!.isDirectory, true, "User-file directory")
+            file.writeText(contents)
+            equal(file.readText(), contents, "Actual user-file contents")
+        }
+        return "PASS: user file prepared under frontend UID; assertion positive controls rejected\n"
+    }
+
     fun revokeTree(context: Context): String {
         val storage = StorageModel(context)
         val configuration = storage.load() ?: error("Configuration is required")
