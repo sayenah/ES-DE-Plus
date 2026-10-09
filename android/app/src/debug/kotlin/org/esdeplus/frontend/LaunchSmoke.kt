@@ -77,7 +77,19 @@ object LaunchSmoke {
         val sibling = File(directory, "sibling.nes").apply { writeBytes(bytes) }
         val outside = File(context.filesDir, "outside-rom.nes").apply { writeBytes(bytes) }
         val link = File(directory, "escape.nes")
-        Os.symlink(outside.path, link.path)
+        var symlinkCapability = "ROM volume supports a real symlink; provider refusal exercised."
+        try { Os.symlink(outside.path, link.path) }
+        catch (error: android.system.ErrnoException) {
+            if (error.errno !in listOf(android.system.OsConstants.EPERM, android.system.OsConstants.EOPNOTSUPP,
+                    android.system.OsConstants.ENOSYS)) throw error
+            symlinkCapability = "CAPABILITY: ROM volume refused symlink creation (errno=${error.errno}); canonical containment exercised on the genuine SDK-owned internal filesystem."
+        }
+        val boundaryRoot = File(context.cacheDir, "rom-boundary-probe").apply { mkdirs() }
+        val inside = File(boundaryRoot, "inside.nes").apply { writeBytes(bytes) }
+        val internalLink = File(boundaryRoot, "escape.nes")
+        Os.symlink(outside.path, internalLink.path)
+        equal(RomTransport.fileInside(boundaryRoot, inside.path), inside.canonicalFile, "Canonical boundary positive read")
+        refused("Real symlink escape on supported filesystem") { RomTransport.fileInside(boundaryRoot, internalLink.path) }
         val handlerThread = HandlerThread("ESDEPlus-recipient-observer").apply { start() }
         val next = AtomicReference<CountDownLatch>()
         val observation = AtomicReference<JSONObject>()
@@ -96,6 +108,7 @@ object LaunchSmoke {
             context.registerReceiver(receiver, filter, null, Handler(handlerThread.looper))
         }
         val evidence = StringBuilder()
+        evidence.append(symlinkCapability).append('\n')
         val registered = java.util.concurrent.atomic.AtomicBoolean(false)
         val orderedContext = object : ContextWrapper(context) {
             override fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter,
@@ -198,6 +211,8 @@ object LaunchSmoke {
             refused("Symlink escape") { transport.provider(link.path) }
             refused("Directory") { transport.provider(directory.path) }
             refused("App-data file") { transport.provider(outside.path) }
+            equal(transport.raw(directory.path), directory.absolutePath, "Raw transport preserves directory-valued ROMs")
+            equal(transport.raw(outside.path), outside.absolutePath, "Provider scope does not redefine raw-path meaning")
             refused("Traversal") { transport.providerFile(provider.buildUpon().path("/rom/../outside-rom.nes").build()) }
             refused("Retired root grant") { transport.providerFile(Uri.Builder().scheme("content")
                 .authority(provider.authority).appendPath("rom").appendPath("retired-root")
@@ -305,6 +320,7 @@ object LaunchSmoke {
             context.unregisterReceiver(receiver)
             handlerThread.quit()
             link.delete(); outside.delete(); sibling.delete(); rom.delete(); directory.delete()
+            internalLink.delete(); inside.delete(); boundaryRoot.delete()
             File(StorageModel(context).appData(), "importer_temp").deleteRecursively()
         }
     }

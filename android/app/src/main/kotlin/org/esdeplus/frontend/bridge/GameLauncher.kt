@@ -30,11 +30,11 @@ class GameLauncher(private val context: Context) {
                 if (transport.holdsReadGrant(uri)) grantUris.add(uri)
                 result = result.replace("%ROMSAF%", uri.toString())
             }
-            if (result.contains("%ROM%")) result = result.replace("%ROM%", transport.file(rom).path)
+            if (result.contains("%ROM%")) result = result.replace("%ROM%", transport.raw(rom))
             result = result.replace("%BASENAME%", File(rom).nameWithoutExtension)
             if (result.startsWith("%INJECT%=")) {
-                val file = transport.file(result.removePrefix("%INJECT%="))
-                require(file.length() <= 65536) { "Injected launch value is too large" }
+                val file = File(transport.raw(result.removePrefix("%INJECT%=")))
+                require(file.isFile && file.length() <= 65536) { "Injected launch value is not a bounded file" }
                 result = file.readText().trimEnd('\r', '\n')
             }
             return result

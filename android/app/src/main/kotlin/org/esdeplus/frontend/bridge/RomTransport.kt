@@ -15,14 +15,12 @@ class RomTransport(private val context: Context) {
     private val storage = StorageModel(context)
     fun root(): File = storage.validate(storage.load() ?: error("Storage is not configured"))
 
-    fun file(path: String): File {
+    fun file(path: String): File = fileInside(root(), path)
+
+    fun raw(path: String): String {
+        root()  // Revoked/unavailable selected storage remains a visible launch failure.
         require(path.startsWith('/') && !path.contains('\u0000'))
-        val root = root()
-        val candidate = File(path).canonicalFile
-        require(candidate.path.startsWith(root.path + "/") && candidate.isFile && candidate.canRead()) {
-            "ROM is not a readable file inside the selected ROM directory"
-        }
-        return candidate
+        return File(path).absolutePath
     }
 
     fun provider(path: String): Uri {
@@ -49,7 +47,8 @@ class RomTransport(private val context: Context) {
 
     @Suppress("DEPRECATION")
     fun saf(path: String): Uri {
-        val file = file(path)
+        val file = File(raw(path)).canonicalFile
+        require(file.exists() && file.canRead())
         val manager = context.getSystemService(StorageManager::class.java)
         val volume = manager.getStorageVolume(file) ?: error("ROM volume is unavailable")
         require(volume.state == Environment.MEDIA_MOUNTED)
@@ -80,6 +79,20 @@ class RomTransport(private val context: Context) {
                     context.checkUriPermission(uri, android.os.Process.myPid(), android.os.Process.myUid(),
                         Intent.FLAG_GRANT_READ_URI_PERMISSION) == android.content.pm.PackageManager.PERMISSION_GRANTED
             }
+        }
+    }
+
+    companion object {
+        // Both URI creation and every provider open use this same boundary.
+        // Its caller supplies only the independently validated selected root.
+        fun fileInside(root: File, path: String): File {
+            require(path.startsWith('/') && !path.contains('\u0000'))
+            val canonicalRoot = root.canonicalFile
+            val candidate = File(path).canonicalFile
+            require(candidate.path.startsWith(canonicalRoot.path + "/") && candidate.isFile && candidate.canRead()) {
+                "ROM is not a readable file inside the selected ROM directory"
+            }
+            return candidate
         }
     }
 }
