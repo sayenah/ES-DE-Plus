@@ -8,6 +8,7 @@ import android.app.AppComponentFactory
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 
 class FrontendActivityFactory : AppComponentFactory() {
     override fun instantiateActivity(loader: ClassLoader, className: String, intent: Intent?): Activity {
@@ -20,16 +21,29 @@ class FrontendActivityFactory : AppComponentFactory() {
 }
 
 class FrontendRedirectActivity : Activity() {
+    private var forwarded = false
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        // Allow Android to attach/focus a real window before removing this
+        // HOME task. Finishing in onCreate aborts its window transition and
+        // can leave the resumed owner without an input-focused window.
+        setContentView(View(this))
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (forwarded) MainActivity.liveInstance()?.receiveEntry(intent)
+    }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus || forwarded) return
+        forwarded = true
         val frontend = MainActivity.liveInstance()
         if (frontend != null) {
             frontend.receiveEntry(intent)
             val task = getSystemService(ActivityManager::class.java).appTasks
                 .firstOrNull { it.taskInfo.taskId == frontend.taskId }
-            Log.i("ES-DE-Plus", "Forwarding entry to sole SDL activity task=${frontend.taskId}")
-            // Remove the newcomer before foregrounding the owner. Removing a
-            // HOME task after moveToFront can clear the owner's input focus.
+            Log.i("ES-DE-Plus", "Focused redirect forwarding entry to sole SDL activity task=${frontend.taskId}")
             if (taskId != frontend.taskId) finishAndRemoveTask() else finish()
             task?.moveToFront()
         } else {

@@ -345,11 +345,11 @@ def real_system_home():
         assert shell('pidof', app).strip() == pid, 'System HOME changed PID'
         output = adb('logcat', '-d', '-v', 'threadtime')
         assert 'Creating sole SDL activity' not in output and 'Running main function' not in output, output
-        assert 'Forwarding entry to sole SDL activity' in output or 'SDL entry reused via onNewIntent' in output, output
+        assert 'Focused redirect forwarding entry to sole SDL activity' in output or 'SDL entry reused via onNewIntent' in output, output
         (evidence / 'system-home-after-activities.txt').write_text(after)
         (evidence / 'system-home-set-default.txt').write_text(changed + '\n' + output)
         def frontend_focused():
-            window = shell('dumpsys', 'window')
+            window = shell('dumpsys', 'window', '-a')
             (evidence / 'system-home-current-window.txt').write_text(window)
             return re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', window)
         wait_for(frontend_focused, 'system HOME handoff restores frontend window focus', timeout=30)
