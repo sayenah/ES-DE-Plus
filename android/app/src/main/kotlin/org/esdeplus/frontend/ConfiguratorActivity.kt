@@ -188,7 +188,7 @@ class ConfiguratorActivity : Activity() {
             if (!storage.broadAccess()) {
                 button(R.string.grant_access) { requestAccess() }
             } else {
-                button(R.string.choose_folder) { chooseFolder() }
+                val picker = button(R.string.choose_folder) { chooseFolder() }
                 text(getString(R.string.direct_howto, path.ifEmpty { getString(R.string.no_folder) }))
                 val input = EditText(this).apply {
                     id = R.string.path_hint
@@ -225,7 +225,7 @@ class ConfiguratorActivity : Activity() {
                 }
                 pathInput = input
                 content.addView(input)
-                button(R.string.use_path) {
+                val accept = button(R.string.use_path) {
                     guarded {
                         val selected = storage.acceptPath(input.text.toString())
                         path = selected.path
@@ -235,6 +235,12 @@ class ConfiguratorActivity : Activity() {
                         render()
                     }
                 }
+                // Geometric focus search can skip the narrower EditText
+                // between full-width buttons. Make this TV path explicit.
+                picker.nextFocusDownId = input.id
+                input.nextFocusUpId = picker.id
+                input.nextFocusDownId = accept.id
+                accept.nextFocusUpId = input.id
             }
         }
         content.addView(CheckBox(this).apply {
