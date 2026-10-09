@@ -13,6 +13,7 @@ import smoke_checks
 import launch_checks
 import json
 import os
+import tempfile
 
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
@@ -55,6 +56,31 @@ def adb(*args, check=True, binary=False):
 def shell(*args, check=True):
     # adb shell joins arguments without escaping, including arguments to sh -c.
     return adb('shell', shlex.join(args), check=check)
+
+
+def instrument_with_ui(*arguments):
+    # The retained-window probe waits inside instrumentation. Keep inspecting
+    # actual system UI during that wait so the existing external-ANR handler
+    # can dismiss a crashed stock launcher. Frontend ANRs still fail, and the
+    # instrumentation assertions, activity state and deadline are unchanged.
+    with tempfile.TemporaryFile(mode='w+t') as output, tempfile.TemporaryFile(mode='w+t') as errors:
+        process = subprocess.Popen(['adb', 'shell', shlex.join(arguments)], stdout=output, stderr=errors)
+        deadline = time.monotonic() + 90
+        try:
+            while process.poll() is None:
+                hierarchy()
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(process.args, 90)
+                time.sleep(0.25)
+            output.seek(0)
+            errors.seek(0)
+            result = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
+            result.check_returncode()
+            return result.stdout
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
 
 
 def private(*args, check=True):
@@ -733,7 +759,7 @@ try:
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     clear_app()
-    retained = shell('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
+    retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
                      app + '/org.esdeplus.frontend.RuntimeSmoke')
     (evidence / 'retained-configurator-probe.txt').write_text(retained)
     smoke_checks.probe_passed(retained,
