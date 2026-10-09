@@ -530,7 +530,10 @@ def gamelist_recipient_flow(mode):
     temporary = evidence / 'launch-custom'
     temporary.mkdir(exist_ok=True)
     systems = ET.Element('systemList')
-    for name, command in [('nes', '%EMULATOR_PROBE% %ACTION%=android.intent.action.VIEW %CATEGORY%=android.intent.category.DEFAULT %DATA%=%ROMPROVIDER%'),
+    for name, command in [('nes', '%EMULATOR_PROBE% %ACTION%=android.intent.action.VIEW %CATEGORY%=android.intent.category.DEFAULT '
+                           '%MIMETYPE%=application/octet-stream %DATA%=%ROMPROVIDER% %EXTRA_literal%=雪 '
+                           '%EXTRAARRAY_words%="one,t\\,wo,雪" %EXTRAINTEGER_number%=-2147483648 '
+                           '%EXTRABOOL_yes%=1 %EXTRABOOL_no%=false %ACTIVITY_CLEAR_TOP% %ACTIVITY_NO_HISTORY%'),
                           ('androidapps', '%ANDROIDAPP%=%FILEINJECT%')]:
         system = ET.SubElement(systems, 'system')
         for tag, value in [('name', name), ('fullname', name), ('path', '%ROMPATH%/' + name),
