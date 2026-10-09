@@ -463,8 +463,10 @@ try:
         # Google's TV image launches this dialog asynchronously over other
         # apps. Disable only that external onboarding component before testing.
         onboarding = 'com.google.android.tvlauncher/com.google.android.tvlauncher.dialog.ShowDialogsActivity'
-        package = shell('dumpsys', 'package', onboarding.split('/')[0])
-        if onboarding.split('/')[1] in package:
+        # dumpsys' resolver table omits activities without intent filters.
+        # The installed stock package owns this explicitly addressed dialog;
+        # pm disable validates that the component itself exists.
+        if 'package:' + onboarding.split('/')[0] in shell('pm', 'list', 'packages').splitlines():
             smoke_checks.onboarding_disabled(component_enabled(onboarding, False))
             (evidence / 'tv-onboarding-preamble.txt').write_text(
                 'Stock TV ShowDialogsActivity disabled before frontend smoke; frontend assertions unchanged.\n')
