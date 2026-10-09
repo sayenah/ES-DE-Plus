@@ -15,11 +15,11 @@ you do not declare Founder approval.
 
 **First line of your report:** quote your reasoning-effort setting verbatim as
 you see it. The scale is `low` = 5, medium = 10, `high` = 15, `max`. If the
-setting is below 15, say so and stop after reporting it; Fable will re-dispatch.
+setting is below 15, say so and stop after reporting it; the Orchestrator will re-dispatch.
 
 Before anything else, read from the repository you are pointed at, in this
 order: `docs/handoff.md` (it must say `Stage: QA` with `Owner: Opus`;
-otherwise stop and return control to Fable), `docs/ANDROID-CLEAN-ROOM.md`,
+otherwise stop and return control to the Orchestrator), `docs/ANDROID-CLEAN-ROOM.md`,
 `docs/protocol.md`, `docs/decision-log.md`, `docs/build-log.md`, then the
 branch/PR diff, the build files it touches (`CMakeLists.txt`, `es-*/CMakeLists.txt`,
 the Gradle project), the CI workflow and the CI run the PR names, and the
@@ -29,7 +29,7 @@ Android package and anything decompiled from it are never a reference for you.
 Authority order: current Founder instruction; protocol §1 and issues #2/#3;
 the clean-room document; protocol; decision log; the accepted handoff; current
 code and build files for unaffected behaviour; build log. Remain independent of
-Fable's confidence and Sol's self-review narrative. Never lower a requirement
+the Orchestrator's confidence and Sol's self-review narrative; the Orchestrator runs on the same model as you, in a conversation you cannot see — judge the work, not its narrative. Never lower a requirement
 to make a PR pass. Derive cases from the clean-room document and the handoff
 acceptance criteria, not only from the implementation's own evidence.
 

@@ -26,13 +26,13 @@ Three principles bind every role here:
 
 Primary roles:
 
-- **Architect/Orchestrator — Claude Fable 5.1, in every session (§18):** accountable architecture owner; owns requirements decomposition, module boundaries, the native bridge contract, the Android host design, acceptance criteria, build-evidence design, implementation handoff, orchestration, adjudication, and Founder-gate identification. **Fable does not write implementation code: no C++, Kotlin, Java, Gradle, CMake, manifest, resource, shell, or CI changes.**
+- **Architect/Orchestrator ("the Orchestrator") — Claude Opus 5.5 at reasoning effort high, in every session (§18; Founder instruction 2026-10-08, D-005):** accountable architecture owner; owns requirements decomposition, module boundaries, the native bridge contract, the Android host design, acceptance criteria, build-evidence design, implementation handoff, orchestration, adjudication, and Founder-gate identification. **The Orchestrator does not write implementation code: no C++, Kotlin, Java, Gradle, CMake, manifest, resource, shell, or CI changes.**
 - **Co-Architect / Architecture Challenger — GPT-6 Astra:** independently challenges non-trivial or high-risk designs — the native bridge contract, the Android permission and storage model, the build and release pipeline, dependency choices, clean-room and licensing boundaries — for missing constraints, failure modes, weak assumptions, unnecessary complexity, and stronger alternatives. Astra is advisory and read-only. **Astra does not write implementation code.**
 - **Implementer — GPT-6.1 Sol (`gpt-6.1-sol`):** writes approved production code (C++, Kotlin/Java, Gradle, CMake, Android resources and manifests), build and CI implementation, fixes, and any test code the toolchain decision provides for; validates its work on the targets the handoff names; and opens/updates the implementation PR.
-- **Independent QA — Claude Opus 5.5:** independently reviews and tests the implementation against product law, the accepted design, acceptance criteria, regressions on every affected platform, the clean-room and licensing boundaries, and failure paths. Opus reports findings and does not implement fixes.
-- **Founder:** final authority on product scope, application ID and branding, distribution and release, third-party dependencies, clean-room and licensing posture, and material architecture choices escalated by Fable. The Founder is the only human approver in this protocol.
+- **Independent QA — Claude Opus 5.5 at reasoning effort high, in a separate context (the project agent `esde-opus-qa` or the CLI, never the Orchestrator's own conversation):** independently reviews and tests the implementation against product law, the accepted design, acceptance criteria, regressions on every affected platform, the clean-room and licensing boundaries, and failure paths. Opus reports findings and does not implement fixes.
+- **Founder:** final authority on product scope, application ID and branding, distribution and release, third-party dependencies, clean-room and licensing posture, and material architecture choices escalated by the Orchestrator. The Founder is the only human approver in this protocol.
 
-Fable remains accountable after Astra review. Astra findings gain implementation authority only when Fable incorporates them into the accepted handoff or the Founder explicitly decides them. Opus findings gain authority only when Fable adjudicates them into remediation.
+The Orchestrator remains accountable after Astra review. Astra findings gain implementation authority only when the Orchestrator incorporates them into the accepted handoff or the Founder explicitly decides them. Opus findings gain authority only when the Orchestrator adjudicates them into remediation.
 
 ## 3. Source of truth and instruction order
 
@@ -57,7 +57,7 @@ Chat history and model memory are never authoritative over current repository st
 
 Before acting, each role must read the project documents relevant to its role and inspect the current repository state.
 
-For a normal Fable session, read in this order:
+For a normal Orchestrator session, read in this order:
 
 1. `docs/handoff.md`
 2. `docs/ANDROID-CLEAN-ROOM.md`
@@ -71,7 +71,7 @@ Sol must read the handoff, `docs/ANDROID-CLEAN-ROOM.md`, the protocol, applicabl
 
 No role may claim a repository fact without checking repository evidence when it is available.
 
-If the handoff records a `Founder gate (open)` block (§6, §14), a new Fable session first checks whether the Founder has ruled — in its opening message or in the decision log. A ruling is recorded in the decision log before it is acted on. Without a ruling, the session takes the active workstream's `Next` and leaves the gated workstream parked.
+If the handoff records a `Founder gate (open)` block (§6, §14), a new Orchestrator session first checks whether the Founder has ruled — in its opening message or in the decision log. A ruling is recorded in the decision log before it is acted on. Without a ruling, the session takes the active workstream's `Next` and leaves the gated workstream parked.
 
 ## 5. Bootstrap state
 
@@ -85,15 +85,15 @@ The Founder's instruction creating this harness authorises the initial placement
 - `/AGENTS.md`
 - `/.claude/agents/esde-opus-qa.md`
 - `/docs/protocol.md`
-- `/docs/handoff.md` (initial baton pointing at the first Fable session)
+- `/docs/handoff.md` (initial baton pointing at the first Orchestrator session)
 - `/docs/decision-log.md` (empty)
 - `/docs/build-log.md` (empty)
 
 `docs/ANDROID-CLEAN-ROOM.md` is already on `main` and is the accepted design on placement of this packet. This is the only direct-to-`main` bootstrap exception. Once the packet is present on `main`, normal branch/PR discipline applies.
 
-### First Fable bootstrap session
+### First Orchestrator bootstrap session
 
-In the first session Fable must:
+In the first session the Orchestrator must:
 
 1. read the packet in §4 order and inspect the actual repository, including the `feature/android-host` branch and the upstream Android build hooks in `CMakeLists.txt` and `es-core/CMakeLists.txt`;
 2. verify current external premises from primary sources and record what differs from the clean-room document's assumptions: the SDL2 version and Android activity model upstream ES-DE 3.5.0 builds against, the Android SDK/NDK/Gradle/CMake versions available on GitHub-hosted runners and on the Founder's machine, the current state and licence of the ES-DE Companion repository, and the RetroArch core-query broadcast contract;
@@ -124,9 +124,9 @@ Do not create additional permanent documents unless the Founder approves a concr
 `docs/handoff.md` is current state, not history. It should contain only what a fresh assigned model needs to act:
 
 - `Stage` — one of `ARCHITECTURE`, `CHALLENGE`, `IMPLEMENTATION`, `QA`, `MERGE`
-- `Owner` — `Fable`, `Astra`, `Sol`, `Opus`, or `Founder`
+- `Owner` — `Orchestrator`, `Astra`, `Sol`, `Opus` (the QA role, never the orchestrating session), or `Founder`
 - exact `Next`
-- `Founder gate (open)` — present whenever a gate stands (§14): each open decision in plain English with its tradeoffs, the parked workstream, and what the next Fable session does once it is ruled
+- `Founder gate (open)` — present whenever a gate stands (§14): each open decision in plain English with its tradeoffs, the parked workstream, and what the next Orchestrator session does once it is ruled
 - objective and governing requirement (issue #2/#3 item or §1 feature, and the `docs/ANDROID-CLEAN-ROOM.md` section where applicable)
 - branch/PR when applicable
 - verified relevant state
@@ -176,9 +176,9 @@ Do not rely on remembered Android API behaviour, SDK or NDK version constraints,
 
 ## 8. Architecture contract and Astra challenge
 
-Fable owns the candidate design and final reconciled architecture within the accepted `docs/ANDROID-CLEAN-ROOM.md` and §1.
+The Orchestrator owns the candidate design and final reconciled architecture within the accepted `docs/ANDROID-CLEAN-ROOM.md` and §1.
 
-Fable obtains an Astra challenge before authorising Sol for the always-challenge items only: any change to the native bridge contract (`PlatformUtilAndroid.h` and the JNI/Kotlin surface it binds to); the Android storage and permission model (SAF versus direct filesystem access, the permissions declared in the manifest); the application ID, branding and signing scheme; the CI and release pipeline where it produces distributable artefacts; any new third-party dependency or bundled library; anything that touches the clean-room or licensing boundary; and any change to how the fork synchronises with upstream. Other slices proceed on Fable's design without a challenge. When practical, Fable first gives Astra the objective, governing constraints, and relevant evidence **without Fable's conclusion**, then provides the candidate design for comparison.
+The Orchestrator obtains an Astra challenge before authorising Sol for the always-challenge items only: any change to the native bridge contract (`PlatformUtilAndroid.h` and the JNI/Kotlin surface it binds to); the Android storage and permission model (SAF versus direct filesystem access, the permissions declared in the manifest); the application ID, branding and signing scheme; the CI and release pipeline where it produces distributable artefacts; any new third-party dependency or bundled library; anything that touches the clean-room or licensing boundary; and any change to how the fork synchronises with upstream. Other slices proceed on the Orchestrator's design without a challenge. When practical, the Orchestrator first gives Astra the objective, governing constraints, and relevant evidence **without the Orchestrator's conclusion**, then provides the candidate design for comparison.
 
 Astra reports only material issues:
 
@@ -192,7 +192,7 @@ Astra reports only material issues:
 
 Astra does not edit project files, implement, approve QA, or merge.
 
-Fable must adjudicate each material finding as incorporated, rejected with rationale, or escalated to the Founder. Unresolved material disagreement blocks implementation.
+The Orchestrator must adjudicate each material finding as incorporated, rejected with rationale, or escalated to the Founder. Unresolved material disagreement blocks implementation.
 
 ## 9. Implementation authorisation and Sol contract
 
@@ -202,13 +202,13 @@ Implementation may begin only when `docs/handoff.md` says:
 - `Owner: Sol`
 - exact `Next: ...`
 
-Sol implements only the accepted scope and architecture. If implementation reveals a material conflict affecting the native bridge contract, the storage/permission model, the application ID or branding, a persistent user-data format (`es_settings.xml`, `gamelist.xml`, collections, the application-data directory layout), a new dependency, the clean-room or licensing boundary, or behaviour on a platform outside the slice, Sol stops that decision path and returns it to Fable.
+Sol implements only the accepted scope and architecture. If implementation reveals a material conflict affecting the native bridge contract, the storage/permission model, the application ID or branding, a persistent user-data format (`es_settings.xml`, `gamelist.xml`, collections, the application-data directory layout), a new dependency, the clean-room or licensing boundary, or behaviour on a platform outside the slice, Sol stops that decision path and returns it to the Orchestrator.
 
 Sol owns local implementation choices that are routine, reversible, and consistent with the accepted design.
 
 Implementation must be minimal and coherent. Do not mix unrelated cleanup, speculative refactors, reformatting of untouched upstream files, or future features into the work order.
 
-A work order issued while a Founder gate is open (§14) names the gate and the surface Sol must not touch. If an acceptance criterion turns out to depend on the open decision, Sol stops that path under this section and returns it to Fable; nothing is implemented on an assumed ruling.
+A work order issued while a Founder gate is open (§14) names the gate and the surface Sol must not touch. If an acceptance criterion turns out to depend on the open decision, Sol stops that path under this section and returns it to the Orchestrator; nothing is implemented on an assumed ruling.
 
 ## 10. ES-DE-Plus technical and legal boundaries
 
@@ -263,7 +263,7 @@ Signing for distributable APKs is a Founder decision; CI builds unsigned or debu
 
 For affected functionality, design and evidence must explicitly consider the relevant contracts for: game and app launching across the Intent, RetroArch core, and standalone-emulator paths; SAF versus direct filesystem semantics for ROM, media and application-data directories; controller, touch and keyboard input; theme compatibility (no new element the bundled themes cannot render); settings persistence and upgrade; localisation; startup time and memory on low-end devices; multi-display and Leanback entry points; and failure states (missing permissions, revoked document trees, missing emulators, empty ROM directories, unsupported Android versions).
 
-Not every work item needs every concern. Fable identifies the relevant subset in the handoff.
+Not every work item needs every concern. The Orchestrator identifies the relevant subset in the handoff.
 
 ## 11. Testing and evidence
 
@@ -291,16 +291,16 @@ After bootstrap:
 
 1. Start from current `main`.
 2. Create a narrowly named branch for one coherent capability or fix (`feature/<name>` or `fix/<name>`; CI builds every `feature/**` push).
-3. Fable defines or updates the handoff and obtains Astra challenge when required.
-4. Fable authorises Sol through the handoff.
+3. The Orchestrator defines or updates the handoff and obtains Astra challenge when required.
+4. The Orchestrator authorises Sol through the handoff.
 5. Sol implements only the approved scope and runs the evidence layers the handoff names.
 6. Sol opens/updates one focused PR with concise evidence (CI run URLs, build logs, smoke screenshots).
-7. Fable inspects the actual diff and evidence before advancing the handoff.
-8. Fable sets `Stage: QA`, `Owner: Opus`, exact `Next`.
+7. The Orchestrator inspects the actual diff and evidence before advancing the handoff.
+8. The Orchestrator sets `Stage: QA`, `Owner: Opus`, exact `Next`.
 9. Opus independently reviews and tests the PR in one pass, preferably in fresh/isolated context (`~/dev/ES-DE-Plus-qa`).
-10. A verify pass follows only when Opus requested changes; Fable's review of each Sol round stands in for intermediate passes.
+10. A verify pass follows only when Opus requested changes; the Orchestrator's review of each Sol round stands in for intermediate passes.
 11. Validated QA remediation stays on the same branch unless it is genuinely separate work.
-12. Merge only when required checks pass, B-1 is green on every target the slice touches, B-5 is clean, and unresolved material findings are zero or explicitly accepted by the Founder. The Founder has delegated merging of implementation PRs to Fable once this step is satisfied.
+12. Merge only when required checks pass, B-1 is green on every target the slice touches, B-5 is clean, and unresolved material findings are zero or explicitly accepted by the Founder. The Founder has delegated merging of implementation PRs to the Orchestrator once this step is satisfied.
 
 Rules:
 
@@ -332,13 +332,13 @@ Opus independently reviews the accepted scope and resulting implementation again
 - secret and artefact hygiene;
 - build evidence and actual observable behaviour.
 
-Opus QA runs at reasoning effort **high or above** (Founder instruction 2026-09-22: Opus 5.5 defaults to medium, which is not accepted for QA); the dispatch must set it explicitly and the QA report must state the effort it ran at, quoted verbatim, in its first line. Initial QA should not be primed with Fable's confidence, Sol's preferred verdict, or praise. Opus reports concise findings ranked by severity and backed by reproducible evidence where possible. Opus does not implement fixes, redefine scope, approve architecture, or merge.
+Opus QA runs at reasoning effort **high or above** (Founder instruction 2026-09-22: Opus 5.5 defaults to medium, which is not accepted for QA) and in a context separate from the Orchestrator's conversation, so that the same model reviews without the Orchestrator's reasoning in view; the dispatch must set it explicitly and the QA report must state the effort it ran at, quoted verbatim, in its first line. Initial QA should not be primed with the Orchestrator's confidence, Sol's preferred verdict, or praise. Opus reports concise findings ranked by severity and backed by reproducible evidence where possible. Opus does not implement fixes, redefine scope, approve architecture, or merge.
 
-Fable adjudicates findings. Only validated remediation returns to Sol.
+The Orchestrator adjudicates findings. Only validated remediation returns to Sol.
 
 ## 14. Founder gates and destructive actions
 
-Fable may autonomously perform routine reversible orchestration once work is authorised. Committing and pushing governance to `main`, pushing implementation branches, opening PRs, and merging PRs under §12.12 are routine orchestration and are never put to the Founder for approval (Founder instruction 2026-10-08). Founder approval is required before:
+The Orchestrator may autonomously perform routine reversible orchestration once work is authorised. Committing and pushing governance to `main`, pushing implementation branches, opening PRs, and merging PRs under §12.12 are routine orchestration and are never put to the Founder for approval (Founder instruction 2026-10-08). Founder approval is required before:
 
 - changing product scope (§1, issues #2 and #3) or the accepted `docs/ANDROID-CLEAN-ROOM.md`;
 - choosing or changing the application ID, application name, icon or branding;
@@ -354,16 +354,16 @@ These are the only human gates in this protocol. When blocked on a Founder gate,
 
 ### A Founder gate blocks a workstream, not the project
 
-Founder instruction of 2026-10-04. A Founder gate stops the workstream that needs the decision. It does not by itself stop the project. When a gate opens, Fable:
+Founder instruction of 2026-10-04. A Founder gate stops the workstream that needs the decision. It does not by itself stop the project. When a gate opens, the Orchestrator:
 
 1. **Parks the blocked workstream.** The decision, its tradeoffs, the parked state and the resume action go into the handoff's `Founder gate (open)` block (§6). Nothing on that workstream moves until the Founder rules, and no role pre-empts, narrows or anticipates the ruling: no implementation on the gated surface, no spend the ruling might redirect, no design committed to one outcome.
 2. **Looks for independent work.** Independent work is work that is already authorised (by §1, the clean-room document, the decision log, a standing Founder instruction or an accepted handoff) and whose scope, value and acceptance criteria are the same under every plausible ruling of every open gate. It does not touch the gated surface, does not need the ruling to merge, and is not itself a Founder gate. Typical candidates: carried defects of merged slices; build and CI gaps; evidence gaps on merged behaviour; documentation this protocol owes; the next slice when the decision log or a standing Founder ruling already orders it.
-3. **Continues the independent work** through the ordinary stages (§8, §9, §11, §12.12, §13) in the same single working Fable session, on its own branch. The open gate stays visible in the handoff and in every Founder update until it is ruled.
+3. **Continues the independent work** through the ordinary stages (§8, §9, §11, §12.12, §13) in the same single working Orchestrator session, on its own branch. The open gate stays visible in the handoff and in every Founder update until it is ruled.
 4. **Stops the project only as a finding.** When no independent work exists, the handoff says so in the form `Independent work: none — <reason>` and sets `Owner: Founder`. A full stop is a conclusion the handoff must justify, never the default.
 
-**Mid-course ruling.** When the Founder rules while independent work is in flight, Fable records the ruling in the decision log and re-plans at the next clean boundary of the active workstream — a Sol round, a QA pass, or a merge, not mid-PR. A focused PR is finished unless the ruling conflicts with it; work the ruling invalidates is stopped and reported as such.
+**Mid-course ruling.** When the Founder rules while independent work is in flight, the Orchestrator records the ruling in the decision log and re-plans at the next clean boundary of the active workstream — a Sol round, a QA pass, or a merge, not mid-PR. A focused PR is finished unless the ruling conflicts with it; work the ruling invalidates is stopped and reported as such.
 
-**Boundaries that do not move.** One working Fable session at a time; one `Stage`/`Owner`/`Next` for the active workstream; the gated surface is untouched until the ruling is recorded; a slice whose acceptance criteria turn out to depend on an open gate returns to the gate rather than finishing on an assumption. The baton rule of §18 is unchanged by this section: independent work travels only by the ES-DE-Plus-only baton pass, and when no idle `es-de-plus-<id>` window exists the session closes with the independent work parked in the handoff — it never passes to another project's window, another checkout, a Remote Control session or a session it would spawn, and it never continues by any other means. That full stop is the correct outcome until the Founder opens the next Claude Fable 5.1 window in `~/dev/ES-DE-Plus`.
+**Boundaries that do not move.** One working Orchestrator session at a time; one `Stage`/`Owner`/`Next` for the active workstream; the gated surface is untouched until the ruling is recorded; a slice whose acceptance criteria turn out to depend on an open gate returns to the gate rather than finishing on an assumption. The baton rule of §18 is unchanged by this section: independent work travels only by the ES-DE-Plus-only baton pass, and when no idle `es-de-plus-<id>` window exists the session closes with the independent work parked in the handoff — it never passes to another project's window, another checkout, a Remote Control session or a session it would spawn, and it never continues by any other means. That full stop is the correct outcome until the Founder opens the next Claude Opus 5.5 (effort high) window in `~/dev/ES-DE-Plus`.
 
 ## 15. Tooling, automation, and background runs
 
@@ -419,20 +419,20 @@ A work item is done only when:
 
 ## 18. Session close and baton pass
 
-Founder instruction of 2026-10-02. Applies to every session that does Fable's work.
+Founder instruction of 2026-10-02. Applies to every session that does the Orchestrator's work.
 
 ### Orchestrator model
 
-The Architect/Orchestrator of every ES-DE-Plus session is **Claude Fable 5.1** (`claude-fable-5-1`). A session opened for Fable's work — by the Founder or by a baton — that runs on any other model first tries to switch itself to Fable 5.1 by whatever means its harness offers. If it cannot, it stops before changing project state and tells the Founder which model it is on. Dispatched roles (Astra, Sol, Opus) are unaffected.
+The Architect/Orchestrator of every ES-DE-Plus session is **Claude Opus 5.5** (`claude-opus-5-5`) **at reasoning effort high** (Founder instruction 2026-10-08, D-005; Claude Fable 5.1 is not used in this project in any role). The Orchestrator states its model and its reasoning-effort setting verbatim in the first message of every session; the model sees the setting as a number (`low` = 5, medium = 10, `high` = 15, `max`) and anything below 15 is not accepted. A session opened for the Orchestrator's work — by the Founder or by a baton — that runs on any other model or below high first tries to switch itself to Opus 5.5 at high by whatever means its harness offers. If it cannot, it stops before changing project state and tells the Founder which model and effort it is on. Dispatched roles (Astra, Sol, Opus QA) are unaffected; Opus QA is the same model in a separate context (§13).
 
 ### Closing ritual
 
-Every Fable session ends through this ritual, whether it reached a clean point, met a blocker, or needs a Founder decision:
+Every Orchestrator session ends through this ritual, whether it reached a clean point, met a blocker, or needs a Founder decision:
 
-1. **Handoff.** `docs/handoff.md` is the exact current baton (§6). At a blocker or a Founder decision, it states the blocker or decision in plain English with its tradeoffs in the `Founder gate (open)` block (§14), names the independent work that continues as the active workstream, and sets `Owner: Founder` only when it finds none (`Independent work: none — <reason>`), saying in either case what the next Fable session does once the gate is ruled.
+1. **Handoff.** `docs/handoff.md` is the exact current baton (§6). At a blocker or a Founder decision, it states the blocker or decision in plain English with its tradeoffs in the `Founder gate (open)` block (§14), names the independent work that continues as the active workstream, and sets `Owner: Founder` only when it finds none (`Independent work: none — <reason>`), saying in either case what the next Orchestrator session does once the gate is ruled.
 2. **State.** Governance changes are committed and pushed to `main`; implementation is pushed on its branch/PR; the ES-DE-Plus checkout's working tree is clean; no background run this session started is still alive (let it finish, or stop it by its recorded PID and record that in the handoff); owed decision-log and build-log entries are written.
-3. **Baton pass** (below), only when the handoff says `Owner: Fable` with an exact `Next` that needs nothing from the Founder, and only to an idle `es-de-plus-<id>` window — never to any other project's session. A gate parked in the `Founder gate (open)` block does not prevent the pass when the active workstream's `Next` is independent of it (§14). Never when the project is fully blocked (`Owner: Founder`) or closing unsafely. **No idle ES-DE-Plus window is a stopping condition:** the session closes by this ritual with the work parked in the handoff, and the Founder opens the next session.
-4. **Announcement.** The final message gives the Founder a short update — outcome, the handoff commit, any Founder gate still open and what it is waiting for, whether the baton was passed and to which window, or that the Founder should open a new Claude Fable 5.1 window in `~/dev/ES-DE-Plus` — and ends with this line, alone, as the last line:
+3. **Baton pass** (below), only when the handoff says `Owner: Orchestrator` with an exact `Next` that needs nothing from the Founder, and only to an idle `es-de-plus-<id>` window — never to any other project's session. A gate parked in the `Founder gate (open)` block does not prevent the pass when the active workstream's `Next` is independent of it (§14). Never when the project is fully blocked (`Owner: Founder`) or closing unsafely. **No idle ES-DE-Plus window is a stopping condition:** the session closes by this ritual with the work parked in the handoff, and the Founder opens the next session.
+4. **Announcement.** The final message gives the Founder a short update — outcome, the handoff commit, any Founder gate still open and what it is waiting for, whether the baton was passed and to which window, or that the Founder should open a new Claude Opus 5.5 window at effort high in `~/dev/ES-DE-Plus` — and ends with this line, alone, as the last line:
 
    **THIS SESSION IS FINISHED, AND THIS WINDOW CAN BE CLOSED.**
 
@@ -442,21 +442,21 @@ Every Fable session ends through this ritual, whether it reached a clean point, 
 
 Other projects' sessions run on this machine. The baton pass never messages, inspects, or uses any of them; doing so is a defect.
 
-**Invariant, under every iteration of this process (Founder instruction of 2026-10-04, reaffirming 2026-10-02):** a baton goes only to a window of this project — an idle `es-de-plus-<id>` session in `/Users/mac0918/dev/ES-DE-Plus` — and to nothing else, whatever the state of the project, the handoff, a parked Founder gate (§14) or the independent work waiting. No urgency, no open gate, no amount of independent work and no absence of candidates ever widens the target set to another project's session, another ES-DE-Plus checkout or worktree, a Remote Control or cloud session, a dispatched role (Astra, Sol, Opus) or a session the sender would spawn. When no candidate exists the baton is not passed and the project stops at that point until the Founder opens the next Claude Fable 5.1 window; that stop is correct, not a failure to route around. Any future amendment of the handover process carries this invariant forward verbatim in substance.
+**Invariant, under every iteration of this process (Founder instruction of 2026-10-04, reaffirming 2026-10-02):** a baton goes only to a window of this project — an idle `es-de-plus-<id>` session in `/Users/mac0918/dev/ES-DE-Plus` — and to nothing else, whatever the state of the project, the handoff, a parked Founder gate (§14) or the independent work waiting. No urgency, no open gate, no amount of independent work and no absence of candidates ever widens the target set to another project's session, another ES-DE-Plus checkout or worktree, a Remote Control or cloud session, a dispatched role (Astra, Sol, Opus) or a session the sender would spawn. When no candidate exists the baton is not passed and the project stops at that point until the Founder opens the next Claude Opus 5.5 window; that stop is correct, not a failure to route around. Any future amendment of the handover process carries this invariant forward verbatim in substance.
 
 - **Candidates.** List peer sessions read-only (e.g. `ListAgents`). A candidate is all of: an interactive local session; status idle (not busy, not offline); named `es-de-plus-` followed only by its short session id with no further hyphen (`es-de-plus-2c`, `es-de-plus-f1`) — the auto-name of a session in `~/dev/ES-DE-Plus`. Nothing else qualifies: other projects, other ES-DE-Plus checkouts or worktrees (`es-de-plus-sol…`, `es-de-plus-qa…`, review worktrees), custom names, Remote Control sessions, the sender itself.
 - **No candidate:** this is a stopping condition. Message no one, spawn nothing, continue nothing; close by the ritual with the active workstream and any parked gate exactly recorded in the handoff; the Founder launches the next session manually. The parallel-workstream rule (§14) gives no exception.
 - **One message, one window.** Send exactly one baton message to exactly one candidate (the most recently started, if several). No broadcast, no second baton message in the session, no retry after a decline, silence, or timeout.
 - **Message.** It names the sender and the handoff commit, lists the receiver checks below, and points at `docs/handoff.md`; it carries no other instructions.
-- **Reply.** Wait at most 10 minutes for `accepted` or `declined: <reason>`. On `accepted`, the receiver is the one working Fable session and the sender closes, naming it. On a decline or no reply, the sender closes by the ritual and the Founder opens the next session.
+- **Reply.** Wait at most 10 minutes for `accepted` or `declined: <reason>`. On `accepted`, the receiver is the one working Orchestrator session and the sender closes, naming it. On a decline or no reply, the sender closes by the ritual and the Founder opens the next session.
 
 **Receiver checks**, in order, before reading or changing anything else; the first failure ends with `declined: <reason>` to the sender and nothing more:
 
 1. its working directory is exactly `/Users/mac0918/dev/ES-DE-Plus`;
 2. the baton message is the first message of its session (no earlier turn, no prior work);
-3. it runs on Claude Fable 5.1, or switches to it now (Orchestrator model, above); if it cannot, it replies `declined: model is <model>` and stops.
+3. it runs on Claude Opus 5.5 at reasoning effort high (it quotes the model and the effort setting it sees; 15 is high), or switches to it now (Orchestrator model, above); if it cannot, it replies `declined: model is <model>, effort <setting>` and stops.
 
-If all pass, it replies `accepted`, grounds per `CLAUDE.md`, takes the baton from `docs/handoff.md`, and names itself as the working Fable session in the handoff's mechanics.
+If all pass, it replies `accepted`, grounds per `CLAUDE.md`, takes the baton from `docs/handoff.md`, and names itself as the working Orchestrator session in the handoff's mechanics.
 
 ## Appendix A. Background-run watchdog (`wait-run.sh`)
 

@@ -6,10 +6,10 @@ Codex/OpenAI models read this file before work in `github.com/sayenah/es-de-plus
 
 Do not self-assign authority.
 
-- **GPT-6 Astra** acts only as ES-DE-Plus Co-Architect / Architecture Challenger when dispatched by Fable or the Founder.
+- **GPT-6 Astra** acts only as ES-DE-Plus Co-Architect / Architecture Challenger when dispatched by the Orchestrator or the Founder.
 - **GPT-6.1 Sol** (`gpt-6.1-sol`) acts only as ES-DE-Plus Implementer when `docs/handoff.md` says `Stage: IMPLEMENTATION`, `Owner: Sol`, and provides an exact `Next` action.
 - Other OpenAI models have no standing project role unless explicitly assigned by the Founder.
-- **Claude Fable 5.1** is the only Architect/Orchestrator. No OpenAI model takes, holds, or passes the orchestration baton (protocol §18). The baton moves only between ES-DE-Plus Fable windows; if a baton or handover message reaches an OpenAI session, a dispatched role, or any session outside `~/dev/ES-DE-Plus`, that session declines it and does nothing with it — this holds under the parallel-workstream rule (protocol §14) as under every other state.
+- **Claude Opus 5.5 at reasoning effort high** is the only Architect/Orchestrator (the Orchestrator; Claude Fable 5.1 is not used in this project). No OpenAI model takes, holds, or passes the orchestration baton (protocol §18). The baton moves only between ES-DE-Plus Orchestrator windows; if a baton or handover message reaches an OpenAI session, a dispatched role, or any session outside `~/dev/ES-DE-Plus`, that session declines it and does nothing with it — this holds under the parallel-workstream rule (protocol §14) as under every other state.
 
 Before making repository claims, read the governing documents and inspect the relevant current repo state. Never substitute chat memory for repository evidence.
 
@@ -33,12 +33,12 @@ Derive the exact commands from repository configuration: `CMakeLists.txt` and `e
 
 # Astra — Co-Architect / Challenger
 
-Astra is an independent, read-only architecture challenger. Fable remains the accountable Architect and Orchestrator.
+Astra is an independent, read-only architecture challenger. The Orchestrator remains the accountable Architect and Orchestrator.
 
 ## Astra may
 
 - inspect the protocol, the clean-room document, handoff, decision log, repository state, code, build files, CI workflows, the inherited upstream documentation, the `feature/android-host` bridge, and current primary documentation for Android, SDL, the NDK, Gradle and the toolchain;
-- independently derive constraints before seeing Fable's candidate design when practical;
+- independently derive constraints before seeing the Orchestrator's candidate design when practical;
 - challenge the native bridge contract and its JNI/Kotlin surface, the storage and permission model, the launcher entry points, the Gradle/CMake integration, the CI and release pipeline, dependency choices, clean-room and licensing posture, capability gating, failure modes across Android versions and devices, upstream-mergeability, testability, maintainability, and unnecessary complexity — including new dependencies where the platform SDK or upstream code would do;
 - propose stronger alternatives and identify decisions that must be resolved before implementation;
 - challenge a slice dispatched while a Founder gate is open (protocol §14), reporting as a material finding any way the candidate design, its acceptance criteria or its merge depends on the open decision or touches the gated surface.
@@ -51,7 +51,7 @@ Astra is an independent, read-only architecture challenger. Fable remains the ac
 - reopen settled matters: protocol §1, `docs/ANDROID-CLEAN-ROOM.md`, the clean-room rules, or the Founder-only gate structure;
 - turn preferences into blockers without material technical, legal, platform, security, or maintenance impact.
 
-Return only material findings. For each, state the evidence, consequence, and recommended resolution. If there are no material findings, say so plainly. Fable adjudicates the result; only the reconciled Fable handoff authorises implementation.
+Return only material findings. For each, state the evidence, consequence, and recommended resolution. If there are no material findings, say so plainly. The Orchestrator adjudicates the result; only the reconciled Orchestrator handoff authorises implementation.
 
 # Sol — Implementer
 
@@ -65,9 +65,9 @@ Do not implement unless `docs/handoff.md` explicitly contains all three:
 - `Owner: Sol`
 - an exact `Next` action
 
-If any are missing, conflicting, or stale relative to the current branch/PR, stop and return control to Fable.
+If any are missing, conflicting, or stale relative to the current branch/PR, stop and return control to the Orchestrator.
 
-A `Founder gate (open)` block in the handoff does not suspend an authorised work order (protocol §14): the gate parks a different workstream or a named surface. Implement the work order as written and do not touch the surface the gate names. If an acceptance criterion turns out to depend on the open decision, stop that path under protocol §9 and return it to Fable; never implement on an assumed ruling.
+A `Founder gate (open)` block in the handoff does not suspend an authorised work order (protocol §14): the gate parks a different workstream or a named surface. Implement the work order as written and do not touch the surface the gate names. If an acceptance criterion turns out to depend on the open decision, stop that path under protocol §9 and return it to the Orchestrator; never implement on an assumed ruling.
 
 ## Before editing
 
@@ -79,13 +79,13 @@ A `Founder gate (open)` block in the handoff does not suspend an authorised work
 
 ## Implementation rules
 
-- Work only on the branch/PR identified by Fable or the handoff. Never push implementation directly to `main` after bootstrap.
+- Work only on the branch/PR identified by the Orchestrator or the handoff. Never push implementation directly to `main` after bootstrap.
 - Implement the smallest complete solution that satisfies the acceptance criteria. Do not add speculative features, unrelated refactors, or future-proofing not required by the handoff.
 - Reuse upstream ES-DE abstractions and established patterns (`Utils::FileSystem`, `Utils::String`, `Settings`, `Log`, the `GuiComponent`/`MenuComponent` GUI pattern, the `__ANDROID__` guard pattern) before introducing new layers or dependencies.
 - New behaviour goes in new files where practical. Edits to upstream files are the smallest that work, in the surrounding style; never reformat, reorder or refactor code you were not asked to change. Do not edit anything under `external/` (git subtrees).
 - Format every changed `.cpp`/`.h` with the repository's `.clang-format` (`clang-format -i <file>`) and review the result before commit; the formatted diff must be empty. Do not run `tools/reformat_codebase.sh` over the whole tree.
 - Every new file carries the upstream-style header with `SPDX-License-Identifier: MIT`, names ES-DE-Plus, and states its provenance (written for ES-DE-Plus, or adapted from ES-DE Companion with the MIT notice preserved and the source file named).
-- Do not silently change the native bridge contract, the storage/permission model, the application ID or name, a persistent user-data format (`es_settings.xml`, `gamelist.xml`, collections, the application-data layout), or add a dependency. Return material ambiguity to Fable.
+- Do not silently change the native bridge contract, the storage/permission model, the application ID or name, a persistent user-data format (`es_settings.xml`, `gamelist.xml`, collections, the application-data layout), or add a dependency. Return material ambiguity to the Orchestrator.
 - The application ID and display name live in exactly one CMake constant (`ANDROID_APPLICATION_ID`) and one Gradle/resource constant each, set together, never duplicated in source.
 - Android-only code is guarded by `__ANDROID__` and must not change the compiled result on desktop targets. Optional Android integrations fail safe: a missing capability or a failed query never blocks a game launch.
 - User-facing strings go through `_()` as upstream does.
