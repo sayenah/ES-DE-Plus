@@ -305,6 +305,19 @@ def real_system_home():
     resolved = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
                      '-c', 'android.intent.category.HOME')
     original = next(line.strip() for line in resolved.splitlines() if '/' in line and ' ' not in line.strip())
+    candidates = shell('cmd', 'package', 'query-activities', '--brief',
+                       '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
+    stock = next(line.strip() for line in candidates.splitlines() if '/' in line and
+                 ' ' not in line.strip() and not line.strip().startswith(app + '/') and
+                 'ResolverActivity' not in line)
+    # Installing a second HOME candidate can leave the fresh image at the
+    # chooser. Record an explicit stock baseline instead of treating the
+    # chooser as a launcher or pretending it can be restored as the default.
+    baseline = resolved + '\n' + candidates
+    if 'ResolverActivity' in original:
+        original = stock
+        baseline += '\nEstablish stock HOME baseline: ' + shell('cmd', 'package', 'set-home-activity', stock)
+    (evidence / 'system-home-stock-baseline.txt').write_text(baseline)
     shell('am', 'force-stop', app)
     startup_baseline = log()
     adb('logcat', '-c')
@@ -312,7 +325,7 @@ def real_system_home():
         changed = shell('cmd', 'package', 'set-home-activity', app + '/org.esdeplus.frontend.HomeEntry')
         assert 'Success' in changed, changed
         # Open the real stock drawer, then tap this application's launcher icon.
-        shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME', '-n', original)
+        shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME', '-n', stock)
         width, height = map(int, re.findall(r'(\d+)x(\d+)', shell('wm', 'size'))[-1])
         shell('input', 'swipe', str(width // 2), str(height - 100), str(width // 2), '100', '500')
         ui(label)
@@ -338,12 +351,15 @@ def real_system_home():
         screenshot('system-home-reused')
         key('KEYCODE_BACK')
         assert shell('pidof', app).strip() == pid, 'System HOME Back ended the frontend process'
-        wait_for(lambda: any(n.get('package') == app for n in hierarchy()),
-                 'system HOME Back retains foreground frontend', timeout=30)
+        resumed = 'topResumedActivity=ActivityRecord{' + records[0][2] + '}'
+        wait_for(lambda: resumed in activity_records()[0],
+                 'system HOME Back retains resumed frontend activity', timeout=30)
         back_dump, back_records = activity_records()
         assert len(back_records) == 1 and back_records[0][1:] == records[0][1:], back_dump
-        assert 'topResumedActivity=ActivityRecord{' + records[0][2] + '}' in back_dump, back_dump
+        focus = shell('dumpsys', 'window', 'windows')
+        assert re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focus), focus
         (evidence / 'system-home-back-activities.txt').write_text(back_dump)
+        (evidence / 'system-home-back-window.txt').write_text(focus)
         screenshot('system-home-back')
         save_logs('system-home-back')
     finally:
