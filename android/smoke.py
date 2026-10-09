@@ -541,11 +541,14 @@ def launch_contract_probes(mode):
     gamelist_recipient_flow(mode)
 
 
-def search_launch(term):
+def search_launch(term, name):
     key('KEYCODE_ESCAPE')
+    screenshot(name + '-menu')
     key('KEYCODE_ENTER')
+    screenshot(name + '-text-entry')
     shell('input', 'text', term)
     key('KEYCODE_ENTER')
+    screenshot(name + '-results')
     key('KEYCODE_DPAD_DOWN')
     key('KEYCODE_ENTER')
 
@@ -581,9 +584,12 @@ def gamelist_recipient_flow(mode):
         shell('am', 'force-stop', app)
         adb('logcat', '-c')
         launch()
+        save_logs(mode + '-custom-systems-start')
+        launch_checks.equal('Found custom systems configuration file' in log(), True, 'Custom user systems loaded')
+        launch_checks.equal('Found custom find rules configuration file' in log(), True, 'Custom user find rules loaded')
     def failed_target(name):
         start_custom()
-        search_launch('Smoke')
+        search_launch('Smoke', mode + '-' + name + '-search')
         wait_for(lambda: "Couldn't launch game, emulator not found" in log(), name + ' target visible error')
         screenshot(mode + '-' + name + '-target-error')
         save_logs(mode + '-' + name + '-target-error')
@@ -592,7 +598,7 @@ def gamelist_recipient_flow(mode):
         start_custom()
         pid = shell('pidof', app).strip()
         frontend_uid = int(shell('run-as', app, 'id', '-u').strip())
-        search_launch('Smoke')
+        search_launch('Smoke', mode + '-provider-search')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
         wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
                  shell('dumpsys', 'window', 'windows')), 'recipient focused window')
@@ -645,13 +651,17 @@ def gamelist_recipient_flow(mode):
         wait_for(lambda: 'Total game count: 3' in log(), 'importer callback rescans gamelist')
         time.sleep(5)
         adb('logcat', '-c')
-        search_launch('recipient')
+        search_launch('recipient', mode + '-imported-app-search')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'imported app gamelist launch')
         screenshot('imported-app-launched-' + mode)
         save_logs('imported-app-launched-' + mode)
         key('KEYCODE_BACK')
         wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window', 'windows')), 'imported app returns to frontend')
         screenshot('imported-app-return-' + mode)
+    except Exception:
+        screenshot(mode + '-gamelist-failure')
+        save_logs(mode + '-gamelist-failure')
+        raise
     finally:
         shell('am', 'force-stop', app)
         shell('am', 'force-stop', 'org.esdeplus.stub')
@@ -682,7 +692,7 @@ def real_retroarch_flow():
     try:
         adb('logcat', '-c')
         launch()
-        search_launch('Smoke')
+        search_launch('Smoke', 'real-retroarch-search')
         wait_for(lambda: 'Timed out attempting to query RetroArch, proceeding with game launch anyway' in log(), 'bundled RetroArch query timeout proceeds')
         wait_for(lambda: 'com.retroarch/com.retroarch.browser.retroactivity.RetroActivityFuture' in
                  shell('dumpsys', 'activity', 'activities'), 'unchanged bundled rule launches real RetroArch activity')
