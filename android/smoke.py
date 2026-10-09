@@ -348,6 +348,11 @@ def real_system_home():
         assert 'Forwarding entry to sole SDL activity' in output or 'SDL entry reused via onNewIntent' in output, output
         (evidence / 'system-home-after-activities.txt').write_text(after)
         (evidence / 'system-home-set-default.txt').write_text(changed + '\n' + output)
+        def frontend_focused():
+            window = shell('dumpsys', 'window')
+            (evidence / 'system-home-current-window.txt').write_text(window)
+            return re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', window)
+        wait_for(frontend_focused, 'system HOME handoff restores frontend window focus', timeout=30)
         screenshot('system-home-reused')
         key('KEYCODE_BACK')
         assert shell('pidof', app).strip() == pid, 'System HOME Back ended the frontend process'
@@ -356,15 +361,14 @@ def real_system_home():
                  'system HOME Back retains resumed frontend activity', timeout=30)
         back_dump, back_records = activity_records()
         assert len(back_records) == 1 and back_records[0][1:] == records[0][1:], back_dump
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/',
-                                   shell('dumpsys', 'window')),
-                 'system HOME Back retains focused frontend window', timeout=30)
+        wait_for(frontend_focused, 'system HOME Back retains focused frontend window', timeout=30)
         focus = shell('dumpsys', 'window')
         assert re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focus), focus
         (evidence / 'system-home-back-activities.txt').write_text(back_dump)
         (evidence / 'system-home-back-window.txt').write_text(focus)
         screenshot('system-home-back')
         save_logs('system-home-back')
+        assert 'ANR in ' + app not in adb('logcat', '-d'), 'System HOME handoff caused a frontend ANR'
     finally:
         restored = shell('cmd', 'package', 'set-home-activity', original)
         (evidence / 'system-home-default-restored.txt').write_text(original + '\n' + restored)

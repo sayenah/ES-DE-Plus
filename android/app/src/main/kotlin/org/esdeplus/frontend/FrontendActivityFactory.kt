@@ -28,8 +28,10 @@ class FrontendRedirectActivity : Activity() {
             val task = getSystemService(ActivityManager::class.java).appTasks
                 .firstOrNull { it.taskInfo.taskId == frontend.taskId }
             Log.i("ES-DE-Plus", "Forwarding entry to sole SDL activity task=${frontend.taskId}")
-            task?.moveToFront()
+            // Remove the newcomer before foregrounding the owner. Removing a
+            // HOME task after moveToFront can clear the owner's input focus.
             if (taskId != frontend.taskId) finishAndRemoveTask() else finish()
+            task?.moveToFront()
         } else {
             // The original can finish between creation and this callback.
             startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
