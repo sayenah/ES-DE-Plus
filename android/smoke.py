@@ -539,6 +539,16 @@ def launch_contract_probes(mode):
     screenshot('launch-contract-' + mode + '-returned-frontend')
     save_logs('launch-contract-' + mode + '-returned-frontend')
     gamelist_recipient_flow(mode)
+    # The inherited cases were entered through HOME. The new standalone
+    # gamelist probes must restore that real task type before warm-alias checks;
+    # otherwise HOME correctly uses a redirect instead of same-type onNewIntent.
+    shell('am', 'force-stop', app)
+    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'probe frontend stopped before restoring HOME')
+    time.sleep(1)  # PackageManager's stopped-task cleanup, as in clear_app().
+    adb('logcat', '-c')
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    configured_system('launch-contract-' + mode + '-restored-home')
+    launch_checks.equal('HOME=true' in adb('logcat', '-d'), True, 'Original HOME-entry precondition restored')
 
 
 def search_launch(term, name):
