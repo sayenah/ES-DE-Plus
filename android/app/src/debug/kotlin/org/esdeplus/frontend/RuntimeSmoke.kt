@@ -41,6 +41,19 @@ class RuntimeSmoke : Instrumentation() {
                         check(saved.isDirectory && directory.isFile)
                         check(directory.delete() && saved.renameTo(directory))
                     }
+                    "edit-systems" -> {
+                        check(ownedDirectory == "ROMs")
+                        val removed = File(directory, "3do")
+                        check(removed.isDirectory && removed.deleteRecursively())
+                        File(directory, "nes/systeminfo.txt").writeText("user-scoped-metadata\n")
+                    }
+                    "verify-systems" -> {
+                        check(ownedDirectory == "ROMs")
+                        check(!File(directory, "3do").exists()) { "Deleted system folder was regenerated" }
+                        check(File(directory, "nes/systeminfo.txt").readText() == "user-scoped-metadata\n") {
+                            "User system metadata was overwritten"
+                        }
+                    }
                     else -> error("Unknown owned fixture action")
                 }
                 result.putString("stream", "PASS: SDK-context owned fixture $ownedAction $ownedDirectory; no preferences changed\n")

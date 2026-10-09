@@ -356,6 +356,9 @@ def real_system_home():
                  'system HOME Back retains resumed frontend activity', timeout=30)
         back_dump, back_records = activity_records()
         assert len(back_records) == 1 and back_records[0][1:] == records[0][1:], back_dump
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/',
+                                   shell('dumpsys', 'window')),
+                 'system HOME Back retains focused frontend window', timeout=30)
         focus = shell('dumpsys', 'window')
         assert re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focus), focus
         (evidence / 'system-home-back-activities.txt').write_text(back_dump)
@@ -908,15 +911,17 @@ try:
 
     screenshot('scoped-restart-system-view')
     shell('am', 'force-stop', app)
-    shell('test', '-d', roms + '/3do')
-    shell('rm', '-rf', roms + '/3do')
-    shell('sh', '-c', 'echo user-scoped-metadata > ' + shlex.quote(roms + '/nes/systeminfo.txt'))
+    # Scoped files require the application's SDK mount context on current TV.
+    # Perform real filesystem edits through the existing debug fixture driver;
+    # no configuration, permission or grant is injected.
+    owned_fixture('edit-systems', 'ROMs')
     start_entry()
     configured_system('scoped-one-shot-restart')
-    shell('test', '!', '-d', roms + '/3do')
-    assert shell('cat', roms + '/nes/systeminfo.txt').strip() == 'user-scoped-metadata'
-    assert 'Creating system directories' not in log(), log()
-    (evidence / 'one-shot-scoped.txt').write_text('PASS: deleted app-owned 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
+    restarted_log = log()
+    assert 'Creating system directories' not in restarted_log, restarted_log
+    shell('am', 'force-stop', app)
+    owned_fixture('verify-systems', 'ROMs')
+    (evidence / 'one-shot-scoped.txt').write_text('PASS: SDK-context filesystem probe: deleted app-owned 3do stayed absent; edited NES systeminfo.txt unchanged on restart. No preferences or grants changed.\n' + restarted_log)
     for name, category, home in [('HomeEntry', 'android.intent.category.HOME', True),
                                   ('LeanbackEntry', 'android.intent.category.LEANBACK_LAUNCHER', False),
                                   ('MainActivity', 'android.intent.category.LAUNCHER', False)]:
