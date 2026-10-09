@@ -535,6 +535,9 @@ try:
     shell('input', 'text', shared)
     key('KEYCODE_BACK')
     shell('am', 'start', '-a', 'android.settings.SETTINGS')
+    settings_package = resolved_component('android.settings.SETTINGS').split('/')[0]
+    wait_for(lambda: any(n.get('package') == settings_package for n in hierarchy()),
+             'real Settings foreground before returning to the typed path')
     key('KEYCODE_BACK')
     wait_for(lambda: any(n.get('class') == 'android.widget.EditText' and n.get('text') == shared and
                          n.get('focused') == 'true' for n in hierarchy()), 'typed text and D-pad focus retained on resume')
