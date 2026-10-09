@@ -26,6 +26,11 @@ def onboarding_disabled(changed):
     assert changed, 'Cannot disable stock TV onboarding component'
 
 
+def onboarding_clear(nodes, package):
+    assert any(n.get('package') == package for n in nodes), 'Stock launcher UI missing'
+    assert not any(n.get('package') == package and n.get('text') == 'Dismiss' for n in nodes), 'Stock onboarding remains visible'
+
+
 def held_restored(records, nodes, pid, old_pid, app):
     assert pid.isdigit() and pid != old_pid, f'Host did not restart: {old_pid} -> {pid}'
     assert len(records) == 2 and len({r[1] for r in records}) == 1, records
@@ -63,6 +68,9 @@ def positive_controls():
     reject('failed runtime probe', lambda: probe_passed('FAIL: probe', 'PASS: probe'))
     onboarding_disabled(True)
     reject('onboarding control failed', lambda: onboarding_disabled(False))
+    onboarding_clear([{'package': 'stock.launcher', 'text': 'Home'}], 'stock.launcher')
+    reject('onboarding dialog still visible', lambda: onboarding_clear([{'package': 'stock.launcher', 'text': 'Dismiss'}], 'stock.launcher'))
+    reject('missing stock UI after dismissal', lambda: onboarding_clear([], 'stock.launcher'))
     records = [('HomeEntry', '7'), ('ConfiguratorActivity', '7')]
     nodes = [{'package': 'smoke.app', 'text': 'Configure ES-DE Plus'}]
     held_restored(records, nodes, '200', '100', 'smoke.app')

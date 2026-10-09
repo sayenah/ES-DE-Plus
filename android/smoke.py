@@ -467,9 +467,27 @@ try:
         # The installed stock package owns this explicitly addressed dialog;
         # pm disable validates that the component itself exists.
         if 'package:' + onboarding.split('/')[0] in shell('pm', 'list', 'packages').splitlines():
-            smoke_checks.onboarding_disabled(component_enabled(onboarding, False))
-            (evidence / 'tv-onboarding-preamble.txt').write_text(
-                'Stock TV ShowDialogsActivity disabled before frontend smoke; frontend assertions unchanged.\n')
+            if component_enabled(onboarding, False):
+                smoke_checks.onboarding_disabled(True)
+                (evidence / 'tv-onboarding-preamble.txt').write_text(
+                    'Stock TV ShowDialogsActivity disabled before frontend smoke; frontend assertions unchanged.\n')
+            else:
+                # Production TV images refuse adbd root. Let the stock HOME
+                # load its first-run content and dismiss the actual promotion
+                # before it can steal focus during the frontend smoke.
+                stock_package = onboarding.split('/')[0]
+                shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME',
+                      '-n', stock_package + '/.MainActivity')
+                wait_for(lambda: any(n.get('package') == stock_package and n.get('text') == 'Dismiss'
+                                     for n in hierarchy()), 'stock TV onboarding Dismiss button', timeout=360)
+                screenshot('tv-onboarding-before-dismiss')
+                ui('Dismiss')
+                nodes = hierarchy()
+                smoke_checks.onboarding_clear(nodes, stock_package)
+                screenshot('tv-onboarding-dismissed')
+                (evidence / 'tv-onboarding-preamble.txt').write_text(
+                    'Actual stock TV onboarding dismissed through its Dismiss button before frontend smoke.\n' +
+                    (evidence / 'latest-ui.txt').read_text())
     print(adb('install', '-r', str(apk)), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     clear_app()
