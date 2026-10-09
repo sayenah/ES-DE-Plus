@@ -271,7 +271,7 @@ def destroy_held(name):
     started = time.monotonic()
     # Clear the actual HOME frontend/configurator task through ActivityManager.
     # The exported entry is used; no test-only finish or native quit injection.
-    result = shell('am', 'start', '--activity-new-task', '--activity-clear-task',
+    result = shell('am', 'start', '-f', '0x10008000',
                    '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME',
                    '-n', app + '/org.esdeplus.frontend.HomeEntry')
     wait_for(lambda: shell('pidof', app, check=False).strip() != old_pid,
@@ -294,10 +294,13 @@ def destroy_held(name):
 
 
 def real_system_home():
+    global startup_baseline
     resolved = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
                      '-c', 'android.intent.category.HOME')
     original = next(line.strip() for line in resolved.splitlines() if '/' in line and ' ' not in line.strip())
     shell('am', 'force-stop', app)
+    startup_baseline = log()
+    adb('logcat', '-c')
     try:
         changed = shell('cmd', 'package', 'set-home-activity', app + '/org.esdeplus.frontend.HomeEntry')
         assert 'Success' in changed, changed
@@ -519,6 +522,7 @@ try:
     wait_for(lambda: any(n.get('class') == 'android.widget.EditText' and n.get('text') == shared and
                          n.get('focused') == 'true' for n in hierarchy()), 'typed text and D-pad focus retained on resume')
     screenshot('typed-path-focus-preserved')
+    (evidence / 'typed-path-focus-preserved-ui.txt').write_text((evidence / 'latest-ui.txt').read_text())
     picker_component = resolved_component('android.intent.action.OPEN_DOCUMENT_TREE')
     if picker_component and component_enabled(picker_component, False):
         try:

@@ -196,7 +196,7 @@ class ConfiguratorActivity : Activity() {
                         when (code) {
                             KeyEvent.KEYCODE_DPAD_CENTER -> {
                                 if (event.action == KeyEvent.ACTION_UP)
-                                    getSystemService(InputMethodManager::class.java).showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                                    getSystemService(InputMethodManager::class.java).showSoftInput(this, 0)
                                 true
                             }
                             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
