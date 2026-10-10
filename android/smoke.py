@@ -35,12 +35,12 @@ dismissing_onboarding = False
 last_onboarding_check = 0.0
 
 
-def adb(*args, check=True, binary=False):
+def adb(*args, check=True, binary=False, timeout=90):
     # Retry only read-only log collection after a transient transport closure.
     # UI actions, process changes and assertions are never replayed here.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
         result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=not binary, timeout=90)
+                                text=not binary, timeout=timeout)
         if not result.returncode:
             break
         if args[:2] == ('logcat', '-d'):
@@ -269,30 +269,42 @@ def grant_from_settings(app_label=None, recipient=False):
     if permission_toggle(app_label) is None:
         ui(app_label or label)
     wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
-    if recipient and permission_toggle(app_label).get('checked') == 'true':
+    def recipient_granted():
+        return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b',
+                    shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE')))
+    if recipient and permission_toggle(app_label).get('checked') == 'true' and recipient_granted():
         screenshot('recipient-all-files-already-granted')
         key('KEYCODE_BACK')
         return
+    def toggle_switch():
+        if television:
+            key('KEYCODE_DPAD_CENTER')
+        else:
+            toggle = permission_toggle(app_label)
+            x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
+            shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     if television:
         for _ in range(40):
             row = permission_row(app_label)
             focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
             if focused:
                 screenshot('tv-all-files-switch-focused')
-                key('KEYCODE_DPAD_CENTER')
                 break
             key('KEYCODE_DPAD_DOWN')
         else:
             raise AssertionError('TV D-pad cannot reach our all-files switch')
-    else:
-        toggle = permission_toggle(app_label)
-        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
-        shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+    if recipient and permission_toggle(app_label).get('checked') == 'true' and not recipient_granted():
+        # Settings can retain a checked preference across recipient reinstall,
+        # while the actual app-op is reset. Resynchronize through the real UI.
+        toggle_switch()
+        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale recipient switch reset')
+    toggle_switch()
     wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
              'real app all-files grant')
     screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
     key('KEYCODE_BACK')
     if recipient:
+        launch_checks.all_files_granted(shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE'))
         return
     if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
@@ -730,20 +742,16 @@ def real_retroarch_flow():
     apk_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'RetroArch.apk'
     # Download/verification occurs in CI before this smoke. No copy enters the
     # checkout or the evidence upload's explicitly enumerated text/image paths.
-    print(adb('install', '-r', str(apk_path)), flush=True)
+    print(adb('install', '-r', str(apk_path), timeout=300), flush=True)
     package = shell('dumpsys', 'package', 'com.retroarch')
     version = re.search(r'versionName=([^\s]+)', package).group(1)
     launch_checks.equal(version, '1.22.2_GIT', 'Installed official RetroArch versionName')
     (evidence / 'real-retroarch-package.txt').write_text(package)
     shell('am', 'force-stop', app)
     original = shell('cat', settings)
-    document = ET.fromstring(original)
-    enabled = document.find("bool[@name='RetroArchCoreQueryExperimental']")
-    if enabled is None:
-        enabled = ET.SubElement(document, 'bool', name='RetroArchCoreQueryExperimental')
-    enabled.set('value', 'true')
     edited = evidence / 'retroarch-query-settings.txt'
-    edited.write_text(ET.tostring(document, encoding='unicode'))
+    edited.write_text(launch_checks.enable_core_query(original))
+    launch_checks.core_query_enabled(edited.read_text())
     user_file('settings/es_settings.xml', edited.read_text())
     try:
         adb('logcat', '-c')

@@ -3,10 +3,38 @@
 # ES-DE-Plus — written for ES-DE-Plus. Assertions used on actual recipient/native evidence.
 import copy
 import hashlib
+import re
+import xml.etree.ElementTree as ET
 
 
 def equal(actual, expected, label):
     assert actual == expected, f'{label}: expected={expected!r}; actual={actual!r}'
+
+
+def settings_fragment(text):
+    # Settings::saveFile emits sibling elements after an XML declaration.
+    # The wrapper is only for parsing; it never enters the user's file.
+    fragment = re.sub(r'^\s*<\?xml[^?]*\?>', '', text, count=1)
+    return ET.fromstring('<fragment>' + fragment + '</fragment>')
+
+
+def enable_core_query(text):
+    document = settings_fragment(text)
+    enabled = document.find("bool[@name='RetroArchCoreQueryExperimental']")
+    if enabled is None:
+        enabled = ET.SubElement(document, 'bool', name='RetroArchCoreQueryExperimental')
+    enabled.set('value', 'true')
+    return '<?xml version="1.0"?>\n' + ''.join(ET.tostring(child, encoding='unicode') for child in document)
+
+
+def core_query_enabled(text):
+    enabled = settings_fragment(text).find("bool[@name='RetroArchCoreQueryExperimental']")
+    equal(enabled is not None and enabled.get('value') == 'true', True, 'Experimental core query enabled')
+
+
+def all_files_granted(appops):
+    equal(bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b', appops)), True,
+          'Recipient actual all-files permission')
 
 
 def recipient(observation, frontend_uid, contents):
@@ -45,6 +73,15 @@ def positive_controls():
     reject('false observation', lambda: equal(False, True, 'true observation'))
     equal('expected', 'expected', 'text observation')
     reject('wrong text', lambda: equal('unexpected', 'expected', 'text observation'))
+    all_files_granted('Uid mode: MANAGE_EXTERNAL_STORAGE: allow')
+    reject('stale Settings switch without app-op', lambda: all_files_granted('No operations.\nDefault mode: default'))
+    original = '<?xml version="1.0"?>\n<bool name="RetroArchCoreQueryExperimental" value="false" />\n<string name="Theme" value="雪 &amp; sky" />\n<int name="Volume" value="83" />\n'
+    edited = enable_core_query(original)
+    core_query_enabled(edited)
+    reject('core query still disabled', lambda: core_query_enabled(original))
+    before = list(settings_fragment(original))[1:]
+    after = list(settings_fragment(edited))[1:]
+    equal([(n.tag, n.attrib) for n in after], [(n.tag, n.attrib) for n in before], 'Unrelated user settings preserved')
     valid = {'uid': 10002, 'sha256': hashlib.sha256(b'ROM').hexdigest(),
              'action': 'android.intent.action.VIEW', 'mime': 'application/octet-stream',
              'data': 'content://sample.roms/rom/file',
