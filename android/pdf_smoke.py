@@ -61,6 +61,14 @@ def manual_image(png):
     return points
 
 
+def manual_visible(png):
+    try:
+        manual_image(png)
+    except AssertionError:
+        return False
+    return True
+
+
 def rejects(name, action):
     try:
         action()
@@ -147,6 +155,8 @@ def controls():
     try: manual_image(png)
     except AssertionError: checks.append('PASS: actual cover PNG rejects the manual-image assertion')
     else: raise AssertionError('PDF image positive control escaped')
+    assert not manual_visible(png), 'Cover escaped manual readiness control'
+    checks.append('PASS: actual cover PNG rejects manual readiness')
     depth = bytearray(png); depth[24] = 16
     length = struct.unpack_from('>I', png, 33)[0]
     filtered = bytearray(zlib.decompress(png[41:41 + length])); filtered[0] = 5
@@ -205,11 +215,16 @@ def run(mode, harness):
             h.key('KEYCODE_DEL'); h.key('KEYCODE_ENTER')
         def open_manual(name):
             h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
+            # Rendering and releasing the visited-page cache can outlast a fixed
+            # screenshot delay. Await the actual frame without reissuing input.
+            h.wait_for(lambda: manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
+                       'actual manual frame ' + name)
             png = frame(name)
             manual_image(png)
             return png
         h.key('KEYCODE_ENTER')
         first = open_manual('first')
+        h.launch_checks.equal(manual_visible(first), True, 'Actual manual readiness control')
         rejects('stale page', lambda: closed(first))
         h.key('KEYCODE_DPAD_RIGHT'); manual_image(frame('next'))
         h.smoke_checks.probe_passed(h.adb('logcat', '-d'), 'PDF rendered page=2 size=')
@@ -282,12 +297,18 @@ def run(mode, harness):
             descriptors(baseline, after)
             rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
             memory = h.shell('dumpsys', 'meminfo', h.app)
-            h.key('KEYCODE_DEL')
+            memory_path = h.evidence / ('pdf-' + mode + '-stress-memory-fds.txt')
+            memory_path.write_text(baseline + '\n' + after + '\n' + memory)
+            def close_cycle():
+                h.key('KEYCODE_DEL')
+                h.wait_for(lambda: not manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
+                           'manual closed before next cycle')
+            close_cycle()
             for _ in range(10):
-                open_manual('cycle'); h.key('KEYCODE_DEL')
+                open_manual('cycle'); close_cycle()
             stable = command('stats')
             descriptors(baseline, stable)
-            h.evidence.joinpath('pdf-' + mode + '-stress-memory-fds.txt').write_text(baseline + '\n' + after + '\n' + stable + '\n' + memory)
+            memory_path.write_text(baseline + '\n' + after + '\n' + stable + '\n' + memory)
             command('fixture=valid')
         open_manual('lifecycle')
         pid = h.shell('pidof', h.app).strip()
