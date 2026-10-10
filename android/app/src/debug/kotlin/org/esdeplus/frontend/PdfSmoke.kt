@@ -81,6 +81,12 @@ internal object PdfSmoke {
             try { failure(valid, if (point == 0) "-fileinfo" else "-convert", point, if (point == 0) 0 else 240, if (point == 0) 0 else 320) }
             finally { PdfManual.beforeCall = null }
         }
+        // An uncaught Java error reaches CallObjectMethod, exercising native
+        // exception clearing rather than the helper's ordinary null sentinel.
+        PdfManual.beforeCall = { throw AssertionError("Injected JNI boundary exception") }
+        try { failure(valid, "-convert", 1, 240, 320) }
+        finally { PdfManual.beforeCall = null }
+        metadata(nativeProcess(valid, "-fileinfo", 0, 0, 0)?.toString(Charsets.US_ASCII))
         check(File("/proc/self/fd").list()!!.size == before) { "Renderer descriptor leak" }
         rejected { failure(valid) }
         // Concurrent calls also exercise the global open/render/close lock.
@@ -108,6 +114,19 @@ internal object PdfSmoke {
         cover.parentFile!!.mkdirs()
         File("/data/local/tmp/esde-pdf-fixtures/cover.png").copyTo(cover, overwrite = true)
         return "VOLUME_MEDIA=${media.absolutePath}\n"
+    }
+
+    fun unreadable(context: android.content.Context): String {
+        val media = File(context.cacheDir, "Unreadable spaces \uD83D\uDE80")
+        val manual = File(media, "nes/manuals/Smoke Alpha.pdf")
+        manual.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/Manual spaces \uD83D\uDE80.pdf").copyTo(manual, overwrite = true)
+        check(manual.canRead())
+        check(manual.setReadable(false, false) && !manual.canRead())
+        val cover = File(media, "nes/covers/Smoke Alpha.png")
+        cover.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/cover.png").copyTo(cover, overwrite = true)
+        return "UNREADABLE_MEDIA=${media.absolutePath}\n"
     }
 
     fun session(instrumentation: Instrumentation): String {

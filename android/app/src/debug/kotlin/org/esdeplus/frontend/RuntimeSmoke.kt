@@ -39,6 +39,11 @@ class RuntimeSmoke : Instrumentation() {
                 finish(-1, result)
                 return
             }
+            if (followupMode == "pdf-unreadable") {
+                result.putString("stream", PdfSmoke.unreadable(targetContext))
+                finish(-1, result)
+                return
+            }
             if (pdfArguments != null) {
                 result.putString("stream", PdfSmoke.session(this))
                 finish(-1, result)

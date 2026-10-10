@@ -262,6 +262,21 @@ def run(mode, harness):
         process.wait(timeout=15)
         assert 'PASS: PDF viewer session completed' in output_path.read_text(), output_path.read_text()
         h.shell('am', 'force-stop', h.app)
+        provisioned = h.shell('am', 'instrument', '-w', '-e', 'mode', 'pdf-unreadable',
+                             h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+        unreadable = re.search(r'UNREADABLE_MEDIA=(.+)', provisioned)[1].strip()
+        h.shell('am', 'force-stop', h.app)
+        settings.find("string[@name='MediaDirectory']").set('value', unreadable)
+        h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+        h.adb('logcat', '-c'); h.launch(); h.key('KEYCODE_DPAD_RIGHT')
+        h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
+        closed(frame('unreadable'))
+        h.smoke_checks.probe_passed(h.adb('logcat', '-d'), 'PDF conversion failed')
+        h.evidence.joinpath('pdf-' + mode + '-unreadable.txt').write_text(provisioned + '\n' + h.log())
+        for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DPAD_LEFT', 'KEYCODE_DEL']: h.key(code)
+        h.shell('am', 'force-stop', h.app)
+        settings.find("string[@name='MediaDirectory']").set('value', media)
+        h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
         h.launch(); h.key('KEYCODE_DPAD_RIGHT'); open_manual('before-destroy')
         old = h.shell('pidof', h.app).strip(); h.adb('logcat', '-c')
         h.shell('am', 'start', '-f', '0x10008000', '-n', h.activity)
@@ -307,7 +322,7 @@ def run(mode, harness):
             h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(
                 'Removable-volume success/removal probe uses the explicit direct-mode pass on this same image.\n' + volumes)
         h.evidence.joinpath('pdf-' + mode + '-summary.txt').write_text(
-            'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 29/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
+            'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and missing/unreadable/malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 29/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
     finally:
         if process and process.poll() is None:
             h.shell('am', 'force-stop', h.app)
