@@ -411,17 +411,16 @@ def release(harness):
     settings = h.launch_checks.settings_fragment(original)
     settings.find("string[@name='MediaDirectory']").set('value', h.external + '/ES-DE-Plus/Manual spaces 🚀')
     h.user_file('settings/es_settings.xml', settings_xml(settings))
-    renamed = []
+    prepared = False
     try:
         # Match upstream's ROM-stem media lookup while exercising Unicode in
         # the minified viewer's actual manual basename as well as its directory.
-        for directory, extension in [(h.roms + '/nes', '.nes'),
-                (h.external + '/ES-DE-Plus/Manual spaces 🚀/nes/manuals', '.pdf'),
-                (h.external + '/ES-DE-Plus/Manual spaces 🚀/nes/covers', '.png')]:
-            original_name = directory + '/Smoke Alpha' + extension
-            unicode_name = directory + '/Smoke Alpha 🚀' + extension
-            h.private('mv', original_name, unicode_name)
-            renamed.append((original_name, unicode_name))
+        # Scoped external files require the actual app's SDK context, not run-as.
+        result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'pdf-unicode-prepare',
+                         h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+        h.smoke_checks.probe_passed(result, 'PASS: Unicode PDF fixture prepared through app SDK context; rename controls rejected')
+        prepared = True
+        h.evidence.joinpath('pdf-unicode-fixture.txt').write_text(result)
         # Same CI-only ephemeral key as debug, so the real saved configuration
         # and Unicode fixture remain installed for the minified runtime check.
         h.adb('install', '-r', 'android/app/build/outputs/apk/release/app-release-smoke.apk')
@@ -448,6 +447,9 @@ def release(harness):
     finally:
         h.shell('am', 'force-stop', h.app)
         h.adb('install', '-r', str(h.apk))
-        for original_name, unicode_name in reversed(renamed):
-            h.private('mv', unicode_name, original_name)
+        if prepared:
+            result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'pdf-unicode-restore',
+                             h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+            h.smoke_checks.probe_passed(result, 'PASS: Unicode PDF fixture restored through app SDK context; rename controls rejected')
+            with h.evidence.joinpath('pdf-unicode-fixture.txt').open('a') as output: output.write(result)
         h.user_file('settings/es_settings.xml', original)

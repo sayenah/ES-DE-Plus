@@ -133,6 +133,50 @@ internal object PdfSmoke {
         return "UNREADABLE_MEDIA=${media.absolutePath}\n"
     }
 
+    fun unicodeFixture(context: android.content.Context, restore: Boolean): String {
+        fun completed(source: File, destination: File, bytes: ByteArray) {
+            check(!source.exists() && destination.isFile && destination.readBytes().contentEquals(bytes))
+        }
+        fun move(source: File, destination: File, record: () -> Unit = {}) {
+            check(source.isFile && !destination.exists())
+            val bytes = source.readBytes()
+            check(source.renameTo(destination))
+            record()
+            completed(source, destination, bytes)
+        }
+        val probe = File(context.cacheDir, "pdf-unicode-control").apply { mkdirs() }
+        try {
+            val source = File(probe, "source").apply { writeText("PDF rename control") }
+            val collision = File(probe, "collision").apply { writeText("Existing destination") }
+            val destination = File(probe, "destination")
+            rejected { move(File(probe, "missing"), destination) }
+            rejected { move(source, collision) }
+            rejected { move(source, File(probe, "missing-parent/destination")) }
+            val bytes = source.readBytes()
+            move(source, destination)
+            rejected { completed(source, destination, byteArrayOf(0)) }
+            move(destination, source)
+        } finally { probe.deleteRecursively() }
+        val media = File(org.esdeplus.frontend.bridge.StorageModel(context).appData(), "Manual spaces \uD83D\uDE80/nes")
+        val files = listOf(
+            File(org.esdeplus.frontend.bridge.RomTransport(context).root(), "nes") to ".nes",
+            File(media, "manuals") to ".pdf", File(media, "covers") to ".png")
+        val renamed = mutableListOf<Pair<File, File>>()
+        try {
+            for ((directory, extension) in files) {
+                val original = File(directory, "Smoke Alpha$extension")
+                val unicode = File(directory, "Smoke Alpha \uD83D\uDE80$extension")
+                val source = if (restore) unicode else original
+                val destination = if (restore) original else unicode
+                move(source, destination) { renamed.add(source to destination) }
+            }
+        } catch (error: Exception) {
+            for ((source, destination) in renamed.asReversed()) move(destination, source)
+            throw error
+        }
+        return "PASS: Unicode PDF fixture ${if (restore) "restored" else "prepared"} through app SDK context; rename controls rejected\n"
+    }
+
     fun session(instrumentation: Instrumentation): String {
         val context = instrumentation.targetContext
         val root = File(context.cacheDir, "pdf-fixtures").apply { mkdirs() }

@@ -34,6 +34,11 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode in listOf("pdf-unicode-prepare", "pdf-unicode-restore")) {
+                result.putString("stream", PdfSmoke.unicodeFixture(targetContext, followupMode == "pdf-unicode-restore"))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "pdf-volume") {
                 result.putString("stream", PdfSmoke.removable(targetContext))
                 finish(-1, result)
