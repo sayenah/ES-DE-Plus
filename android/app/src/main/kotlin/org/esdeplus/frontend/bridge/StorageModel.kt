@@ -184,8 +184,8 @@ class StorageModel(private val context: Context) {
 
     fun validate(configuration: Configuration, readOnly: Boolean = false): File {
         // Setup still verifies writes to app data and ROMs. Sharing/launching
-        // only reads the already configured ROM root and never provisions it.
-        if (!readOnly) verifyDirectory(appData(), true)
+        // only reads the already configured directories and never provisions them.
+        verifyDirectory(appData(), create = !readOnly, readOnly = readOnly)
         val roms = when (configuration.mode) {
             "scoped" -> {
                 if (configuration.roms != ownedROMs().canonicalPath || configuration.tree.isNotEmpty())
