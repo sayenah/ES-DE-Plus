@@ -833,6 +833,20 @@ def real_retroarch_flow():
         except AssertionError:
             # L-N1: collect live thread stacks before a single bounded re-launch.
             stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+            if not re.search(r'#00\s+pc\s', stacks):
+                root = adb('root', check=False)
+                adb('wait-for-device')
+                if 'cannot run as root' in root:
+                    stacks += '\nCAPABILITY GAP: privileged native backtrace unavailable: ' + root
+                else:
+                    try:
+                        wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged RetroArch diagnostic shell')
+                        stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
+                            'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+                    finally:
+                        adb('unroot', check=False)
+                        adb('wait-for-device')
+                    wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after native diagnostics')
             (evidence / 'real-retroarch-stall-stacks.txt').write_text(stacks)
             (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
             shell('am', 'force-stop', 'com.retroarch')

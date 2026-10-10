@@ -34,8 +34,8 @@ namespace
         JNIEnv* env;
         ~LocalFrame()
         {
-            failed(env);
             env->PopLocalFrame(nullptr);
+            failed(env);
         }
     };
 } // namespace

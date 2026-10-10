@@ -293,7 +293,17 @@ def release(harness):
     settings = ET.fromstring(original)
     settings.find("string[@name='MediaDirectory']").set('value', h.external + '/ES-DE-Plus/Manual spaces 🚀')
     h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+    renamed = []
     try:
+        # Match upstream's ROM-stem media lookup while exercising Unicode in
+        # the minified viewer's actual manual basename as well as its directory.
+        for directory, extension in [(h.roms + '/nes', '.nes'),
+                (h.external + '/ES-DE-Plus/Manual spaces 🚀/nes/manuals', '.pdf'),
+                (h.external + '/ES-DE-Plus/Manual spaces 🚀/nes/covers', '.png')]:
+            original_name = directory + '/Smoke Alpha' + extension
+            unicode_name = directory + '/Smoke Alpha 🚀' + extension
+            h.private('mv', original_name, unicode_name)
+            renamed.append((original_name, unicode_name))
         # Same CI-only ephemeral key as debug, so the real saved configuration
         # and Unicode fixture remain installed for the minified runtime check.
         h.adb('install', '-r', 'android/app/build/outputs/apk/release/app-release-smoke.apk')
@@ -314,8 +324,10 @@ def release(harness):
         assert 'JNI DETECTED ERROR' not in logs and 'NoSuchMethod' not in logs and 'ANR in ' + h.app not in logs, logs
         h.save_logs('pdf-minified-runtime')
         h.evidence.joinpath('pdf-minified-summary.txt').write_text(
-            'PASS: installed CI-signed minified release uses the actual Unicode/manual path, rotation, paging, zoom/pan/reset, close/reopen; screenshot colour assertions pass; no JNI/lookup/ANR failure. APK remains in CI and is never uploaded.\n')
+            'PASS: installed CI-signed minified release opens Manual spaces 🚀/nes/manuals/Smoke Alpha 🚀.pdf through the gamelist; rotation, paging, zoom/pan/reset, close/reopen; screenshot colour assertions pass; no JNI/lookup/ANR failure. APK remains in CI and is never uploaded.\n')
     finally:
         h.shell('am', 'force-stop', h.app)
         h.adb('install', '-r', str(h.apk))
+        for original_name, unicode_name in reversed(renamed):
+            h.private('mv', unicode_name, original_name)
         h.user_file('settings/es_settings.xml', original)
