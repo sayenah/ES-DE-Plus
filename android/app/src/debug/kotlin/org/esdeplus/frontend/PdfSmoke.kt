@@ -16,6 +16,15 @@ internal object PdfSmoke {
         try { action() } catch (expected: IllegalStateException) { return }
         error("PDF assertion positive control escaped")
     }
+    private fun descriptorSnapshot(): Pair<Int, String> {
+        val entries = File("/proc/self/fd").list()!!.sortedBy { it.toInt() }
+        val targets = entries.joinToString("\n") { entry ->
+            val target = try { android.system.Os.readlink("/proc/self/fd/$entry") }
+            catch (error: android.system.ErrnoException) { "closed during snapshot" }
+            "$entry -> $target"
+        }
+        return entries.size to "STATS: fd=${entries.size}\n$targets"
+    }
     private fun pixel(bytes: ByteArray, width: Int, x: Int, y: Int, expected: IntArray) {
         val offset = (y * width + x) * 4
         val actual = (0..3).map { bytes[offset + it].toInt() and 255 }
@@ -61,7 +70,8 @@ internal object PdfSmoke {
             raster(rendered, w * h * 4)
             pixel(rendered, w, point.first, point.second, intArrayOf(0, 0, 255, 255))
         }
-        val before = File("/proc/self/fd").list()!!.size
+        val beforeSnapshot = descriptorSnapshot()
+        val before = beforeSnapshot.first
         fun failure(path: String, mode: String = "-fileinfo", page: Int = 0, w: Int = 0, h: Int = 0) {
             check(nativeProcess(path, mode, page, w, h) == null) { "Expected failure: $path $mode $page $w $h" }
         }
@@ -87,8 +97,13 @@ internal object PdfSmoke {
         try { failure(valid, "-convert", 1, 240, 320) }
         finally { PdfManual.beforeCall = null }
         metadata(nativeProcess(valid, "-fileinfo", 0, 0, 0)?.toString(Charsets.US_ASCII))
-        fun descriptors(actual: Int) { check(actual == before) { "Renderer descriptor leak" } }
-        descriptors(File("/proc/self/fd").list()!!.size)
+        val afterSnapshot = descriptorSnapshot()
+        fun descriptors(actual: Int) {
+            check(actual == before) {
+                "Renderer descriptor leak: $before -> $actual\n${beforeSnapshot.second}\n${afterSnapshot.second}"
+            }
+        }
+        descriptors(afterSnapshot.first)
         rejected { descriptors(before + 1) }
         rejected { failure(valid) }
         // Concurrent calls also exercise the global open/render/close lock.
@@ -219,14 +234,7 @@ internal object PdfSmoke {
                             else File(root, if (name == "valid") "Manual spaces \uD83D\uDE80.pdf" else "$name.pdf").copyTo(manual, overwrite = true)
                             "FIXTURE: $name"
                         }
-                        action == "stats" -> {
-                            val entries = File("/proc/self/fd").list()!!.sortedBy { it.toInt() }
-                            "STATS: fd=${entries.size}\n" + entries.joinToString("\n") { entry ->
-                                val target = try { android.system.Os.readlink("/proc/self/fd/$entry") }
-                                catch (error: android.system.ErrnoException) { "closed during snapshot" }
-                                "$entry -> $target"
-                            }
-                        }
+                        action == "stats" -> descriptorSnapshot().second
                         action == "end" -> {
                             result.writeText("$requested\nEND")
                             return "PASS: PDF viewer session completed"
