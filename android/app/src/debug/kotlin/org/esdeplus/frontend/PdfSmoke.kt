@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: MIT
+// ES-DE-Plus — written for ES-DE-Plus. Real JNI/pixel assertions and viewer fault controls.
+package org.esdeplus.frontend
+
+import android.app.Instrumentation
+import android.content.Intent
+import android.os.SystemClock
+import java.io.File
+import org.esdeplus.frontend.bridge.PdfManual
+
+internal object PdfSmoke {
+    init { System.loadLibrary("es-pdf-convert") }
+    @JvmStatic external fun nativeProcess(path: String, mode: String, page: Int, width: Int, height: Int): ByteArray?
+
+    private fun rejected(action: () -> Unit) {
+        try { action() } catch (expected: IllegalStateException) { return }
+        error("PDF assertion positive control escaped")
+    }
+    private fun pixel(bytes: ByteArray, width: Int, x: Int, y: Int, expected: IntArray) {
+        val offset = (y * width + x) * 4
+        val actual = (0..3).map { bytes[offset + it].toInt() and 255 }
+        check(actual.zip(expected.toList()).all { (a, b) -> kotlin.math.abs(a - b) <= 8 }) {
+            "BGRA probe at $x,$y: $actual expected ${expected.toList()} tolerance 8"
+        }
+    }
+    private fun contract(root: File): String {
+        val valid = File(root, "Manual spaces \uD83D\uDE80.pdf").absolutePath
+        val expected = "1;portrait;240;320\n2;portrait;240;320\n3;portrait;320;240\n4;portrait;240;320\n5;portrait;320;240\n"
+        fun metadata(value: String?) { check(value == expected) { "Metadata: $value" } }
+        metadata(nativeProcess(valid, "-fileinfo", 0, 0, 0)?.toString(Charsets.US_ASCII))
+        rejected { metadata(expected.replace("3;", "8;")) }
+        fun raster(value: ByteArray?, count: Int = 240 * 320 * 4) { check(value?.size == count) }
+        val bytes = nativeProcess(valid, "-convert", 1, 240, 320)!!
+        raster(bytes)
+        rejected { raster(bytes.copyOf(bytes.size - 1)) }
+        // PDF uses a bottom-left origin; D-008 pixels start at the top-left.
+        pixel(bytes, 240, 25, 25, intArrayOf(0, 0, 255, 255))
+        pixel(bytes, 240, 215, 295, intArrayOf(255, 0, 0, 255))
+        pixel(bytes, 240, 25, 295, intArrayOf(0, 255, 0, 255))
+        pixel(bytes, 240, 120, 160, intArrayOf(255, 255, 255, 255))
+        pixel(bytes, 240, 80, 240, intArrayOf(255, 0, 255, 255)) // embedded RGB image
+        rejected { pixel(bytes, 240, 25, 25, intArrayOf(255, 0, 0, 255)) }
+        rejected { pixel(bytes, 240, 25, 295, intArrayOf(0, 0, 255, 255)) }
+        fun opaque(value: ByteArray) { check(value.indices.filter { it % 4 == 3 }.all { value[it] == (-1).toByte() }) }
+        opaque(bytes)
+        rejected { opaque(bytes.clone().also { it[3] = 0 }) }
+        fun text(value: ByteArray) {
+            val ink = (45 until 70).sumOf { y -> (48 until 225).count { x ->
+                val offset = (y * 240 + x) * 4
+                (0..2).all { (value[offset + it].toInt() and 255) < 100 }
+            } }
+            check(ink > 100) { "Text ink unreadable: $ink" }
+        }
+        text(bytes)
+        rejected { text(ByteArray(bytes.size) { (-1).toByte() }) }
+        val probes = listOf(Triple(240, 320, 25 to 25), Triple(320, 240, 295 to 25),
+                            Triple(240, 320, 215 to 295), Triple(320, 240, 25 to 215))
+        for ((i, probe) in probes.withIndex()) {
+            val (w, h, point) = probe
+            val rendered = nativeProcess(valid, "-convert", i + 2, w, h)!!
+            raster(rendered, w * h * 4)
+            pixel(rendered, w, point.first, point.second, intArrayOf(0, 0, 255, 255))
+        }
+        val before = File("/proc/self/fd").list()!!.size
+        fun failure(path: String, mode: String = "-fileinfo", page: Int = 0, w: Int = 0, h: Int = 0) {
+            check(nativeProcess(path, mode, page, w, h) == null) { "Expected failure: $path $mode $page $w $h" }
+        }
+        for (name in listOf("missing.pdf", "password.pdf", "zero.pdf", "malformed.pdf", "unreadable.pdf"))
+            failure(File(root, name).absolutePath)
+        failure("content://unsupported/manual.pdf")
+        failure(valid, "unknown")
+        failure(valid, "-fileinfo", 1)
+        for ((page, w, h) in listOf(Triple(0, 1, 1), Triple(6, 1, 1), Triple(1, 0, 1),
+                                  Triple(1, -1, 1), Triple(1, 4097, 1), Triple(1, 4096, 4096)))
+            failure(valid, "-convert", page, w, h)
+        // The largest permitted raster and a one-pixel-over byte limit have the same sides.
+        raster(nativeProcess(valid, "-convert", 1, 4096, 2048), 32 * 1024 * 1024)
+        failure(valid, "-convert", 1, 4096, 2049)
+        for (point in listOf(0, 1, 2)) {
+            PdfManual.beforeCall = { if (it == point) throw java.io.IOException("Injected PDF failure at $point") }
+            try { failure(valid, if (point == 0) "-fileinfo" else "-convert", point, if (point == 0) 0 else 240, if (point == 0) 0 else 320) }
+            finally { PdfManual.beforeCall = null }
+        }
+        // An uncaught Java error reaches CallObjectMethod, exercising native
+        // exception clearing rather than the helper's ordinary null sentinel.
+        PdfManual.beforeCall = { throw AssertionError("Injected JNI boundary exception") }
+        try { failure(valid, "-convert", 1, 240, 320) }
+        finally { PdfManual.beforeCall = null }
+        metadata(nativeProcess(valid, "-fileinfo", 0, 0, 0)?.toString(Charsets.US_ASCII))
+        fun descriptors(actual: Int) { check(actual == before) { "Renderer descriptor leak" } }
+        descriptors(File("/proc/self/fd").list()!!.size)
+        rejected { descriptors(before + 1) }
+        rejected { failure(valid) }
+        // Concurrent calls also exercise the global open/render/close lock.
+        val threadFailures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+        val threads = (1..4).map { Thread {
+            try { repeat(5) { raster(nativeProcess(valid, "-convert", 1, 24, 32), 3072) } }
+            catch (error: Throwable) { threadFailures.add(error) }
+        } }
+        threads.forEach { it.start() }; threads.forEach { it.join() }
+        fun joinedThreads(errors: Collection<Throwable>) { check(errors.isEmpty()) { errors.toString() } }
+        joinedThreads(threadFailures)
+        rejected { joinedThreads(listOf(java.io.IOException("Concurrent failure control"))) }
+        return "PASS: D-008 real JNI metadata/BGRA/rows/white/aspect/crop/rotations/text/image; invalid/password/malformed/zero/unreadable/limits/injected failures; descriptors/serialisation; positive controls rejected"
+    }
+
+    fun removable(context: android.content.Context): String {
+        val primary = context.getExternalFilesDir(null)?.canonicalPath
+        val directory = context.getExternalFilesDirs(null).filterNotNull().firstOrNull {
+            it.canonicalPath != primary && android.os.Environment.isExternalStorageRemovable(it) &&
+                android.os.Environment.getExternalStorageState(it) == android.os.Environment.MEDIA_MOUNTED
+        } ?: return "CAPABILITY GAP: SDK reports no mounted removable app-files directory"
+        val media = File(directory, "Manual spaces \uD83D\uDE80")
+        val manual = File(media, "nes/manuals/Smoke Alpha.pdf")
+        manual.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/Manual spaces \uD83D\uDE80.pdf").copyTo(manual, overwrite = true)
+        val cover = File(media, "nes/covers/Smoke Alpha.png")
+        cover.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/cover.png").copyTo(cover, overwrite = true)
+        return "VOLUME_MEDIA=${media.absolutePath}\n"
+    }
+
+    fun unreadable(context: android.content.Context): String {
+        val media = File(context.cacheDir, "Unreadable spaces \uD83D\uDE80")
+        val manual = File(media, "nes/manuals/Smoke Alpha.pdf")
+        manual.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/Manual spaces \uD83D\uDE80.pdf").copyTo(manual, overwrite = true)
+        check(manual.canRead())
+        check(manual.setReadable(false, false) && !manual.canRead())
+        val cover = File(media, "nes/covers/Smoke Alpha.png")
+        cover.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/cover.png").copyTo(cover, overwrite = true)
+        return "UNREADABLE_MEDIA=${media.absolutePath}\n"
+    }
+
+    fun unicodeFixture(context: android.content.Context, restore: Boolean): String {
+        fun completed(source: File, destination: File, bytes: ByteArray) {
+            check(!source.exists() && destination.isFile && destination.readBytes().contentEquals(bytes))
+        }
+        fun move(source: File, destination: File, record: () -> Unit = {}) {
+            check(source.isFile && !destination.exists())
+            val bytes = source.readBytes()
+            check(source.renameTo(destination))
+            record()
+            completed(source, destination, bytes)
+        }
+        val probe = File(context.cacheDir, "pdf-unicode-control").apply { mkdirs() }
+        try {
+            val source = File(probe, "source").apply { writeText("PDF rename control") }
+            val collision = File(probe, "collision").apply { writeText("Existing destination") }
+            val destination = File(probe, "destination")
+            rejected { move(File(probe, "missing"), destination) }
+            rejected { move(source, collision) }
+            rejected { move(source, File(probe, "missing-parent/destination")) }
+            val bytes = source.readBytes()
+            move(source, destination)
+            rejected { completed(source, destination, byteArrayOf(0)) }
+            move(destination, source)
+        } finally { probe.deleteRecursively() }
+        val media = File(org.esdeplus.frontend.bridge.StorageModel(context).appData(), "Manual spaces \uD83D\uDE80/nes")
+        val files = listOf(
+            File(org.esdeplus.frontend.bridge.RomTransport(context).root(), "nes") to ".nes",
+            File(media, "manuals") to ".pdf", File(media, "covers") to ".png")
+        val renamed = mutableListOf<Pair<File, File>>()
+        try {
+            for ((directory, extension) in files) {
+                val original = File(directory, "Smoke Alpha$extension")
+                val unicode = File(directory, "Smoke Alpha \uD83D\uDE80$extension")
+                val source = if (restore) unicode else original
+                val destination = if (restore) original else unicode
+                move(source, destination) { renamed.add(source to destination) }
+            }
+        } catch (error: Exception) {
+            for ((source, destination) in renamed.asReversed()) move(destination, source)
+            throw error
+        }
+        return "PASS: Unicode PDF fixture ${if (restore) "restored" else "prepared"} through app SDK context; rename controls rejected\n"
+    }
+
+    fun session(instrumentation: Instrumentation): String {
+        val context = instrumentation.targetContext
+        val root = File(context.cacheDir, "pdf-fixtures").apply { mkdirs() }
+        File("/data/local/tmp/esde-pdf-fixtures").listFiles()!!.forEach { it.copyTo(File(root, it.name), overwrite = true) }
+        File(root, "unreadable.pdf").apply {
+            File(root, "Manual spaces \uD83D\uDE80.pdf").copyTo(this, overwrite = true)
+            check(setReadable(false, false))
+        }
+        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        val media = File(activity.getAppDataDirectory(), "Manual spaces \uD83D\uDE80")
+        val manual = File(media, "nes/manuals/Smoke Alpha.pdf")
+        manual.parentFile!!.mkdirs()
+        val cover = File(media, "nes/covers/Smoke Alpha.png")
+        cover.parentFile!!.mkdirs()
+        File(root, "cover.png").copyTo(cover, overwrite = true)
+        File(root, "Manual spaces \uD83D\uDE80.pdf").copyTo(manual, overwrite = true)
+        val command = File(context.cacheDir, "pdf-command")
+        val result = File(context.cacheDir, "pdf-result")
+        command.delete(); result.writeText("READY: ${media.absolutePath}")
+        var previous = ""
+        val deadline = SystemClock.elapsedRealtime() + 1_200_000
+        try {
+            while (SystemClock.elapsedRealtime() < deadline) {
+                val requested = if (command.isFile) command.readText().trim() else ""
+                if (requested.isNotEmpty() && requested != previous) {
+                    previous = requested
+                    val action = requested.substringAfter(':')
+                    val value = when {
+                        action == "contract" -> contract(root)
+                        action.startsWith("fault=") -> {
+                            val point = action.substringAfter('=').toInt()
+                            PdfManual.beforeCall = { if (it == point) throw java.io.IOException("Injected PDF viewer failure at $point") }
+                            "FAULT: $point"
+                        }
+                        action == "reset" -> { PdfManual.beforeCall = null; "RESET" }
+                        action.startsWith("fixture=") -> {
+                            val name = action.substringAfter('=')
+                            if (name == "missing") manual.delete()
+                            else File(root, if (name == "valid") "Manual spaces \uD83D\uDE80.pdf" else "$name.pdf").copyTo(manual, overwrite = true)
+                            "FIXTURE: $name"
+                        }
+                        action == "stats" -> "STATS: fd=${File("/proc/self/fd").list()!!.size}"
+                        action == "end" -> {
+                            result.writeText("$requested\nEND")
+                            return "PASS: PDF viewer session completed"
+                        }
+                        else -> error("Unknown PDF smoke command")
+                    }
+                    result.writeText("$requested\n$value")
+                }
+                Thread.sleep(50)
+            }
+            error("PDF smoke session deadline")
+        } finally { PdfManual.beforeCall = null }
+    }
+}

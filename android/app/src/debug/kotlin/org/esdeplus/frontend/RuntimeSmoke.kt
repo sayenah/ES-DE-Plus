@@ -9,6 +9,7 @@ import android.os.Bundle
 import java.io.File
 
 class RuntimeSmoke : Instrumentation() {
+    private var pdfArguments: Bundle? = null
     private var provisionOnly = false
     private var storageOnly = false
     private var ownedAction: String? = null
@@ -18,6 +19,7 @@ class RuntimeSmoke : Instrumentation() {
     private var importedTarget = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
+        if (arguments?.getString("mode") == "pdf-session") pdfArguments = arguments
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
         followupMode = arguments?.getString("mode")
@@ -32,6 +34,26 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode in listOf("pdf-unicode-prepare", "pdf-unicode-restore")) {
+                result.putString("stream", PdfSmoke.unicodeFixture(targetContext, followupMode == "pdf-unicode-restore"))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "pdf-volume") {
+                result.putString("stream", PdfSmoke.removable(targetContext))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "pdf-unreadable") {
+                result.putString("stream", PdfSmoke.unreadable(targetContext))
+                finish(-1, result)
+                return
+            }
+            if (pdfArguments != null) {
+                result.putString("stream", PdfSmoke.session(this))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "cleanup-importer") {
                 result.putString("stream", LaunchSmoke.cleanupImporter(targetContext, importedTarget))
                 finish(-1, result)

@@ -11,6 +11,7 @@ import time
 import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
+import pdf_smoke
 import json
 import os
 import tempfile
@@ -827,7 +828,40 @@ def real_retroarch_flow():
             return launch_checks.retroarch_receipt_ready(recipient_log, rom_argument)
         # Activity/process creation precedes the native worker's Intent logging.
         # Await that actual process's receipt, then retain the exact assertions.
-        wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
+        try:
+            wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
+        except AssertionError:
+            # L-N1: collect live thread stacks before a single bounded re-launch.
+            stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+            if not re.search(r'#00\s+pc\s', stacks):
+                root = adb('root', check=False)
+                adb('wait-for-device')
+                if 'cannot run as root' in root:
+                    stacks += '\nCAPABILITY GAP: privileged native backtrace unavailable: ' + root
+                else:
+                    try:
+                        wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged RetroArch diagnostic shell')
+                        stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
+                            'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+                    finally:
+                        adb('unroot', check=False)
+                        adb('wait-for-device')
+                    wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after native diagnostics')
+            (evidence / 'real-retroarch-stall-stacks.txt').write_text(stacks)
+            (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
+            shell('am', 'force-stop', 'com.retroarch')
+            start_entry()
+            wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')),
+                     'return to gamelist for bounded RetroArch retry')
+            # The search launcher closes its menus back to the system view.
+            # Enter the actual NES gamelist before the one retry launch.
+            time.sleep(2)
+            key('KEYCODE_ENTER')
+            screenshot('real-retroarch-retry-gamelist')
+            key('KEYCODE_ENTER')
+            wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 're-launched RetroArch process')
+            recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
+            wait_for(receipt_ready, 'bounded RetroArch retry exact receipt', timeout=20)
         launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
         launch_checks.retroarch_receipt(recipient_log, rom_argument)
         (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
@@ -1101,6 +1135,7 @@ try:
             'CAPABILITY: real typed-path selection already has no persisted tree')
         configured_system('direct-typed-path-system')
     launch_contract_probes('direct-typed')
+    pdf_smoke.run('direct', globals())
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
@@ -1456,7 +1491,9 @@ try:
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
                      native_shutdown(relaunched_pid), 'relaunch quits cleanly')
+    pdf_smoke.run('scoped', globals())
     real_retroarch_flow()
+    pdf_smoke.release(globals())
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
 except BaseException:
     save_logs('failure')
