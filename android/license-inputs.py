@@ -124,7 +124,7 @@ def collect(directory, ndk):
         text = dep.read_text(errors='replace').replace('\\\n', ' ')
         for token in re.findall(r'(?:[^\s\\]|\\.)+', text):
             token = token.rstrip(':')
-            if token.endswith(('.h', '.hpp', '.inc', '.c', '.cpp', '.cc', '.S', '.s')):
+            if token.endswith(('.h', '.hpp', '.inc', '.c', '.cpp', '.cc', '.S', '.s', '.asm')):
                 # Autoconf depfiles are in .deps, relative to the containing build dir.
                 cwd = dep.parent.parent if dep.parent.name == '.deps' else dep.parent
                 build_root = next((parent for parent in dep.parents if parent.parent == directory), directory)
@@ -137,6 +137,8 @@ def collect(directory, ndk):
                     problems.append(('Unresolved compiler dependency', str(dep), token))
                     continue
                 headers.add(normalise(token, origin or cwd, ndk))
+                if token.endswith(('.S', '.s', '.asm')):
+                    compiled.add(normalise(token, origin or cwd, ndk))
     result = {'compiled': sorted(compiled), 'headers': sorted(headers), 'links': sorted(links)}
     for paths in result.values():
         for path in paths:
