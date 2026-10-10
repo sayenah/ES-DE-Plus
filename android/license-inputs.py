@@ -68,6 +68,7 @@ def normalise(path, cwd, ndk):
 
 def collect(directory, ndk):
     compiled, headers, links = set(), set(), set()
+    problems = []
     def arguments(tokens, cwd):
         for token in tokens:
             if re.search(r'\.(?:a|so(?:\.\d+)*|o)$', token) and not token.startswith('-'):
@@ -109,14 +110,23 @@ def collect(directory, ndk):
                 # Autoconf depfiles are in .deps, relative to the containing build dir.
                 cwd = dep.parent.parent if dep.parent.name == '.deps' else dep.parent
                 build_root = next((parent for parent in dep.parents if parent.parent == directory), directory)
-                candidates = [cwd, build_root]
+                # Recursive Make stores depfiles under a source subdirectory,
+                # while the compiler can run from its enclosing Make directory.
+                candidates = [cwd] + [parent for parent in dep.parents
+                                      if parent == build_root or build_root in parent.parents]
                 origin = next((base for base in candidates if (base / token).exists()), None)
-                assert origin is not None or pathlib.Path(token).is_absolute(), ('Unresolved compiler dependency', dep, token)
+                if origin is None and not pathlib.Path(token).is_absolute():
+                    problems.append(('Unresolved compiler dependency', str(dep), token))
+                    continue
                 headers.add(normalise(token, origin or cwd, ndk))
     result = {'compiled': sorted(compiled), 'headers': sorted(headers), 'links': sorted(links)}
     for paths in result.values():
         for path in paths:
-            permitted(path)
+            try:
+                permitted(path)
+            except AssertionError as error:
+                problems.append(str(error))
+    assert not problems, ('Rejected actual compiler/header/link inputs', problems)
     return result
 
 
