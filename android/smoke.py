@@ -816,6 +816,21 @@ def real_retroarch_flow():
         start_entry()
         wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from real RetroArch')
         screenshot('real-retroarch-return')
+    except Exception:
+        # Preserve the live recipient before cleanup removes its task/package.
+        # A failed receipt still fails; these records identify any startup UI.
+        pid = shell('pidof', 'com.retroarch', check=False).strip().split()
+        if pid:
+            (evidence / 'real-retroarch-failure-recipient-logcat.txt').write_text(
+                adb('logcat', '-d', '--pid=' + pid[0], '-v', 'threadtime'))
+        (evidence / 'real-retroarch-failure-window.txt').write_text(shell('dumpsys', 'window'))
+        (evidence / 'real-retroarch-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        location = '/data/local/tmp/esde-retroarch-failure.xml'
+        shell('uiautomator', 'dump', location, check=False)
+        (evidence / 'real-retroarch-failure-ui.txt').write_text(shell('cat', location, check=False))
+        save_logs('real-retroarch-failure')
+        screenshot('real-retroarch-failure')
+        raise
     finally:
         shell('am', 'force-stop', app)
         shell('am', 'force-stop', 'com.retroarch')
