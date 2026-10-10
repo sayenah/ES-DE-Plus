@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
 import android.os.SystemClock
+import android.system.ErrnoException
 import android.system.Os
 import org.esdeplus.frontend.bridge.AppDiscovery
 import org.esdeplus.frontend.bridge.CoreQuery
@@ -106,8 +107,11 @@ object LaunchSmoke {
         val readOnly = File(context.cacheDir, "read-access-probe").apply { mkdirs() }
         val file = File(readOnly, "read.nes").apply { writeText("read control") }
         try {
+            equal(Os.access(readOnly.path, android.system.OsConstants.W_OK), true, "Writable directory positive control")
             Os.chmod(readOnly.path, 0x140)  // 0500: real read/search access without write access.
-            equal(Os.access(readOnly.path, android.system.OsConstants.W_OK), false, "Read-only directory control")
+            val denial = try { Os.access(readOnly.path, android.system.OsConstants.W_OK); null }
+                catch (error: ErrnoException) { error }
+            equal(denial?.errno, android.system.OsConstants.EACCES, "Read-only directory control")
             equal(storage.verifyDirectory(readOnly, readOnly = true), readOnly.canonicalFile, "Read validation accepts read-only directory")
             equal(RomTransport.fileInside(readOnly, file.path).readText(), "read control", "Read-only ROM control")
             refused("Setup validator still requires writes") { storage.verifyDirectory(readOnly) }
