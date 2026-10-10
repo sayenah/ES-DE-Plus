@@ -134,6 +134,11 @@ def runtime_log(output, app):
     assert not any(error in output for error in ['JNI DETECTED ERROR', 'NoSuchMethod', 'ANR in ' + app]), output
 
 
+def volume_mounted(output, identifier):
+    return any(len(fields) >= 2 and fields[0] == identifier and fields[1] == 'mounted'
+               for fields in (line.split() for line in output.splitlines()))
+
+
 def controls():
     # A valid PNG with no manual markers must fail the real viewer-image gate.
     root = pathlib.Path('android/evidence/pdf-fixtures')
@@ -330,13 +335,18 @@ def run(mode, harness):
                 volume_media = match[1].strip()
                 volume_id = next(line.split()[0] for line in volumes.splitlines()
                                  if len(line.split()) >= 3 and line.split()[2] in volume_media)
+                h.launch_checks.equal(volume_mounted(volumes, volume_id), True, 'PDF volume initially mounted')
+                rejects('removable state unchanged', lambda: h.launch_checks.equal(
+                    volume_mounted(volume_id + ' mounted UUID', volume_id), False, 'PDF volume removed'))
+                h.launch_checks.equal(volume_mounted(volume_id + ' unmounted UUID', volume_id), False,
+                                      'Unmounted volume state control')
                 settings.find("string[@name='MediaDirectory']").set('value', volume_media)
                 h.user_file('settings/es_settings.xml', settings_xml(settings))
                 try:
                     h.launch(); h.key('KEYCODE_ENTER'); open_manual('removable-first')
                     h.shell('sm', 'unmount', volume_id)
-                    h.wait_for(lambda: 'mounted' not in next(line for line in h.shell('sm', 'list-volumes', 'public').splitlines()
-                               if line.startswith(volume_id + ' ')), 'actual PDF volume removal')
+                    h.wait_for(lambda: not volume_mounted(h.shell('sm', 'list-volumes', 'public'), volume_id),
+                               'actual PDF volume removal')
                     h.key('KEYCODE_DPAD_RIGHT')
                     failed = frame('removable-removed')
                     closed(failed)
