@@ -246,6 +246,7 @@ jobs:
           target: ${{ matrix.target }}
           profile: ${{ matrix.profile }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
           disable-animations: true
           script: |
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/

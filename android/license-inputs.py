@@ -19,6 +19,7 @@ SHARED = {'libmain.so', 'libes-pdf-convert.so', 'libSDL2.so', 'libavcodec.so', '
           'libcurl.so', 'libcrypto.so', 'libssl.so', 'libpng16.so', 'libdav1d.so', 'libc++_shared.so'}
 STATIC = {'libicudata.a', 'libicui18n.a', 'libicuuc.a', 'libpugixml.a', 'liblunasvg.a',
           'libplutovg.a', 'librlottie.a', 'libSDL2main.a'}
+BUILD_ONLY = {'libogg.so', 'libcharset.so', 'libharfbuzz-gpu.so', 'libharfbuzz-raster.so', 'libharfbuzz-vector.so'}
 SYSTEM = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libGLESv1_CM.so',
           'libGLESv2.so', 'libGLESv3.so', 'libEGL.so', 'libOpenSLES.so', 'libaaudio.so',
           'libcamera2ndk.so', 'libmediandk.so', 'libz.so'}
@@ -47,7 +48,7 @@ def permitted(path):
                           parts[:3] == ('android', 'app', '.cxx')), ('Unknown input', path)
     if path.endswith(('.so', '.a')):
         name = pathlib.PurePosixPath(path).name
-        assert name in SHARED | STATIC | SYSTEM, ('Unknown linked library', path)
+        assert name in SHARED | STATIC | SYSTEM | BUILD_ONLY, ('Unknown linked library', path)
 
 
 def normalise(path, cwd, ndk):
@@ -78,7 +79,7 @@ def collect(directory, ndk):
                 if token.endswith(('.a', '.so')) and not token.startswith('-'):
                     links.add(normalise(token, cwd, ndk))
                 if token.startswith('-l') and len(token) > 2:
-                    assert 'lib' + token[2:] + '.so' in SYSTEM | SHARED, ('Unknown -l input', token)
+                    assert 'lib' + token[2:] + '.so' in SYSTEM | SHARED | STATIC | BUILD_ONLY, ('Unknown -l input', token)
     # Autoconf, FFmpeg and Meson retain compiler-produced dependency files.
     for dep in [*directory.rglob('*.d'), *directory.rglob('*.Plo'), *directory.rglob('*.Po')]:
         text = dep.read_text(errors='replace').replace('\\\n', ' ')
@@ -87,8 +88,11 @@ def collect(directory, ndk):
             if token.endswith(('.h', '.hpp', '.inc', '.c', '.cpp', '.cc', '.S', '.s')):
                 # Autoconf depfiles are in .deps, relative to the containing build dir.
                 cwd = dep.parent.parent if dep.parent.name == '.deps' else dep.parent
-                if (cwd / token).exists() or pathlib.Path(token).is_absolute():
-                    headers.add(normalise(token, cwd, ndk))
+                build_root = next((parent for parent in dep.parents if parent.parent == directory), directory)
+                candidates = [cwd, build_root]
+                origin = next((base for base in candidates if (base / token).exists()), None)
+                assert origin is not None or pathlib.Path(token).is_absolute(), ('Unresolved compiler dependency', dep, token)
+                headers.add(normalise(token, origin or cwd, ndk))
     result = {'compiled': sorted(compiled), 'headers': sorted(headers), 'links': sorted(links)}
     for paths in result.values():
         for path in paths:

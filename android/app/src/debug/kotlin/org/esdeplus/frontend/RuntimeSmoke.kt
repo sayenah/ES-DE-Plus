@@ -34,6 +34,11 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode == "pdf-volume") {
+                result.putString("stream", PdfSmoke.removable(targetContext))
+                finish(-1, result)
+                return
+            }
             if (pdfArguments != null) {
                 result.putString("stream", PdfSmoke.session(this))
                 finish(-1, result)

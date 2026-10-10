@@ -84,9 +84,30 @@ internal object PdfSmoke {
         check(File("/proc/self/fd").list()!!.size == before) { "Renderer descriptor leak" }
         rejected { failure(valid) }
         // Concurrent calls also exercise the global open/render/close lock.
-        val threads = (1..4).map { Thread { repeat(5) { check(nativeProcess(valid, "-convert", 1, 24, 32)?.size == 3072) } } }
+        val threadFailures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+        val threads = (1..4).map { Thread {
+            try { repeat(5) { check(nativeProcess(valid, "-convert", 1, 24, 32)?.size == 3072) } }
+            catch (error: Throwable) { threadFailures.add(error) }
+        } }
         threads.forEach { it.start() }; threads.forEach { it.join() }
+        check(threadFailures.isEmpty()) { threadFailures.toString() }
         return "PASS: D-008 real JNI metadata/BGRA/rows/white/aspect/crop/rotations/text/image; invalid/password/malformed/zero/unreadable/limits/injected failures; descriptors/serialisation; positive controls rejected"
+    }
+
+    fun removable(context: android.content.Context): String {
+        val primary = context.getExternalFilesDir(null)?.canonicalPath
+        val directory = context.getExternalFilesDirs(null).filterNotNull().firstOrNull {
+            it.canonicalPath != primary && android.os.Environment.isExternalStorageRemovable(it) &&
+                android.os.Environment.getExternalStorageState(it) == android.os.Environment.MEDIA_MOUNTED
+        } ?: return "CAPABILITY GAP: SDK reports no mounted removable app-files directory"
+        val media = File(directory, "Manual spaces \uD83D\uDE80")
+        val manual = File(media, "nes/manuals/Smoke Alpha.pdf")
+        manual.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/Manual spaces \uD83D\uDE80.pdf").copyTo(manual, overwrite = true)
+        val cover = File(media, "nes/covers/Smoke Alpha.png")
+        cover.parentFile!!.mkdirs()
+        File("/data/local/tmp/esde-pdf-fixtures/cover.png").copyTo(cover, overwrite = true)
+        return "VOLUME_MEDIA=${media.absolutePath}\n"
     }
 
     fun session(instrumentation: Instrumentation): String {

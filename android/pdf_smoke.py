@@ -190,8 +190,42 @@ def run(mode, harness):
         # The existing strict recipient flow proves a game launch after failures.
         h.gamelist_recipient_flow(mode)
         volumes = h.shell('sm', 'list-volumes', 'public', check=False)
-        h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(
-            'CAPABILITY GAP: no SD card attached to this CI image; removable-volume success/removal during PDF viewing not evidenced.\n' + volumes)
+        if mode == 'direct':
+            h.shell('am', 'force-stop', h.app)
+            volume_result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'pdf-volume',
+                                    h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+            h.shell('am', 'force-stop', h.app)
+            match = re.search(r'VOLUME_MEDIA=(.+)', volume_result)
+            if match:
+                volume_media = match[1].strip()
+                volume_id = next(line.split()[0] for line in volumes.splitlines()
+                                 if len(line.split()) >= 3 and line.split()[2] in volume_media)
+                settings.find("string[@name='MediaDirectory']").set('value', volume_media)
+                h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+                try:
+                    h.launch(); h.key('KEYCODE_DPAD_RIGHT'); open_manual('removable-first')
+                    h.shell('sm', 'unmount', volume_id)
+                    h.wait_for(lambda: 'mounted' not in next(line for line in h.shell('sm', 'list-volumes', 'public').splitlines()
+                               if line.startswith(volume_id + ' ')), 'actual PDF volume removal')
+                    h.key('KEYCODE_DPAD_RIGHT')
+                    failed = frame('removable-removed')
+                    try: manual_image(failed)
+                    except AssertionError: pass
+                    else: raise AssertionError('Removed volume retained a stale page')
+                    for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DEL']: h.key(code)
+                    assert h.shell('pidof', h.app).strip(), 'Volume removal killed frontend'
+                    volume_result += '\nPASS: removable-volume manual rendered; real unmount during view closes failed next page and remains responsive.\n'
+                finally:
+                    h.shell('sm', 'mount', volume_id)
+                    h.shell('am', 'force-stop', h.app)
+                    settings.find("string[@name='MediaDirectory']").set('value', media)
+                    h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+            else:
+                assert 'CAPABILITY GAP:' in volume_result, volume_result
+            h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(volumes + '\n' + volume_result)
+        else:
+            h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(
+                'Removable-volume success/removal probe uses the explicit direct-mode pass on this same image.\n' + volumes)
         h.evidence.joinpath('pdf-' + mode + '-summary.txt').write_text(
             'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 29/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
     finally:
