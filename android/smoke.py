@@ -637,7 +637,9 @@ def stub_launcher_control(mode, enabled):
     launch_checks.equal(shell('id', '-u').strip(), '2000', 'Ordinary shell for stub self-disablement')
     control = 'restore-launchers' if enabled else 'phone-off'
     adb('logcat', '-c')
-    shell('am', 'start', '-W', '-n', 'org.esdeplus.stub/.TelevisionOnly', '--es', 'queryMode', control)
+    # The control activity finishes without drawing; -W can wait indefinitely
+    # for a frame. Its completed control log and exact states are the barrier.
+    shell('am', 'start', '-n', 'org.esdeplus.stub/.TelevisionOnly', '--es', 'queryMode', control)
     wait_for(lambda: 'Query mode configured=' + control in adb('logcat', '-d'), 'stub self-component control')
     observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/control.json'))
     launch_checks.stub_components(observation, enabled)
