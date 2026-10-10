@@ -195,6 +195,12 @@ def dismiss_stock_onboarding(force=False):
                          window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
         screenshot('tv-onboarding-before-dismiss')
         ui('Dismiss')
+        nodes = hierarchy()
+        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' for n in nodes):
+            # On TV, touch may only focus the button. Activate that exact
+            # stock action through the remote, never a frontend control.
+            smoke_checks.onboarding_dismiss_focused(nodes, stock_package)
+            key('KEYCODE_DPAD_CENTER')
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion
