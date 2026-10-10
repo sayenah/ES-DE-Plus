@@ -109,6 +109,22 @@ android {
 }
 tasks.named("preBuild") { dependsOn(stageAssets, generateQueries) }
 
+// CI runtime only: reuse the actual debug signing configuration, whose store
+// location is resolved by AGP. No signing material or APK is published.
+tasks.register("signPdfSmokeRelease") {
+    doLast {
+        val signing = android.signingConfigs.getByName("debug")
+        val signer = file("${System.getenv("ANDROID_HOME")}/build-tools/${android.buildToolsVersion}/apksigner")
+        exec {
+            commandLine(signer, "sign", "--ks", signing.storeFile!!,
+                "--ks-key-alias", signing.keyAlias!!, "--ks-pass", "pass:${signing.storePassword}",
+                "--key-pass", "pass:${signing.keyPassword}", "--out",
+                file("build/outputs/apk/release/app-release-smoke.apk"),
+                file("build/outputs/apk/release/app-release-unsigned.apk"))
+        }
+    }
+}
+
 // Reviewed shipped runtime dependencies; build plugins and tools never enter dex.
 tasks.register("auditRuntimeLicences") {
     doLast {

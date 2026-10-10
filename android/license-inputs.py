@@ -35,6 +35,10 @@ def library_name(path):
     return re.sub(r'(\.so)(?:\.\d+)+$', r'\1', pathlib.PurePosixPath(path).name)
 
 
+def compilation_graph(databases, variant, abi):
+    assert databases, ('Missing variant/ABI compilation graph', variant, abi)
+
+
 def permitted(path):
     path = path.replace('\\ ', ' ')
     assert not re.search(r'poppler|es-pdf-converter/src|lib(?:jpeg|tiff|openjp2|zstd)\.', path, re.I), path
@@ -228,15 +232,16 @@ if __name__ == '__main__':
     ndk = pathlib.Path(sys.argv[-1])
     if mode == 'capture':
         abi = sys.argv[2]
+        # Reject forbidden configuration before walking the expensive input
+        # graph. Positive controls mutate only this configuration, not builds.
+        config = (ROOT / 'android/.deps/build' / abi / 'ffmpeg/config.h').read_text()
+        assert '#define CONFIG_GPL 0' in config and '#define CONFIG_NONFREE 0' in config, config
         data = collect(ROOT / 'android/.deps/build' / abi, ndk)
         assert data['compiled'] and data['headers'] and data['links'], 'Empty dependency graph'
         for component in ['icu', 'openssl', 'gettext', 'libiconv', 'ffmpeg']:
             assert any(p.startswith('android/.deps/sources/' + component + '/') or
                        p.startswith('android/.deps/build/' + abi + '/' + component + '/')
                        for p in data['compiled']), ('Missing actual compiler calls', component)
-        # Reject enabling a GPL or nonfree FFmpeg component in the actual configuration.
-        config = (ROOT / 'android/.deps/build' / abi / 'ffmpeg/config.h').read_text()
-        assert '#define CONFIG_GPL 0' in config and '#define CONFIG_NONFREE 0' in config, config
         (ROOT / 'android/.deps/install' / abi / 'license-inputs.json').write_text(json.dumps(data, indent=2))
         print(f'PASS: captured {abi} actual dependency compile/header/link graph')
     elif mode == 'probe':
@@ -250,10 +255,17 @@ if __name__ == '__main__':
                     permitted(path)
             print(f'PASS: {abi} cached actual dependency graph ({len(data["headers"])} headers)')
         data = collect(ROOT / 'android/app/.cxx', ndk)
-        for variant in ['Debug', 'Release']:
+        # AGP's release APK uses RelWithDebInfo for its native CMake build.
+        for variant, native in [('debug', 'Debug'), ('release', 'RelWithDebInfo')]:
             for abi in ['arm64-v8a', 'x86_64']:
-                databases = list((ROOT / 'android/app/.cxx' / variant).glob('*/' + abi + '/compile_commands.json'))
-                assert databases, ('Missing variant/ABI compilation graph', variant, abi)
+                databases = list((ROOT / 'android/app/.cxx' / native).glob('*/' + abi + '/compile_commands.json'))
+                compilation_graph(databases, variant, abi)
+                try:
+                    compilation_graph([], variant, abi)
+                except AssertionError:
+                    print(f'PASS: {variant} {abi} missing compilation graph control rejected')
+                else:
+                    raise AssertionError('Compilation graph control escaped')
         assert 'android/pdf/ConvertPDF.cpp' in data['compiled'] and data['headers'] and data['links']
         print('PASS: both variants and ABIs actual native source, header and static/shared link inputs')
         for apk in map(pathlib.Path, sys.argv[2:-1]):
