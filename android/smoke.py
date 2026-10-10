@@ -35,12 +35,12 @@ dismissing_onboarding = False
 last_onboarding_check = 0.0
 
 
-def adb(*args, check=True, binary=False, timeout=90):
+def adb(*args, check=True, binary=False):
     # Retry only read-only log collection after a transient transport closure.
     # UI actions, process changes and assertions are never replayed here.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
         result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=not binary, timeout=timeout)
+                                text=not binary, timeout=90)
         if not result.returncode:
             break
         if args[:2] == ('logcat', '-d'):
@@ -58,19 +58,23 @@ def shell(*args, check=True):
     return adb('shell', shlex.join(args), check=check)
 
 
-def instrument_with_ui(*arguments):
+def instrument_with_ui(*arguments, install=False):
     # The retained-window probe waits inside instrumentation. Keep inspecting
     # actual system UI during that wait so the existing external-ANR handler
     # can dismiss a crashed stock launcher. Frontend ANRs still fail, and the
     # instrumentation assertions, activity state and deadline are unchanged.
     with tempfile.TemporaryFile(mode='w+t') as output, tempfile.TemporaryFile(mode='w+t') as errors:
-        process = subprocess.Popen(['adb', 'shell', shlex.join(arguments)], stdout=output, stderr=errors)
-        deadline = time.monotonic() + 90
+        command = ['adb', *arguments] if install else ['adb', 'shell', shlex.join(arguments)]
+        process = subprocess.Popen(command, stdout=output, stderr=errors)
+        timeout = 300 if install else 90
+        deadline = time.monotonic() + timeout
         try:
             while process.poll() is None:
-                hierarchy()
+                nodes = hierarchy()
+                if install:
+                    retroarch_install_confirmation(nodes)
                 if time.monotonic() >= deadline:
-                    raise subprocess.TimeoutExpired(process.args, 90)
+                    raise subprocess.TimeoutExpired(process.args, timeout)
                 time.sleep(0.25)
             output.seek(0)
             errors.seek(0)
@@ -598,6 +602,22 @@ def cleanup_importer(name):
     shell('am', 'force-stop', app)
 
 
+def retroarch_install_confirmation(nodes):
+    # Handle only the pinned recipient's actual legacy-target warning through
+    # its normal user confirmation. Never disable the package verifier.
+    if not launch_checks.retroarch_install_warning([n.attrib for n in nodes]):
+        return
+    choice = next((n for n in nodes if n.get('text', '').casefold().startswith('install anyway')), None)
+    if choice is not None:
+        screenshot('real-retroarch-install-confirmation')
+        (evidence / 'real-retroarch-install-confirmation-ui.txt').write_text(
+            '\n'.join(str(n.attrib) for n in nodes))
+        ui(choice.get('text'))
+    elif any(n.get('text', '').casefold() == 'more details' for n in nodes):
+        screenshot('real-retroarch-install-warning')
+        ui('More details')
+
+
 def gamelist_recipient_flow(mode):
     user_root = shared if mode.startswith('direct') else roms
     temporary = evidence / 'launch-custom'
@@ -742,7 +762,7 @@ def real_retroarch_flow():
     apk_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'RetroArch.apk'
     # Download/verification occurs in CI before this smoke. No copy enters the
     # checkout or the evidence upload's explicitly enumerated text/image paths.
-    print(adb('install', '-r', str(apk_path), timeout=300), flush=True)
+    print(instrument_with_ui('install', '-r', str(apk_path), install=True), flush=True)
     package = shell('dumpsys', 'package', 'com.retroarch')
     version = re.search(r'versionName=([^\s]+)', package).group(1)
     launch_checks.equal(version, '1.22.2_GIT', 'Installed official RetroArch versionName')
@@ -758,8 +778,9 @@ def real_retroarch_flow():
         launch()
         search_launch('Smoke', 'real-retroarch-search')
         wait_for(lambda: 'Timed out attempting to query RetroArch, proceeding with game launch anyway' in log(), 'bundled RetroArch query timeout proceeds')
-        wait_for(lambda: 'com.retroarch/com.retroarch.browser.retroactivity.RetroActivityFuture' in
-                 shell('dumpsys', 'activity', 'activities'), 'unchanged bundled rule launches real RetroArch activity')
+        wait_for(lambda: launch_checks.activity_present(shell('dumpsys', 'activity', 'activities'),
+                 'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'),
+                 'unchanged bundled rule launches real RetroArch activity')
         native = log()
         launch_checks.equal('Emulator core is not installed' in native, False, 'Stable query never vetoes launch')
         current = adb('logcat', '-d', '-v', 'threadtime')
@@ -770,6 +791,7 @@ def real_retroarch_flow():
         recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
         recipient_log = adb('logcat', '-d', '--pid=' + recipient_pid, '-v', 'threadtime')
         launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
+        launch_checks.retroarch_receipt(recipient_log, roms + '/nes/Smoke Alpha.nes')
         (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
         (evidence / 'real-retroarch-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot('real-retroarch-launched')

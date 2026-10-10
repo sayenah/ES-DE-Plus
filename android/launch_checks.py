@@ -37,6 +37,30 @@ def all_files_granted(appops):
           'Recipient actual all-files permission')
 
 
+def activity_present(dump, package, activity):
+    for record in re.findall(r'\bActivityRecord\{([^}]+)\}', dump):
+        component = re.search(r'\bu\d+\s+([^/\s]+)/([^\s]+)\s+t\d+', record)
+        if component:
+            owner, name = component.groups()
+            if name.startswith('.'):
+                name = owner + name
+            if (owner, name) == (package, activity):
+                return True
+    return False
+
+
+def retroarch_install_warning(nodes):
+    text = [n.get('text', '').casefold() for n in nodes]
+    return ('retroarch' in text and 'google play protect' in text and
+            any('older version of android' in t for t in text) and
+            any(n.get('package') == 'com.android.vending' for n in nodes))
+
+
+def retroarch_receipt(log, rom):
+    equal('[ENV] Checking arguments passed from intent' in log, True, 'RetroArch processes actual Intent')
+    equal('[ENV] Auto-start game "' + rom + '"' in log, True, 'RetroArch receives actual ROM argument')
+
+
 def recipient(observation, frontend_uid, contents):
     assert observation['uid'] != frontend_uid and observation['uid'] >= 10000, observation
     equal(observation['sha256'], hashlib.sha256(contents).hexdigest(), 'Recipient ROM bytes')
@@ -82,6 +106,25 @@ def positive_controls():
     before = list(settings_fragment(original))[1:]
     after = list(settings_fragment(edited))[1:]
     equal([(n.tag, n.attrib) for n in after], [(n.tag, n.attrib) for n in before], 'Unrelated user settings preserved')
+    package, activity = 'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'
+    for name in ['.browser.retroactivity.RetroActivityFuture', activity]:
+        record = 'Hist #0: ActivityRecord{abc u0 ' + package + '/' + name + ' t95}'
+        equal(activity_present(record, package, activity), True, 'Exact Android activity record')
+    for label, record in [('wrong activity package', 'ActivityRecord{abc u0 other/' + activity + ' t95}'),
+                          ('wrong activity class', 'ActivityRecord{abc u0 com.retroarch/.Other t95}'),
+                          ('activity mentioned without record', package + '/' + activity)]:
+        reject(label, lambda record=record: equal(activity_present(record, package, activity), True, label))
+    warning = [{'text': t, 'package': 'com.android.vending'} for t in [
+        'RetroArch', 'Google Play Protect', 'This app was built for an older version of Android']]
+    equal(retroarch_install_warning(warning), True, 'Recognized exact legacy-install warning')
+    for label, changed in [('different app install warning', [{**n, 'text': n['text'].replace('RetroArch', 'Other')} for n in warning]),
+                           ('different system dialog', [{**n, 'package': 'other'} for n in warning]),
+                           ('different warning reason', [{**n, 'text': n['text'].replace('older version of Android', 'harmful app')} for n in warning])]:
+        reject(label, lambda changed=changed: equal(retroarch_install_warning(changed), True, label))
+    receipt = '[ENV] Checking arguments passed from intent ...\n[ENV] Auto-start game "/rom.nes".'
+    retroarch_receipt(receipt, '/rom.nes')
+    reject('missing RetroArch Intent processing', lambda: retroarch_receipt(receipt.split('\n')[1], '/rom.nes'))
+    reject('wrong RetroArch ROM argument', lambda: retroarch_receipt(receipt, '/other.nes'))
     valid = {'uid': 10002, 'sha256': hashlib.sha256(b'ROM').hexdigest(),
              'action': 'android.intent.action.VIEW', 'mime': 'application/octet-stream',
              'data': 'content://sample.roms/rom/file',
