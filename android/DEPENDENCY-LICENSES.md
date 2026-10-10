@@ -45,7 +45,8 @@ built under the same dependency configuration but are not packaged.
 | NDK C++ runtime | `libc++_shared.so` |
 
 ICU, pugixml, LunaSVG/plutovg and rlottie are static consumer inputs, not separate
-APK entries; the CI `native-outputs.txt` records the actual Ninja link commands.
+APK entries; NDK compiler support (including libatomic) comes from the same
+Apache-2.0/LLVM-exception toolchain. The CI `native-outputs.txt` records the actual Ninja link commands.
 `android/license-inputs.py` checks actual compile databases, Ninja header dependencies,
 compiler depfiles and static/shared link commands. Dependency graphs are retained
 with each ABI install and audited again on cache restores. Unknown source/header,

@@ -85,6 +85,7 @@ def run(mode, harness):
     process = None
     output = output_path.open('w')
     try:
+        h.private('rm', '-f', 'cache/pdf-result', 'cache/pdf-command')
         process = subprocess.Popen(['adb', 'shell', 'am', 'instrument', '-w', '-e', 'mode', 'pdf-session',
                                     h.app + '/org.esdeplus.frontend.RuntimeSmoke'], stdout=output, stderr=subprocess.STDOUT)
         h.wait_for(lambda: h.private('cat', 'cache/pdf-result', check=False).startswith('READY:'), 'PDF debug session ready')

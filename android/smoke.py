@@ -832,7 +832,7 @@ def real_retroarch_flow():
             wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
         except AssertionError:
             # L-N1: collect live thread stacks before a single bounded re-launch.
-            stacks = shell('debuggerd', '-b', recipient_pid, check=False)
+            stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
             (evidence / 'real-retroarch-stall-stacks.txt').write_text(stacks)
             (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
             shell('am', 'force-stop', 'com.retroarch')

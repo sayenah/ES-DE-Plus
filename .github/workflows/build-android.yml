@@ -155,6 +155,7 @@ jobs:
       - name: Audit actual Android licence input graph and both APK closures
         run: |
           set -o pipefail
+          python3 android/license-inputs.py probe "$ANDROID_NDK_HOME" | tee android/evidence/licence-positive-controls.txt
           python3 android/license-inputs.py audit android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/release/app-release-unsigned.apk "$ANDROID_NDK_HOME" | tee android/evidence/licence-closure.txt
           cd android
           ./gradlew --no-daemon :app:auditRuntimeLicences | tee evidence/licence-dex-dependencies.txt

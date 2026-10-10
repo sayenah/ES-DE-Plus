@@ -8,6 +8,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 ROOT = pathlib.Path.cwd().resolve()
@@ -73,13 +74,14 @@ def collect(directory, ndk):
                 headers.add(normalise(line.strip(), cwd, ndk))
         # Actual commands include transitive static/shared link arguments. Response
         # files are expanded by Ninja, not inferred from CMake source text.
-        commands = subprocess.check_output(['ninja', '-C', str(cwd), '-t', 'commands'], text=True)
-        for line in commands.splitlines():
+        commands = json.loads(subprocess.check_output(['ninja', '-C', str(cwd), '-t', 'compdb', '-x'], text=True))
+        for entry in commands:
+            line = entry['command']
             for token in shlex.split(line):
-                if token.endswith(('.a', '.so')) and not token.startswith('-'):
+                if token.endswith(('.a', '.so', '.o')) and not token.startswith('-'):
                     links.add(normalise(token, cwd, ndk))
                 if token.startswith('-l') and len(token) > 2:
-                    assert 'lib' + token[2:] + '.so' in SYSTEM | SHARED | STATIC | BUILD_ONLY, ('Unknown -l input', token)
+                    assert 'lib' + token[2:] + '.so' in SYSTEM | SHARED | STATIC | BUILD_ONLY | {'libatomic.so'}, ('Unknown -l input', token)
     # Autoconf, FFmpeg and Meson retain compiler-produced dependency files.
     for dep in [*directory.rglob('*.d'), *directory.rglob('*.Plo'), *directory.rglob('*.Po')]:
         text = dep.read_text(errors='replace').replace('\\\n', ' ')
@@ -112,6 +114,33 @@ def controls():
             raise AssertionError('Input control escaped: ' + path)
 
 
+def native_controls(ndk):
+    parent = ROOT / 'android/app/.cxx/LicenseControls'
+    parent.mkdir(parents=True, exist_ok=True)
+    for abi in ['arm64-v8a', 'x86_64']:
+        for kind in ['header', 'library']:
+            with tempfile.TemporaryDirectory(dir=parent) as temporary:
+                source = pathlib.Path(temporary)
+                forbidden = kind == 'header'
+                (source / 'poppler-control.h').write_text('// SPDX-License-Identifier: MIT; synthetic ES-DE-Plus rejection control\n')
+                (source / 'probe.cpp').write_text('// SPDX-License-Identifier: MIT; written for ES-DE-Plus\n' +
+                    ('#include "poppler-control.h"\n' if forbidden else '') + 'int probe() { return 0; }\n')
+                (source / 'CMakeLists.txt').write_text('cmake_minimum_required(VERSION 3.13)\nproject(Control LANGUAGES CXX)\n' +
+                    'set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\nadd_library(' + ('safe' if forbidden else 'poppler') + ' STATIC probe.cpp)\n')
+                build = source / 'build'
+                subprocess.check_call(['cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja',
+                    '-DCMAKE_TOOLCHAIN_FILE=' + str(ndk / 'build/cmake/android.toolchain.cmake'),
+                    '-DANDROID_ABI=' + abi, '-DANDROID_PLATFORM=android-29', '-DANDROID_STL=c++_shared'])
+                subprocess.check_call(['cmake', '--build', str(build)])
+                try:
+                    collect(source, ndk)
+                except AssertionError as error:
+                    assert 'poppler' in str(error), ('Control failed for unrelated reason', error)
+                    print(f'PASS: {abi} real NDK {kind} graph positive control rejected: {error}')
+                else:
+                    raise AssertionError('Actual compiler/link positive control escaped')
+
+
 def apk_closure(apk):
     with zipfile.ZipFile(apk) as archive:
         for abi in ['arm64-v8a', 'x86_64']:
@@ -137,6 +166,8 @@ if __name__ == '__main__':
         assert '#define CONFIG_GPL 0' in config and '#define CONFIG_NONFREE 0' in config, config
         (ROOT / 'android/.deps/install' / abi / 'license-inputs.json').write_text(json.dumps(data, indent=2))
         print(f'PASS: captured {abi} actual dependency compile/header/link graph')
+    elif mode == 'probe':
+        native_controls(ndk)
     elif mode == 'audit':
         for abi in ['arm64-v8a', 'x86_64']:
             data = json.loads((ROOT / 'android/.deps/install' / abi / 'license-inputs.json').read_text())
