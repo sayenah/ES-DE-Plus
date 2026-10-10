@@ -90,6 +90,15 @@ def descriptors(before, after):
     assert re.search(r'fd=(\d+)', before)[1] == re.search(r'fd=(\d+)', after)[1], (before, after)
 
 
+def orientation(points, rotation):
+    red = tuple(sum(p[i] for p in points['red']) / len(points['red']) for i in [0, 1])
+    green = tuple(sum(p[i] for p in points['green']) / len(points['green']) for i in [0, 1])
+    if rotation == 270:
+        assert red[0] < green[0], ('Last page rotation', red, green)
+    else:
+        assert red[1] < green[1], ('First/previous page orientation', red, green)
+
+
 def controls():
     # A valid PNG with no manual markers must fail the real viewer-image gate.
     root = pathlib.Path('android/evidence/pdf-fixtures')
@@ -130,6 +139,7 @@ def run(mode, harness):
         result = command('contract')
         h.smoke_checks.probe_passed(result, 'PASS: D-008 real JNI')
         h.evidence.joinpath('pdf-' + mode + '-contract.txt').write_text(result)
+        h.adb('logcat', '-c')
         def frame(name):
             h.screenshot('pdf-' + mode + '-' + name)
             return (h.evidence / ('pdf-' + mode + '-' + name + '.png')).read_bytes()
@@ -144,15 +154,20 @@ def run(mode, harness):
         h.key('KEYCODE_DPAD_RIGHT')
         first = open_manual('first')
         rejects('stale page', lambda: closed(first))
-        h.key('KEYCODE_DPAD_RIGHT'); frame('next')
+        h.key('KEYCODE_DPAD_RIGHT'); manual_image(frame('next'))
+        h.smoke_checks.probe_passed(h.adb('logcat', '-d'), 'PDF rendered page=2 size=')
         h.key('KEYCODE_DPAD_RIGHT')
         rotated = manual_image(frame('rotated'))
         # Rotation changes marker geometry, verified within each image at tolerance.
         navigation(None, rotated, 'rotation')
         rejects('wrong rotated geometry', lambda: navigation(None, {'red': [(1, 1)], 'green': [(2, 1)]}, 'rotation'))
-        h.key('KEYCODE_DPAD_LEFT'); manual_image(frame('previous'))
-        h.key('KEYCODE_MOVE_END'); frame('last')
+        h.key('KEYCODE_DPAD_LEFT'); orientation(manual_image(frame('previous')), 0)
+        h.key('KEYCODE_MOVE_END'); orientation(manual_image(frame('last')), 270)
+        h.smoke_checks.probe_passed(h.adb('logcat', '-d'), 'PDF rendered page=5 size=')
         h.key('KEYCODE_MOVE_HOME'); before_zoom = manual_image(frame('first-again'))
+        orientation(before_zoom, 0)
+        rejects('last page unchanged', lambda: orientation(before_zoom, 270))
+        rejects('first page unchanged', lambda: orientation({'red': [(1, 2)], 'green': [(1, 1)]}, 0))
         h.key('KEYCODE_PAGE_DOWN'); zoomed = manual_image(frame('zoom'))
         navigation(before_zoom, zoomed, 'zoom')
         rejects('missing zoom', lambda: navigation(before_zoom, before_zoom, 'zoom'))

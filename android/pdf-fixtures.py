@@ -25,6 +25,10 @@ def document(path, pages, encrypted=False):
         stream = (f'1 0 0 rg {left+10} {top-40} 30 30 re f\n'
                   f'0 0 1 rg {right-40} {bottom+10} 30 30 re f\n'
                   f'0 1 0 rg {left+10} {bottom+10} 30 30 re f\n'
+                  # Interior markers remain visible at the viewer's 1.5x zoom.
+                  f'1 0 0 rg {left+60} {top-130} 50 50 re f\n'
+                  f'0 0 1 rg {left+130} {bottom+80} 50 50 re f\n'
+                  f'0 1 0 rg {left+60} {bottom+80} 50 50 re f\n'
                   f'0 0 0 rg BT /F1 18 Tf {left+50} {top-65} Td (PDF MANUAL 123) Tj ET\n'
                   f'q 40 0 0 40 {left+60} {bottom+60} cm /Im1 Do Q\n').encode()
         objects.append((f'<< /Type /Page /Parent 2 0 R /MediaBox {media} /CropBox {crop} /Rotate {rotation} '
