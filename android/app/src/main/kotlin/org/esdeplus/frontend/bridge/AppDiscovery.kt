@@ -16,6 +16,7 @@ import android.graphics.drawable.Drawable
 import android.util.Log
 import java.io.File
 import java.security.MessageDigest
+import java.util.Locale
 
 class AppDiscovery(private val context: Context) {
     private val pm = context.packageManager
@@ -68,10 +69,15 @@ class AppDiscovery(private val context: Context) {
             }
         }
         val temp = File(StorageModel(context).appData(), "importer_temp")
-        val result = mutableListOf<String>()
+        val labels = sortedMapOf<String, String>()
         for ((component, info) in entries) {
+            try { labels[component] = info.loadLabel(pm).toString() }
+            catch (error: Exception) { Log.w("ES-DE-Plus", "Cannot read app label: $component", error) }
+        }
+        val result = mutableListOf<String>()
+        for ((component, name) in filenames(labels)) {
+            val info = entries.getValue(component)
             try {
-                val name = filename(info.loadLabel(pm).toString(), component)
                 // Artwork is optional; a bad drawable never removes an otherwise launchable app.
                 try { png(info.loadIcon(pm), File(temp, "icons/$name.png")) }
                 catch (error: Exception) {
@@ -91,7 +97,7 @@ class AppDiscovery(private val context: Context) {
     }
 
     companion object {
-        fun filename(label: String, component: String): String {
+        fun filename(label: String): String {
             val clean = label.replace(Regex("[\\p{Cc}\\p{Cf}/\\\\:*?\"<>|]"), "_").trim(' ', '.').ifEmpty { "App" }
             val stem = StringBuilder()
             var bytes = 0
@@ -102,9 +108,27 @@ class AppDiscovery(private val context: Context) {
                 stem.append(character)
                 bytes += size
             }
-            val hash = MessageDigest.getInstance("SHA-256").digest(component.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-            return "$stem [$hash]"
+            return stem.toString().trim(' ', '.').ifEmpty { "App" }
+        }
+
+        fun filenames(labels: Map<String, String>): Map<String, String> {
+            val stems = labels.mapValues { filename(it.value) }
+            // Reserve unique labels first, including labels that already look
+            // like a generated suffix. Case-fold for case-insensitive volumes.
+            val counts = stems.values.groupingBy { it.lowercase(Locale.ROOT) }.eachCount()
+            val used = stems.values.filter { counts.getValue(it.lowercase(Locale.ROOT)) == 1 }
+                .map { it.lowercase(Locale.ROOT) }.toMutableSet()
+            return stems.toSortedMap().mapValues { (component, stem) ->
+                if (counts.getValue(stem.lowercase(Locale.ROOT)) == 1) stem
+                else {
+                    val hash = MessageDigest.getInstance("SHA-256").digest(component.toByteArray(Charsets.UTF_8))
+                        .take(4).joinToString("") { "%02x".format(it) }
+                    var name = "$stem [$hash]"
+                    var collision = 1
+                    while (!used.add(name.lowercase(Locale.ROOT))) name = "$stem [$hash-${++collision}]"
+                    name
+                }
+            }
         }
 
         private fun png(drawable: Drawable, file: File) {

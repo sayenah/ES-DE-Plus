@@ -33,8 +33,8 @@ class RomProvider : ContentProvider() {
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?,
                        selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
         val selected = file(uri)
-        val columns = projection ?: arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
-        require(columns.all { it == OpenableColumns.DISPLAY_NAME || it == OpenableColumns.SIZE })
+        val columns = (projection ?: arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE))
+            .filter { it == OpenableColumns.DISPLAY_NAME || it == OpenableColumns.SIZE }.toTypedArray()
         return MatrixCursor(columns).apply {
             addRow(columns.map { if (it == OpenableColumns.DISPLAY_NAME) selected.name else selected.length() })
         }

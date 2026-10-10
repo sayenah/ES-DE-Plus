@@ -31,21 +31,27 @@ open class RecipientActivity : Activity() {
         val control = intent.getStringExtra("queryMode")
         if (control != null) {
             check(getSharedPreferences("query", MODE_PRIVATE).edit().putString("mode", control).commit())
+            val result = JSONObject().put("queryMode", control).put("uid", Process.myUid())
             if (control == "phone-off" || control == "restore-launchers") {
                 val state = if (control == "phone-off") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                     else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
                 for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo"))
                     packageManager.setComponentEnabledSetting(android.content.ComponentName(packageName, "$packageName.$name"),
                         state, android.content.pm.PackageManager.DONT_KILL_APP)
+                val states = JSONObject()
+                for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo"))
+                    states.put(name, packageManager.getComponentEnabledSetting(android.content.ComponentName(packageName, "$packageName.$name")))
+                result.put("componentStates", states)
             }
-            Log.i("ESDEPlus-recipient", "Query mode configured=$control")
+            File(filesDir, "control.json").writeText(result.toString())
+            Log.i("ESDEPlus-recipient", "Query mode configured=$control $result")
             if (control == "storage-permission" && android.os.Build.VERSION.SDK_INT >= 30) {
                 startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
                     Uri.parse("package:$packageName")))
             }
             intent.getStringExtra("replyPackage")?.let {
                 sendBroadcast(Intent("org.esdeplus.stub.OBSERVATION").setPackage(it)
-                    .putExtra("json", JSONObject().put("queryMode", control).toString()))
+                    .putExtra("json", result.toString()))
             }
             finish(); return
         }
@@ -67,11 +73,18 @@ open class RecipientActivity : Activity() {
                     else File(value).readBytes()
                 observation.put("sha256", MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
                 if (uri.authority?.endsWith(".roms") == true) {
+                    observation.put("uriLastSegment", uri.lastPathSegment)
                     observation.put("mimeFromProvider", contentResolver.getType(uri))
                     contentResolver.query(uri, null, null, null, null)!!.use { cursor ->
                         check(cursor.moveToFirst())
                         observation.put("displayName", cursor.getString(cursor.getColumnIndexOrThrow("_display_name")))
                         observation.put("size", cursor.getLong(cursor.getColumnIndexOrThrow("_size")))
+                    }
+                    contentResolver.query(uri, arrayOf("_size", "document_id", "_display_name"), null, null, null)!!.use { cursor ->
+                        check(cursor.moveToFirst())
+                        observation.put("projectionColumns", JSONArray(cursor.columnNames.toList()))
+                        observation.put("projectedName", cursor.getString(cursor.getColumnIndexOrThrow("_display_name")))
+                        observation.put("projectedSize", cursor.getLong(cursor.getColumnIndexOrThrow("_size")))
                     }
                     fun denied(name: String, action: () -> Unit) {
                         try { action(); observation.put(name, false) }

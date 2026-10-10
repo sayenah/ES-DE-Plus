@@ -631,6 +631,19 @@ def retroarch_install_confirmation(nodes):
         ui('More details')
 
 
+def stub_launcher_control(mode, enabled):
+    # The recipient changes only its own components under its own UID. This
+    # works on production TV images and needs neither root nor injected grants.
+    launch_checks.equal(shell('id', '-u').strip(), '2000', 'Ordinary shell for stub self-disablement')
+    control = 'restore-launchers' if enabled else 'phone-off'
+    adb('logcat', '-c')
+    shell('am', 'start', '-W', '-n', 'org.esdeplus.stub/.TelevisionOnly', '--es', 'queryMode', control)
+    wait_for(lambda: 'Query mode configured=' + control in adb('logcat', '-d'), 'stub self-component control')
+    observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/control.json'))
+    launch_checks.stub_components(observation, enabled)
+    (evidence / (mode + '-stub-' + control + '.txt')).write_text(json.dumps(observation, indent=2))
+
+
 def gamelist_recipient_flow(mode):
     user_root = shared if mode.startswith('direct') else roms
     temporary = evidence / 'launch-custom'
@@ -710,11 +723,11 @@ def gamelist_recipient_flow(mode):
                 launch_checks.equal('Activity launch accepted:' in adb('logcat', '-d'), False, 'Unsupported SAF never dispatches')
             finally:
                 user_file('custom_systems/es_systems.xml', (temporary / 'es_systems.xml').read_text())
-        if component_enabled('org.esdeplus.stub/.RecipientActivity', False):
-            try:
-                failed_target('disabled')
-            finally:
-                component_enabled('org.esdeplus.stub/.RecipientActivity', True)
+        stub_launcher_control(mode, False)
+        try:
+            failed_target('disabled')
+        finally:
+            stub_launcher_control(mode, True)
         shell('am', 'force-stop', app)
         adb('uninstall', 'org.esdeplus.stub')
         failed_target('removed')
@@ -743,6 +756,8 @@ def gamelist_recipient_flow(mode):
         key('KEYCODE_INSERT')  # real Y/import action
         wait_for(lambda: 'Imported 1 entry for system "androidapps"' in log(), 'import one native app')
         imported_name = pathlib.PurePosixPath(recipient_path).name
+        launch_checks.imported_app_name(imported_name)
+        (evidence / ('imported-app-name-' + mode + '.txt')).write_text(imported_name + '\n')
         imported = user_root + '/androidapps/' + imported_name
         launch_checks.equal(shell('cat', imported).strip(), 'org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', 'Importer target file')
         screenshot('importer-imported-' + mode)

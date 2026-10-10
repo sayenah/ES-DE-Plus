@@ -13,7 +13,7 @@ import java.security.MessageDigest
 
 class RomTransport(private val context: Context) {
     private val storage = StorageModel(context)
-    fun root(): File = storage.validate(storage.load() ?: error("Storage is not configured"))
+    fun root(): File = storage.validate(storage.load() ?: error("Storage is not configured"), readOnly = true)
 
     fun file(path: String): File = fileInside(root(), path)
 
@@ -27,19 +27,23 @@ class RomTransport(private val context: Context) {
         val file = file(path)
         val root = root()
         return Uri.Builder().scheme("content").authority(context.packageName + ".roms")
-            .appendPath("rom").appendPath(rootIdentity(root)).appendPath(file.relativeTo(root).invariantSeparatorsPath).build()
+            .appendPath("rom").appendPath(rootIdentity(root)).apply {
+                file.relativeTo(root).invariantSeparatorsPath.split('/').forEach { appendPath(it) }
+            }.build()
     }
 
     fun providerFile(uri: Uri): File {
+        val segments = uri.pathSegments
         require(uri.scheme == "content" && uri.authority == context.packageName + ".roms" &&
-            uri.query == null && uri.fragment == null && uri.pathSegments.size == 3 && uri.pathSegments[0] == "rom")
+            uri.query == null && uri.fragment == null && segments.size >= 3 && segments[0] == "rom")
+        require(uri.encodedPath!!.split('/').drop(1).none { it.isEmpty() })
         val root = root()
         // A grant from an earlier directory selection must not expose a file
         // with the same relative name in a newly selected ROM directory.
-        require(uri.pathSegments[1] == rootIdentity(root))
-        val relative = uri.pathSegments[2]
-        require(relative.split('/').none { it.isEmpty() || it == "." || it == ".." || it.contains('\\') || it.contains('\u0000') })
-        return file(File(root, relative).path)
+        require(segments[1] == rootIdentity(root))
+        val relative = segments.drop(2)
+        require(relative.none { it.isEmpty() || it == "." || it == ".." || it.contains('/') || it.contains('\\') || it.contains('\u0000') })
+        return file(File(root, relative.joinToString("/")).path)
     }
 
     private fun rootIdentity(root: File): String = MessageDigest.getInstance("SHA-256")
@@ -51,8 +55,8 @@ class RomTransport(private val context: Context) {
         require(file.exists() && file.canRead())
         val manager = context.getSystemService(StorageManager::class.java)
         val volume = manager.getStorageVolume(file) ?: error("ROM volume is unavailable")
-        require(volume.state == Environment.MEDIA_MOUNTED)
-        val root = storage.volumeRoot(if (volume.isPrimary) "primary" else volume.uuid ?: error("Unknown volume ID"))
+        require(volume.state == Environment.MEDIA_MOUNTED || volume.state == Environment.MEDIA_MOUNTED_READ_ONLY)
+        val root = storage.volumeRoot(if (volume.isPrimary) "primary" else volume.uuid ?: error("Unknown volume ID"), readOnly = true)
         require(file.path.startsWith(root.path + "/"))
         val relative = file.relativeTo(root).invariantSeparatorsPath
         require(listOf("Android/data", "Android/obb").none {

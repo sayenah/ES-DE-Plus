@@ -66,12 +66,17 @@ Game launching uses the existing Android find rules and Intent variables in
 | `%ROMSAF%` | External-storage document URI on the verified current-user volume | A held persisted tree covering this file permits an exact read grant. URI extras retain their string type and carry the grant through `ClipData`. Without a held tree the emulator needs its own SAF access. App-owned `Android/data` paths are refused with the frontend's launch-error popup. |
 | `%ROMPROVIDER%` | ES-DE Plus content URI in Intent data | The selected file receives a temporary read-only grant in both modes. No emulator storage permission is needed to read that file. |
 
-Rules without an explicit MIME type set Intent data alone. A rule supplying both
-data and a MIME type sets them together; the host never invents a MIME type.
+Rules with data and no explicit `%MIMETYPE%` use `application/octet-stream`, as
+`INSTALL.md` specifies. Explicit MIME types override that default; data and type
+are set together. Rules without data or an explicit MIME type carry no type.
 
 The provider exposes only the configured ROM directory in direct mode or the
 app-owned ROM directory in scoped mode. It refuses directories, traversal,
 symlink escapes and writes, and checks containment each time a file is opened.
+Its URI retains a root-identity segment and separate relative path segments,
+ending in the file name. Queries return the requested display name and size
+columns, ignoring unknown columns for FileProvider compatibility. Provider and
+launch access checks only read; configuration still verifies read/write access.
 The grant covers one file: siblings such as a `.bin` beside a `.cue` receive no
 access. A grant from a previous ROM-directory selection cannot expose a file
 with the same relative name in a new selection. Multi-file games need emulator-side access through `%ROMSAF%` or a
@@ -93,7 +98,8 @@ Build-time package visibility includes every emulator package in the bundled
 Android find rules and both phone and Leanback launcher signatures, without
 `QUERY_ALL_PACKAGES`. Custom emulator packages outside those rules are visible
 only when they match a launcher signature. The Android-apps importer deduplicates
-components and creates deterministic filenames with a component hash. Icons are
+components and uses sanitised labels as filenames, preserving Unicode. Only
+colliding labels receive a short deterministic component suffix. Icons are
 always staged; its banner/logo option controls additional artwork only.
 
 `RetroArchCoreQueryExperimental` remains opt-in and defaults off. The query

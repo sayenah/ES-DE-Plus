@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
+import android.os.FileObserver
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
@@ -27,6 +28,7 @@ import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
 
 object LaunchSmoke {
     private const val stub = "org.esdeplus.stub"
@@ -97,6 +99,67 @@ object LaunchSmoke {
         equal(NativeBridge(context).launchGame(base, empty, empty, empty, empty, empty, false), -1, "Revoked selected tree refuses launch")
         equal(storage.load(), configuration, "Revocation never substitutes configuration")
         return "PASS: real selected tree revoked; production launch refused; original selection retained\n"
+    }
+
+    private fun readAccess(context: Context, rom: File, arguments: Array<String>): String {
+        val storage = StorageModel(context)
+        val readOnly = File(context.cacheDir, "read-access-probe").apply { mkdirs() }
+        val file = File(readOnly, "read.nes").apply { writeText("read control") }
+        try {
+            Os.chmod(readOnly.path, 0x140)  // 0500: real read/search access without write access.
+            equal(Os.access(readOnly.path, android.system.OsConstants.W_OK), false, "Read-only directory control")
+            equal(storage.verifyDirectory(readOnly, readOnly = true), readOnly.canonicalFile, "Read validation accepts read-only directory")
+            equal(RomTransport.fileInside(readOnly, file.path).readText(), "read control", "Read-only ROM control")
+            refused("Setup validator still requires writes") { storage.verifyDirectory(readOnly) }
+            Os.chmod(readOnly.path, 0)
+            refused("Read validator refuses unreadable directory") { storage.verifyDirectory(readOnly, readOnly = true) }
+        } finally {
+            Os.chmod(readOnly.path, 0x1c0)  // 0700
+            equal(readOnly.deleteRecursively(), true, "Read-only probe cleanup")
+        }
+        val configuration = storage.load()!!
+        val directories = listOf(File(configuration.roms), storage.appData())
+        val writes = AtomicInteger()
+        val barrier = AtomicReference<CountDownLatch>()
+        val observers = directories.map { directory ->
+            object : FileObserver(directory, FileObserver.CREATE or FileObserver.DELETE) {
+                override fun onEvent(event: Int, path: String?) {
+                    if (event and FileObserver.CREATE != 0 && path?.startsWith(".esdeplus-access-") == true) writes.incrementAndGet()
+                    if (event and FileObserver.DELETE != 0 && path == ".esdeplus-observer-barrier") barrier.get()?.countDown()
+                }
+            }.apply { startWatching() }
+        }
+        fun drain() {
+            val pending = CountDownLatch(directories.size)
+            barrier.set(pending)
+            for (directory in directories) {
+                val marker = File(directory, ".esdeplus-observer-barrier")
+                marker.writeBytes(byteArrayOf(0))
+                equal(marker.delete(), true, "Observer barrier removed")
+            }
+            equal(pending.await(10, TimeUnit.SECONDS), true, "Actual filesystem observer barrier")
+        }
+        try {
+            storage.validate(configuration)
+            drain()
+            equal(writes.get() >= directories.size, true, "Observer detects full-validator write positive control")
+            writes.set(0)
+            val transport = RomTransport(context)
+            equal(transport.root(), File(configuration.roms).canonicalFile, "Read root preserves selection")
+            val uri = transport.provider(rom.path)
+            equal(transport.providerFile(uri), rom.canonicalFile, "Read-only provider resolution")
+            context.contentResolver.getType(uri)
+            context.contentResolver.query(uri, null, null, null, null)!!.use { equal(it.count, 1, "Read-only provider metadata") }
+            context.contentResolver.openInputStream(uri)!!.use { equal(it.readBytes().contentEquals(rom.readBytes()), true, "Read-only provider bytes") }
+            val launcher = GameLauncher(context)
+            for (token in listOf("%ROM%", "%ROMPROVIDER%")) {
+                val base = arguments.copyOf().apply { this[5] = token }
+                equal(launcher.intent(base, empty, empty, empty, empty, empty).data != null, true, "Read-only launch path $token")
+            }
+            drain()
+            equal(writes.get(), 0, "Provider and launch paths perform no access-probe writes")
+        } finally { observers.forEach { it.stopWatching() } }
+        return "READ root/provider/launch paths create no access probes; full-validator write positive control and real read-only directory checks passed\n"
     }
 
     fun run(context: Context): String {
@@ -226,10 +289,24 @@ object LaunchSmoke {
             val launcher = GameLauncher(context)
             val expectedHash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
             val provider = transport.provider(rom.path)
+            evidence.append(readAccess(context, rom, base("%ROMPROVIDER%")))
+            equal(provider.lastPathSegment, rom.name, "Provider last segment is the file name")
+            equal(provider.pathSegments.drop(2), rom.relativeTo(root).invariantSeparatorsPath.split('/'), "Provider relative path segments")
+            fun providerUri(parts: List<String>, identity: String = provider.pathSegments[1]): Uri =
+                Uri.Builder().scheme("content").authority(provider.authority).appendPath("rom").appendPath(identity)
+                    .apply { parts.forEach { appendPath(it) } }.build()
+            val traversal = providerUri(listOf("nes", "..") + provider.pathSegments.drop(2))
+            // This path canonicalises to the granted file, so only the segment
+            // guard can reject it. Grant enforcement is bypassed by this direct
+            // call solely to exercise the production parser itself.
+            equal(File(root, traversal.pathSegments.drop(2).joinToString("/")).canonicalFile,
+                rom.canonicalFile, "Traversal control would otherwise resolve inside root")
+            equal(transport.providerFile(provider), rom.canonicalFile, "Valid provider-segment positive control")
+            refused("Direct dot-dot segment guard") { transport.providerFile(traversal) }
+            refused("Encoded slash in one segment") { transport.providerFile(providerUri(listOf("nes/Transport 🚀", rom.name))) }
+            evidence.append("PATH file-name last segment, separate relative segments, valid-root dot-dot and encoded-slash guard controls passed\n")
             val boundaries = arrayOf(transport.provider(sibling.path).toString(),
-                provider.buildUpon().path("/rom/../outside-rom.nes").build().toString(),
-                Uri.Builder().scheme("content").authority(provider.authority).appendPath("rom")
-                    .appendPath(provider.pathSegments[1]).appendPath("nes/Transport 🚀/escape.nes").build().toString())
+                traversal.toString(), providerUri(listOf("nes", "Transport 🚀", "escape.nes")).toString())
             val received = receive(base("%ROMPROVIDER%"),
                 arrayOf("literal", "雪", "plain", "%ROM%"),
                 arrayOf("words", "one,t\\,wo,雪", "documented", "pone,p\\\\,two,pthree",
@@ -257,6 +334,15 @@ object LaunchSmoke {
             equal(extras.getJSONObject("plain").getString("value"), rom.path, "Absolute path meaning")
             equal(received.getString("displayName"), rom.name, "Provider display name")
             equal(received.getLong("size"), bytes.size.toLong(), "Provider size")
+            equal(received.getString("uriLastSegment"), rom.name, "Recipient URI file-name segment")
+            equal(received.getJSONArray("projectionColumns").toString(), "[\"_size\",\"_display_name\"]", "Unknown projection columns ignored; known order preserved")
+            equal(received.getString("projectedName"), rom.name, "Mixed-projection display name")
+            equal(received.getLong("projectedSize"), bytes.size.toLong(), "Mixed-projection size")
+            context.contentResolver.query(provider, arrayOf("document_id"), null, null, null)!!.use {
+                equal(it.columnNames.toList(), emptyList<String>(), "Unknown-only projection returns no columns")
+                equal(it.count, 1, "Unknown-only projection retains file row")
+            }
+            evidence.append("PROJECTION null and mixed document_id projections read name/size; unknown-only projection ignored\n")
             for (key in listOf("writeDenied", "deleteDenied", "insertDenied", "updateDenied", "boundary0", "boundary1", "boundary2"))
                 equal(received.getBoolean(key), true, "Recipient boundary $key")
             context.revokeUriPermission(provider, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -272,9 +358,7 @@ object LaunchSmoke {
             equal(transport.raw(directory.path), directory.absolutePath, "Raw transport preserves directory-valued ROMs")
             equal(transport.raw(outside.path), outside.absolutePath, "Provider scope does not redefine raw-path meaning")
             refused("Traversal") { transport.providerFile(provider.buildUpon().path("/rom/../outside-rom.nes").build()) }
-            refused("Retired root grant") { transport.providerFile(Uri.Builder().scheme("content")
-                .authority(provider.authority).appendPath("rom").appendPath("retired-root")
-                .appendPath(provider.pathSegments[2]).build()) }
+            refused("Retired root grant") { transport.providerFile(providerUri(provider.pathSegments.drop(2), "retired-root")) }
             for (value in listOf("2147483648", "-2147483649", "nan"))
                 refused("Integer range $value") { launcher.intent(base(), empty, empty, arrayOf("number", value), empty, empty) }
             refused("Boolean validation") { launcher.intent(base(), empty, empty, empty, arrayOf("bool", "maybe"), empty) }
@@ -287,11 +371,18 @@ object LaunchSmoke {
             val dataOnlyBase = base("%ROM%").apply { this[4] = "" }
             val dataOnly = launcher.intent(dataOnlyBase, empty, empty, empty, empty, empty)
             equal(dataOnly.dataString, rom.path, "Data-only rule preserves data")
-            equal(dataOnly.type, null, "Data-only rule never invents MIME")
+            equal(dataOnly.type, "application/octet-stream", "INSTALL.md default MIME for data")
             val dataOnlyReceived = receive(dataOnlyBase)
             equal(dataOnlyReceived.getString("data"), rom.path, "Recipient data-only value")
-            equal(dataOnlyReceived.has("mime"), false, "Recipient receives no invented MIME")
-            evidence.append("MIME data-only construction=null recipient=absent; explicit data/MIME pair preserved\n")
+            equal(dataOnlyReceived.getString("mime"), "application/octet-stream", "Recipient receives default MIME")
+            val noDataBase = base().apply { this[4] = "" }
+            equal(launcher.intent(noDataBase, empty, empty, empty, empty, empty).type, null, "No data or explicit MIME leaves type absent")
+            val noDataReceived = receive(noDataBase)
+            equal(noDataReceived.has("data"), false, "Recipient receives no data for app-only rule")
+            equal(noDataReceived.has("mime"), false, "Recipient receives no type for app-only rule")
+            equal(launcher.intent(base("%ROMPROVIDER%").apply { this[4] = "text/plain" }, empty, empty, empty, empty, empty).type,
+                "text/plain", "Explicit MIME overrides default")
+            evidence.append("MIME data without explicit type defaults to application/octet-stream; no data/type stays absent; explicit type preserved\n")
             for (name in listOf("", ".RecipientActivity", ".TelevisionOnly")) {
                 val selected = receive(base(activity = name))
                 equal(selected.getString("component").substringBefore('/'), stub, "Target never leaves package")
@@ -337,10 +428,26 @@ object LaunchSmoke {
             equal(fixture.size, 4, "Phone, Leanback and collision apps")
             val names = fixture.map { it[0] }
             equal(names.distinct().size, names.size, "Collision resistant names")
-            equal(AppDiscovery.filename("Collision/🚀", "a" ) != AppDiscovery.filename("Collision\\🚀", "b"), true, "Sanitized-label collision")
-            equal(AppDiscovery.filename("雪", "a"), AppDiscovery.filename("雪", "a"), "Deterministic Unicode filename")
-            equal(AppDiscovery.filename("🚀".repeat(100), "long").toByteArray(Charsets.UTF_8).size + 4 <= 255,
+            equal(fixture.single { it[1] == "$stub/$stub.RecipientActivity" }[0], "ES-DE Plus recipient", "Unique imported label has no suffix")
+            equal(fixture.single { it[1] == "$stub/$stub.TelevisionOnly" }[0], "TV 🚀", "Unique Unicode label has no suffix")
+            val collisionNames = fixture.filter { it[1] in listOf("$stub/$stub.CollisionOne", "$stub/$stub.CollisionTwo") }.map { it[0] }
+            equal(collisionNames.size, 2, "Both colliding labels are inventoried")
+            equal(collisionNames.all { it.matches(Regex("Collision_🚀 \\[[0-9a-f]{8}\\]")) },
+                true, "Only colliding inventory labels have short suffixes")
+            val labels = linkedMapOf("a" to "Collision/🚀", "b" to "Collision\\🚀", "c" to "雪")
+            val allocated = AppDiscovery.filenames(labels)
+            equal(allocated.values.distinct().size, labels.size, "Sanitized-label collision")
+            equal(allocated["c"], "雪", "Uncollided Unicode filename")
+            equal(AppDiscovery.filenames(labels.entries.reversed().associate { it.toPair() }), allocated, "Deterministic names independent of inventory order")
+            val naturalCollision = AppDiscovery.filenames(labels + ("d" to allocated.getValue("a")))
+            equal(naturalCollision.values.distinct().size, 4, "Generated suffix cannot collide with another real label")
+            equal(naturalCollision["d"], allocated["a"], "Reserve unique real label before generated suffix")
+            equal(AppDiscovery.filenames(mapOf("a" to "Name", "b" to "name")).values.map { it.lowercase(java.util.Locale.ROOT) }.distinct().size,
+                2, "Case-insensitive filename collision")
+            equal(AppDiscovery.filename("雪"), "雪", "Deterministic Unicode filename")
+            equal(AppDiscovery.filename("🚀".repeat(100)).toByteArray(Charsets.UTF_8).size + 4 <= 255,
                 true, "Filesystem byte-length limit with extension")
+            evidence.append("IMPORT unique labels unsuffixed; collisions use short deterministic suffixes, including natural suffix/case-fold controls\n")
             equal(names.all { !it.contains('/') && !it.contains('\\') }, true, "Filesystem-safe inventory")
             val temp = File(StorageModel(context).appData(), "importer_temp")
             for (name in names) {
@@ -354,7 +461,9 @@ object LaunchSmoke {
             equal(games.filter { it[1].startsWith("$stub/") }.size, 4, "Games filter retains game fixtures")
             equal(games.all {
                 @Suppress("DEPRECATION") val info = context.packageManager.getApplicationInfo(it[1].substringBefore('/'), 0)
-                info.category == android.content.pm.ApplicationInfo.CATEGORY_GAME || info.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME != 0
+                // Preserve pre-category app declarations without a broad warning suppression.
+                @Suppress("DEPRECATION") val legacyGame = info.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME != 0
+                info.category == android.content.pm.ApplicationInfo.CATEGORY_GAME || legacyGame
             }, true, "Games filter excludes non-games")
             fun reply(cores: Array<String?>, core: String = "test_libretro_android.so", sender: String? = stub) =
                 CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", cores), core, sender, stub, true)

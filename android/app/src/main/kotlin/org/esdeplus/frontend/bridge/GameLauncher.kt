@@ -38,8 +38,7 @@ class GameLauncher(private val context: Context) {
         if (base[3].isNotEmpty()) intent.addCategory(base[3])
         if (base[5].isNotEmpty()) {
             val data = Uri.parse(expand(base[5], true))
-            if (base[4].isEmpty()) intent.data = data
-            else intent.setDataAndType(data, base[4])
+            intent.setDataAndType(data, base[4].ifEmpty { "application/octet-stream" })
         } else if (base[4].isNotEmpty()) intent.setDataAndType(null, base[4])
         fun pairs(values: Array<String>, put: (String, String) -> Unit) {
             require(values.size % 2 == 0)

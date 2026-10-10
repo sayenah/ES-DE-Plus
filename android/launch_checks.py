@@ -5,6 +5,7 @@ import copy
 import hashlib
 import re
 import xml.etree.ElementTree as ET
+import urllib.parse
 
 
 def equal(actual, expected, label):
@@ -35,6 +36,17 @@ def core_query_enabled(text):
 def all_files_granted(appops):
     equal(bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b', appops)), True,
           'Recipient actual all-files permission')
+
+
+def stub_components(observation, enabled):
+    equal(observation['queryMode'], 'restore-launchers' if enabled else 'phone-off', 'Stub component control mode')
+    equal(observation['uid'] >= 10000, True, 'Stub changes its components under application UID')
+    equal(observation['componentStates'], {name: 0 if enabled else 2 for name in
+          ['RecipientActivity', 'CollisionOne', 'CollisionTwo']}, 'Actual stub component states')
+
+
+def imported_app_name(name):
+    equal(name, 'ES-DE Plus recipient.app', 'Imported unique app name is the label')
 
 
 def activity_present(dump, package, activity):
@@ -86,6 +98,12 @@ def recipient(observation, frontend_uid, contents):
         equal(observation['extras'][name]['type'], expected[0], 'Recipient extra type ' + name)
         equal(observation['extras'][name]['value'], expected[1], 'Recipient extra value ' + name)
     assert observation['data'].startswith('content://') and '.roms/' in observation['data'], observation
+    equal(observation['uriLastSegment'], urllib.parse.unquote(urllib.parse.urlsplit(observation['data']).path.rsplit('/', 1)[-1]),
+          'Recipient URI last segment')
+    equal(observation['uriLastSegment'], observation['displayName'], 'Provider URI ends in file name')
+    equal(observation['projectionColumns'], ['_size', '_display_name'], 'Mixed projection ignores document_id')
+    equal(observation['projectedName'], observation['displayName'], 'Mixed projection file name')
+    equal(observation['projectedSize'], len(contents), 'Mixed projection byte size')
     for name in ['writeDenied', 'deleteDenied', 'insertDenied', 'updateDenied']:
         equal(observation[name], True, name)
 
@@ -107,6 +125,15 @@ def positive_controls():
     reject('wrong text', lambda: equal('unexpected', 'expected', 'text observation'))
     all_files_granted('Uid mode: MANAGE_EXTERNAL_STORAGE: allow')
     reject('stale Settings switch without app-op', lambda: all_files_granted('No operations.\nDefault mode: default'))
+    for enabled in (False, True):
+        control = {'queryMode': 'restore-launchers' if enabled else 'phone-off', 'uid': 10002,
+                   'componentStates': {name: 0 if enabled else 2 for name in ['RecipientActivity', 'CollisionOne', 'CollisionTwo']}}
+        stub_components(control, enabled)
+        for field, value in [('queryMode', 'other'), ('uid', 2000), ('componentStates', {})]:
+            reject('wrong stub component ' + field, lambda field=field, value=value, control=control, enabled=enabled:
+                   stub_components({**control, field: value}, enabled))
+    imported_app_name('ES-DE Plus recipient.app')
+    reject('hashed imported app name', lambda: imported_app_name('ES-DE Plus recipient [' + 'a' * 64 + '].app'))
     original = '<?xml version="1.0"?>\n<bool name="RetroArchCoreQueryExperimental" value="false" />\n<string name="Theme" value="雪 &amp; sky" />\n<int name="Volume" value="83" />\n'
     edited = enable_core_query(original)
     core_query_enabled(edited)
@@ -141,6 +168,8 @@ def positive_controls():
     valid = {'uid': 10002, 'sha256': hashlib.sha256(b'ROM').hexdigest(),
              'action': 'android.intent.action.VIEW', 'mime': 'application/octet-stream',
              'data': 'content://sample.roms/rom/file',
+             'uriLastSegment': 'file', 'displayName': 'file', 'projectionColumns': ['_size', '_display_name'],
+             'projectedName': 'file', 'projectedSize': 3,
              'categories': ['android.intent.category.DEFAULT'], 'flags': 0x54000001,
              'extras': {k: {'type': t, 'value': v} for k, t, v in [
                  ('literal', 'java.lang.String', '雪'), ('words', '[Ljava.lang.String;', ['one', 't,wo', '雪']),
@@ -150,6 +179,9 @@ def positive_controls():
     recipient(valid, 10001, b'ROM')
     for name, value in [('uid', 10001), ('uid', 2000), ('sha256', 'corrupt'),
                         ('action', 'wrong'), ('mime', 'wrong'), ('data', '/raw/path'),
+                        ('data', 'content://sample.roms/rom/folder%2Ffile'), ('uriLastSegment', 'wrong'),
+                        ('displayName', 'wrong'), ('projectionColumns', ['document_id', '_size', '_display_name']),
+                        ('projectedName', 'wrong'), ('projectedSize', 0),
                         ('categories', []), ('flags', 0), ('flags', 0x54000003),
                         *[(k, False) for k in ['writeDenied', 'deleteDenied', 'insertDenied', 'updateDenied']]]:
         changed = copy.deepcopy(valid)

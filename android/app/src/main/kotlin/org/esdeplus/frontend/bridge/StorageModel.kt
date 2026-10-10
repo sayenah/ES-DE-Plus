@@ -41,13 +41,14 @@ class StorageModel(private val context: Context) {
 
     // Exercise the same filesystem access the native frontend needs, under the
     // application's UID. A URI grant alone never establishes POSIX access.
-    fun verifyDirectory(directory: File, create: Boolean = false): File {
+    fun verifyDirectory(directory: File, create: Boolean = false, readOnly: Boolean = false): File {
         if (create && !directory.isDirectory && !directory.mkdirs())
             throw failure(R.string.directory_create_failed, directory)
         val canonical = directory.canonicalFile
-        if (!canonical.isDirectory || !Os.access(canonical.path,
-                OsConstants.R_OK or OsConstants.W_OK or OsConstants.X_OK) || canonical.list() == null)
+        val access = OsConstants.R_OK or OsConstants.X_OK or (if (readOnly) 0 else OsConstants.W_OK)
+        if (!canonical.isDirectory || !Os.access(canonical.path, access) || canonical.list() == null)
             throw failure(R.string.directory_access_failed, directory)
+        if (readOnly) return canonical
         val probe = File.createTempFile(".esdeplus-access-", ".tmp", canonical)
         try {
             val bytes = byteArrayOf(69, 83, 68, 69)
@@ -61,12 +62,12 @@ class StorageModel(private val context: Context) {
 
     // SDK-owned app paths and StorageManager's current-user volume list agree
     // before any mapping is accepted. No /storage/<UUID> or user-0 guesswork.
-    internal fun volumeRoot(volumeId: String): File {
+    internal fun volumeRoot(volumeId: String, readOnly: Boolean = false): File {
         val manager = context.getSystemService(StorageManager::class.java)
         val volume = manager.storageVolumes.singleOrNull {
             if (volumeId == "primary") it.isPrimary else it.uuid?.equals(volumeId, true) == true
         } ?: throw failure(R.string.volume_unavailable)
-        if (volume.state != Environment.MEDIA_MOUNTED)
+        if (volume.state != Environment.MEDIA_MOUNTED && !(readOnly && volume.state == Environment.MEDIA_MOUNTED_READ_ONLY))
             throw failure(R.string.volume_not_mounted)
         val suffix = "/Android/data/${context.packageName}/files"
         val roots = context.getExternalFilesDirs(null).filterNotNull().mapNotNull { owned ->
@@ -81,7 +82,7 @@ class StorageModel(private val context: Context) {
         return root
     }
 
-    internal fun resolveTree(uri: Uri): File {
+    internal fun resolveTree(uri: Uri, readOnly: Boolean = false): File {
         if (uri.scheme != "content" || uri.authority != "com.android.externalstorage.documents" ||
             !DocumentsContract.isTreeUri(uri) || uri.pathSegments.size != 2 ||
             uri.pathSegments.first() != "tree" || uri.query != null || uri.fragment != null)
@@ -98,7 +99,7 @@ class StorageModel(private val context: Context) {
         if (segments.any { it.equals("ES-DE", true) || it.equals(".emulationstation", true) } ||
             segments.first().equals("Android", true))
             throw failure(R.string.official_data_refused)
-        val root = volumeRoot(parts[0])
+        val root = volumeRoot(parts[0], readOnly)
         val result = File(root, relative).canonicalFile
         if (!result.path.startsWith(root.path + "/")) throw failure(R.string.tree_escape_refused)
         val resolved = result.relativeTo(root).invariantSeparatorsPath.split('/')
@@ -131,20 +132,20 @@ class StorageModel(private val context: Context) {
 
     // Missing picker fallback is an explicitly typed path, still resolved through
     // the same current-user volume list and access checks. Never invent a URI grant.
-    fun acceptPath(path: String): File {
+    fun acceptPath(path: String, readOnly: Boolean = false): File {
         if (!broadAccess()) throw failure(R.string.direct_not_granted)
         if (!path.startsWith('/') || path.contains('\u0000')) throw failure(R.string.absolute_path_required)
         val manager = context.getSystemService(StorageManager::class.java)
         val candidate = File(path).canonicalFile
         val volume = manager.getStorageVolume(candidate) ?: throw failure(R.string.unknown_volume)
         val root = volumeRoot(if (volume.isPrimary) "primary" else volume.uuid
-            ?: throw failure(R.string.unknown_volume_id))
+            ?: throw failure(R.string.unknown_volume_id), readOnly)
         if (!candidate.path.startsWith(root.path + "/")) throw failure(R.string.folder_inside_volume)
         val relative = candidate.relativeTo(root).invariantSeparatorsPath
         val uri = DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents",
             "${if (volume.isPrimary) "primary" else volume.uuid}:$relative")
-        if (resolveTree(uri) != candidate) throw failure(R.string.folder_mapping_changed)
-        return verifyDirectory(candidate)
+        if (resolveTree(uri, readOnly) != candidate) throw failure(R.string.folder_mapping_changed)
+        return verifyDirectory(candidate, readOnly = readOnly)
     }
 
     fun load(): Configuration? {
@@ -181,23 +182,25 @@ class StorageModel(private val context: Context) {
         Log.i("ES-DE-Plus", "Persisted tree grant count=${context.contentResolver.persistedUriPermissions.size}")
     }
 
-    fun validate(configuration: Configuration): File {
-        verifyDirectory(appData(), true)
+    fun validate(configuration: Configuration, readOnly: Boolean = false): File {
+        // Setup still verifies writes to app data and ROMs. Sharing/launching
+        // only reads the already configured ROM root and never provisions it.
+        if (!readOnly) verifyDirectory(appData(), true)
         val roms = when (configuration.mode) {
             "scoped" -> {
                 if (configuration.roms != ownedROMs().canonicalPath || configuration.tree.isNotEmpty())
                     throw failure(R.string.owned_location_changed)
-                verifyDirectory(ownedROMs(), true)
+                verifyDirectory(ownedROMs(), create = !readOnly, readOnly = readOnly)
             }
             "direct" -> {
-                if (configuration.tree.isEmpty()) acceptPath(configuration.roms)
+                if (configuration.tree.isEmpty()) acceptPath(configuration.roms, readOnly)
                 else {
                     if (!broadAccess()) throw failure(R.string.direct_access_revoked)
                     val uri = Uri.parse(configuration.tree)
                     verifyGrant(uri)
-                    val mapped = resolveTree(uri)
+                    val mapped = resolveTree(uri, readOnly)
                     if (mapped.path != configuration.roms) throw failure(R.string.selected_folder_changed)
-                    verifyDirectory(mapped)
+                    verifyDirectory(mapped, readOnly = readOnly)
                 }
             }
             else -> throw failure(R.string.storage_mode_required)
