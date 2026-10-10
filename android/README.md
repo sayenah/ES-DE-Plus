@@ -127,7 +127,7 @@ The `stub-emulator` module is a separate-UID, debug-only CI recipient written
 for ES-DE Plus; it is never included in the frontend APK or a release variant.
 Its observations verify transport reads and failures, not real game emulation.
 Real game loads in third-party SAF/provider emulators remain device evidence
-to collect when an APK can be distributed under the pending licensing ruling.
+to collect after the distribution work in PR #6.
 
 PDF manuals use the platform [PdfRenderer](https://developer.android.com/reference/android/graphics/pdf/PdfRenderer)
 API-21 constructor and display render mode through ES-DE-Plus's MIT Android

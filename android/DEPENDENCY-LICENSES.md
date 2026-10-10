@@ -23,7 +23,7 @@ The APK contains these 21 shared-library entries for each ABI (the component tab
 below gives versions, licences and configuration). Packaging starts from the Android CMake link list plus the NDK runtime,
 then follows recursive non-system DT_NEEDED entries. Unreachable libraries and
 install-time aliases are excluded; every PNG consumer requests `libpng16.so`.
-`libavdevice`, `libcharset`, HarfBuzz GPU/raster/vector, Ogg and `libtiffxx` are
+`libavdevice`, `libcharset`, HarfBuzz GPU/raster/vector and Ogg are
 built under the same dependency configuration but are not packaged.
 
 | Component | Packaged entries |
@@ -189,13 +189,9 @@ both caches. Canonical public source-archive SHA256 values measured for this sli
 | gettext | `85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a` |
 | harfbuzz | `a54a5d8e9380a41fbb762ce367bcbf7704792dfca0d93f1bbca86c5a57902e0e` |
 | icu | `3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0` |
-| jpeg | `ecae8008e2cc9ade2f2c1bb9d5e6d4fb73e7c433866a056bd82980741571a022` |
 | libgit2 | `824b73bd13647800fe4b566a1008ae77fea0e3e3424edab632fcfd8c0b14ba8b` |
 | libiconv | `88dd96a8c0464eca144fc791ae60cd31cd8ee78321e67397e25fc095c4a19aa6` |
 | libpng | `28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775` |
 | ogg | `5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061` |
-| openjpeg | `a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a` |
 | openssl | `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a` |
-| poppler | `4cb4e5a3dc8cb5eec751c8a23c8ba19f61f96dedc0cd07d2aee6b0c8e2cf6ba4` |
 | pugixml | `655ade57fa703fb421c2eb9a0113b5064bddb145d415dd1f88c79353d90d511a` |
-| tiff | `b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba` |
