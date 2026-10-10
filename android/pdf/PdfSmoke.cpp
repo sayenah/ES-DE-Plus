@@ -16,7 +16,11 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_org_esdeplus_frontend_PdfSmoke_nati
 {
     auto string = [env](jstring value) {
         const jsize length {env->GetStringLength(value)};
+        if (env->ExceptionCheck())
+            return std::string {};
         const jchar* chars {env->GetStringChars(value, nullptr)};
+        if (env->ExceptionCheck())
+            return std::string {};
         std::string converted;
         if (chars != nullptr) {
             try {
@@ -28,19 +32,30 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_org_esdeplus_frontend_PdfSmoke_nati
         }
         return converted;
     };
+    const std::string filename {string(path)};
+    if (env->ExceptionCheck())
+        return nullptr;
+    const std::string option {string(mode)};
+    if (env->ExceptionCheck())
+        return nullptr;
     std::string result {"must be cleared"};
-    const int status {
-        ConvertPDF::processFile(string(path), string(mode), page, width, height, result)};
+    const int status {ConvertPDF::processFile(filename, option, page, width, height, result)};
     if (status != 0) {
-        if (status != -1 || !result.empty())
-            env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),
-                          "PDF failure contract");
+        if (status != -1 || !result.empty()) {
+            jclass exception {env->FindClass("java/lang/IllegalStateException")};
+            if (env->ExceptionCheck() || exception == nullptr)
+                return nullptr;
+            env->ThrowNew(exception, "PDF failure contract");
+        }
         return nullptr;
     }
     auto bytes = env->NewByteArray(static_cast<jsize>(result.size()));
-    if (bytes != nullptr)
-        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(result.size()),
-                                reinterpret_cast<const jbyte*>(result.data()));
+    if (env->ExceptionCheck() || bytes == nullptr)
+        return nullptr;
+    env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(result.size()),
+                            reinterpret_cast<const jbyte*>(result.data()));
+    if (env->ExceptionCheck())
+        return nullptr;
     return bytes;
 }
 #endif

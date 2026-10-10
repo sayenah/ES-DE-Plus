@@ -109,6 +109,29 @@ jobs:
           echo "Dependency build parallelism: $JOBS"
           tools/Android_dependencies_build.sh arm64-v8a 2>&1 | tee android/deps-arm64.log
           tools/Android_dependencies_build.sh x86_64 2>&1 | tee android/deps-x86_64.log
+      - name: Reject GPL and nonfree FFmpeg configuration
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          python3 - <<'PYCODE'
+          import os, pathlib, subprocess
+          records = []
+          for abi in ['arm64-v8a', 'x86_64']:
+              configuration = pathlib.Path('android/.deps/build') / abi / 'ffmpeg/config.h'
+              original = configuration.read_text()
+              try:
+                  for flag in ['CONFIG_GPL', 'CONFIG_NONFREE']:
+                      forbidden = '#define ' + flag + ' 1'
+                      configuration.write_text(original.replace('#define ' + flag + ' 0', forbidden))
+                      result = subprocess.run(['python3', 'android/license-inputs.py', 'capture', abi,
+                                               os.environ['ANDROID_NDK_HOME']], capture_output=True, text=True)
+                      assert result.returncode != 0 and forbidden in result.stderr, result.stdout + result.stderr
+                      records.append('PASS: ' + abi + ' actual configuration gate rejected ' + flag)
+              finally:
+                  configuration.write_text(original)
+          pathlib.Path('android/evidence').mkdir(exist_ok=True)
+          pathlib.Path('android/evidence/ffmpeg-config-positive-controls.txt').write_text('\n'.join(records) + '\n')
+          print('\n'.join(records))
+          PYCODE
       - name: Save completed dependency installs
         if: steps.deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4

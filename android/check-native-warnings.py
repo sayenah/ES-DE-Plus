@@ -27,7 +27,16 @@ for log in logs:
 if warnings:
     print('FAIL: native warnings in ES-DE-Plus files\n' + '\n'.join(warnings))
     sys.exit(1)
-for abi, files in compiled.items():
+def compilation(files, abi):
     assert files == {'InputOverlay', 'PlatformUtilAndroid', 'ConvertPDF', 'PDFViewer', 'PdfSmoke'}, ('Missing per-ABI compilation evidence', abi, files)
+
+for abi, files in compiled.items():
+    compilation(files, abi)
+    try:
+        compilation(files - {'ConvertPDF'}, abi)
+    except AssertionError:
+        print(f'PASS: {abi} missing converter compilation positive control rejected')
+    else:
+        raise AssertionError('Compilation evidence control escaped')
     print(f'PASS: {abi} compiled bridge, overlay, Android ConvertPDF.cpp and PDFViewer.cpp')
 print('PASS: no compiler warnings in the changed and ES-DE-Plus native files')
