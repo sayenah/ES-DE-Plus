@@ -56,3 +56,75 @@ The host uses the pinned wrapper/toolchain in `gradle.properties` and
 then drives real configurator/permission screens on API 29, API 34 and Android TV
 API 36 x86_64. Only logs, screenshots and audits are uploaded. APK distribution
 remains parked under the identity/licensing gates recorded in `docs/handoff.md`.
+
+Game launching uses the existing Android find rules and Intent variables in
+`INSTALL.md`. The transport token determines the value in either storage mode:
+
+| Token | Intent value | Recipient access |
+| --- | --- | --- |
+| `%ROM%` | Absolute filesystem path | The emulator needs its own filesystem permission. On Android 11+ another app generally cannot read the frontend's app-owned `Android/data` directory; use `%ROMPROVIDER%` for app-owned games. |
+| `%ROMSAF%` | External-storage document URI on the verified current-user volume | A held persisted tree covering this file permits an exact read grant. URI extras retain their string type and carry the grant through `ClipData`. Without a held tree the emulator needs its own SAF access. App-owned `Android/data` paths are refused with the frontend's launch-error popup. |
+| `%ROMPROVIDER%` | ES-DE Plus content URI in Intent data | The selected file receives a temporary read-only grant in both modes. No emulator storage permission is needed to read that file. |
+
+Rules with data and no explicit `%MIMETYPE%` use `application/octet-stream`, as
+`INSTALL.md` specifies. Explicit MIME types override that default; data and type
+are set together. Rules without data or an explicit MIME type carry no type.
+
+The provider exposes only the configured ROM directory in direct mode or the
+app-owned ROM directory in scoped mode. It refuses directories, traversal,
+symlink escapes and writes, and checks containment each time a file is opened.
+Its URI retains a root-identity segment and separate relative path segments,
+ending in the file name. Queries return the requested display name and size
+columns, ignoring unknown columns for FileProvider compatibility. Provider and
+launch access checks only read; configuration still verifies read/write access.
+The grant covers one file: siblings such as a `.bin` beside a `.cue` receive no
+access. A grant from a previous ROM-directory selection cannot expose a file
+with the same relative name in a new selection. Multi-file games need emulator-side access through `%ROMSAF%` or a
+filesystem path. A successful activity launch cannot confirm whether the
+recipient subsequently reads or loads the game.
+
+Typed-path configuration creates no tree grant. All-files access grants the
+frontend filesystem access; it does not give an emulator a SAF or filesystem
+permission. A revoked tree or unavailable selected volume must be restored or
+explicitly reconfigured. The frontend never widens a grant to make a launch work.
+
+Explicit activities, including `.RelativeActivity` names, stay within the
+configured package. Package-only rules use the package's phone launcher then
+Leanback launcher, with Leanback preferred on TV. Missing, disabled, unexported
+or permission-protected targets produce the existing error popup. Returning
+from an emulator resumes the frontend. Other-screen launching remains deferred.
+
+Build-time package visibility includes every emulator package in the bundled
+Android find rules and both phone and Leanback launcher signatures, without
+`QUERY_ALL_PACKAGES`. Custom emulator packages outside those rules are visible
+only when they match a launcher signature. The Android-apps importer deduplicates
+components and uses sanitised labels as filenames, preserving Unicode. Only
+colliding labels receive a short deterministic component suffix. Icons are
+always staged; its banner/logo option controls additional artwork only.
+
+`RetroArchCoreQueryExperimental` remains opt-in and defaults off. The query
+registers its reply receiver before sending, serializes queries and waits at
+most one second including lock acquisition, then removes the receiver.
+Installed/absent/timeout/unknown are `1`/`0`/`-1`/`-2`. Only a valid timely core
+list can report absence. Core lists contain bounded file names ending in
+`_libretro_android.so` or `_libretro.so`, matched against the requested file name.
+On Android 14+, a reported sender different from the queried package reports
+unknown; when the platform does not report a sender, content determines the
+result. Malformed replies and query failures report unknown and allow launching.
+The public reply carries no request ID; after a failed query, absence in a later
+reply is ambiguous and reports unknown for the rest of that frontend process.
+An installed-core reply can still confirm presence.
+Stable RetroArch releases through
+v1.22.2 do not answer this broadcast: the check times out and launching proceeds.
+CI verifies this with the official pinned v1.22.2 release, downloaded and
+SHA-256 checked in the runner, installed separately and never uploaded. This
+release APK declares Android `versionName` `1.22.2_GIT`, verified exactly in CI.
+When the emulator presents Play Protect's older-Android-target warning, CI uses
+the visible installation confirmation for this pinned APK. Package verification
+stays enabled and the APK is not modified.
+
+The `stub-emulator` module is a separate-UID, debug-only CI recipient written
+for ES-DE Plus; it is never included in the frontend APK or a release variant.
+Its observations verify transport reads and failures, not real game emulation.
+Real game loads in third-party SAF/provider emulators remain device evidence
+to collect when an APK can be distributed under the pending licensing ruling.

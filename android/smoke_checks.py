@@ -37,6 +37,13 @@ def stock_onboarding_focused(window, package):
     return bool(re.search(re.escape(package) + r'/(?:\.|' + re.escape(package) + r'\.)dialog\.ShowDialogsActivity', focus))
 
 
+def onboarding_dismiss_focused(nodes, package):
+    assert any(n.get('package') == package and n.get('text') == 'Dismiss' and
+               n.get('resource-id') == package + ':id/tutorial_negative_action' and
+               n.get('focused') == 'true' and n.get('clickable') == 'true'
+               for n in nodes), 'Stock onboarding Dismiss action is not focused'
+
+
 def held_restored(records, nodes, pid, old_pid, app):
     assert pid.isdigit() and pid != old_pid, f'Host did not restart: {old_pid} -> {pid}'
     assert len(records) == 2 and len({r[1] for r in records}) == 1, records
@@ -83,6 +90,16 @@ def positive_controls():
     probe_passed('focused' if stock_onboarding_focused(focus, 'stock.launcher') else '', 'focused')
     reject('frontend Dismiss button is not stock onboarding', lambda: probe_passed(
         'focused' if stock_onboarding_focused('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}', 'stock.launcher') else '', 'focused'))
+    dismiss = {'package': 'stock.launcher', 'text': 'Dismiss',
+               'resource-id': 'stock.launcher:id/tutorial_negative_action',
+               'focused': 'true', 'clickable': 'true'}
+    onboarding_dismiss_focused([dismiss], 'stock.launcher')
+    for field, wrong in [('package', 'smoke.app'), ('text', 'Go to Shop'),
+                         ('resource-id', 'stock.launcher:id/tutorial_positive_action'),
+                         ('focused', 'false'), ('clickable', 'false')]:
+        reject('wrong Dismiss ' + field, lambda field=field, wrong=wrong:
+               onboarding_dismiss_focused([dict(dismiss, **{field: wrong})], 'stock.launcher'))
+    reject('missing Dismiss action', lambda: onboarding_dismiss_focused([], 'stock.launcher'))
     records = [('HomeEntry', '7'), ('ConfiguratorActivity', '7')]
     nodes = [{'package': 'smoke.app', 'text': 'Configure ES-DE Plus'}]
     held_restored(records, nodes, '200', '100', 'smoke.app')

@@ -8,6 +8,9 @@ import android.os.Environment
 import android.util.AtomicFile
 import android.util.Log
 import org.esdeplus.frontend.bridge.StorageModel
+import org.esdeplus.frontend.bridge.AppDiscovery
+import org.esdeplus.frontend.bridge.CoreQuery
+import org.esdeplus.frontend.bridge.GameLauncher
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -127,13 +130,15 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
             ConfiguratorSession.clearDraft(context)
         return needed
     }
-    fun checkEmulatorInstalled(packageName: String, activityName: String): Boolean = false
-    fun checkRACoreInstalled(packageName: String, coreFile: String): Int = -2
-    fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean): Array<String> = emptyArray()
+    fun checkEmulatorInstalled(packageName: String, activityName: String): Boolean =
+        AppDiscovery(context).installed(packageName, activityName)
+    fun checkRACoreInstalled(packageName: String, coreFile: String): Int =
+        CoreQuery(context).query(packageName, coreFile)
+    fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean): Array<String> =
+        AppDiscovery(context).inventory(gamesOnly, includeMedia)
     fun launchGame(base: Array<String>, strings: Array<String>, lists: Array<String>, integers: Array<String>,
                    booleans: Array<String>, flags: Array<String>, otherScreen: Boolean): Int {
-        Log.i(tag, "Game launching unavailable in this build")
-        return -1
+        return GameLauncher(context).launch(base, strings, lists, integers, booleans, flags, otherScreen)
     }
     fun getWindowSize(): IntArray = windowSnapshot.clone()
     fun getDeviceInfo(): String = "${Build.MANUFACTURER} ${Build.MODEL} API ${Build.VERSION.SDK_INT}"
