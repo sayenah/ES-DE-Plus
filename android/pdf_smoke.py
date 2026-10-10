@@ -363,6 +363,14 @@ def run(mode, harness):
         output.close()
         h.shell('am', 'force-stop', h.app)
         h.user_file('settings/es_settings.xml', original)
+    # The inherited warm-alias checks expect a live HOME session, just as
+    # launch_contract_probes restores after its standalone gamelist probes.
+    h.wait_for(lambda: not h.shell('pidof', h.app, check=False).strip(), 'PDF frontend stopped before restoring HOME')
+    time.sleep(1)
+    h.adb('logcat', '-c')
+    h.start_entry('HomeEntry', 'android.intent.category.HOME')
+    h.configured_system('pdf-' + mode + '-restored-home')
+    h.launch_checks.equal('HOME=true' in h.adb('logcat', '-d'), True, 'HOME precondition after PDF smoke')
 
 
 def release(harness):
