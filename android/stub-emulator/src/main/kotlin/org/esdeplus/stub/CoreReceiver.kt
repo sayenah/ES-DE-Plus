@@ -23,7 +23,7 @@ class CoreReceiver : BroadcastReceiver() {
                     else "com.retroarch.INSTALLED_CORES_RESULT").addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
                 when (mode) {
                     "malformed", "anonymous-malformed" -> response.putExtra("CORES", "wrong type")
-                    "oversized" -> response.putExtra("CORES", Array(4097) { "test_libretro_android.so" })
+                    "oversized" -> response.putExtra("CORES", Array(4097) { "a_libretro.so" })
                     "absent", "anonymous-absent", "late" -> response.putExtra("CORES", arrayOf("other_libretro_android.so"))
                     else -> response.putExtra("CORES", arrayOf("test_libretro_android.so", "snes9x_libretro.so"))
                 }

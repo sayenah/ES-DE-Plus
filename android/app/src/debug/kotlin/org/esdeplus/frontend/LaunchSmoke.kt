@@ -149,7 +149,7 @@ object LaunchSmoke {
             }
         }
         val filter = IntentFilter("org.esdeplus.stub.OBSERVATION")
-        filter.addAction(CoreQuery.RESULT)
+        if (Build.VERSION.SDK_INT >= 34) filter.addAction(CoreQuery.RESULT)
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, null, Handler(handlerThread.looper), Context.RECEIVER_EXPORTED)
         else {
             @Suppress("DEPRECATION")
@@ -368,6 +368,8 @@ object LaunchSmoke {
                     "/test_libretro.so", "test/escape_libretro.so", "test\\escape_libretro.so", "x$longest"))
                 equal(reply(arrayOf(invalid)), -2, "Invalid core file name $invalid")
             equal(reply(arrayOf(null)), -2, "Null core file name")
+            equal(reply(Array(4096) { "a_libretro.so" }, "a_libretro.so"), 1, "Core list count boundary")
+            equal(reply(Array(4097) { "a_libretro.so" }, "a_libretro.so"), -2, "Oversized core list count")
             equal(reply(Array(512) { longest }, longest), 1, "Core list total length boundary")
             equal(reply(Array(513) { longest }, longest), -2, "Oversized core list total length")
             equal(reply(emptyArray(), sender = null), 0, "Unreported sender valid absent content")
