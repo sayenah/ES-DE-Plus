@@ -61,6 +61,14 @@ def retroarch_receipt(log, rom):
     equal('[ENV] Auto-start game "' + rom + '"' in log, True, 'RetroArch receives actual ROM argument')
 
 
+def retroarch_receipt_ready(log, rom):
+    try:
+        retroarch_receipt(log, rom)
+    except AssertionError:
+        return False
+    return True
+
+
 def recipient(observation, frontend_uid, contents):
     assert observation['uid'] != frontend_uid and observation['uid'] >= 10000, observation
     equal(observation['sha256'], hashlib.sha256(contents).hexdigest(), 'Recipient ROM bytes')
@@ -125,6 +133,11 @@ def positive_controls():
     retroarch_receipt(receipt, '/rom.nes')
     reject('missing RetroArch Intent processing', lambda: retroarch_receipt(receipt.split('\n')[1], '/rom.nes'))
     reject('wrong RetroArch ROM argument', lambda: retroarch_receipt(receipt, '/other.nes'))
+    equal(retroarch_receipt_ready(receipt, '/rom.nes'), True, 'Complete asynchronous RetroArch receipt')
+    reject('incomplete RetroArch receipt readiness', lambda: equal(
+        retroarch_receipt_ready(receipt.split('\n')[1], '/rom.nes'), True, 'Receipt ready'))
+    reject('wrong ROM receipt readiness', lambda: equal(
+        retroarch_receipt_ready(receipt, '/other.nes'), True, 'Receipt ready'))
     valid = {'uid': 10002, 'sha256': hashlib.sha256(b'ROM').hexdigest(),
              'action': 'android.intent.action.VIEW', 'mime': 'application/octet-stream',
              'data': 'content://sample.roms/rom/file',

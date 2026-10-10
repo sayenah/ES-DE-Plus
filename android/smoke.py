@@ -789,10 +789,17 @@ def real_retroarch_flow():
         # activity/Intent record; no real core/game load is asserted.
         wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 'real RetroArch process')
         recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
-        recipient_log = adb('logcat', '-d', '--pid=' + recipient_pid, '-v', 'threadtime')
+        rom_argument = shell('readlink', '-f', roms + '/nes/Smoke Alpha.nes').strip()
+        recipient_log = ''
+        def receipt_ready():
+            nonlocal recipient_log
+            recipient_log = adb('logcat', '-d', '--pid=' + recipient_pid, '-v', 'threadtime')
+            return launch_checks.retroarch_receipt_ready(recipient_log, rom_argument)
+        # Activity/process creation precedes the native worker's Intent logging.
+        # Await that actual process's receipt, then retain the exact assertions.
+        wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
         launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
-        launch_checks.retroarch_receipt(recipient_log,
-            shell('readlink', '-f', roms + '/nes/Smoke Alpha.nes').strip())
+        launch_checks.retroarch_receipt(recipient_log, rom_argument)
         (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
         (evidence / 'real-retroarch-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot('real-retroarch-launched')
