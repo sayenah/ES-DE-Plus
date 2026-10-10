@@ -13,7 +13,7 @@
         <activity-alias android:name=".CollisionOne" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Collision/🚀">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
-        <activity-alias android:name=".CollisionTwo" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Collision\🚀">
+        <activity-alias android:name=".CollisionTwo" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Collision\\🚀">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".TelevisionOnly" android:targetActivity=".RecipientActivity" android:exported="true" android:label="TV 🚀">

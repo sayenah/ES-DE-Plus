@@ -434,10 +434,17 @@ object LaunchSmoke {
             equal(names.distinct().size, names.size, "Collision resistant names")
             equal(fixture.single { it[1] == "$stub/$stub.RecipientActivity" }[0], "ES-DE Plus recipient", "Unique imported label has no suffix")
             equal(fixture.single { it[1] == "$stub/$stub.TelevisionOnly" }[0], "TV 🚀", "Unique Unicode label has no suffix")
+            val collisionLabels = listOf("CollisionOne", "CollisionTwo").map { name ->
+                @Suppress("DEPRECATION")
+                val info = context.packageManager.getActivityInfo(android.content.ComponentName(stub, "$stub.$name"), 0)
+                info.loadLabel(context.packageManager).toString()
+            }
+            equal(collisionLabels, listOf("Collision/🚀", "Collision\\🚀"), "Actual compiled collision fixture labels")
+            equal(collisionLabels.map { AppDiscovery.filename(it) }, listOf("Collision_🚀", "Collision_🚀"), "Actual labels collide after sanitisation")
             val collisionNames = fixture.filter { it[1] in listOf("$stub/$stub.CollisionOne", "$stub/$stub.CollisionTwo") }.map { it[0] }
             equal(collisionNames.size, 2, "Both colliding labels are inventoried")
             equal(collisionNames.all { it.matches(Regex("Collision_🚀 \\[[0-9a-f]{8}\\]")) },
-                true, "Only colliding inventory labels have short suffixes")
+                true, "Only colliding inventory labels have short suffixes: $collisionNames")
             val labels = linkedMapOf("a" to "Collision/🚀", "b" to "Collision\\🚀", "c" to "雪")
             val allocated = AppDiscovery.filenames(labels)
             equal(allocated.values.distinct().size, labels.size, "Sanitized-label collision")
