@@ -167,14 +167,14 @@ def run(mode, harness):
             h.screenshot('pdf-' + mode + '-' + name)
             return (h.evidence / ('pdf-' + mode + '-' + name + '.png')).read_bytes()
         def enter_gamelist():
-            # Back returns to the system view; Right enters the NES gamelist.
-            h.key('KEYCODE_DEL'); h.key('KEYCODE_DPAD_RIGHT')
+            # Back returns to the system view; A enters the NES gamelist.
+            h.key('KEYCODE_DEL'); h.key('KEYCODE_ENTER')
         def open_manual(name):
             h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
             png = frame(name)
             manual_image(png)
             return png
-        h.key('KEYCODE_DPAD_RIGHT')
+        h.key('KEYCODE_ENTER')
         first = open_manual('first')
         rejects('stale page', lambda: closed(first))
         h.key('KEYCODE_DPAD_RIGHT'); manual_image(frame('next'))
@@ -268,7 +268,7 @@ def run(mode, harness):
         h.shell('am', 'force-stop', h.app)
         settings.find("string[@name='MediaDirectory']").set('value', unreadable)
         h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
-        h.adb('logcat', '-c'); h.launch(); h.key('KEYCODE_DPAD_RIGHT')
+        h.adb('logcat', '-c'); h.launch(); h.key('KEYCODE_ENTER')
         h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
         closed(frame('unreadable'))
         h.smoke_checks.probe_passed(h.adb('logcat', '-d'), 'PDF conversion failed')
@@ -277,7 +277,7 @@ def run(mode, harness):
         h.shell('am', 'force-stop', h.app)
         settings.find("string[@name='MediaDirectory']").set('value', media)
         h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
-        h.launch(); h.key('KEYCODE_DPAD_RIGHT'); open_manual('before-destroy')
+        h.launch(); h.key('KEYCODE_ENTER'); open_manual('before-destroy')
         old = h.shell('pidof', h.app).strip(); h.adb('logcat', '-c')
         h.shell('am', 'start', '-f', '0x10008000', '-n', h.activity)
         h.wait_for(lambda: h.shell('pidof', h.app, check=False).strip() != old, 'PDF-open activity destruction', timeout=10)
@@ -300,7 +300,7 @@ def run(mode, harness):
                 settings.find("string[@name='MediaDirectory']").set('value', volume_media)
                 h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
                 try:
-                    h.launch(); h.key('KEYCODE_DPAD_RIGHT'); open_manual('removable-first')
+                    h.launch(); h.key('KEYCODE_ENTER'); open_manual('removable-first')
                     h.shell('sm', 'unmount', volume_id)
                     h.wait_for(lambda: 'mounted' not in next(line for line in h.shell('sm', 'list-volumes', 'public').splitlines()
                                if line.startswith(volume_id + ' ')), 'actual PDF volume removal')
@@ -354,7 +354,7 @@ def release(harness):
         # and Unicode fixture remain installed for the minified runtime check.
         h.adb('install', '-r', 'android/app/build/outputs/apk/release/app-release-smoke.apk')
         h.adb('logcat', '-c')
-        h.launch(); h.key('KEYCODE_DPAD_RIGHT')
+        h.launch(); h.key('KEYCODE_ENTER')
         h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
         h.screenshot('pdf-minified-first')
         manual_image((h.evidence / 'pdf-minified-first.png').read_bytes())

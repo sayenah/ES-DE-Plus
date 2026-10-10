@@ -856,7 +856,7 @@ def real_retroarch_flow():
             # The search launcher closes its menus back to the system view.
             # Enter the actual NES gamelist before the one retry launch.
             time.sleep(2)
-            key('KEYCODE_DPAD_RIGHT')
+            key('KEYCODE_ENTER')
             screenshot('real-retroarch-retry-gamelist')
             key('KEYCODE_ENTER')
             wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 're-launched RetroArch process')
