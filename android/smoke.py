@@ -791,7 +791,8 @@ def real_retroarch_flow():
         recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
         recipient_log = adb('logcat', '-d', '--pid=' + recipient_pid, '-v', 'threadtime')
         launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
-        launch_checks.retroarch_receipt(recipient_log, roms + '/nes/Smoke Alpha.nes')
+        launch_checks.retroarch_receipt(recipient_log,
+            shell('readlink', '-f', roms + '/nes/Smoke Alpha.nes').strip())
         (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
         (evidence / 'real-retroarch-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot('real-retroarch-launched')
