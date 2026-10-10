@@ -183,6 +183,7 @@ jobs:
           cd android
           ./gradlew --no-daemon :app:auditRuntimeLicences | tee evidence/licence-dex-dependencies.txt
       - name: Generate PDF fixtures and sign minified APK for CI runtime only
+        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         run: |
           python3 android/pdf-fixtures.py android/evidence/pdf-fixtures
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out android/app/build/outputs/apk/release/app-release-smoke.apk android/app/build/outputs/apk/release/app-release-unsigned.apk

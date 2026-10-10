@@ -81,7 +81,8 @@ with zipfile.ZipFile(apk) as archive:
                 assert forbidden.encode(encoding) not in data, (entry, encoding)
         assert not entry.endswith(('.jks', '.keystore')), entry
     assert archive.read('assets/graphics/splash.svg') == pathlib.Path('android/branding/splash.svg').read_bytes()
-for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/'):
+for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/',
+               'Lorg/intellij/lang/annotations/'):
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
@@ -134,7 +135,8 @@ def dex_licences(names):
     for name in names:
         original = mapping.get(name, name)
         assert original.startswith(('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/',
-                                    'Lorg/jetbrains/annotations/', 'Lcom/android/tools/r8/')), ('Unreviewed dex class', name, original)
+                                    'Lorg/jetbrains/annotations/', 'Lorg/intellij/lang/annotations/',
+                                    'Lcom/android/tools/r8/')), ('Unreviewed dex class', name, original)
 
 dex_licences(classes)
 try:

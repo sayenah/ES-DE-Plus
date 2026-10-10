@@ -47,6 +47,9 @@ built under the same dependency configuration but are not packaged.
 ICU, pugixml, LunaSVG/plutovg and rlottie are static consumer inputs, not separate
 APK entries; NDK compiler support (including libatomic) comes from the same
 Apache-2.0/LLVM-exception toolchain. The CI `native-outputs.txt` records the actual Ninja link commands.
+The inherited LunaSVG target emits `libplutovg.a` at the checkout root. The two
+ABI-neutral headers exposed by setup (`libintl.h`, `libavutil/avconfig.h`) retain
+their gettext and FFmpeg runtime terms; the audit admits only these exact paths.
 `android/license-inputs.py` checks actual compile databases, Ninja header dependencies,
 compiler depfiles and static/shared link commands, with actual compiler/archive
 invocations from Make-based builds recorded by
@@ -76,7 +79,9 @@ JPEG/PNG/TIFF/OpenJPEG/etc. remain inside FreeImage under their reviewed notices
 Desktop `licenses/` is unchanged. The new cache key excludes old Poppler installs.
 
 Kotlin stdlib and its implicit JetBrains annotations dependency appear in dex;
-the identity audit records their packaged classes.
+the identity audit records their packaged classes. JetBrains annotations 13.0
+contains both `org.jetbrains.annotations` and `org.intellij.lang.annotations`
+under the same Apache-2.0 terms.
 
 | Component | Pin | License | Android configuration / packaging |
 | --- | --- | --- | --- |
