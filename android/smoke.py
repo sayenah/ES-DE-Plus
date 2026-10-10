@@ -853,6 +853,11 @@ def real_retroarch_flow():
             start_entry()
             wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')),
                      'return to gamelist for bounded RetroArch retry')
+            # The search launcher closes its menus back to the system view.
+            # Enter the actual NES gamelist before the one retry launch.
+            time.sleep(2)
+            key('KEYCODE_DPAD_RIGHT')
+            screenshot('real-retroarch-retry-gamelist')
             key('KEYCODE_ENTER')
             wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 're-launched RetroArch process')
             recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]

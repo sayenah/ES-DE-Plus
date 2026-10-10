@@ -50,7 +50,12 @@ Apache-2.0/LLVM-exception toolchain. The CI `native-outputs.txt` records the act
 `android/license-inputs.py` checks actual compile databases, Ninja header dependencies,
 compiler depfiles and static/shared link commands, with actual compiler/archive
 invocations from Make-based builds recorded by
-`android/license-tool.py`; OpenSSL's static archives are build-only, never packaged.
+`android/license-tool.py`; OpenSSL's full static libraries and ICU's `libicutu.a`
+and `libicutest.a` tool-support archives are build-only, never packaged. OpenSSL's
+provider convenience archives (`libcommon.a`, `libdefault.a`, `liblegacy.a`,
+`libtemplate.a`) use the same Apache-2.0 terms; gettext's runtime convenience
+archive `libgnu.a` uses the same LGPL runtime terms. libiconv's GPL CLI/src/srclib
+targets are not built; the input audit rejects those paths.
 Graphs are retained with each ABI install and audited again on cache restores. Unknown source/header,
 library, dex dependency or APK entries are rejected; forbidden-header/library and
 unknown-input positive controls exercise the same gates. `auditRuntimeLicences`
@@ -72,7 +77,7 @@ the identity audit records their packaged classes.
 | ES-DE-Plus native frontend, bridge, overlay, host | PR revision | MIT | Clean-room host; shared `libmain.so` |
 | Android ConvertPDF / es-pdf-convert | PR-D revision | MIT | Written for ES-DE-Plus; platform PdfRenderer via two MainActivity JNI delegates, filesystem paths only, no renderer cache |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
-| libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; host GPL utilities are not packaged |
+| libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; only lib/libcharset library targets built and installed, generated iconv.h installed explicitly; unused GPL CLI/src/srclib targets are not built |
 | libcharset (bundled with libiconv) | 1.5 within libiconv 1.19 | LGPL-2.1-or-later | Build-only `libcharset.so`, not packaged; same libiconv configure command and existing `licenses/libiconv` terms |
 | gettext / libintl | 1.0 | LGPL-2.1-or-later (runtime) | Runtime intl only; `--disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf --with-included-libxml --with-libiconv-prefix=<ABI-prefix> --enable-shared --disable-static`; host `msgfmt` is not packaged |
 | ICU | 78.3 | Unicode-3.0 / ICU | Static uc/i18n/data; `--with-cross-build=<host-ICU-build> --enable-static --disable-shared --with-data-packaging=static --disable-tests --disable-samples --disable-extras --disable-icuio` |

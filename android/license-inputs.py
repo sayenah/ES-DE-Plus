@@ -19,9 +19,10 @@ SHARED = {'libmain.so', 'libes-pdf-convert.so', 'libSDL2.so', 'libavcodec.so', '
           'libintl.so', 'libfreeimage.so', 'libfreetype.so', 'libharfbuzz.so', 'libgit2.so',
           'libcurl.so', 'libcrypto.so', 'libssl.so', 'libpng16.so', 'libdav1d.so', 'libc++_shared.so'}
 STATIC = {'libicudata.a', 'libicui18n.a', 'libicuuc.a', 'libpugixml.a', 'liblunasvg.a',
-          'libplutovg.a', 'librlottie.a', 'libSDL2main.a', 'libes-core.a'}
+          'libplutovg.a', 'librlottie.a', 'libSDL2main.a', 'libes-core.a', 'libgnu.a',
+          'libcommon.a', 'libdefault.a', 'liblegacy.a', 'libtemplate.a'}
 BUILD_ONLY = {'libogg.so', 'libcharset.so', 'libharfbuzz-gpu.so', 'libharfbuzz-raster.so',
-              'libharfbuzz-vector.so', 'libcrypto.a', 'libssl.a'}
+              'libharfbuzz-vector.so', 'libcrypto.a', 'libssl.a', 'libicutu.a', 'libicutest.a'}
 SYSTEM = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libGLESv1_CM.so',
           'libGLESv2.so', 'libGLESv3.so', 'libEGL.so', 'libOpenSLES.so', 'libaaudio.so',
           'libcamera2ndk.so', 'libmediandk.so', 'libz.so'}
@@ -34,6 +35,7 @@ def library_name(path):
 def permitted(path):
     path = path.replace('\\ ', ' ')
     assert not re.search(r'poppler|es-pdf-converter/src|lib(?:jpeg|tiff|openjp2|zstd)\.', path, re.I), path
+    assert not re.search(r'libiconv/(?:src|srclib)/', path), ('Unused GPL libiconv utility input', path)
     if path.startswith('NDK/'):
         return
     parts = pathlib.PurePosixPath(path).parts
@@ -69,18 +71,22 @@ def normalise(path, cwd, ndk):
 def collect(directory, ndk):
     compiled, headers, links = set(), set(), set()
     problems = []
+    dependency_origins = {}
     def arguments(tokens, cwd):
         for token in tokens:
             if re.search(r'\.(?:a|so(?:\.\d+)*|o)$', token) and not token.startswith('-'):
                 links.add(normalise(token, cwd, ndk))
             if token.startswith('-l') and len(token) > 2:
                 names = {'lib' + token[2:] + '.so', 'lib' + token[2:] + '.a'}
-                assert names & (SYSTEM | SHARED | STATIC | BUILD_ONLY | {'libatomic.so'}), ('Unknown -l input', token)
+                if not names & (SYSTEM | SHARED | STATIC | BUILD_ONLY | {'libatomic.so'}):
+                    problems.append(('Unknown -l input', token))
     for recorded in directory.rglob('compiler-commands.jsonl'):
         records = [json.loads(line) for line in recorded.read_text().splitlines()]
         assert records, ('Empty actual compiler/archive calls', recorded)
         for record in records:
             cwd = pathlib.Path(record['directory'])
+            if 'dependency' in record:
+                dependency_origins[pathlib.Path(record['dependency']).resolve()] = cwd
             tokens = record['arguments'][1:]
             for token in tokens:
                 if re.search(r'\.(?:c|cc|cpp|cxx|S|s)$', token) and not token.startswith('-'):
@@ -112,7 +118,7 @@ def collect(directory, ndk):
                 build_root = next((parent for parent in dep.parents if parent.parent == directory), directory)
                 # Recursive Make stores depfiles under a source subdirectory,
                 # while the compiler can run from its enclosing Make directory.
-                candidates = [cwd] + [parent for parent in dep.parents
+                candidates = [dependency_origins.get(dep.resolve(), cwd), cwd] + [parent for parent in dep.parents
                                       if parent == build_root or build_root in parent.parents]
                 origin = next((base for base in candidates if (base / token).exists()), None)
                 if origin is None and not pathlib.Path(token).is_absolute():
@@ -134,7 +140,8 @@ def controls():
     for path in ['external/poppler/cpp/poppler-document.h', 'es-pdf-converter/src/ConvertPDF.h',
                  'android/libs/x86_64/libpoppler.so', 'external/unknown/unknown.h',
                  'android/.deps/install/x86_64/lib/libunknown.a',
-                 'android/.deps/install/x86_64/lib/libunknown.so.1']:
+                 'android/.deps/install/x86_64/lib/libunknown.so.1',
+                 'android/.deps/sources/libiconv/src/iconv.c']:
         try:
             permitted(path)
         except AssertionError:

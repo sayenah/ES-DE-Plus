@@ -52,11 +52,6 @@ cm() {
     ESDE_LICENSE_COMMANDS="$audit_commands" cmake --build "$work/$name" --parallel "$jobs"
     cmake --install "$work/$name"
 }
-autoconf_build() {
-    local name=$1; shift
-    mkdir -p "$work/$name"
-    (cd "$work/$name"; "$src/$name/configure" --host="$triple" --prefix="$prefix" "$@"; ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; make install)
-}
 # FreeImage's upstream distribution has no portable CMake project. Build its complete
 # bundled codec set from the public Makefile.srcs, without modifying downloaded source.
 freeimage=$src/freeimage/FreeImage
@@ -79,7 +74,16 @@ with open(sys.argv[2], 'w') as out:
     out.write('target_link_libraries(freeimage PRIVATE log)\ninstall(TARGETS freeimage LIBRARY DESTINATION lib)\n')
 PY
 cm freeimage "$work/freeimage-project"
-autoconf_build libiconv --enable-shared --disable-static
+# Build libiconv/libcharset's LGPL libraries, not the unused GPL iconv CLI.
+# Top-level all/install/install-lib also build src/srclib, so select library
+# targets explicitly and install the configure-generated public header.
+mkdir -p "$work/libiconv"
+(cd "$work/libiconv"; "$src/libiconv/configure" --host="$triple" --prefix="$prefix" --enable-shared --disable-static
+ ESDE_LICENSE_COMMANDS="$audit_commands" make lib/localcharset.h
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C lib -j"$jobs"
+ make -C libcharset install
+ make -C lib install
+ install -m 644 include/iconv.h.inst "$prefix/include/iconv.h")
 # Only the LGPL runtime ships; GPL msgfmt is a host-side build tool.
 mkdir -p "$work/gettext"
 (cd "$work/gettext"; "$src/gettext/configure" --host="$triple" --prefix="$prefix" \
