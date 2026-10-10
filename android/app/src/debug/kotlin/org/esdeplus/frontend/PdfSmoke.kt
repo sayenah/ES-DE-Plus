@@ -153,7 +153,10 @@ internal object PdfSmoke {
                             "FIXTURE: $name"
                         }
                         action == "stats" -> "STATS: fd=${File("/proc/self/fd").list()!!.size}"
-                        action == "end" -> return "PASS: PDF viewer session completed"
+                        action == "end" -> {
+                            result.writeText("$requested\nEND")
+                            return "PASS: PDF viewer session completed"
+                        }
                         else -> error("Unknown PDF smoke command")
                     }
                     result.writeText("$requested\n$value")

@@ -61,6 +61,35 @@ def manual_image(png):
     return points
 
 
+def rejects(name, action):
+    try:
+        action()
+    except AssertionError:
+        return
+    raise AssertionError('PDF positive control escaped: ' + name)
+
+
+def closed(png):
+    try:
+        manual_image(png)
+    except AssertionError:
+        return
+    raise AssertionError('Failure retained a stale page')
+
+
+def navigation(before, after, operation):
+    if operation == 'zoom':
+        assert len(after['red']) > len(before['red']), 'Zoom did not increase the displayed marker'
+    elif operation == 'pan':
+        assert after['red'] != before['red'], 'Pan did not move the page'
+    else:
+        assert sum(p[0] for p in after['red']) / len(after['red']) > sum(p[0] for p in after['green']) / len(after['green']), 'Rotated marker positions incorrect'
+
+
+def descriptors(before, after):
+    assert re.search(r'fd=(\d+)', before)[1] == re.search(r'fd=(\d+)', after)[1], (before, after)
+
+
 def controls():
     # A valid PNG with no manual markers must fail the real viewer-image gate.
     root = pathlib.Path('android/evidence/pdf-fixtures')
@@ -114,18 +143,22 @@ def run(mode, harness):
             return png
         h.key('KEYCODE_DPAD_RIGHT')
         first = open_manual('first')
+        rejects('stale page', lambda: closed(first))
         h.key('KEYCODE_DPAD_RIGHT'); frame('next')
         h.key('KEYCODE_DPAD_RIGHT')
         rotated = manual_image(frame('rotated'))
         # Rotation changes marker geometry, verified within each image at tolerance.
-        assert sum(p[0] for p in rotated['red']) / len(rotated['red']) > sum(p[0] for p in rotated['green']) / len(rotated['green'])
+        navigation(None, rotated, 'rotation')
+        rejects('wrong rotated geometry', lambda: navigation(None, {'red': [(1, 1)], 'green': [(2, 1)]}, 'rotation'))
         h.key('KEYCODE_DPAD_LEFT'); manual_image(frame('previous'))
         h.key('KEYCODE_MOVE_END'); frame('last')
         h.key('KEYCODE_MOVE_HOME'); before_zoom = manual_image(frame('first-again'))
         h.key('KEYCODE_PAGE_DOWN'); zoomed = manual_image(frame('zoom'))
-        assert len(zoomed['red']) > len(before_zoom['red']), 'Zoom did not increase the displayed marker'
+        navigation(before_zoom, zoomed, 'zoom')
+        rejects('missing zoom', lambda: navigation(before_zoom, before_zoom, 'zoom'))
         h.key('KEYCODE_DPAD_RIGHT'); panned = manual_image(frame('pan'))
-        assert panned['red'] != zoomed['red'], 'Pan did not move the page'
+        navigation(zoomed, panned, 'pan')
+        rejects('missing pan', lambda: navigation(zoomed, zoomed, 'pan'))
         h.key('KEYCODE_MOVE_HOME'); manual_image(frame('zoom-reset'))
         h.key('KEYCODE_DEL'); open_manual('reopened'); h.key('KEYCODE_DEL')
         # Exceptions injected at the actual metadata, first and later raster calls.
@@ -137,9 +170,7 @@ def run(mode, harness):
                 h.key('KEYCODE_DPAD_RIGHT')
             h.wait_for(lambda: 'Injected PDF viewer failure at ' + str(point) in h.adb('logcat', '-d'), 'injected PDF viewer failure')
             failure_frame = frame('failure-' + str(point))
-            try: manual_image(failure_frame)
-            except AssertionError: pass
-            else: raise AssertionError('Failure retained a stale page')
+            closed(failure_frame)
             for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DPAD_LEFT', 'KEYCODE_DEL']:
                 h.key(code)
             assert h.shell('pidof', h.app).strip(), 'PDF failure killed frontend'
@@ -149,10 +180,13 @@ def run(mode, harness):
             command('fixture=' + fixture)
             h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
             failure_frame = frame(fixture)
-            try: manual_image(failure_frame)
-            except AssertionError: pass
-            else: raise AssertionError('Invalid PDF retained a page')
+            closed(failure_frame)
             command('fixture=valid'); open_manual(fixture + '-recovery'); h.key('KEYCODE_DEL')
+        # Missing file after MediaViewer discovers it reaches PDFViewer's real
+        # missing-file recovery instead of merely hiding the manual action.
+        h.key('KEYCODE_FORWARD_DEL'); command('fixture=missing'); h.key('KEYCODE_DPAD_UP')
+        closed(frame('missing-after-discovery'))
+        command('fixture=valid'); open_manual('missing-recovery'); h.key('KEYCODE_DEL')
         if h.api in [29, 34]:
             command('fixture=stress')
             open_manual('stress-first')
@@ -161,13 +195,14 @@ def run(mode, harness):
                 for _ in range(59): h.key(code)
                 manual_image(frame('stress-' + code))
             after = command('stats')
-            assert baseline.split('fd=')[1] == after.split('fd=')[1], (baseline, after)
+            descriptors(baseline, after)
+            rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
             memory = h.shell('dumpsys', 'meminfo', h.app)
             h.key('KEYCODE_DEL')
             for _ in range(10):
                 open_manual('cycle'); h.key('KEYCODE_DEL')
             stable = command('stats')
-            assert baseline.split('fd=')[1] == stable.split('fd=')[1], (baseline, stable)
+            descriptors(baseline, stable)
             h.evidence.joinpath('pdf-' + mode + '-stress-memory-fds.txt').write_text(baseline + '\n' + after + '\n' + stable + '\n' + memory)
             command('fixture=valid')
         open_manual('lifecycle')
@@ -210,9 +245,7 @@ def run(mode, harness):
                                if line.startswith(volume_id + ' ')), 'actual PDF volume removal')
                     h.key('KEYCODE_DPAD_RIGHT')
                     failed = frame('removable-removed')
-                    try: manual_image(failed)
-                    except AssertionError: pass
-                    else: raise AssertionError('Removed volume retained a stale page')
+                    closed(failed)
                     for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DEL']: h.key(code)
                     assert h.shell('pidof', h.app).strip(), 'Volume removal killed frontend'
                     volume_result += '\nPASS: removable-volume manual rendered; real unmount during view closes failed next page and remains responsive.\n'

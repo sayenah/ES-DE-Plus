@@ -26,6 +26,19 @@ prefix=$root/android/.deps/install/$abi
 libs=$root/android/libs/$abi
 jobs=${JOBS:-2}
 mkdir -p "$work" "$prefix" "$libs"
+# Preserve the real NDK tools, recording only target builds (not configure probes
+# or ICU's native host tools). OpenSSL locates plain clang in the real NDK PATH.
+audit_tools=$work/compiler-audit
+mkdir -p "$audit_tools"
+for tool in "${triple}29-clang" "${triple}29-clang++" llvm-ar llvm-ranlib; do
+    printf '#!/usr/bin/env bash\nexec python3 "%s/android/license-tool.py" "%s/%s" "$@"\n' "$root" "$toolbin" "$tool" > "$audit_tools/$tool"
+    chmod +x "$audit_tools/$tool"
+done
+export PATH="$audit_tools:$PATH"
+export CC=$audit_tools/${triple}29-clang CXX=$audit_tools/${triple}29-clang++
+export AR=$audit_tools/llvm-ar RANLIB=$audit_tools/llvm-ranlib
+audit_commands=$work/compiler-commands.jsonl
+: > "$audit_commands"
 export PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig PKG_CONFIG_PATH=$prefix/lib/pkgconfig
 cm() {
     local name=$1 source=$2; shift 2
@@ -36,13 +49,13 @@ cm() {
         -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
         -DCMAKE_FIND_ROOT_PATH="$prefix" -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
-    cmake --build "$work/$name" --parallel "$jobs"
+    ESDE_LICENSE_COMMANDS="$audit_commands" cmake --build "$work/$name" --parallel "$jobs"
     cmake --install "$work/$name"
 }
 autoconf_build() {
     local name=$1; shift
     mkdir -p "$work/$name"
-    (cd "$work/$name"; "$src/$name/configure" --host="$triple" --prefix="$prefix" "$@"; make -j"$jobs"; make install)
+    (cd "$work/$name"; "$src/$name/configure" --host="$triple" --prefix="$prefix" "$@"; ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; make install)
 }
 # FreeImage's upstream distribution has no portable CMake project. Build its complete
 # bundled codec set from the public Makefile.srcs, without modifying downloaded source.
@@ -72,7 +85,7 @@ mkdir -p "$work/gettext"
 (cd "$work/gettext"; "$src/gettext/configure" --host="$triple" --prefix="$prefix" \
     --disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf \
     --with-included-libxml --with-libiconv-prefix="$prefix" --enable-shared --disable-static
- make -C gettext-runtime/intl -j"$jobs"
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C gettext-runtime/intl -j"$jobs"
  make -C gettext-runtime/intl install)
 # ICU needs native host tools for its data archive before cross-compilation.
 hosticu=$root/android/.deps/build/icu-host
@@ -86,7 +99,7 @@ mkdir -p "$work/icu"
 (cd "$work/icu"; "$src/icu/source/configure" --host="$triple" --prefix="$prefix" \
     --with-cross-build="$hosticu" --enable-static --disable-shared --with-data-packaging=static \
     --disable-tests --disable-samples --disable-extras --disable-icuio
- make -j"$jobs"; make install)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; make install)
 cm libpng "$src/libpng" -DPNG_SHARED=ON -DPNG_TESTS=OFF -DPNG_TOOLS=OFF
 cm harfbuzz "$src/harfbuzz" -DBUILD_SHARED_LIBS=ON -DHB_BUILD_SUBSET=OFF -DHB_HAVE_FREETYPE=OFF -DHB_HAVE_ICU=OFF
 cm freetype "$src/freetype" -DBUILD_SHARED_LIBS=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_BROTLI=ON
@@ -94,7 +107,7 @@ cm freetype "$src/freetype" -DBUILD_SHARED_LIBS=ON -DFT_DISABLE_HARFBUZZ=ON -DFT
 mkdir -p "$work/openssl"
 (cd "$work/openssl"; ANDROID_NDK_ROOT="$ndk" "$src/openssl/Configure" "$openssl_arch" \
     -D__ANDROID_API__=29 --prefix="$prefix" --libdir=lib shared no-tests no-apps -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
- make -j"$jobs"; make install_sw)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; make install_sw)
 cm curl "$src/curl" -DBUILD_SHARED_LIBS=ON -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF \
     -DCURL_USE_OPENSSL=ON -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_USE_LIBSSH=OFF \
     -DUSE_NGHTTP2=OFF -DCURL_BROTLI=OFF -DCURL_ZSTD=OFF -DENABLE_ARES=OFF
@@ -130,7 +143,7 @@ mkdir -p "$work/ffmpeg"
     --disable-doc --disable-programs --disable-autodetect --disable-lzma --disable-gpl \
     --disable-nonfree --enable-libdav1d --enable-zlib --extra-cflags="-I$prefix/include" \
     --extra-ldflags="-L$prefix/lib $LDFLAGS" --pkg-config=pkg-config
- make -j"$jobs"; make install)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; make install)
 # Retain actual compile/header and link inputs beside the cached install.
 python3 android/license-inputs.py capture "$abi" "$ndk"
 # Package only the upstream link inputs and recursive non-system DT_NEEDED closure.

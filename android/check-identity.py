@@ -99,15 +99,28 @@ required_methods = {
     ('setupResources', '(Ljava/lang/String;)Z'), ('startConfigurator', '()V'), ('onNativeFrontendResume', '()V'),
     ('launchGame', '([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)I'),
 }
+def pdf_descriptors(methods):
+    expected = {('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'),
+                ('renderPdfPage', '(Ljava/lang/String;III)[B')}
+    assert expected <= methods, ('Missing PDF JNI descriptors', expected - methods)
+
 for owner in ['MainActivity', 'NativeBridge']:
     methods = classes['Lorg/esdeplus/frontend/' + owner + ';']
     if owner == 'MainActivity':
+        pdf_descriptors(methods)
+        for missing in [('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'), ('renderPdfPage', '(Ljava/lang/String;III)[B')]:
+            try:
+                pdf_descriptors(methods - {missing})
+            except AssertionError:
+                print('PASS: removed PDF JNI descriptor control rejected: ' + missing[0])
+            else:
+                raise AssertionError('PDF JNI control escaped')
         methods_required = required_methods | {('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'),
                                               ('renderPdfPage', '(Ljava/lang/String;III)[B')}
     else:
         methods_required = required_methods
     assert methods_required <= methods, (owner, 'Missing JNI methods', methods_required - methods)
-    for name, descriptor in sorted(required_methods):
+    for name, descriptor in sorted(methods_required):
         print(f'KEPT JNI METHOD {owner}.{name}{descriptor}')
 print('PASS: actual defined JNI methods retain every name/descriptor in ' + ('minified release' if release else 'debug') + ' dex')
 

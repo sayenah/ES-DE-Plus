@@ -19,11 +19,16 @@ SHARED = {'libmain.so', 'libes-pdf-convert.so', 'libSDL2.so', 'libavcodec.so', '
           'libintl.so', 'libfreeimage.so', 'libfreetype.so', 'libharfbuzz.so', 'libgit2.so',
           'libcurl.so', 'libcrypto.so', 'libssl.so', 'libpng16.so', 'libdav1d.so', 'libc++_shared.so'}
 STATIC = {'libicudata.a', 'libicui18n.a', 'libicuuc.a', 'libpugixml.a', 'liblunasvg.a',
-          'libplutovg.a', 'librlottie.a', 'libSDL2main.a'}
-BUILD_ONLY = {'libogg.so', 'libcharset.so', 'libharfbuzz-gpu.so', 'libharfbuzz-raster.so', 'libharfbuzz-vector.so'}
+          'libplutovg.a', 'librlottie.a', 'libSDL2main.a', 'libes-core.a'}
+BUILD_ONLY = {'libogg.so', 'libcharset.so', 'libharfbuzz-gpu.so', 'libharfbuzz-raster.so',
+              'libharfbuzz-vector.so', 'libcrypto.a', 'libssl.a'}
 SYSTEM = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libGLESv1_CM.so',
           'libGLESv2.so', 'libGLESv3.so', 'libEGL.so', 'libOpenSLES.so', 'libaaudio.so',
           'libcamera2ndk.so', 'libmediandk.so', 'libz.so'}
+
+
+def library_name(path):
+    return re.sub(r'(\.so)(?:\.\d+)+$', r'\1', pathlib.PurePosixPath(path).name)
 
 
 def permitted(path):
@@ -47,8 +52,8 @@ def permitted(path):
     else:
         assert parts and (parts[0] in {'es-app', 'es-core'} or parts[:2] == ('android', 'pdf') or
                           parts[:3] == ('android', 'app', '.cxx')), ('Unknown input', path)
-    if path.endswith(('.so', '.a')):
-        name = pathlib.PurePosixPath(path).name
+    if re.search(r'\.(?:a|so(?:\.\d+)*)$', path):
+        name = library_name(path)
         assert name in SHARED | STATIC | SYSTEM | BUILD_ONLY, ('Unknown linked library', path)
 
 
@@ -63,6 +68,23 @@ def normalise(path, cwd, ndk):
 
 def collect(directory, ndk):
     compiled, headers, links = set(), set(), set()
+    def arguments(tokens, cwd):
+        for token in tokens:
+            if re.search(r'\.(?:a|so(?:\.\d+)*|o)$', token) and not token.startswith('-'):
+                links.add(normalise(token, cwd, ndk))
+            if token.startswith('-l') and len(token) > 2:
+                names = {'lib' + token[2:] + '.so', 'lib' + token[2:] + '.a'}
+                assert names & (SYSTEM | SHARED | STATIC | BUILD_ONLY | {'libatomic.so'}), ('Unknown -l input', token)
+    for recorded in directory.rglob('compiler-commands.jsonl'):
+        records = [json.loads(line) for line in recorded.read_text().splitlines()]
+        assert records, ('Empty actual compiler/archive calls', recorded)
+        for record in records:
+            cwd = pathlib.Path(record['directory'])
+            tokens = record['arguments'][1:]
+            for token in tokens:
+                if re.search(r'\.(?:c|cc|cpp|cxx|S|s)$', token) and not token.startswith('-'):
+                    compiled.add(normalise(token, cwd, ndk))
+            arguments(tokens, cwd)
     for database in directory.rglob('compile_commands.json'):
         for command in json.loads(database.read_text()):
             compiled.add(normalise(command['file'], pathlib.Path(command['directory']), ndk))
@@ -77,11 +99,7 @@ def collect(directory, ndk):
         commands = json.loads(subprocess.check_output(['ninja', '-C', str(cwd), '-t', 'compdb', '-x'], text=True))
         for entry in commands:
             line = entry['command']
-            for token in shlex.split(line):
-                if token.endswith(('.a', '.so', '.o')) and not token.startswith('-'):
-                    links.add(normalise(token, cwd, ndk))
-                if token.startswith('-l') and len(token) > 2:
-                    assert 'lib' + token[2:] + '.so' in SYSTEM | SHARED | STATIC | BUILD_ONLY | {'libatomic.so'}, ('Unknown -l input', token)
+            arguments(shlex.split(line), cwd)
     # Autoconf, FFmpeg and Meson retain compiler-produced dependency files.
     for dep in [*directory.rglob('*.d'), *directory.rglob('*.Plo'), *directory.rglob('*.Po')]:
         text = dep.read_text(errors='replace').replace('\\\n', ' ')
@@ -105,7 +123,8 @@ def collect(directory, ndk):
 def controls():
     for path in ['external/poppler/cpp/poppler-document.h', 'es-pdf-converter/src/ConvertPDF.h',
                  'android/libs/x86_64/libpoppler.so', 'external/unknown/unknown.h',
-                 'android/.deps/install/x86_64/lib/libunknown.a']:
+                 'android/.deps/install/x86_64/lib/libunknown.a',
+                 'android/.deps/install/x86_64/lib/libunknown.so.1']:
         try:
             permitted(path)
         except AssertionError:
@@ -141,11 +160,22 @@ def native_controls(ndk):
                     raise AssertionError('Actual compiler/link positive control escaped')
 
 
+def reviewed_entries(entries):
+    assert entries == SHARED, ('Unreviewed APK closure', entries ^ SHARED)
+
+
 def apk_closure(apk):
     with zipfile.ZipFile(apk) as archive:
         for abi in ['arm64-v8a', 'x86_64']:
             entries = {pathlib.PurePosixPath(n).name for n in archive.namelist() if n.startswith('lib/' + abi + '/')}
-            assert entries == SHARED, (abi, 'Unreviewed APK closure', entries ^ SHARED)
+            reviewed_entries(entries)
+            for changed in [entries | {'libpoppler.so'}, entries | {'libunknown.so'}, entries - {'libSDL2.so'}]:
+                try:
+                    reviewed_entries(changed)
+                except AssertionError:
+                    print(f'PASS: {abi} APK closure positive control rejected: {changed ^ entries}')
+                else:
+                    raise AssertionError('APK closure positive control escaped')
             print(f'PASS: {apk.name} {abi} reviewed closure: ' + ', '.join(sorted(entries)))
         for name in archive.namelist():
             assert 'poppler' not in name.lower(), name
@@ -161,6 +191,10 @@ if __name__ == '__main__':
         abi = sys.argv[2]
         data = collect(ROOT / 'android/.deps/build' / abi, ndk)
         assert data['compiled'] and data['headers'] and data['links'], 'Empty dependency graph'
+        for component in ['icu', 'openssl', 'gettext', 'libiconv', 'ffmpeg']:
+            assert any(p.startswith('android/.deps/sources/' + component + '/') or
+                       p.startswith('android/.deps/build/' + abi + '/' + component + '/')
+                       for p in data['compiled']), ('Missing actual compiler calls', component)
         # Reject enabling a GPL or nonfree FFmpeg component in the actual configuration.
         config = (ROOT / 'android/.deps/build' / abi / 'ffmpeg/config.h').read_text()
         assert '#define CONFIG_GPL 0' in config and '#define CONFIG_NONFREE 0' in config, config

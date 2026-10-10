@@ -13,7 +13,7 @@ import org.esdeplus.frontend.BuildConfig
 internal object PdfManual {
     // Debug instrumentation injects exceptions at the actual consumer boundary;
     // the hook has no file/device-specific behaviour and is removed in release.
-    internal var beforeCall: ((Int) -> Unit)? = null
+    @Volatile internal var beforeCall: ((Int) -> Unit)? = null
 
     private inline fun <T> withDocument(path: String, operation: (PdfRenderer) -> T): T? {
         return try {
