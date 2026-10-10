@@ -35,7 +35,7 @@ cm() {
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
         -DCMAKE_FIND_ROOT_PATH="$prefix" -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
     cmake --build "$work/$name" --parallel "$jobs"
     cmake --install "$work/$name"
 }
@@ -90,18 +90,6 @@ mkdir -p "$work/icu"
 cm libpng "$src/libpng" -DPNG_SHARED=ON -DPNG_TESTS=OFF -DPNG_TOOLS=OFF
 cm harfbuzz "$src/harfbuzz" -DBUILD_SHARED_LIBS=ON -DHB_BUILD_SUBSET=OFF -DHB_HAVE_FREETYPE=OFF -DHB_HAVE_ICU=OFF
 cm freetype "$src/freetype" -DBUILD_SHARED_LIBS=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_BROTLI=ON
-cm jpeg "$src/jpeg" -DENABLE_SHARED=ON -DENABLE_STATIC=OFF -DWITH_TURBOJPEG=OFF
-cm zstd "$src/zstd/build/cmake" -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_SHARED=ON -DZSTD_BUILD_STATIC=OFF
-cm tiff "$src/tiff" -DBUILD_SHARED_LIBS=ON -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF \
-    -Dwebp=OFF -Dlzma=OFF -Djbig=OFF -Dlerc=OFF
-cm openjpeg "$src/openjpeg" -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DBUILD_TESTING=OFF
-cm poppler "$src/poppler" -DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -DENABLE_UTILS=OFF \
-    -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF \
-    -DENABLE_GPGME=OFF -DENABLE_LCMS=OFF -DENABLE_LIBCURL=OFF -DENABLE_LIBTIFF=ON \
-    -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF \
-    -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF
-mkdir -p "$root/android/.deps/layout/poppler-cpp"
-cp "$work/poppler/cpp/poppler-version.h" "$work/poppler/cpp/poppler_cpp_export.h" "$root/android/.deps/layout/poppler-cpp/"
 # OpenSSL uses the NDK compiler selected via its Android target.
 mkdir -p "$work/openssl"
 (cd "$work/openssl"; ANDROID_NDK_ROOT="$ndk" "$src/openssl/Configure" "$openssl_arch" \
@@ -143,6 +131,8 @@ mkdir -p "$work/ffmpeg"
     --disable-nonfree --enable-libdav1d --enable-zlib --extra-cflags="-I$prefix/include" \
     --extra-ldflags="-L$prefix/lib $LDFLAGS" --pkg-config=pkg-config
  make -j"$jobs"; make install)
+# Retain actual compile/header and link inputs beside the cached install.
+python3 android/license-inputs.py capture "$abi" "$ndk"
 # Package only the upstream link inputs and recursive non-system DT_NEEDED closure.
 python3 android/package-dependencies.py "$prefix/lib" "$libs" "$ndk" "$host" "$triple"
 printf 'Built dependency closure for %s (API 29, 16 KiB).\n' "$abi"

@@ -13,7 +13,7 @@ assert logs and any(p.stat().st_size for p in logs), 'Missing actual native buil
 if not all(root.is_file() for root in roots):
     for abi in ['arm64-v8a', 'x86_64']:
         assert any(abi in str(p) and p.stat().st_size for p in logs), ('Missing native output', abi)
-files = r'(?:InputOverlay|PlatformUtilAndroid)\.(?:cpp|h)'
+files = r'(?:InputOverlay|PlatformUtilAndroid|ConvertPDF|PDFViewer|PdfSmoke)\.(?:cpp|h)'
 warnings = []
 compiled = {abi: set() for abi in ['arm64-v8a', 'x86_64']}
 for log in logs:
@@ -22,12 +22,12 @@ for log in logs:
     print(text)
     for abi in compiled:
         if abi in log.parts:
-            compiled[abi].update(re.findall(r'(InputOverlay|PlatformUtilAndroid)\.cpp\.o', text))
+            compiled[abi].update(re.findall(r'(InputOverlay|PlatformUtilAndroid|ConvertPDF|PDFViewer|PdfSmoke)\.cpp\.o', text))
     warnings.extend(line for line in text.splitlines() if 'warning:' in line and re.search(files, line))
 if warnings:
     print('FAIL: native warnings in ES-DE-Plus files\n' + '\n'.join(warnings))
     sys.exit(1)
 for abi, files in compiled.items():
-    assert files == {'InputOverlay', 'PlatformUtilAndroid'}, ('Missing per-ABI compilation evidence', abi, files)
-    print(f'PASS: {abi} compiled InputOverlay.cpp and PlatformUtilAndroid.cpp')
-print('PASS: no compiler warnings in the four ES-DE-Plus native files')
+    assert files == {'InputOverlay', 'PlatformUtilAndroid', 'ConvertPDF', 'PDFViewer', 'PdfSmoke'}, ('Missing per-ABI compilation evidence', abi, files)
+    print(f'PASS: {abi} compiled bridge, overlay, Android ConvertPDF.cpp and PDFViewer.cpp')
+print('PASS: no compiler warnings in the changed and ES-DE-Plus native files')

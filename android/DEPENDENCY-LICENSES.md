@@ -10,13 +10,17 @@ NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identical
 AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
 measured RELRO values are printed and recorded below. An unmatched file follows
 the strict rule regardless of its filename.
-APKs remain inside CI pending G-1/G-2.
-Poppler and the upstream `ConvertPDF` implementation are GPL-2.0-only and are linked
-in process on Android. This inventory records that fact and does not decide G-2.
+D-007 and D-007 am. 1: the Android APK composition is MIT + permissive
+(FreeImage FIPL, FreeType FTL and CImg CeCILL-C selections) + Apache-2.0 +
+LGPL-2.1 shared libraries + libgit2 (GPL-2.0 with its linking exception).
+No GPL code without a linking exception enters the Android build. PDF rendering
+uses the Android platform; upstream's GPL converter and Poppler remain desktop/iOS
+inputs only. APK publication and the accompanying exact third-party source
+artefact belong to PR #6 after PR-D; PR-D uploads evidence only.
 No proprietary Android package or code is used.
 
-The APK contains these 27 shared-library entries for each ABI (the component table
-below gives versions, licences and configuration). Packaging starts from the unchanged upstream CMake link list plus the NDK runtime,
+The APK contains these 21 shared-library entries for each ABI (the component table
+below gives versions, licences and configuration). Packaging starts from the Android CMake link list plus the NDK runtime,
 then follows recursive non-system DT_NEEDED entries. Unreachable libraries and
 install-time aliases are excluded; every PNG consumer requests `libpng16.so`.
 `libavdevice`, `libcharset`, HarfBuzz GPU/raster/vector, Ogg and `libtiffxx` are
@@ -27,7 +31,6 @@ built under the same dependency configuration but are not packaged.
 | Frontend | `libmain.so` |
 | ConvertPDF | `libes-pdf-convert.so` |
 | SDL2 | `libSDL2.so` |
-| Poppler | `libpoppler.so`, `libpoppler-cpp.so` |
 | FFmpeg | `libavcodec.so`, `libavfilter.so`, `libavformat.so`, `libavutil.so`, `libswresample.so`, `libswscale.so` |
 | libiconv | `libiconv.so` |
 | gettext runtime | `libintl.so` |
@@ -37,24 +40,34 @@ built under the same dependency configuration but are not packaged.
 | libgit2 | `libgit2.so` |
 | curl | `libcurl.so` |
 | OpenSSL | `libcrypto.so`, `libssl.so` |
-| libjpeg-turbo | `libjpeg.so` |
 | libpng | `libpng16.so` |
-| libtiff | `libtiff.so` |
-| OpenJPEG | `libopenjp2.so` |
-| zstd | `libzstd.so` |
 | dav1d | `libdav1d.so` |
 | NDK C++ runtime | `libc++_shared.so` |
 
 ICU, pugixml, LunaSVG/plutovg and rlottie are static consumer inputs, not separate
 APK entries; the CI `native-outputs.txt` records the actual Ninja link commands.
+`android/license-inputs.py` checks actual compile databases, Ninja header dependencies,
+compiler depfiles and static/shared link commands. Dependency graphs are retained
+with each ABI install and audited again on cache restores. Unknown source/header,
+library, dex dependency or APK entries are rejected; forbidden-header/library and
+unknown-input positive controls exercise the same gates. `auditRuntimeLicences`
+checks Gradle's resolved debug/release runtime artifacts, and `check-identity.py`
+checks actual dex classes using the R8 mapping for minified names.
+
+Closure evidence from [PR-C's run](https://github.com/sayenah/ES-DE-Plus/actions/runs/38058077314):
+only Poppler/TIFF consumed the standalone JPEG, TIFF, OpenJPEG and zstd libraries
+(other than the explicit JPEG link removed with Poppler). They leave setup/build,
+packaging and the inventory. FreeType still consumes libpng; FreeImage's bundled
+JPEG/PNG/TIFF/OpenJPEG/etc. remain inside FreeImage under their reviewed notices.
+Desktop `licenses/` is unchanged. The new cache key excludes old Poppler installs.
+
 Kotlin stdlib and its implicit JetBrains annotations dependency appear in dex;
 the identity audit records their packaged classes.
 
 | Component | Pin | License | Android configuration / packaging |
 | --- | --- | --- | --- |
 | ES-DE-Plus native frontend, bridge, overlay, host | PR revision | MIT | Clean-room host; shared `libmain.so` |
-| ConvertPDF / es-pdf-convert | upstream 3.5.0 | GPL-2.0-only | Shared, linked in process |
-| Poppler / poppler-cpp | 26.06.0 | GPL-2.0-only | `-DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -DENABLE_UTILS=OFF -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF -DENABLE_GPGME=OFF -DENABLE_LCMS=OFF -DENABLE_LIBCURL=OFF -DENABLE_LIBTIFF=ON -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF` |
+| Android ConvertPDF / es-pdf-convert | PR-D revision | MIT | Written for ES-DE-Plus; platform PdfRenderer via two MainActivity JNI delegates, filesystem paths only, no renderer cache |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
 | libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; host GPL utilities are not packaged |
 | libcharset (bundled with libiconv) | 1.5 within libiconv 1.19 | LGPL-2.1-or-later | Build-only `libcharset.so`, not packaged; same libiconv configure command and existing `licenses/libiconv` terms |
@@ -68,10 +81,6 @@ the identity audit records their packaged classes.
 | libpng | 1.6.58 | libpng-2.0 | Shared; tests/tools off |
 | HarfBuzz | 14.2.1 | MIT | Shared core packaged; GPU, raster and vector outputs are build-only; subset, ICU, FreeType integration off |
 | FreeType | 2.14.3 | FTL or GPL-2.0; FTL selected | Shared; HarfBuzz, bzip2, brotli off |
-| zstd | 1.5.7 | BSD-3-Clause or GPL-2.0; BSD selected | Shared; programs/tests/static off |
-| libjpeg-turbo | 3.1.4.1 | BSD-3-Clause / IJG / zlib | Shared; turbojpeg/static off |
-| libtiff | 4.7.1 | libtiff (BSD-like) | Shared; tools/tests/docs/contrib/webp/lzma/jbig/lerc off |
-| OpenJPEG | 2.5.4 | BSD-2-Clause | Shared; codec/tests off |
 | libgit2 | 1.9.4 | GPL-2.0 with linking exception | `-DBUILD_SHARED_LIBS=ON -DBUILD_TESTS=OFF -DBUILD_CLI=OFF -DUSE_SSH=OFF -DUSE_HTTPS=OpenSSL -DUSE_BUNDLED_ZLIB=OFF -DUSE_THREADS=ON`; linking exception retained |
 | pugixml | 1.15 | MIT | Static |
 | Ogg | 1.3.6 | BSD-3-Clause | Build-only shared output, not packaged; tests off |
@@ -176,4 +185,3 @@ both caches. Canonical public source-archive SHA256 values measured for this sli
 | poppler | `4cb4e5a3dc8cb5eec751c8a23c8ba19f61f96dedc0cd07d2aee6b0c8e2cf6ba4` |
 | pugixml | `655ade57fa703fb421c2eb9a0113b5064bddb145d415dd1f88c79353d90d511a` |
 | tiff | `b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba` |
-| zstd | `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3` |

@@ -95,7 +95,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py') }}
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py') }}
       - name: Validate committed Gradle project
         run: |
           set -o pipefail
@@ -116,7 +116,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py') }}
+          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py') }}
       - name: Restore ABI-neutral generated headers
         run: tools/Android_dependencies_setup.sh
       - name: Assemble debug APK with committed wrapper
@@ -152,6 +152,16 @@ jobs:
           cd android
           ./gradlew --no-daemon assembleRelease 2>&1 | tee assemble-release.log
           test -s app/build/outputs/mapping/release/mapping.txt
+      - name: Audit actual Android licence input graph and both APK closures
+        run: |
+          set -o pipefail
+          python3 android/license-inputs.py audit android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/release/app-release-unsigned.apk "$ANDROID_NDK_HOME" | tee android/evidence/licence-closure.txt
+          cd android
+          ./gradlew --no-daemon :app:auditRuntimeLicences | tee evidence/licence-dex-dependencies.txt
+      - name: Generate PDF fixtures and sign minified APK for CI runtime only
+        run: |
+          python3 android/pdf-fixtures.py android/evidence/pdf-fixtures
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out android/app/build/outputs/apk/release/app-release-smoke.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
       - name: Check new native code compiler warnings
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
@@ -237,7 +247,9 @@ jobs:
           profile: ${{ matrix.profile }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+          script: |
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/

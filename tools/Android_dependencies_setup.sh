@@ -39,11 +39,6 @@ fetch icu https://github.com/unicode-org/icu/releases/download/release-78.3/icu4
 fetch libpng https://download.sourceforge.net/libpng/libpng-1.6.58.tar.xz 28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775
 fetch harfbuzz https://github.com/harfbuzz/harfbuzz/releases/download/14.2.1/harfbuzz-14.2.1.tar.xz a54a5d8e9380a41fbb762ce367bcbf7704792dfca0d93f1bbca86c5a57902e0e
 fetch freetype https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz 36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f
-fetch zstd https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
-fetch jpeg https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.4.1/libjpeg-turbo-3.1.4.1.tar.gz ecae8008e2cc9ade2f2c1bb9d5e6d4fb73e7c433866a056bd82980741571a022
-fetch tiff https://download.osgeo.org/libtiff/tiff-4.7.1.tar.xz b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba
-fetch openjpeg https://github.com/uclouvain/openjpeg/archive/refs/tags/v2.5.4.tar.gz a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a
-fetch poppler https://poppler.freedesktop.org/poppler-26.06.0.tar.xz 4cb4e5a3dc8cb5eec751c8a23c8ba19f61f96dedc0cd07d2aee6b0c8e2cf6ba4
 fetch libgit2 https://github.com/libgit2/libgit2/archive/refs/tags/v1.9.4.tar.gz 824b73bd13647800fe4b566a1008ae77fea0e3e3424edab632fcfd8c0b14ba8b
 fetch pugixml https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz 655ade57fa703fb421c2eb9a0113b5064bddb145d415dd1f88c79353d90d511a
 fetch SDL https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz 5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165
@@ -89,23 +84,6 @@ link "$sources/libgit2" external/libgit2
 link "$sources/pugixml" external/pugixml
 link "$sources/SDL/include" "$sources/SDL/SDL2"
 link "$sources/SDL" external/SDL_Android
-# Poppler's version header is generated during the per-ABI build.
-link "$sources/poppler" external/poppler
-mkdir -p "$sources/poppler/build"
-mkdir -p "$root/android/.deps/layout/poppler-cpp"
-link "$root/android/.deps/layout/poppler-cpp" "$sources/poppler/build/cpp"
-# Generated public headers are architecture-independent, including on cache hits.
-for generated in poppler-version.h poppler_cpp_export.h; do
-    for abi in arm64-v8a x86_64; do
-        header="$root/android/.deps/install/$abi/include/poppler/cpp/$generated"
-        if [[ -f $header ]]; then
-            cp "$header" "$root/android/.deps/layout/poppler-cpp/$generated"
-        fi
-    done
-    left="$root/android/.deps/install/arm64-v8a/include/poppler/cpp/$generated"
-    right="$root/android/.deps/install/x86_64/include/poppler/cpp/$generated"
-    if [[ -f $left && -f $right ]]; then cmp "$left" "$right"; fi
-done
 # Public generated headers missing from the source archives. Both selected ABIs
 # must agree before these ABI-neutral include links are used by upstream CMake.
 for entry in 'libintl.h:gettext/gettext-runtime/intl/libintl.h' 'libavutil/avconfig.h:ffmpeg/libavutil/avconfig.h'; do

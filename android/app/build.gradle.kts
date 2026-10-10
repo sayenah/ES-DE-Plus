@@ -108,3 +108,22 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 tasks.named("preBuild") { dependsOn(stageAssets, generateQueries) }
+
+// Reviewed shipped runtime dependencies; build plugins and tools never enter dex.
+tasks.register("auditRuntimeLicences") {
+    doLast {
+        for (variant in listOf("debug", "release")) {
+            val actual = configurations.getByName("${variant}RuntimeClasspath")
+                .resolvedConfiguration.resolvedArtifacts.map {
+                    val id = it.moduleVersion.id
+                    "${id.group}:${id.name}:${id.version}"
+                }.toSet()
+            val reviewed = setOf("org.jetbrains.kotlin:kotlin-stdlib:2.2.21", "org.jetbrains:annotations:13.0")
+            fun verify(inputs: Set<String>) { check(inputs == reviewed) { "Unreviewed dex dependency: $inputs" } }
+            verify(actual)
+            try { verify(actual + "example:unreviewed:1"); error("Runtime licence control escaped") }
+            catch (expected: IllegalStateException) { check(expected.message!!.startsWith("Unreviewed dex dependency:")) }
+            println("PASS: $variant actual dex runtime inputs $actual; unknown dependency positive control rejected")
+        }
+    }
+}

@@ -55,7 +55,7 @@ The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
 then drives real configurator/permission screens on API 29, API 34 and Android TV
 API 36 x86_64. Only logs, screenshots and audits are uploaded. APK distribution
-remains parked under the identity/licensing gates recorded in `docs/handoff.md`.
+waits for PR-D and the reworked distribution-posture PR #6 (D-007).
 
 Game launching uses the existing Android find rules and Intent variables in
 `INSTALL.md`. The transport token determines the value in either storage mode:
@@ -128,3 +128,30 @@ for ES-DE Plus; it is never included in the frontend APK or a release variant.
 Its observations verify transport reads and failures, not real game emulation.
 Real game loads in third-party SAF/provider emulators remain device evidence
 to collect when an APK can be distributed under the pending licensing ruling.
+
+PDF manuals use the platform [PdfRenderer](https://developer.android.com/reference/android/graphics/pdf/PdfRenderer)
+API-21 constructor and display render mode through ES-DE-Plus's MIT Android
+converter. Place manuals in the normal media directory's `<system>/manuals/`
+with the game's filename, as upstream specifies. Readable local filesystem paths
+work in either storage mode, including spaces and supplementary Unicode characters;
+`content://` manuals and password-protected documents are unsupported. The
+existing viewer supports paging, first/last, zoom, pan, closing and reopening.
+Malformed, unavailable and unsupported documents or failed rasters show the
+existing localized PDF error and return to the frontend; a failed later page
+closes the manual instead of retaining an old image.
+
+Each call opens and closes a fresh renderer and its owned descriptor, with
+open/render/close serialized. Rasters are BGRA, top-down, on opaque white and
+limited to 4096 pixels per side and 32 MiB each. The inherited viewer retains
+visited page pixels until close: total cache memory grows with pages visited
+and has no eviction policy. The renderer runs in the frontend process, per
+D-008. A native platform renderer fault or hang can therefore crash or hang the
+frontend; catchable Java failures recover, but process isolation is not part of
+PR-D. Only use trusted manuals where that risk is unacceptable.
+
+The reconciled Android inventory is [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
+Upstream's GPL converter/Poppler and standalone Poppler-only codecs are excluded
+from every Android variant. libgit2 retains its GPL linking exception; LGPL
+runtime libraries stay shared. No application dependency or APK upload is added
+by PR-D. CI generates PDF fixtures without a third-party PDF library and checks
+native input/licence closure, JNI contracts and viewer behaviour on all three images.
