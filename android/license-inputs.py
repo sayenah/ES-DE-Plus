@@ -20,9 +20,12 @@ SHARED = {'libmain.so', 'libes-pdf-convert.so', 'libSDL2.so', 'libavcodec.so', '
           'libcurl.so', 'libcrypto.so', 'libssl.so', 'libpng16.so', 'libdav1d.so', 'libc++_shared.so'}
 STATIC = {'libicudata.a', 'libicui18n.a', 'libicuuc.a', 'libpugixml.a', 'liblunasvg.a',
           'libplutovg.a', 'librlottie.a', 'libSDL2main.a', 'libes-core.a', 'libgnu.a',
-          'libcommon.a', 'libdefault.a', 'liblegacy.a', 'libtemplate.a'}
+          'libcommon.a', 'libdefault.a', 'liblegacy.a', 'libtemplate.a',
+          'libdav1d_bitdepth_8.a', 'libdav1d_bitdepth_16.a'}
 BUILD_ONLY = {'libogg.so', 'libcharset.so', 'libharfbuzz-gpu.so', 'libharfbuzz-raster.so',
-              'libharfbuzz-vector.so', 'libcrypto.a', 'libssl.a', 'libicutu.a', 'libicutest.a'}
+              'libharfbuzz-vector.so', 'libcrypto.a', 'libssl.a', 'libicutu.a', 'libicutest.a',
+              'libdav1d_input.a', 'libavdevice.so', 'libpng16.a', 'capi.so', 'dasync.so',
+              'loader_attic.so', 'ossltest.so', 'padlock.so', 'legacy.so'}
 SYSTEM = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libGLESv1_CM.so',
           'libGLESv2.so', 'libGLESv3.so', 'libEGL.so', 'libOpenSLES.so', 'libaaudio.so',
           'libcamera2ndk.so', 'libmediandk.so', 'libz.so'}

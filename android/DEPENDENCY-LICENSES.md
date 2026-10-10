@@ -56,6 +56,12 @@ provider convenience archives (`libcommon.a`, `libdefault.a`, `liblegacy.a`,
 `libtemplate.a`) use the same Apache-2.0 terms; gettext's runtime convenience
 archive `libgnu.a` uses the same LGPL runtime terms. libiconv's GPL CLI/src/srclib
 targets are not built; the input audit rejects those paths.
+The generated target graph also contains libpng's static `libpng16.a`, FFmpeg's
+unused `libavdevice.so`, dav1d's `libdav1d_input.a` tool archive, and OpenSSL's
+`capi.so`, `dasync.so`, `loader_attic.so`, `ossltest.so`, `padlock.so`, and
+`legacy.so` modules. These are build-only inputs under their parent component's
+reviewed licence and are excluded from the APK closure. dav1d's 8/16-bit static
+convenience archives are internal BSD-2-Clause inputs to its shared library.
 Graphs are retained with each ABI install and audited again on cache restores. Unknown source/header,
 library, dex dependency or APK entries are rejected; forbidden-header/library and
 unknown-input positive controls exercise the same gates. `auditRuntimeLicences`

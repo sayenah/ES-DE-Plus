@@ -14,6 +14,7 @@
 #include <android/log.h>
 #include <jni.h>
 #include <mutex>
+#include <new>
 #include <utf8.h>
 
 namespace
@@ -93,11 +94,20 @@ int ConvertPDF::processFile(const std::string path,
         return -1;
 
     std::string converted;
+    const jsize length {info ? env->GetStringLength(static_cast<jstring>(output)) :
+                               env->GetArrayLength(static_cast<jbyteArray>(output))};
+    if (failed(env) || length == 0 || (!info && length != static_cast<int64_t>(width) * height * 4))
+        return -1;
+    // Allocate before pinning Java characters, so a native allocation failure
+    // also returns an empty result and cannot retain a pinned JNI buffer.
+    try {
+        converted.resize(length);
+    }
+    catch (const std::bad_alloc&) {
+        return -1;
+    }
     if (info) {
         auto value = static_cast<jstring>(output);
-        const jsize length {env->GetStringLength(value)};
-        if (failed(env) || length == 0)
-            return -1;
         const jchar* characters {env->GetStringChars(value, nullptr)};
         if (failed(env) || characters == nullptr)
             return -1;
@@ -106,7 +116,7 @@ int ConvertPDF::processFile(const std::string path,
         for (jsize i {0}; i < length; ++i) {
             if (characters[i] > 127)
                 valid = false;
-            converted.push_back(static_cast<char>(characters[i]));
+            converted[i] = static_cast<char>(characters[i]);
         }
         env->ReleaseStringChars(value, characters);
         if (failed(env) || !valid)
@@ -114,10 +124,6 @@ int ConvertPDF::processFile(const std::string path,
     }
     else {
         auto bytes = static_cast<jbyteArray>(output);
-        const jsize length {env->GetArrayLength(bytes)};
-        if (failed(env) || length != static_cast<int64_t>(width) * height * 4)
-            return -1;
-        converted.resize(length);
         env->GetByteArrayRegion(bytes, 0, length, reinterpret_cast<jbyte*>(converted.data()));
         if (failed(env))
             return -1;
