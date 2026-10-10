@@ -122,12 +122,41 @@ def solid_bit(rgb):
     return int(all(v < 30 for v in rgb))
 
 
+def displayed_page(png, expected):
+    try:
+        stress_page(png, expected)
+    except AssertionError:
+        return False
+    return True
+
+
+def runtime_log(output, app):
+    assert not any(error in output for error in ['JNI DETECTED ERROR', 'NoSuchMethod', 'ANR in ' + app]), output
+
+
 def controls():
     # A valid PNG with no manual markers must fail the real viewer-image gate.
     root = pathlib.Path('android/evidence/pdf-fixtures')
-    try: manual_image((root / 'cover.png').read_bytes())
-    except AssertionError: return 'PASS: actual cover PNG rejects the manual-image assertion\n'
-    raise AssertionError('PDF image positive control escaped')
+    png = (root / 'cover.png').read_bytes()
+    checks = []
+    try: manual_image(png)
+    except AssertionError: checks.append('PASS: actual cover PNG rejects the manual-image assertion')
+    else: raise AssertionError('PDF image positive control escaped')
+    depth = bytearray(png); depth[24] = 16
+    length = struct.unpack_from('>I', png, 33)[0]
+    filtered = bytearray(zlib.decompress(png[41:41 + length])); filtered[0] = 5
+    compressed = zlib.compress(filtered)
+    bad_filter = png[:33] + struct.pack('>I', len(compressed)) + b'IDAT' + compressed + struct.pack('>I', zlib.crc32(b'IDAT' + compressed)) + png[45 + length:]
+    for name, invalid in [('PNG signature', b'invalid!' + png[8:]), ('PNG depth', depth), ('PNG filter', bad_filter)]:
+        try: pixels(invalid)
+        except AssertionError: checks.append('PASS: PNG decoder control rejected: ' + name)
+        else: raise AssertionError('PNG control escaped: ' + name)
+    return '\n'.join(checks) + '\n'
+
+
+def settings_xml(document):
+    # Upstream persists sibling settings, not the parser's temporary wrapper.
+    return '<?xml version="1.0"?>\n' + ''.join(ET.tostring(child, encoding='unicode') for child in document)
 
 
 def run(mode, harness):
@@ -135,11 +164,11 @@ def run(mode, harness):
     h.evidence.joinpath('pdf-assertion-positive-controls.txt').write_text(controls())
     h.shell('am', 'force-stop', h.app)
     original = h.shell('cat', h.settings)
-    settings = ET.fromstring(original)
+    settings = h.launch_checks.settings_fragment(original)
     node = settings.find("string[@name='MediaDirectory']")
     media = h.external + '/ES-DE-Plus/Manual spaces 🚀'
     node.set('value', media)
-    h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+    h.user_file('settings/es_settings.xml', settings_xml(settings))
     h.adb('logcat', '-c')
     output_path = h.evidence / ('pdf-' + mode + '-instrumentation.txt')
     command_number = 0
@@ -211,7 +240,7 @@ def run(mode, harness):
             closed(failure_frame)
             for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DPAD_LEFT', 'KEYCODE_DEL']:
                 h.key(code)
-            assert h.shell('pidof', h.app).strip(), 'PDF failure killed frontend'
+            h.launch_checks.equal(bool(h.shell('pidof', h.app).strip()), True, 'Frontend process after PDF failure')
             command('reset'); enter_gamelist(); open_manual('recovery-' + str(point)); h.key('KEYCODE_DEL')
         # Actual malformed/password/zero inputs through the same gamelist path.
         for fixture in ['malformed', 'password', 'zero']:
@@ -231,10 +260,14 @@ def run(mode, harness):
             first_stress = open_manual('stress-first')
             stress_page(first_stress, 1)
             rejects('wrong displayed stress page', lambda: stress_page(first_stress, 2))
+            h.launch_checks.equal(displayed_page(first_stress, 1), True, 'Displayed stress page ready')
+            h.launch_checks.equal(displayed_page(first_stress, 2), False, 'Wrong stress page readiness control')
             rejects('non-solid stress marker', lambda: solid_bit([128, 128, 128]))
             baseline = command('stats')
             for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
                 for _ in range(59): h.key(code)
+                h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), page),
+                           'actual displayed stress endpoint ' + str(page))
                 stress_page(frame('stress-' + code), page)
             logs = h.adb('logcat', '-d')
             for page in range(1, 61):
@@ -255,19 +288,19 @@ def run(mode, harness):
         pid = h.shell('pidof', h.app).strip()
         h.shell('am', 'start', '-a', 'android.settings.SETTINGS')
         time.sleep(2); h.key('KEYCODE_BACK')
-        assert h.shell('pidof', h.app).strip() == pid
+        h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF foreground process')
         manual_image(frame('foreground'))
         h.key('KEYCODE_DEL')
         command('end')
         process.wait(timeout=15)
-        assert 'PASS: PDF viewer session completed' in output_path.read_text(), output_path.read_text()
+        h.smoke_checks.probe_passed(output_path.read_text(), 'PASS: PDF viewer session completed')
         h.shell('am', 'force-stop', h.app)
         provisioned = h.shell('am', 'instrument', '-w', '-e', 'mode', 'pdf-unreadable',
                              h.app + '/org.esdeplus.frontend.RuntimeSmoke')
         unreadable = re.search(r'UNREADABLE_MEDIA=(.+)', provisioned)[1].strip()
         h.shell('am', 'force-stop', h.app)
         settings.find("string[@name='MediaDirectory']").set('value', unreadable)
-        h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+        h.user_file('settings/es_settings.xml', settings_xml(settings))
         h.adb('logcat', '-c'); h.launch(); h.key('KEYCODE_ENTER')
         h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
         closed(frame('unreadable'))
@@ -276,7 +309,7 @@ def run(mode, harness):
         for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DPAD_LEFT', 'KEYCODE_DEL']: h.key(code)
         h.shell('am', 'force-stop', h.app)
         settings.find("string[@name='MediaDirectory']").set('value', media)
-        h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+        h.user_file('settings/es_settings.xml', settings_xml(settings))
         h.launch(); h.key('KEYCODE_ENTER'); open_manual('before-destroy')
         old = h.shell('pidof', h.app).strip(); h.adb('logcat', '-c')
         h.shell('am', 'start', '-f', '0x10008000', '-n', h.activity)
@@ -298,7 +331,7 @@ def run(mode, harness):
                 volume_id = next(line.split()[0] for line in volumes.splitlines()
                                  if len(line.split()) >= 3 and line.split()[2] in volume_media)
                 settings.find("string[@name='MediaDirectory']").set('value', volume_media)
-                h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+                h.user_file('settings/es_settings.xml', settings_xml(settings))
                 try:
                     h.launch(); h.key('KEYCODE_ENTER'); open_manual('removable-first')
                     h.shell('sm', 'unmount', volume_id)
@@ -308,15 +341,15 @@ def run(mode, harness):
                     failed = frame('removable-removed')
                     closed(failed)
                     for code in ['KEYCODE_PAGE_DOWN', 'KEYCODE_DPAD_UP', 'KEYCODE_DEL']: h.key(code)
-                    assert h.shell('pidof', h.app).strip(), 'Volume removal killed frontend'
+                    h.launch_checks.equal(bool(h.shell('pidof', h.app).strip()), True, 'Frontend process after volume removal')
                     volume_result += '\nPASS: removable-volume manual rendered; real unmount during view closes failed next page and remains responsive.\n'
                 finally:
                     h.shell('sm', 'mount', volume_id)
                     h.shell('am', 'force-stop', h.app)
                     settings.find("string[@name='MediaDirectory']").set('value', media)
-                    h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+                    h.user_file('settings/es_settings.xml', settings_xml(settings))
             else:
-                assert 'CAPABILITY GAP:' in volume_result, volume_result
+                h.smoke_checks.probe_passed(volume_result, 'CAPABILITY GAP:')
             h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(volumes + '\n' + volume_result)
         else:
             h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(
@@ -336,9 +369,9 @@ def release(harness):
     h = type('Harness', (), harness)
     h.shell('am', 'force-stop', h.app)
     original = h.shell('cat', h.settings)
-    settings = ET.fromstring(original)
+    settings = h.launch_checks.settings_fragment(original)
     settings.find("string[@name='MediaDirectory']").set('value', h.external + '/ES-DE-Plus/Manual spaces 🚀')
-    h.user_file('settings/es_settings.xml', ET.tostring(settings, encoding='unicode'))
+    h.user_file('settings/es_settings.xml', settings_xml(settings))
     renamed = []
     try:
         # Match upstream's ROM-stem media lookup while exercising Unicode in
@@ -367,7 +400,9 @@ def release(harness):
         h.screenshot('pdf-minified-reopened')
         manual_image((h.evidence / 'pdf-minified-reopened.png').read_bytes())
         logs = h.adb('logcat', '-d')
-        assert 'JNI DETECTED ERROR' not in logs and 'NoSuchMethod' not in logs and 'ANR in ' + h.app not in logs, logs
+        runtime_log(logs, h.app)
+        for error in ['JNI DETECTED ERROR', 'NoSuchMethod', 'ANR in ' + h.app]:
+            rejects('minified runtime ' + error, lambda: runtime_log(logs + '\n' + error, h.app))
         h.save_logs('pdf-minified-runtime')
         h.evidence.joinpath('pdf-minified-summary.txt').write_text(
             'PASS: installed CI-signed minified release opens Manual spaces 🚀/nes/manuals/Smoke Alpha 🚀.pdf through the gamelist; rotation, paging, zoom/pan/reset, close/reopen; screenshot colour assertions pass; no JNI/lookup/ANR failure. APK remains in CI and is never uploaded.\n')

@@ -29,7 +29,7 @@ internal object PdfSmoke {
         fun metadata(value: String?) { check(value == expected) { "Metadata: $value" } }
         metadata(nativeProcess(valid, "-fileinfo", 0, 0, 0)?.toString(Charsets.US_ASCII))
         rejected { metadata(expected.replace("3;", "8;")) }
-        fun raster(value: ByteArray?) { check(value?.size == 240 * 320 * 4) }
+        fun raster(value: ByteArray?, count: Int = 240 * 320 * 4) { check(value?.size == count) }
         val bytes = nativeProcess(valid, "-convert", 1, 240, 320)!!
         raster(bytes)
         rejected { raster(bytes.copyOf(bytes.size - 1)) }
@@ -58,7 +58,7 @@ internal object PdfSmoke {
         for ((i, probe) in probes.withIndex()) {
             val (w, h, point) = probe
             val rendered = nativeProcess(valid, "-convert", i + 2, w, h)!!
-            check(rendered.size == w * h * 4)
+            raster(rendered, w * h * 4)
             pixel(rendered, w, point.first, point.second, intArrayOf(0, 0, 255, 255))
         }
         val before = File("/proc/self/fd").list()!!.size
@@ -74,7 +74,7 @@ internal object PdfSmoke {
                                   Triple(1, -1, 1), Triple(1, 4097, 1), Triple(1, 4096, 4096)))
             failure(valid, "-convert", page, w, h)
         // The largest permitted raster and a one-pixel-over byte limit have the same sides.
-        check(nativeProcess(valid, "-convert", 1, 4096, 2048)?.size == 32 * 1024 * 1024)
+        raster(nativeProcess(valid, "-convert", 1, 4096, 2048), 32 * 1024 * 1024)
         failure(valid, "-convert", 1, 4096, 2049)
         for (point in listOf(0, 1, 2)) {
             PdfManual.beforeCall = { if (it == point) throw java.io.IOException("Injected PDF failure at $point") }
@@ -87,16 +87,20 @@ internal object PdfSmoke {
         try { failure(valid, "-convert", 1, 240, 320) }
         finally { PdfManual.beforeCall = null }
         metadata(nativeProcess(valid, "-fileinfo", 0, 0, 0)?.toString(Charsets.US_ASCII))
-        check(File("/proc/self/fd").list()!!.size == before) { "Renderer descriptor leak" }
+        fun descriptors(actual: Int) { check(actual == before) { "Renderer descriptor leak" } }
+        descriptors(File("/proc/self/fd").list()!!.size)
+        rejected { descriptors(before + 1) }
         rejected { failure(valid) }
         // Concurrent calls also exercise the global open/render/close lock.
         val threadFailures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
         val threads = (1..4).map { Thread {
-            try { repeat(5) { check(nativeProcess(valid, "-convert", 1, 24, 32)?.size == 3072) } }
+            try { repeat(5) { raster(nativeProcess(valid, "-convert", 1, 24, 32), 3072) } }
             catch (error: Throwable) { threadFailures.add(error) }
         } }
         threads.forEach { it.start() }; threads.forEach { it.join() }
-        check(threadFailures.isEmpty()) { threadFailures.toString() }
+        fun joinedThreads(errors: Collection<Throwable>) { check(errors.isEmpty()) { errors.toString() } }
+        joinedThreads(threadFailures)
+        rejected { joinedThreads(listOf(java.io.IOException("Concurrent failure control"))) }
         return "PASS: D-008 real JNI metadata/BGRA/rows/white/aspect/crop/rotations/text/image; invalid/password/malformed/zero/unreadable/limits/injected failures; descriptors/serialisation; positive controls rejected"
     }
 
