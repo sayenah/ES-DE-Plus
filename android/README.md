@@ -66,6 +66,9 @@ Game launching uses the existing Android find rules and Intent variables in
 | `%ROMSAF%` | External-storage document URI on the verified current-user volume | A held persisted tree covering this file permits an exact read grant. URI extras retain their string type and carry the grant through `ClipData`. Without a held tree the emulator needs its own SAF access. App-owned `Android/data` paths are refused with the frontend's launch-error popup. |
 | `%ROMPROVIDER%` | ES-DE Plus content URI in Intent data | The selected file receives a temporary read-only grant in both modes. No emulator storage permission is needed to read that file. |
 
+Rules without an explicit MIME type set Intent data alone. A rule supplying both
+data and a MIME type sets them together; the host never invents a MIME type.
+
 The provider exposes only the configured ROM directory in direct mode or the
 app-owned ROM directory in scoped mode. It refuses directories, traversal,
 symlink escapes and writes, and checks containment each time a file is opened.
@@ -97,9 +100,11 @@ always staged; its banner/logo option controls additional artwork only.
 registers its reply receiver before sending, serializes queries and waits at
 most one second including lock acquisition, then removes the receiver.
 Installed/absent/timeout/unknown are `1`/`0`/`-1`/`-2`. Only a valid timely core
-list can report absence; Android 14+ also requires the broadcasting package's
-platform-reported identity. Missing identity, malformed replies and query
-failures report unknown and allow launching.
+list can report absence. Core lists contain bounded file names ending in
+`_libretro_android.so` or `_libretro.so`, matched against the requested file name.
+On Android 14+, a reported sender different from the queried package reports
+unknown; when the platform does not report a sender, content determines the
+result. Malformed replies and query failures report unknown and allow launching.
 The public reply carries no request ID; after a failed query, absence in a later
 reply is ambiguous and reports unknown for the rest of that frontend process.
 An installed-core reply can still confirm presence.

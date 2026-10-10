@@ -135,15 +135,21 @@ object LaunchSmoke {
         val handlerThread = HandlerThread("ESDEPlus-recipient-observer").apply { start() }
         val next = AtomicReference<CountDownLatch>()
         val observation = AtomicReference<JSONObject>()
+        val coreObserved = AtomicReference<CountDownLatch?>()
+        val replySender = AtomicReference<String?>()
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(receiving: Context, intent: Intent) {
                 if (intent.action == "org.esdeplus.stub.OBSERVATION") {
                     observation.set(JSONObject(intent.getStringExtra("json")!!))
                     next.get()?.countDown()
+                } else if (intent.action == CoreQuery.RESULT) {
+                    replySender.set(if (Build.VERSION.SDK_INT >= 34) sentFromPackage else null)
+                    coreObserved.get()?.countDown()
                 }
             }
         }
         val filter = IntentFilter("org.esdeplus.stub.OBSERVATION")
+        filter.addAction(CoreQuery.RESULT)
         if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, null, Handler(handlerThread.looper), Context.RECEIVER_EXPORTED)
         else {
             @Suppress("DEPRECATION")
@@ -189,15 +195,24 @@ object LaunchSmoke {
         fun configureQuery(value: String) {
             equal(receive(base(), arrayOf("queryMode", value)).getString("queryMode"), value, "Receiver configuration")
         }
-        fun query(mode: String, expected: Int) {
+        fun query(mode: String, expected: Int, core: String = "test_libretro_android.so") {
             configureQuery(mode)
+            val replyLatch = CountDownLatch(1)
+            coreObserved.set(replyLatch)
             val begin = SystemClock.elapsedRealtimeNanos()
-            val actual = CoreQuery(orderedContext).query(stub, "test_libretro_android.so")
+            val actual = CoreQuery(orderedContext).query(stub, core)
             val elapsed = TimeUnit.NANOSECONDS.toMillis(SystemClock.elapsedRealtimeNanos() - begin)
             equal(actual, expected, "Core query $mode")
             equal(registered.get(), false, "Query receiver cleaned up $mode")
             equal(elapsed <= 1000, true, "One total deadline $mode ($elapsed ms)")
-            evidence.append("QUERY $mode result=$actual elapsedMs=$elapsed\n")
+            if (Build.VERSION.SDK_INT >= 34 && mode !in listOf("none", "unrelated", "late")) {
+                equal(replyLatch.await(10, TimeUnit.SECONDS), true, "Actual platform reply observed $mode")
+                equal(replySender.get(), if (mode.startsWith("anonymous")) null else stub,
+                    "Actual platform reply sender $mode")
+                evidence.append("SENDER $mode reported=${replySender.get()}\n")
+            }
+            coreObserved.set(null)
+            evidence.append("QUERY $mode core=$core result=$actual elapsedMs=$elapsed\n")
         }
         try {
             equal(bridge.checkEmulatorInstalled(stub, ".RecipientActivity"), true, "Relative target")
@@ -269,6 +284,14 @@ object LaunchSmoke {
             equal(combined.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK, Intent.FLAG_ACTIVITY_CLEAR_TASK, "Clear task")
             equal(combined.data.toString(), provider.toString(), "Data/MIME set together")
             equal(combined.type, "application/octet-stream", "Data/MIME preserved")
+            val dataOnlyBase = base("%ROM%").apply { this[4] = "" }
+            val dataOnly = launcher.intent(dataOnlyBase, empty, empty, empty, empty, empty)
+            equal(dataOnly.dataString, rom.path, "Data-only rule preserves data")
+            equal(dataOnly.type, null, "Data-only rule never invents MIME")
+            val dataOnlyReceived = receive(dataOnlyBase)
+            equal(dataOnlyReceived.getString("data"), rom.path, "Recipient data-only value")
+            equal(dataOnlyReceived.has("mime"), false, "Recipient receives no invented MIME")
+            evidence.append("MIME data-only construction=null recipient=absent; explicit data/MIME pair preserved\n")
             for (name in listOf("", ".RecipientActivity", ".TelevisionOnly")) {
                 val selected = receive(base(activity = name))
                 equal(selected.getString("component").substringBefore('/'), stub, "Target never leaves package")
@@ -333,7 +356,32 @@ object LaunchSmoke {
                 @Suppress("DEPRECATION") val info = context.packageManager.getApplicationInfo(it[1].substringBefore('/'), 0)
                 info.category == android.content.pm.ApplicationInfo.CATEGORY_GAME || info.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME != 0
             }, true, "Games filter excludes non-games")
-            query("valid", 1); query("absent", 0); query("malformed", -2); query("oversized", -2)
+            fun reply(cores: Array<String?>, core: String = "test_libretro_android.so", sender: String? = stub) =
+                CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", cores), core, sender, stub, true)
+            equal(reply(arrayOf("test_libretro_android.so")), 1, "Real core file name presence")
+            equal(reply(arrayOf("other_libretro_android.so")), 0, "Real core file name absence")
+            equal(reply(arrayOf("test_libretro.so"), "test_libretro.so"), 1, "Classic core file name presence")
+            equal(reply(arrayOf("test_libretro_android.so"), "test_libretro.so"), 0, "Core file suffixes are not aliases")
+            val longest = "x".repeat(128 - "_libretro_android.so".length) + "_libretro_android.so"
+            equal(reply(arrayOf(longest), longest), 1, "Core file name length boundary")
+            for (invalid in listOf("test", "test_libretro.so.bak", "../test_libretro.so",
+                    "/test_libretro.so", "test/escape_libretro.so", "test\\escape_libretro.so", "x$longest"))
+                equal(reply(arrayOf(invalid)), -2, "Invalid core file name $invalid")
+            equal(reply(arrayOf(null)), -2, "Null core file name")
+            equal(reply(Array(512) { longest }, longest), 1, "Core list total length boundary")
+            equal(reply(Array(513) { longest }, longest), -2, "Oversized core list total length")
+            equal(reply(emptyArray(), sender = null), 0, "Unreported sender valid absent content")
+            equal(reply(arrayOf("test_libretro_android.so"), sender = null), 1, "Unreported sender valid present content")
+            equal(reply(arrayOf("test"), sender = null), -2, "Unreported sender malformed content")
+            equal(CoreQuery(orderedContext).query(stub, "test"), -2, "Invalid requested core suffix")
+            equal(CoreQuery(orderedContext).query(stub, "x$longest"), -2, "Oversized requested core file name")
+            evidence.append("CORE file-name matching, both suffixes, invalid names and bounded-list positive controls passed\n")
+            query("valid", 1); query("valid", 1, "snes9x_libretro.so")
+            query("valid", 0, "test_libretro.so"); query("absent", 0)
+            if (Build.VERSION.SDK_INT >= 34) {
+                query("anonymous", 1); query("anonymous-absent", 0); query("anonymous-malformed", -2)
+            }
+            query("malformed", -2); query("oversized", -2)
             query("none", -1); query("unrelated", -1); query("late", -1)
             query("absent", -2)  // a reply without a request ID cannot safely veto after a failed query
             Thread.sleep(1300)
@@ -351,9 +399,10 @@ object LaunchSmoke {
             }
             equal(CoreQuery(cannotRegister).query(stub, "test_libretro_android.so"), -2, "Failed query registration")
             query("valid", 1)  // failure paths release serialization and delivery resources
-            if (Build.VERSION.SDK_INT >= 34) query("anonymous", -2)
             if (Build.VERSION.SDK_INT >= 34) {
                 configureQuery("none")
+                val replyLatch = CountDownLatch(1)
+                coreObserved.set(replyLatch)
                 val wrongSender = object : ContextWrapper(context) {
                     override fun sendBroadcast(intent: Intent) {
                         super.sendBroadcast(intent)
@@ -362,6 +411,10 @@ object LaunchSmoke {
                     }
                 }
                 equal(CoreQuery(wrongSender).query(stub, "test_libretro_android.so"), -2, "Actual platform wrong-sender reply")
+                equal(replyLatch.await(10, TimeUnit.SECONDS), true, "Actual wrong-sender broadcast observed")
+                equal(replySender.get(), context.packageName, "Actual mismatched sender is reported")
+                coreObserved.set(null)
+                evidence.append("SENDER wrong reported=${replySender.get()} expected=$stub result=-2\n")
             }
             equal(bridge.checkRACoreInstalled("org.esdeplus.missing", "test_libretro_android.so"), -2, "Absent package query")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", "wrong", stub, true), -2, "Wrong sender reply")

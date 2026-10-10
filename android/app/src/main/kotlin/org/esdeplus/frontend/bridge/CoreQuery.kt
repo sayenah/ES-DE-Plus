@@ -22,7 +22,7 @@ class CoreQuery(private val context: Context) {
         val started = SystemClock.elapsedRealtimeNanos()
         val deadline = started + TimeUnit.MILLISECONDS.toNanos(900)
         if (!packageName.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")) ||
-            !coreFile.matches(Regex("[A-Za-z0-9_+-]+_libretro_android\\.so"))) return -2
+            coreFile.length !in 1..128 || !coreFile.matches(coreFileName)) return -2
         var locked = false
         var registered = false
         var thread: HandlerThread? = null
@@ -88,16 +88,16 @@ class CoreQuery(private val context: Context) {
     companion object {
         const val QUERY = "com.retroarch.QUERY_INSTALLED_CORES"
         const val RESULT = "com.retroarch.INSTALLED_CORES_RESULT"
+        private val coreFileName = Regex("[A-Za-z0-9_+-]+_libretro(?:_android)?\\.so")
         private val lock = ReentrantLock()
         // Accessed only by the serialized waiter while it owns lock.
         private val uncertainPackages = mutableSetOf<String>()
-        fun reply(intent: Intent, coreFile: String, sender: String?, expected: String, requireSender: Boolean): Int {
-            if (intent.action != RESULT || (requireSender && sender != expected)) return -2
+        fun reply(intent: Intent, coreFile: String, sender: String?, expected: String, checkSender: Boolean): Int {
+            if (intent.action != RESULT || (checkSender && sender != null && sender != expected)) return -2
             val cores = intent.getStringArrayExtra("CORES") ?: return -2
             if (cores.size > 4096 || cores.any { it == null || it.length !in 1..128 ||
-                    !it.matches(Regex("[A-Za-z0-9_+-]+")) } || cores.sumOf { it.length } > 65536) return -2
-            val name = coreFile.removeSuffix("_libretro_android.so")
-            return if (name in cores) 1 else 0
+                    !it.matches(coreFileName) } || cores.sumOf { it.length } > 65536) return -2
+            return if (coreFile in cores) 1 else 0
         }
     }
 }
