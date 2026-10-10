@@ -73,7 +73,16 @@ def collect(directory, ndk):
     problems = []
     dependency_origins = {}
     def arguments(tokens, cwd):
-        for token in tokens:
+        expanded = [value for token in tokens for value in
+                    (token[4:].split(',') if token.startswith('-Wl,') else [token])]
+        skip_value = False
+        for token in expanded:
+            if skip_value:
+                skip_value = False
+                continue
+            if token in {'-soname', '--soname', '-rpath', '-rpath-link'}:
+                skip_value = True
+                continue
             if re.search(r'\.(?:a|so(?:\.\d+)*|o)$', token) and not token.startswith('-'):
                 links.add(normalise(token, cwd, ndk))
             if token.startswith('-l') and len(token) > 2:
