@@ -188,6 +188,12 @@ def dismiss_stock_onboarding(force=False):
     dismissing_onboarding = True
     try:
         nodes = hierarchy()
+        # The hierarchy dump takes several seconds; the frontend may have
+        # resumed while it ran. Validate that transition before any UI action.
+        window = shell('dumpsys', 'window')
+        if not smoke_checks.stock_onboarding_focused(window, stock_package):
+            smoke_checks.onboarding_clear(nodes, stock_package, app)
+            return
         smoke_checks.probe_passed('Dismiss' if any(n.get('package') == stock_package and
             n.get('text') == 'Dismiss' for n in nodes) else '', 'Dismiss')
         with (evidence / 'tv-onboarding-events.txt').open('a') as output:
