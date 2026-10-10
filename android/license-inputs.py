@@ -122,9 +122,10 @@ def collect(directory, ndk):
     # Autoconf, FFmpeg and Meson retain compiler-produced dependency files.
     for dep in [*directory.rglob('*.d'), *directory.rglob('*.Plo'), *directory.rglob('*.Po')]:
         text = dep.read_text(errors='replace').replace('\\\n', ' ')
-        for token in re.findall(r'(?:[^\s\\]|\\.)+', text):
-            token = token.rstrip(':')
-            if token.endswith(('.h', '.hpp', '.inc', '.c', '.cpp', '.cc', '.S', '.s', '.asm')):
+        for rule in text.splitlines():
+            # Audit every prerequisite, including extensionless includes and
+            # .def/.tcc files. -MP's empty phony rules have no prerequisites.
+            for token in re.findall(r'(?:[^\s\\]|\\.)+', rule.partition(':')[2]):
                 # Autoconf depfiles are in .deps, relative to the containing build dir.
                 cwd = dep.parent.parent if dep.parent.name == '.deps' else dep.parent
                 build_root = next((parent for parent in dep.parents if parent.parent == directory), directory)
@@ -172,9 +173,9 @@ def native_controls(ndk):
             with tempfile.TemporaryDirectory(dir=parent) as temporary:
                 source = pathlib.Path(temporary)
                 forbidden = kind == 'header'
-                (source / 'poppler-control.h').write_text('// SPDX-License-Identifier: MIT; synthetic ES-DE-Plus rejection control\n')
+                (source / 'poppler-control').write_text('// SPDX-License-Identifier: MIT; synthetic ES-DE-Plus rejection control\n')
                 (source / 'probe.cpp').write_text('// SPDX-License-Identifier: MIT; written for ES-DE-Plus\n' +
-                    ('#include "poppler-control.h"\n' if forbidden else '') + 'int probe() { return 0; }\n')
+                    ('#include "poppler-control"\n' if forbidden else '') + 'int probe() { return 0; }\n')
                 (source / 'CMakeLists.txt').write_text('cmake_minimum_required(VERSION 3.13)\nproject(Control LANGUAGES CXX)\n' +
                     'set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\nadd_library(' + ('safe' if forbidden else 'poppler') + ' STATIC probe.cpp)\n')
                 build = source / 'build'
