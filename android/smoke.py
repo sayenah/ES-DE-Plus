@@ -181,7 +181,8 @@ def dismiss_stock_onboarding(force=False):
     if not force and time.monotonic() - last_onboarding_check < 2:
         return
     last_onboarding_check = time.monotonic()
-    window = shell('dumpsys', 'window', 'windows')
+    # Focus is display state, omitted by the windows-only dump on newer SDKs.
+    window = shell('dumpsys', 'window')
     if not smoke_checks.stock_onboarding_focused(window, stock_package):
         return
     dismissing_onboarding = True
@@ -1040,6 +1041,8 @@ try:
                          app + '/org.esdeplus.frontend.RuntimeSmoke')
     (evidence / 'revoked-tree-launch.txt').write_text(revoked_tree)
     shell('am', 'force-stop', app)
+    time.sleep(1)  # Let instrumentation/task teardown finish, as in clear_app().
+    dismiss_stock_onboarding(force=True)
     start_entry('HomeEntry', 'android.intent.category.HOME')
     if 'PASS: real selected tree revoked' in revoked_tree:
         ui('Configure ' + label)
