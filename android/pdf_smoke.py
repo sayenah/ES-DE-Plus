@@ -65,6 +65,8 @@ def rejects(name, action):
     try:
         action()
     except AssertionError:
+        with pathlib.Path('android/evidence/pdf-assertion-positive-controls.txt').open('a') as output:
+            output.write('PASS: assertion positive control rejected: ' + name + '\n')
         return
     raise AssertionError('PDF positive control escaped: ' + name)
 
@@ -97,6 +99,27 @@ def orientation(points, rotation):
         assert red[0] < green[0], ('Last page rotation', red, green)
     else:
         assert red[1] < green[1], ('First/previous page orientation', red, green)
+
+
+def stress_page(png, expected):
+    points = manual_image(png)
+    # Corner markers locate the normal 240x320 page at any display resolution.
+    left = min(p[0] for p in points['red']); top = min(p[1] for p in points['red'])
+    scale_x = (max(p[0] for p in points['blue']) - left) / 220
+    scale_y = (max(p[1] for p in points['green']) - top) / 300
+    _, _, channels, rows = pixels(png)
+    value = 0
+    for bit in range(6):
+        x = round(left + (75 + 16 * bit - 10) * scale_x)
+        y = round(top + (165 - 10) * scale_y)
+        rgb = rows[y][x*channels:x*channels+3]
+        value |= solid_bit(rgb) << bit
+    assert value == expected, ('Displayed stress page', value, expected)
+
+
+def solid_bit(rgb):
+    assert all(v < 30 for v in rgb) or all(v > 230 for v in rgb), ('Stress page solid-colour probe', list(rgb))
+    return int(all(v < 30 for v in rgb))
 
 
 def controls():
@@ -204,11 +227,19 @@ def run(mode, harness):
         command('fixture=valid'); open_manual('missing-recovery'); h.key('KEYCODE_DEL')
         if h.api in [29, 34]:
             command('fixture=stress')
-            open_manual('stress-first')
+            h.adb('logcat', '-c')
+            first_stress = open_manual('stress-first')
+            stress_page(first_stress, 1)
+            rejects('wrong displayed stress page', lambda: stress_page(first_stress, 2))
+            rejects('non-solid stress marker', lambda: solid_bit([128, 128, 128]))
             baseline = command('stats')
-            for code in ['KEYCODE_DPAD_RIGHT', 'KEYCODE_DPAD_LEFT']:
+            for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
                 for _ in range(59): h.key(code)
-                manual_image(frame('stress-' + code))
+                stress_page(frame('stress-' + code), page)
+            logs = h.adb('logcat', '-d')
+            for page in range(1, 61):
+                h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
+            h.evidence.joinpath('pdf-' + mode + '-stress-pages.txt').write_text(logs)
             after = command('stats')
             descriptors(baseline, after)
             rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))

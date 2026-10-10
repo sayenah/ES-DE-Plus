@@ -9,7 +9,7 @@ import sys
 import zlib
 
 
-def document(path, pages, encrypted=False):
+def document(path, pages, encrypted=False, numbered=False):
     # pages: (media box, crop box, rotation). Coordinates in PDF points.
     objects = [b'<< /Type /Catalog /Pages 2 0 R >>', b'']
     font = b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
@@ -31,6 +31,12 @@ def document(path, pages, encrypted=False):
                   f'0 1 0 rg {left+60} {bottom+80} 50 50 re f\n'
                   f'0 0 0 rg BT /F1 18 Tf {left+50} {top-65} Td (PDF MANUAL 123) Tj ET\n'
                   f'q 40 0 0 40 {left+60} {bottom+60} cm /Im1 Do Q\n').encode()
+        if numbered:
+            # Six solid binary squares identify the actual displayed stress
+            # page independently of the viewer's own page-counter text.
+            for bit in range(6):
+                if len(children) & (1 << bit):
+                    stream += f'0 0 0 rg {left+70+16*bit} {bottom+150} 10 10 re f\n'.encode()
         objects.append((f'<< /Type /Page /Parent 2 0 R /MediaBox {media} /CropBox {crop} /Rotate {rotation} '
                         f'/Resources << /Font << /F1 3 0 R >> /XObject << /Im1 4 0 R >> >> /Contents {number+1} 0 R >>').encode())
         objects.append(b'<< /Length ' + str(len(stream)).encode() + b' >>\nstream\n' + stream + b'endstream')
@@ -88,7 +94,7 @@ def generate(directory):
         return [(Box(map(int, media.strip('[]').split())), Box(map(int, crop.strip('[]').split())), rotation)
                 for media, crop, rotation in pages]
     document(directory / 'Manual spaces 🚀.pdf', converted(pages))
-    document(directory / 'stress.pdf', converted([normal] * 60))
+    document(directory / 'stress.pdf', converted([normal] * 60), numbered=True)
     document(directory / 'zero.pdf', [])
     document(directory / 'password.pdf', converted([normal]), encrypted=True)
     (directory / 'malformed.pdf').write_bytes(b'%PDF-1.4\ninvalid\n')
