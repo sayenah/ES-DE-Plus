@@ -294,11 +294,11 @@ def run(mode, harness):
                 h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
             h.evidence.joinpath('pdf-' + mode + '-stress-pages.txt').write_text(logs)
             after = command('stats')
-            descriptors(baseline, after)
-            rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
             memory = h.shell('dumpsys', 'meminfo', h.app)
             memory_path = h.evidence / ('pdf-' + mode + '-stress-memory-fds.txt')
             memory_path.write_text(baseline + '\n' + after + '\n' + memory)
+            descriptors(baseline, after)
+            rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
             def close_cycle():
                 h.key('KEYCODE_DEL')
                 h.wait_for(lambda: not manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
@@ -307,8 +307,8 @@ def run(mode, harness):
             for _ in range(10):
                 open_manual('cycle'); close_cycle()
             stable = command('stats')
-            descriptors(baseline, stable)
             memory_path.write_text(baseline + '\n' + after + '\n' + stable + '\n' + memory)
+            descriptors(baseline, stable)
             command('fixture=valid')
         open_manual('lifecycle')
         pid = h.shell('pidof', h.app).strip()

@@ -219,7 +219,14 @@ internal object PdfSmoke {
                             else File(root, if (name == "valid") "Manual spaces \uD83D\uDE80.pdf" else "$name.pdf").copyTo(manual, overwrite = true)
                             "FIXTURE: $name"
                         }
-                        action == "stats" -> "STATS: fd=${File("/proc/self/fd").list()!!.size}"
+                        action == "stats" -> {
+                            val entries = File("/proc/self/fd").list()!!.sortedBy { it.toInt() }
+                            "STATS: fd=${entries.size}\n" + entries.joinToString("\n") { entry ->
+                                val target = try { android.system.Os.readlink("/proc/self/fd/$entry") }
+                                catch (error: android.system.ErrnoException) { "closed during snapshot" }
+                                "$entry -> $target"
+                            }
+                        }
                         action == "end" -> {
                             result.writeText("$requested\nEND")
                             return "PASS: PDF viewer session completed"
