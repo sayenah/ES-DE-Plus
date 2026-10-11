@@ -1,8 +1,8 @@
 # Handoff
 
-Stage: IMPLEMENTATION
-Owner: Sol
-Next: **Sol: PR #6 round 2 — debug-APK publication and source artefact (D-007, D-007 am. 1, D-009)** on `feature/distribution-posture` (update it to current `main` by a merge commit, no force-push), work order and AC-1…AC-9 in the section below, resuming Sol thread `01a11fe7-e2e0-7b83-94a9-53ded51faba7` with `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/c9e6a9b1-71a7-485b-aec1-a4b888cfaf44/scratchpad/sol_dist/prompt_r2.md`. Then the Orchestrator gate, one Opus pass, merge, then the Orchestrator verifies the first real publication on `main` (D-009 (1)).
+Stage: QA
+Owner: Opus
+Next: **Opus QA pass 2 on PR #6 round 2 (`feature/distribution-posture`, head `367498b1e`)** through `esde-opus-qa` with `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/c9e6a9b1-71a7-485b-aec1-a4b888cfaf44/scratchpad/opus_dist/prompt_pass2.md`, QA clone detached at `367498b1e` with `docs/` from `origin/main`, artefacts `.opus-scratch/dist-q2/`. Sol round 2 (PID 25327, 19.6 h, completed 2026-10-11 18:56 CDT) reports AC-1…AC-9 met: Linux 38149400845/38149404727, Android push 38149400869 (attempt 3), PR 38149404720, dispatch 38149400623, source rebuild 38163208205 green at `367498b1e`; no APK uploaded by any run. **Orchestrator gate passed** (es-de-plus-6d): 7 files; the APK upload step is reachable only in the `api34` job (needs the API 29 and TV legs), gated on source validation, `sayenah/ES-DE-Plus`, `refs/heads/main`, `push`/`workflow_dispatch` and no failure input; the workflow now also triggers on `push` to `main`. Then: on APPROVE merge PR #6 under §12.12, build-log line, delete the branch; the merge push to `main` runs the first publication — verify it (APK artefact present only after all gates, signer, ID, ABIs, source artefact and manifest), update the front page (`.github/README.md`) to present tense, and tell the Founder where to download. On REQUEST CHANGES: adjudicate, round 3 on thread `01a11fe7-e2e0-7b83-94a9-53ded51faba7`, verify pass.
 
 ## Distribution posture — PR #6 round 2 — active work order (D-007, D-007 am. 1, D-009)
 
