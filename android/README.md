@@ -1,6 +1,17 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 # ES-DE Plus Android host
 
+ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK contains permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code without that exception is included. FreeImage's FIPL, FreeType's FTL and CImg's CeCILL-C options are selected, with LGPL LibRaw inside FreeImage. Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
+
+Published CI debug APKs use a different throwaway key per run and cannot update
+one another. **Back up before uninstalling:** uninstall deletes app-owned ROMs,
+settings, collections, media and logs. ROM files in a selected shared directory
+survive, but application settings do not. Keep the matching source artefact with
+your APK; source is retained 14 days and APKs 7 days. Only main push/dispatch runs
+in `sayenah/ES-DE-Plus` publish; branch, fork and PR runs exercise the gates in
+dry-run and never upload an APK. See [the distribution README](DISTRIBUTION-README.md)
+for source, relinking and rebuild/signing instructions.
+
 On first launch choose a storage mode before granting permissions. Application
 settings, collections and logs stay in the current user's app-specific external
 `ES-DE-Plus` directory. Official ES-DE application data is never adopted or migrated.
@@ -54,8 +65,12 @@ it does not claim character-by-character navigation of every TV keyboard layout.
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
 then drives real configurator/permission screens on API 29, API 34 and Android TV
-API 36 x86_64. Only logs, screenshots and audits are uploaded. APK distribution
-waits for PR-D and the reworked distribution-posture PR #6 (D-007).
+API 36 x86_64. API 34 runs last on its own runner, after the API 29 and TV legs pass. After
+same-commit Linux success and all Android checks, CI uploads and validates the
+source artefact before the exact smoked debug APK. No intermediary APK is
+uploaded. Dispatch with `rebuild_run` and `rebuild_attempt` rebuilds both ABIs from
+an extracted source artefact without checkout or dependency caches; rebuild APKs
+remain on that runner. `failure` controls are dry-run only and forbidden on main.
 
 Game launching uses the existing Android find rules and Intent variables in
 `INSTALL.md`. The transport token determines the value in either storage mode:
@@ -152,6 +167,5 @@ PR-D. Only use trusted manuals where that risk is unacceptable.
 The reconciled Android inventory is [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
 Upstream's GPL converter/Poppler and standalone Poppler-only codecs are excluded
 from every Android variant. libgit2 retains its GPL linking exception; LGPL
-runtime libraries stay shared. No application dependency or APK upload is added
-by PR-D. CI generates PDF fixtures without a third-party PDF library and checks
+runtime libraries stay shared. The platform renderer adds no application dependency. CI generates PDF fixtures without a third-party PDF library and checks
 native input/licence closure, JNI contracts and viewer behaviour on all three images.

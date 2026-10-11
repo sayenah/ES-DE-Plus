@@ -10,13 +10,18 @@ NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identical
 AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
 measured RELRO values are printed and recorded below. An unmatched file follows
 the strict rule regardless of its filename.
-D-007 and D-007 am. 1: the Android APK composition is MIT + permissive
-(FreeImage FIPL, FreeType FTL and CImg CeCILL-C selections) + Apache-2.0 +
-LGPL-2.1 shared libraries + libgit2 (GPL-2.0 with its linking exception).
-No GPL code without a linking exception enters the Android build. PDF rendering
-uses the Android platform; upstream's GPL converter and Poppler remain desktop/iOS
-inputs only. APK publication and the accompanying exact third-party source
-artefact belong to PR #6 after PR-D; PR-D uploads evidence only.
+ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK contains permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code without that exception is included. FreeImage's FIPL, FreeType's FTL and CImg's CeCILL-C options are selected, with LGPL LibRaw inside FreeImage. Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See the component table below for component terms.
+
+D-007 am. 1 and D-009 govern Android distribution. PDF rendering uses the Android
+platform; upstream's GPL converter and Poppler remain desktop/iOS inputs only.
+Every APK artefact includes this inventory, preserved `licenses/` and a source/
+relink/rebuild README. Source is uploaded and validated first, retained 14 days
+against the APK's 7, with run/attempt-specific names; branch/PR/fork runs upload
+no APK. The provenance manifest covers actual compile, header and link graphs,
+shipped libraries and bundled codecs, with archive URLs/hashes, the exact tracked
+commit, toolchain runtimes, selected terms, build recipes and a verified no-source-
+patches declaration. FreeImage includes the uncombined LibRaw source under LGPL;
+CImg's CeCILL-C source is in the tracked tree. The full sources accompany each APK.
 No proprietary Android package or code is used.
 
 The APK contains these 21 shared-library entries for each ABI (the component table
@@ -86,7 +91,7 @@ under the same Apache-2.0 terms.
 | Component | Pin | License | Android configuration / packaging |
 | --- | --- | --- | --- |
 | ES-DE-Plus native frontend, bridge, overlay, host | PR revision | MIT | Clean-room host; shared `libmain.so` |
-| Android ConvertPDF / es-pdf-convert | PR-D revision | MIT | Written for ES-DE-Plus; platform PdfRenderer via two MainActivity JNI delegates, filesystem paths only, no renderer cache |
+| Android ConvertPDF / es-pdf-convert | exact manifest commit | MIT | Written for ES-DE-Plus; platform PdfRenderer via two MainActivity JNI delegates, filesystem paths only, no renderer cache |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
 | libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; only lib/libcharset library targets built and installed, generated iconv.h installed explicitly; unused GPL CLI/src/srclib targets are not built |
 | libcharset (bundled with libiconv) | 1.5 within libiconv 1.19 | LGPL-2.1-or-later | Build-only `libcharset.so`, not packaged; same libiconv configure command and existing `licenses/libiconv` terms |
@@ -106,7 +111,7 @@ under the same Apache-2.0 terms.
 | dav1d | 1.5.3 | BSD-2-Clause | Shared; tools/tests off |
 | LunaSVG / plutovg | 3.5.0 / 1.3.2 (tracked subtree) | MIT | Static; upstream CMake configuration |
 | rlottie | 0.2 (tracked subtree) | MIT | Static; threading/modules off by upstream CMake |
-| GLM, RapidJSON, utfcpp, CImg | 1.0.0, 1.1.0, 4.0.6, 3.6.1 (tracked subtrees) | MIT; CImg CeCILL-C/CeCILL terms | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
+| GLM, RapidJSON, utfcpp, CImg | 1.0.0, 1.1.0, 4.0.6, 3.6.1 (tracked subtrees) | MIT; CImg CeCILL-C selected | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
 | libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; hash-verified NDK copy; architecture/API/SONAME, LOAD alignment and APK zipalign checked; measured RELRO and build IDs below under D-001(b) am. 2; notice in `licenses/libcxx` |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |

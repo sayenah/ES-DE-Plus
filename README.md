@@ -2,9 +2,9 @@
 
 ES-DE (EmulationStation Desktop Edition) is a frontend for browsing and launching games from your multi-platform collection.
 
-ES-DE-Plus is a fork of ES-DE whose own source remains MIT-licensed. As upstream does, its Android builds link the GPL-2.0-only PDF converter and Poppler in process, so distributed ES-DE-Plus Android APKs are GPL-2.0 combined works whose complete corresponding source is public in this repository. See [the Android dependency inventory](android/DEPENDENCY-LICENSES.md) for component licences.
-
 It's officially supported on Android, Linux, macOS, Windows and Haiku. There is also an unofficial ES-DE package in the FreeBSD ports collection.
+
+ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK contains permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code without that exception is included. FreeImage's FIPL, FreeType's FTL and CImg's CeCILL-C options are selected, with LGPL LibRaw inside FreeImage. Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](android/DEPENDENCY-LICENSES.md) for component terms.
 
 Website:\
 https://es-de.org
