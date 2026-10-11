@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml"><img alt="Android build" src="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml/badge.svg"></a>
-  <a href="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-linux.yml"><img alt="Linux build" src="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-linux.yml/badge.svg"></a>
+  <a href="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml"><img alt="Android build" src="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-linux.yml"><img alt="Linux build" src="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-linux.yml/badge.svg?branch=main"></a>
   <a href="/LICENSE"><img alt="Source licence: MIT" src="https://img.shields.io/badge/source-MIT-8b7bff"></a>
   <img alt="Android 10 and later" src="https://img.shields.io/badge/Android-10%2B-2ee6c5">
   <img alt="Phone, TV and home screen" src="https://img.shields.io/badge/phone%20%C2%B7%20TV%20%C2%B7%20home%20screen-ff6fa8">
@@ -54,7 +54,7 @@
 </table>
 
 <p align="center">
-  <img src="/.github/assets/tv-global-search.png" alt="Global search results on an Android TV emulator" width="80%"><br>
+  <img src="/.github/assets/tv-global-search.png" alt="Global search results on an Android TV emulator" width="70%"><br>
   <sub>Global search running on an Android TV emulator in our automated test suite (the "smoke" games are test fixtures).</sub>
 </p>
 
