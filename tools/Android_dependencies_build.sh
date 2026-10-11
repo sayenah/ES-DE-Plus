@@ -26,6 +26,19 @@ prefix=$root/android/.deps/install/$abi
 libs=$root/android/libs/$abi
 jobs=${JOBS:-2}
 mkdir -p "$work" "$prefix" "$libs"
+# Preserve the real NDK tools, recording only target builds (not configure probes
+# or ICU's native host tools). OpenSSL locates plain clang in the real NDK PATH.
+audit_tools=$work/compiler-audit
+mkdir -p "$audit_tools"
+for tool in "${triple}29-clang" "${triple}29-clang++" llvm-ar llvm-ranlib; do
+    printf '#!/usr/bin/env bash\nexec python3 "%s/android/license-tool.py" "%s/%s" "$@"\n' "$root" "$toolbin" "$tool" > "$audit_tools/$tool"
+    chmod +x "$audit_tools/$tool"
+done
+export PATH="$audit_tools:$PATH"
+export CC=$audit_tools/${triple}29-clang CXX=$audit_tools/${triple}29-clang++
+export AR=$audit_tools/llvm-ar RANLIB=$audit_tools/llvm-ranlib
+audit_commands=$work/compiler-commands.jsonl
+: > "$audit_commands"
 export PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig PKG_CONFIG_PATH=$prefix/lib/pkgconfig
 cm() {
     local name=$1 source=$2; shift 2
@@ -35,14 +48,9 @@ cm() {
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
         -DCMAKE_FIND_ROOT_PATH="$prefix" -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
-    cmake --build "$work/$name" --parallel "$jobs"
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" "$@"
+    ESDE_LICENSE_COMMANDS="$audit_commands" cmake --build "$work/$name" --parallel "$jobs"
     cmake --install "$work/$name"
-}
-autoconf_build() {
-    local name=$1; shift
-    mkdir -p "$work/$name"
-    (cd "$work/$name"; "$src/$name/configure" --host="$triple" --prefix="$prefix" "$@"; make -j"$jobs"; make install)
 }
 # FreeImage's upstream distribution has no portable CMake project. Build its complete
 # bundled codec set from the public Makefile.srcs, without modifying downloaded source.
@@ -66,14 +74,23 @@ with open(sys.argv[2], 'w') as out:
     out.write('target_link_libraries(freeimage PRIVATE log)\ninstall(TARGETS freeimage LIBRARY DESTINATION lib)\n')
 PY
 cm freeimage "$work/freeimage-project"
-autoconf_build libiconv --enable-shared --disable-static
+# Build libiconv/libcharset's LGPL libraries, not the unused GPL iconv CLI.
+# Top-level all/install/install-lib also build src/srclib, so select library
+# targets explicitly and install the configure-generated public header.
+mkdir -p "$work/libiconv"
+(cd "$work/libiconv"; "$src/libiconv/configure" --host="$triple" --prefix="$prefix" --enable-shared --disable-static
+ ESDE_LICENSE_COMMANDS="$audit_commands" make lib/localcharset.h
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C lib -j"$jobs"
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C libcharset install
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C lib install
+ install -m 644 include/iconv.h.inst "$prefix/include/iconv.h")
 # Only the LGPL runtime ships; GPL msgfmt is a host-side build tool.
 mkdir -p "$work/gettext"
 (cd "$work/gettext"; "$src/gettext/configure" --host="$triple" --prefix="$prefix" \
     --disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf \
     --with-included-libxml --with-libiconv-prefix="$prefix" --enable-shared --disable-static
- make -C gettext-runtime/intl -j"$jobs"
- make -C gettext-runtime/intl install)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C gettext-runtime/intl -j"$jobs"
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -C gettext-runtime/intl install)
 # ICU needs native host tools for its data archive before cross-compilation.
 hosticu=$root/android/.deps/build/icu-host
 if [[ ! -x $hosticu/bin/icupkg ]]; then
@@ -86,27 +103,15 @@ mkdir -p "$work/icu"
 (cd "$work/icu"; "$src/icu/source/configure" --host="$triple" --prefix="$prefix" \
     --with-cross-build="$hosticu" --enable-static --disable-shared --with-data-packaging=static \
     --disable-tests --disable-samples --disable-extras --disable-icuio
- make -j"$jobs"; make install)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; ESDE_LICENSE_COMMANDS="$audit_commands" make install)
 cm libpng "$src/libpng" -DPNG_SHARED=ON -DPNG_TESTS=OFF -DPNG_TOOLS=OFF
 cm harfbuzz "$src/harfbuzz" -DBUILD_SHARED_LIBS=ON -DHB_BUILD_SUBSET=OFF -DHB_HAVE_FREETYPE=OFF -DHB_HAVE_ICU=OFF
 cm freetype "$src/freetype" -DBUILD_SHARED_LIBS=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_BROTLI=ON
-cm jpeg "$src/jpeg" -DENABLE_SHARED=ON -DENABLE_STATIC=OFF -DWITH_TURBOJPEG=OFF
-cm zstd "$src/zstd/build/cmake" -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_SHARED=ON -DZSTD_BUILD_STATIC=OFF
-cm tiff "$src/tiff" -DBUILD_SHARED_LIBS=ON -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF \
-    -Dwebp=OFF -Dlzma=OFF -Djbig=OFF -Dlerc=OFF
-cm openjpeg "$src/openjpeg" -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DBUILD_TESTING=OFF
-cm poppler "$src/poppler" -DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -DENABLE_UTILS=OFF \
-    -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF \
-    -DENABLE_GPGME=OFF -DENABLE_LCMS=OFF -DENABLE_LIBCURL=OFF -DENABLE_LIBTIFF=ON \
-    -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF \
-    -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF
-mkdir -p "$root/android/.deps/layout/poppler-cpp"
-cp "$work/poppler/cpp/poppler-version.h" "$work/poppler/cpp/poppler_cpp_export.h" "$root/android/.deps/layout/poppler-cpp/"
 # OpenSSL uses the NDK compiler selected via its Android target.
 mkdir -p "$work/openssl"
 (cd "$work/openssl"; ANDROID_NDK_ROOT="$ndk" "$src/openssl/Configure" "$openssl_arch" \
     -D__ANDROID_API__=29 --prefix="$prefix" --libdir=lib shared no-tests no-apps -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
- make -j"$jobs"; make install_sw)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; ESDE_LICENSE_COMMANDS="$audit_commands" make install_sw)
 cm curl "$src/curl" -DBUILD_SHARED_LIBS=ON -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF \
     -DCURL_USE_OPENSSL=ON -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_USE_LIBSSH=OFF \
     -DUSE_NGHTTP2=OFF -DCURL_BROTLI=OFF -DCURL_ZSTD=OFF -DENABLE_ARES=OFF
@@ -142,7 +147,9 @@ mkdir -p "$work/ffmpeg"
     --disable-doc --disable-programs --disable-autodetect --disable-lzma --disable-gpl \
     --disable-nonfree --enable-libdav1d --enable-zlib --extra-cflags="-I$prefix/include" \
     --extra-ldflags="-L$prefix/lib $LDFLAGS" --pkg-config=pkg-config
- make -j"$jobs"; make install)
+ ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; ESDE_LICENSE_COMMANDS="$audit_commands" make install)
+# Retain actual compile/header and link inputs beside the cached install.
+python3 android/license-inputs.py capture "$abi" "$ndk"
 # Package only the upstream link inputs and recursive non-system DT_NEEDED closure.
 python3 android/package-dependencies.py "$prefix/lib" "$libs" "$ndk" "$host" "$triple"
 printf 'Built dependency closure for %s (API 29, 16 KiB).\n' "$abi"

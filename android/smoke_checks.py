@@ -37,6 +37,18 @@ def stock_onboarding_focused(window, package):
     return bool(re.search(re.escape(package) + r'/(?:\.|' + re.escape(package) + r'\.)dialog\.ShowDialogsActivity', focus))
 
 
+def package_window_focused(window, package):
+    focus = next((line for line in window.splitlines() if 'mCurrentFocus=' in line), '')
+    return bool(re.search(r'\s' + re.escape(package) + '/', focus))
+
+
+def stock_banner_dismiss_focused(nodes, package):
+    return any(n.get('package') == package and n.get('text') == 'Dismiss' and
+               n.get('resource-id') == package + ':id/tray_dismiss' and
+               n.get('focused') == 'true' and n.get('clickable') == 'true'
+               for n in nodes)
+
+
 def onboarding_dismiss_focused(nodes, package):
     assert any(n.get('package') == package and n.get('text') == 'Dismiss' and
                n.get('resource-id') == package + ':id/tutorial_negative_action' and
@@ -100,6 +112,16 @@ def positive_controls():
         reject('wrong Dismiss ' + field, lambda field=field, wrong=wrong:
                onboarding_dismiss_focused([dict(dismiss, **{field: wrong})], 'stock.launcher'))
     reject('missing Dismiss action', lambda: onboarding_dismiss_focused([], 'stock.launcher'))
+    probe_passed('focused' if package_window_focused(focus, 'stock.launcher') else '', 'focused')
+    reject('unrelated window is not stock launcher', lambda: probe_passed(
+        'focused' if package_window_focused('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}', 'stock.launcher') else '', 'focused'))
+    banner = dict(dismiss, **{'resource-id': 'stock.launcher:id/tray_dismiss'})
+    probe_passed('focused' if stock_banner_dismiss_focused([banner], 'stock.launcher') else '', 'focused')
+    for field, wrong in [('package', 'smoke.app'), ('text', 'Details'),
+                         ('resource-id', 'stock.launcher:id/tutorial_negative_action'),
+                         ('focused', 'false'), ('clickable', 'false')]:
+        reject('wrong stock banner ' + field, lambda field=field, wrong=wrong: probe_passed(
+            'focused' if stock_banner_dismiss_focused([dict(banner, **{field: wrong})], 'stock.launcher') else '', 'focused'))
     records = [('HomeEntry', '7'), ('ConfiguratorActivity', '7')]
     nodes = [{'package': 'smoke.app', 'text': 'Configure ES-DE Plus'}]
     held_restored(records, nodes, '200', '100', 'smoke.app')

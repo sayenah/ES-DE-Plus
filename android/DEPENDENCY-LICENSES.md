@@ -10,16 +10,20 @@ NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identical
 AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
 measured RELRO values are printed and recorded below. An unmatched file follows
 the strict rule regardless of its filename.
-APKs remain inside CI pending G-1/G-2.
-Poppler and the upstream `ConvertPDF` implementation are GPL-2.0-only and are linked
-in process on Android. This inventory records that fact and does not decide G-2.
+D-007 and D-007 am. 1: the Android APK composition is MIT + permissive
+(FreeImage FIPL, FreeType FTL and CImg CeCILL-C selections) + Apache-2.0 +
+LGPL-2.1 shared libraries + libgit2 (GPL-2.0 with its linking exception).
+No GPL code without a linking exception enters the Android build. PDF rendering
+uses the Android platform; upstream's GPL converter and Poppler remain desktop/iOS
+inputs only. APK publication and the accompanying exact third-party source
+artefact belong to PR #6 after PR-D; PR-D uploads evidence only.
 No proprietary Android package or code is used.
 
-The APK contains these 27 shared-library entries for each ABI (the component table
-below gives versions, licences and configuration). Packaging starts from the unchanged upstream CMake link list plus the NDK runtime,
+The APK contains these 21 shared-library entries for each ABI (the component table
+below gives versions, licences and configuration). Packaging starts from the Android CMake link list plus the NDK runtime,
 then follows recursive non-system DT_NEEDED entries. Unreachable libraries and
 install-time aliases are excluded; every PNG consumer requests `libpng16.so`.
-`libavdevice`, `libcharset`, HarfBuzz GPU/raster/vector, Ogg and `libtiffxx` are
+`libavdevice`, `libcharset`, HarfBuzz GPU/raster/vector and Ogg are
 built under the same dependency configuration but are not packaged.
 
 | Component | Packaged entries |
@@ -27,7 +31,6 @@ built under the same dependency configuration but are not packaged.
 | Frontend | `libmain.so` |
 | ConvertPDF | `libes-pdf-convert.so` |
 | SDL2 | `libSDL2.so` |
-| Poppler | `libpoppler.so`, `libpoppler-cpp.so` |
 | FFmpeg | `libavcodec.so`, `libavfilter.so`, `libavformat.so`, `libavutil.so`, `libswresample.so`, `libswscale.so` |
 | libiconv | `libiconv.so` |
 | gettext runtime | `libintl.so` |
@@ -37,26 +40,55 @@ built under the same dependency configuration but are not packaged.
 | libgit2 | `libgit2.so` |
 | curl | `libcurl.so` |
 | OpenSSL | `libcrypto.so`, `libssl.so` |
-| libjpeg-turbo | `libjpeg.so` |
 | libpng | `libpng16.so` |
-| libtiff | `libtiff.so` |
-| OpenJPEG | `libopenjp2.so` |
-| zstd | `libzstd.so` |
 | dav1d | `libdav1d.so` |
 | NDK C++ runtime | `libc++_shared.so` |
 
 ICU, pugixml, LunaSVG/plutovg and rlottie are static consumer inputs, not separate
-APK entries; the CI `native-outputs.txt` records the actual Ninja link commands.
+APK entries; NDK compiler support (including libatomic) comes from the same
+Apache-2.0/LLVM-exception toolchain. The CI `native-outputs.txt` records the actual Ninja link commands.
+The inherited LunaSVG target emits `libplutovg.a` at the checkout root. The two
+ABI-neutral headers exposed by setup (`libintl.h`, `libavutil/avconfig.h`) retain
+their gettext and FFmpeg runtime terms; the audit admits only these exact paths.
+`android/license-inputs.py` checks actual compile databases, Ninja header dependencies,
+compiler depfiles and static/shared link commands, with actual compiler/archive
+invocations from Make-based builds recorded by
+`android/license-tool.py`; OpenSSL's full static libraries and ICU's `libicutu.a`
+and `libicutest.a` tool-support archives are build-only, never packaged. OpenSSL's
+provider convenience archives (`libcommon.a`, `libdefault.a`, `liblegacy.a`,
+`libtemplate.a`) use the same Apache-2.0 terms; gettext's runtime convenience
+archive `libgnu.a` uses the same LGPL runtime terms. libiconv's GPL CLI/src/srclib
+targets are not built; the input audit rejects those paths.
+The generated target graph also contains libpng's static `libpng16.a`, FFmpeg's
+unused `libavdevice.so`, dav1d's `libdav1d_input.a` tool archive, and OpenSSL's
+`capi.so`, `dasync.so`, `loader_attic.so`, `ossltest.so`, `padlock.so`, and
+`legacy.so` modules. These are build-only inputs under their parent component's
+reviewed licence and are excluded from the APK closure. dav1d's 8/16-bit static
+convenience archives are internal BSD-2-Clause inputs to its shared library.
+Graphs are retained with each ABI install and audited again on cache restores. Unknown source/header,
+library, dex dependency or APK entries are rejected; forbidden-header/library and
+unknown-input positive controls exercise the same gates. `auditRuntimeLicences`
+checks Gradle's resolved debug/release runtime artifacts, and `check-identity.py`
+checks actual dex classes using the R8 mapping for minified names.
+
+Closure evidence from [PR-C's run](https://github.com/sayenah/ES-DE-Plus/actions/runs/38058077314):
+only Poppler/TIFF consumed the standalone JPEG, TIFF, OpenJPEG and zstd libraries
+(other than the explicit JPEG link removed with Poppler). They leave setup/build,
+packaging and the inventory. FreeType still consumes libpng; FreeImage's bundled
+JPEG/PNG/TIFF/OpenJPEG/etc. remain inside FreeImage under their reviewed notices.
+Desktop `licenses/` is unchanged. The new cache key excludes old Poppler installs.
+
 Kotlin stdlib and its implicit JetBrains annotations dependency appear in dex;
-the identity audit records their packaged classes.
+the identity audit records their packaged classes. JetBrains annotations 13.0
+contains both `org.jetbrains.annotations` and `org.intellij.lang.annotations`
+under the same Apache-2.0 terms.
 
 | Component | Pin | License | Android configuration / packaging |
 | --- | --- | --- | --- |
 | ES-DE-Plus native frontend, bridge, overlay, host | PR revision | MIT | Clean-room host; shared `libmain.so` |
-| ConvertPDF / es-pdf-convert | upstream 3.5.0 | GPL-2.0-only | Shared, linked in process |
-| Poppler / poppler-cpp | 26.06.0 | GPL-2.0-only | `-DENABLE_UNSTABLE_API_ABI_HEADERS=ON -DENABLE_CPP=ON -DENABLE_UTILS=OFF -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_GLIB=OFF -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF -DENABLE_GPGME=OFF -DENABLE_LCMS=OFF -DENABLE_LIBCURL=OFF -DENABLE_LIBTIFF=ON -DENABLE_LIBOPENJPEG=openjpeg2 -DFONT_CONFIGURATION=android -DBUILD_CPP_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF -DBUILD_GTK_TESTS=OFF -DRUN_GPERF_IF_PRESENT=OFF` |
+| Android ConvertPDF / es-pdf-convert | PR-D revision | MIT | Written for ES-DE-Plus; platform PdfRenderer via two MainActivity JNI delegates, filesystem paths only, no renderer cache |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
-| libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; host GPL utilities are not packaged |
+| libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; only lib/libcharset library targets built and installed, generated iconv.h installed explicitly; unused GPL CLI/src/srclib targets are not built |
 | libcharset (bundled with libiconv) | 1.5 within libiconv 1.19 | LGPL-2.1-or-later | Build-only `libcharset.so`, not packaged; same libiconv configure command and existing `licenses/libiconv` terms |
 | gettext / libintl | 1.0 | LGPL-2.1-or-later (runtime) | Runtime intl only; `--disable-java --disable-csharp --disable-openmp --disable-curses --disable-libasprintf --with-included-libxml --with-libiconv-prefix=<ABI-prefix> --enable-shared --disable-static`; host `msgfmt` is not packaged |
 | ICU | 78.3 | Unicode-3.0 / ICU | Static uc/i18n/data; `--with-cross-build=<host-ICU-build> --enable-static --disable-shared --with-data-packaging=static --disable-tests --disable-samples --disable-extras --disable-icuio` |
@@ -68,10 +100,6 @@ the identity audit records their packaged classes.
 | libpng | 1.6.58 | libpng-2.0 | Shared; tests/tools off |
 | HarfBuzz | 14.2.1 | MIT | Shared core packaged; GPU, raster and vector outputs are build-only; subset, ICU, FreeType integration off |
 | FreeType | 2.14.3 | FTL or GPL-2.0; FTL selected | Shared; HarfBuzz, bzip2, brotli off |
-| zstd | 1.5.7 | BSD-3-Clause or GPL-2.0; BSD selected | Shared; programs/tests/static off |
-| libjpeg-turbo | 3.1.4.1 | BSD-3-Clause / IJG / zlib | Shared; turbojpeg/static off |
-| libtiff | 4.7.1 | libtiff (BSD-like) | Shared; tools/tests/docs/contrib/webp/lzma/jbig/lerc off |
-| OpenJPEG | 2.5.4 | BSD-2-Clause | Shared; codec/tests off |
 | libgit2 | 1.9.4 | GPL-2.0 with linking exception | `-DBUILD_SHARED_LIBS=ON -DBUILD_TESTS=OFF -DBUILD_CLI=OFF -DUSE_SSH=OFF -DUSE_HTTPS=OpenSSL -DUSE_BUNDLED_ZLIB=OFF -DUSE_THREADS=ON`; linking exception retained |
 | pugixml | 1.15 | MIT | Static |
 | Ogg | 1.3.6 | BSD-3-Clause | Build-only shared output, not packaged; tests off |
@@ -166,14 +194,9 @@ both caches. Canonical public source-archive SHA256 values measured for this sli
 | gettext | `85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a` |
 | harfbuzz | `a54a5d8e9380a41fbb762ce367bcbf7704792dfca0d93f1bbca86c5a57902e0e` |
 | icu | `3a2e7a47604ba702f345878308e6fefeca612ee895cf4a5f222e7955fabfe0c0` |
-| jpeg | `ecae8008e2cc9ade2f2c1bb9d5e6d4fb73e7c433866a056bd82980741571a022` |
 | libgit2 | `824b73bd13647800fe4b566a1008ae77fea0e3e3424edab632fcfd8c0b14ba8b` |
 | libiconv | `88dd96a8c0464eca144fc791ae60cd31cd8ee78321e67397e25fc095c4a19aa6` |
 | libpng | `28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775` |
 | ogg | `5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061` |
-| openjpeg | `a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a` |
 | openssl | `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a` |
-| poppler | `4cb4e5a3dc8cb5eec751c8a23c8ba19f61f96dedc0cd07d2aee6b0c8e2cf6ba4` |
 | pugixml | `655ade57fa703fb421c2eb9a0113b5064bddb145d415dd1f88c79353d90d511a` |
-| tiff | `b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba` |
-| zstd | `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3` |

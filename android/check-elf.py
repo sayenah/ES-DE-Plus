@@ -17,7 +17,7 @@ readelf = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf'
 print((ndk / 'source.properties').read_text())
 system = {'libc.so', 'libm.so', 'libdl.so', 'liblog.so', 'libandroid.so', 'libcamera2ndk.so', 'libmediandk.so', 'libEGL.so',
           'libGLESv1_CM.so', 'libGLESv2.so', 'libGLESv3.so', 'libOpenSLES.so', 'libaaudio.so', 'libz.so'}
-required = {'libmain.so', 'libSDL2.so', 'libes-pdf-convert.so', 'libc++_shared.so', 'libpoppler-cpp.so'}
+required = {'libmain.so', 'libSDL2.so', 'libes-pdf-convert.so', 'libc++_shared.so'}
 failures = []
 
 def require(condition, detail):

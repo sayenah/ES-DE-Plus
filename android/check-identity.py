@@ -81,7 +81,8 @@ with zipfile.ZipFile(apk) as archive:
                 assert forbidden.encode(encoding) not in data, (entry, encoding)
         assert not entry.endswith(('.jks', '.keystore')), entry
     assert archive.read('assets/graphics/splash.svg') == pathlib.Path('android/branding/splash.svg').read_bytes()
-for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/'):
+for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/',
+               'Lorg/intellij/lang/annotations/'):
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
@@ -99,12 +100,52 @@ required_methods = {
     ('setupResources', '(Ljava/lang/String;)Z'), ('startConfigurator', '()V'), ('onNativeFrontendResume', '()V'),
     ('launchGame', '([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)I'),
 }
+def pdf_descriptors(methods):
+    expected = {('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'),
+                ('renderPdfPage', '(Ljava/lang/String;III)[B')}
+    assert expected <= methods, ('Missing PDF JNI descriptors', expected - methods)
+
 for owner in ['MainActivity', 'NativeBridge']:
     methods = classes['Lorg/esdeplus/frontend/' + owner + ';']
-    assert required_methods <= methods, (owner, 'Missing JNI methods', required_methods - methods)
-    for name, descriptor in sorted(required_methods):
+    if owner == 'MainActivity':
+        pdf_descriptors(methods)
+        for missing in [('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'), ('renderPdfPage', '(Ljava/lang/String;III)[B')]:
+            try:
+                pdf_descriptors(methods - {missing})
+            except AssertionError:
+                print('PASS: removed PDF JNI descriptor control rejected: ' + missing[0])
+            else:
+                raise AssertionError('PDF JNI control escaped')
+        methods_required = required_methods | {('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'),
+                                              ('renderPdfPage', '(Ljava/lang/String;III)[B')}
+    else:
+        methods_required = required_methods
+    assert methods_required <= methods, (owner, 'Missing JNI methods', methods_required - methods)
+    for name, descriptor in sorted(methods_required):
         print(f'KEPT JNI METHOD {owner}.{name}{descriptor}')
 print('PASS: actual defined JNI methods retain every name/descriptor in ' + ('minified release' if release else 'debug') + ' dex')
+
+def dex_licences(names):
+    mapping = {}
+    if release:
+        for line in pathlib.Path('android/app/build/outputs/mapping/release/mapping.txt').read_text().splitlines():
+            match = re.fullmatch(r'(\S+) -> (\S+):', line)
+            if match:
+                mapping['L' + match[2].replace('.', '/') + ';'] = 'L' + match[1].replace('.', '/') + ';'
+    for name in names:
+        original = mapping.get(name, name)
+        assert original.startswith(('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/',
+                                    'Lorg/jetbrains/annotations/', 'Lorg/intellij/lang/annotations/',
+                                    'Lcom/android/tools/r8/')), ('Unreviewed dex class', name, original)
+
+dex_licences(classes)
+try:
+    dex_licences([*classes, 'Lcom/unreviewed/Library;'])
+except AssertionError:
+    print('PASS: unreviewed dex class positive control rejected')
+else:
+    raise AssertionError('Dex licence control escaped')
+print('PASS: actual dex definitions belong to the reviewed runtime inventory (R8 mapping in release)')
 
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
 aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt'

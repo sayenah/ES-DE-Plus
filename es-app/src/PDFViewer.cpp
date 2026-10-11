@@ -209,6 +209,13 @@ bool PDFViewer::startPDFViewer(FileData* game)
     mHelp->setPrompts(getHelpPrompts());
 
     convertPage(mCurrentPage);
+#if defined(__ANDROID__)
+    if (mPageImage == nullptr) {
+        Scripting::fireEvent("mediaviewer-stop");
+        ViewController::getInstance()->startViewVideos();
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -347,6 +354,12 @@ bool PDFViewer::getDocumentInfo()
 
 void PDFViewer::convertPage(int pageNum)
 {
+#if defined(__ANDROID__)
+    // A stopped viewer must not revisit its cleared cache on held input.
+    if (mCurrentPage == 0)
+        return;
+    mPageImage.reset();
+#endif
     assert(pageNum <= static_cast<int>(mPages.size()));
     auto& page = mPages[pageNum];
 
@@ -477,6 +490,20 @@ void PDFViewer::convertPage(int pageNum)
 #endif
             LOG(LogError) << "Error reading PDF file";
             page.imageData.clear();
+#if defined(__ANDROID__)
+            mZoom = 1.0f;
+            mKeyRepeatLeftRight = 0;
+            mKeyRepeatUpDown = 0;
+            mKeyRepeatZoom = 0;
+            mKeyRepeatTimer = 0;
+            mCurrentPage = 0;
+            // On first raster the caller returns false through Window's existing error path.
+            // On later rasters stop before releasing the page cache and report that same error.
+            if (pageNum != 1 || mPages[1].imageData.size() != 0) {
+                Window::getInstance()->stopPDFViewer();
+                Window::getInstance()->queueInfoPopup(_("ERROR: COULDN'T RENDER PDF FILE"), 4000);
+            }
+#endif
             return;
         }
     }

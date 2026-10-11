@@ -440,6 +440,10 @@ set(COMMON_INCLUDE_DIRS ${CURL_INCLUDE_DIR}
                         ${CMAKE_CURRENT_SOURCE_DIR}/external/utfcpp/source
                         ${CMAKE_CURRENT_SOURCE_DIR}/es-core/src
                         ${CMAKE_CURRENT_SOURCE_DIR}/es-pdf-converter/src)
+if(ANDROID)
+    list(REMOVE_ITEM COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/es-pdf-converter/src)
+    list(APPEND COMMON_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/android/pdf)
+endif()
 if(IOS)
     set(COMMON_INCLUDE_DIRS ${COMMON_INCLUDE_DIRS}
                             ${CMAKE_CURRENT_SOURCE_DIR}/external/curl/include
@@ -603,8 +607,6 @@ elseif(ANDROID)
                         ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libicui18n.a
                         ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libicuuc.a
                         ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libintl.so
-                        ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libjpeg.so
-                        ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libpoppler.so
                         ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libpugixml.a
                         ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libSDL2.so
                         ${PROJECT_SOURCE_DIR}/android/libs/${ANDROID_CPU_ARCH}/libssl.so)

@@ -106,6 +106,9 @@ class MainActivity : SDLActivity() {
     fun setupLocalizationFiles() = bridge.setupLocalizationFiles()
     fun setupResources(buildIdentifier: String) = bridge.setupResources(buildIdentifier)
     fun startConfigurator() = bridge.startConfigurator()
+    fun getPdfPageInfo(path: String): String? = org.esdeplus.frontend.bridge.PdfManual.pageInfo(path)
+    fun renderPdfPage(path: String, page: Int, width: Int, height: Int): ByteArray? =
+        org.esdeplus.frontend.bridge.PdfManual.render(path, page, width, height)
     fun onNativeFrontendResume() = bridge.onNativeFrontendResume()
     companion object {
         private var live: WeakReference<MainActivity>? = null
