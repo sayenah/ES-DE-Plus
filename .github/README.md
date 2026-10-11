@@ -78,25 +78,6 @@ Every Android change is built and tested on three emulator images — **Android 
 
 **Desktop.** ES-DE Plus keeps upstream's Linux, macOS and Windows builds (with global search added). Build from source with [INSTALL.md](/INSTALL.md); Linux is built on every change in CI.
 
-## 🤖 How it's built
-
-ES-DE Plus is built AI-first, in the open, under a written [build protocol](/docs/protocol.md). Every decision is recorded in the [decision log](/docs/decision-log.md) and every finished piece in the [build log](/docs/build-log.md).
-
-```mermaid
-flowchart TB
-    F([Founder]) --> O[Orchestrator]
-    O <-->|design challenge| A[Astra]
-    O -->|work order| S[Sol builds]
-    S --> CI{{CI: Linux + 3 Android emulators}}
-    CI --> Q[Opus QA]
-    Q -->|changes| S
-    Q -->|approve| M([main])
-```
-
-<sub>Orchestrator and QA: Claude Opus · design challenger: GPT-6 Astra · implementer: GPT-6.1 Sol</sub>
-
-No role reviews its own work: designs are challenged before code is written, and code is reviewed by a separate QA pass before it merges.
-
 ## ⚖️ Clean room and licensing
 
 - **Clean room.** Nothing in this repository comes from the proprietary ES-DE Android app or from decompiling it; its observable behaviour is documented in [`docs/ANDROID-CLEAN-ROOM.md`](/docs/ANDROID-CLEAN-ROOM.md) and everything is implemented from public sources. No payment or licence check is bypassed.
@@ -116,4 +97,3 @@ ES-DE Plus stands on the shoulders of [ES-DE](https://gitlab.com/es-de/emulation
 | The Android app | [`android/README.md`](/android/README.md) · [clean-room design](/docs/ANDROID-CLEAN-ROOM.md) |
 | Building from source | [INSTALL.md](/INSTALL.md) |
 | Themes | [THEMES.md](/THEMES.md) |
-| How the project runs | [Protocol](/docs/protocol.md) · [Decision log](/docs/decision-log.md) · [Current handoff](/docs/handoff.md) |
