@@ -12,7 +12,6 @@ import re
 import shutil
 import subprocess
 import tarfile
-import tempfile
 import time
 import zipfile
 
@@ -125,7 +124,11 @@ def provenance(path, tracked, audit):
         if component in LICENCES:
             return {'archive': component, 'library': name, 'recipe': 'tools/Android_dependencies_build.sh'}
         if component == 'NDK':
-            return provenance('NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/' + name, tracked, audit)
+            abi = next((part for part in parts if part in ABIS), None)
+            require(abi is not None, 'Unidentified NDK runtime ABI')
+            triple = 'aarch64-linux-android' if abi == 'arm64-v8a' else 'x86_64-linux-android'
+            return provenance('NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/' +
+                              triple + '/' + name, tracked, audit)
         return {'repository_path': component if component != 'repository' else
                 ('android/pdf/ConvertPDF.cpp' if name == 'libes-pdf-convert.so' else 'CMakeLists.txt'),
                 'library': name, 'recipe': 'android/app/build.gradle.kts'}
@@ -237,24 +240,51 @@ def source_tree_unmodified(archives):
     # Setup creates only .ready/include links and two ABI-neutral generated-header links.
     for component, pin in archives.items():
         source = ROOT / 'android/.deps/sources' / component
+        require(source.resolve().is_relative_to(ROOT.resolve()), 'Source tree escapes checkout')
         archive = ROOT / 'android/.deps/downloads' / pathlib.Path(pin['file']).name
         require(digest(archive) == pin['sha256'], f'Corrupt source archive: {component}')
+        expected_paths = set()
         if component == 'freeimage':
             with zipfile.ZipFile(archive) as entries:
                 for entry in entries.infolist():
                     if not entry.is_dir():
+                        expected_paths.add(entry.filename)
                         require(hashlib.sha256(entries.read(entry)).hexdigest() == digest(source / entry.filename),
                                 f'Source patch detected: {component}/{entry.filename}')
         else:
             with tarfile.open(archive) as entries:
                 for entry in entries:
+                    relative = pathlib.PurePosixPath(entry.name).parts[1:]
+                    if entry.isfile() or entry.issym() or entry.islnk():
+                        expected_paths.add('/'.join(relative))
                     if entry.isfile():
-                        relative = pathlib.PurePosixPath(entry.name).parts[1:]
                         require(relative and '..' not in relative, 'Unsafe source archive member')
                         with entries.extractfile(entry) as stream:
                             expected = hashlib.file_digest(stream, 'sha256').hexdigest()
                         require(expected == digest(source.joinpath(*relative)),
                                 f'Source patch detected: {component}/{entry.name}')
+        generated_links = {'gettext': {'gettext-runtime/intl/libintl.h'},
+                           'ffmpeg': {'libavutil/avconfig.h'}}.get(component, set())
+        actual = {str(p.relative_to(source)) for p in source.rglob('*') if p.is_file() or p.is_symlink()}
+        # SDL2 is an include-directory alias created by setup, not additional source.
+        allowed = expected_paths | {'.ready'} | generated_links | ({'SDL2'} if component == 'SDL' else set())
+        require(actual <= allowed, f'Added/unmapped source files: {component}: {actual - allowed}')
+
+
+def archive_members(bundle, archives):
+    result = {}
+    for component, pin in archives.items():
+        archive = bundle / pin['file']
+        if component == 'freeimage':
+            with zipfile.ZipFile(archive) as entries:
+                result[component] = {p for p in entries.namelist() if not p.endswith('/')}
+        else:
+            with tarfile.open(archive) as entries:
+                result[component] = {'/'.join(pathlib.PurePosixPath(p.name).parts[1:])
+                                     for p in entries if p.isfile() or p.issym() or p.islnk()}
+        require(not any(re.search(r'\.(apk|jks|keystore)$', p, re.I) for p in result[component]),
+                f'Forbidden APK/Android keystore in source archive: {component}')
+    return result
 
 
 def make_bundle(apk):
@@ -298,6 +328,7 @@ def make_bundle(apk):
         'Gradle': '8.13', 'AGP': '8.13.2', 'Kotlin': '2.2.21', 'SDK': '36',
         'SDK CMake': '3.31.5', 'build-tools': '36.0.0', 'minSdk': '29',
     }
+    require('Pkg.Revision = 28.2.13676358' in tools['NDK'], 'Unexpected NDK provenance')
     manifest = {'schema': 1, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
                 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'repository': os.environ['GITHUB_REPOSITORY'],
                 'apk': record, 'archives': archives, 'graphs': graphs, 'inputs': inputs, 'shared': shared,
@@ -315,11 +346,19 @@ def make_bundle(apk):
     apk_dir = destination.parent / 'apk'
     apk_dir.mkdir()
     shutil.copyfile(apk, apk_dir / 'app-debug.apk')
-    shutil.copytree(ROOT / 'licenses', apk_dir / 'licenses')
-    shutil.copyfile(ROOT / 'android/DEPENDENCY-LICENSES.md', apk_dir / 'DEPENDENCY-LICENSES.md')
+    # Notices come from the exact source commit, never an incidental/untracked file.
+    with tarfile.open(destination / 'repository.tar.gz') as repository:
+        for path in sorted(tracked):
+            if path == 'LICENSE' or path.startswith('licenses/'):
+                notice = apk_dir / path
+                notice.parent.mkdir(parents=True, exist_ok=True)
+                notice.write_bytes(repository.extractfile(path).read())
+        (apk_dir / 'DEPENDENCY-LICENSES.md').write_bytes(
+            repository.extractfile('android/DEPENDENCY-LICENSES.md').read())
+        text = repository.extractfile('android/DISTRIBUTION-README.md').read().decode()
     shutil.copyfile(destination / 'manifest.json', apk_dir / 'manifest.json')
     source_name, apk_name = artifact_names(commit, manifest['run_id'], manifest['run_attempt'])
-    text = (ROOT / 'android/DISTRIBUTION-README.md').read_text().replace('@SOURCE_NAME@', source_name)
+    text = text.replace('@SOURCE_NAME@', source_name)
     text = text.replace('@RUN_URL@', f'https://github.com/{manifest["repository"]}/actions/runs/{manifest["run_id"]}')
     (apk_dir / 'README.md').write_text(text)
     output = os.environ.get('GITHUB_OUTPUT')
@@ -354,6 +393,7 @@ def validate_bundle(bundle):
     require({str(p.relative_to(bundle)) for p in bundle.rglob('*') if p.is_file()} == expected_files,
             'Incidental output in source bundle')
     audit = audit_module()
+    members = archive_members(bundle, actual_pins)
     require(set(manifest['graphs']) == set(ABIS) | {'native'}, 'Missing actual input graph')
     expected_inputs = set()
     for graph in manifest['graphs'].values():
@@ -363,10 +403,18 @@ def validate_bundle(bundle):
     require(set(manifest['inputs']) == expected_inputs, 'Input manifest incomplete')
     for path, mapping in manifest['inputs'].items():
         require(mapping == provenance(path, tracked, audit), f'Unmapped/mismatched input: {path}')
+        if 'source_path' in mapping:
+            require(mapping['source_path'] in members[mapping['archive']], f'Input absent from source archive: {path}')
     for abi in ABIS:
         actual = {pathlib.PurePosixPath(p).name for p in manifest['shared'] if p.startswith(f'lib/{abi}/')}
         require(actual == audit.SHARED, f'Shared closure mismatch: {abi}')
-    require(set(manifest['bundled_codecs']) == {f'FreeImage/Source/{k}' for k in CODECS}, 'Missing bundled codec provenance')
+    require(len(manifest['shared']) == len(ABIS) * len(audit.SHARED), 'Extra ABI/shared entries')
+    for path, mapping in manifest['shared'].items():
+        require(re.fullmatch('[a-f0-9]{64}', mapping['sha256']), 'Missing shared-input hash')
+        require({k: v for k, v in mapping.items() if k != 'sha256'} ==
+                provenance(path.replace('lib/', 'android/libs/', 1), tracked, audit), 'Shared input mapping mismatch')
+    require(manifest['bundled_codecs'] == {f'FreeImage/Source/{k}': {'archive': 'freeimage', 'licence': v}
+                                         for k, v in CODECS.items()}, 'Missing bundled codec provenance')
     print(f'PASS: validated source commit {manifest["commit"]}, run {manifest["run_id"]}, attempt {manifest["run_attempt"]}')
     return manifest
 
@@ -413,19 +461,22 @@ def bundle_controls(bundle):
     finally:
         archive.unlink(missing_ok=True)
         saved.rename(archive)
-    try:
-        path = 'external/unmapped/unknown.h'
-        manifest['graphs']['native']['headers'].append(path)
-        manifest['inputs'][path] = {'repository_path': path}
-        (bundle / 'manifest.json').write_text(json.dumps(manifest))
+    for path in ['android/.deps/install/x86_64/include/unmapped.h',
+                 'android/.deps/sources/ffmpeg/unmapped-added-source.c']:
         try:
-            validate_bundle(bundle)
-        except (ValueError, AssertionError) as error:
-            print(f'PASS: unmapped input rejected: {error}')
-        else:
-            raise ValueError('Unmapped input control escaped')
-    finally:
-        (bundle / 'manifest.json').write_text(original)
+            manifest = json.loads(original)
+            manifest['graphs']['native']['headers'].append(path)
+            manifest['inputs'][path] = ({'archive': 'ffmpeg', 'source_path': 'unmapped-added-source.c'}
+                                        if path.endswith('.c') else {'repository_path': path})
+            (bundle / 'manifest.json').write_text(json.dumps(manifest))
+            try:
+                validate_bundle(bundle)
+            except (ValueError, AssertionError) as error:
+                print(f'PASS: unmapped input rejected: {error}')
+            else:
+                raise ValueError('Unmapped input control escaped')
+        finally:
+            (bundle / 'manifest.json').write_text(original)
     validate_bundle(bundle)
 
 

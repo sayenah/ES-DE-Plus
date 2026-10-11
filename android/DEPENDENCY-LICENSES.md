@@ -90,7 +90,7 @@ under the same Apache-2.0 terms.
 
 | Component | Pin | License | Android configuration / packaging |
 | --- | --- | --- | --- |
-| ES-DE-Plus native frontend, bridge, overlay, host | PR revision | MIT | Clean-room host; shared `libmain.so` |
+| ES-DE-Plus native frontend, bridge, overlay, host | exact manifest commit | MIT | Clean-room host; shared `libmain.so` |
 | Android ConvertPDF / es-pdf-convert | exact manifest commit | MIT | Written for ES-DE-Plus; platform PdfRenderer via two MainActivity JNI delegates, filesystem paths only, no renderer cache |
 | FFmpeg | 8.1.1 (`n8.1.1`) | LGPL-2.1-or-later plus permissive notices | `--disable-gpl --disable-nonfree --disable-autodetect --disable-lzma --disable-doc --disable-programs --enable-shared --disable-static --enable-pic --enable-libdav1d --enable-zlib`; no GPL components |
 | libiconv | 1.19 | LGPL-2.1-or-later (runtime) | `--enable-shared --disable-static`; only lib/libcharset library targets built and installed, generated iconv.h installed explicitly; unused GPL CLI/src/srclib targets are not built |

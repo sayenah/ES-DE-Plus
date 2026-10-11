@@ -349,6 +349,7 @@ jobs:
         with:
           name: ${{ steps.bundle.outputs.source_name }}
           path: android/.deps/distribution/source/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
       - name: Download the uploaded source for independent validation
@@ -400,6 +401,7 @@ jobs:
         with:
           name: ${{ steps.bundle.outputs.apk_name }}
           path: android/.deps/distribution/apk/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
@@ -484,8 +486,13 @@ jobs:
         run: |
           set -o pipefail
           mkdir source
-          tar -xzf bundle/repository.tar.gz -C source --no-same-owner
+          python3 - <<'PYCODE'
+          import tarfile
+          with tarfile.open('bundle/repository.tar.gz') as archive:
+              archive.extractall('source', filter='data')
+          PYCODE
           cd source
+          export JOBS=$(nproc)
           bash android/rebuild-source.sh "$GITHUB_WORKSPACE/bundle" 2>&1 | tee android/rebuild-source.log
       - name: Upload rebuild evidence only
         if: always()

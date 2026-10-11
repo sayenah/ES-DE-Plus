@@ -20,7 +20,7 @@ Apache-2.0 inputs, LGPL-2.1 shared libraries, and libgit2 under GPL-2.0 with its
 linking exception; no GPL code without that exception is included. FreeImage's
 FIPL, FreeType's FTL and CImg's CeCILL-C options are selected. LibRaw inside
 FreeImage uses LGPL-2.1-or-later. See `DEPENDENCY-LICENSES.md` and the accompanying
-`licenses/` for all notices, including FreeImage's bundled codecs. FreeImage and
+`licenses/` and `LICENSE` for all notices, including FreeImage's bundled codecs. FreeImage and
 the bundled uncombined LibRaw source are in `archives/freeimage.zip`; CImg and
 its licence are in `repository.tar.gz`. Their source and recipients' rights
 remain under those component terms. CeCILL-C's warranty and liability limitations
@@ -44,8 +44,10 @@ This verifies every source archive before extraction, rejects unknown inputs,
 builds both ABIs without checkout or dependency caches, and produces debug and
 unsigned release APKs locally. For a modified LGPL library, preserve an original
 source bundle, run source verification first, then edit the extracted component
-in `android/.deps/sources/`, remove that ABI's corresponding component build
-directory under `android/.deps/build/`, and rerun
+in `android/.deps/sources/`. Remove the generated `android/.deps/build/`,
+`android/.deps/install/`, `android/libs/`, `android/app/.cxx/` and Android module
+build directories, preserving `android/.deps/sources/` and the source archives.
+Rebuild the complete audited dependency graph with
 `tools/Android_dependencies_build.sh <ABI>` for each ABI. This rebuilds the shared
 library and dependent native inputs; for LibRaw edits it rebuilds FreeImage with
 the bundled uncombined LibRaw. Run setup again for generated include links, then
