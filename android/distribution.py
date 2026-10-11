@@ -202,11 +202,13 @@ def linux_gate(injection):
                 gate('success', conclusion, 'success')
                 jobs = api(f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{selected["id"]}/jobs')['jobs']
                 require(len(jobs) == 1 and jobs[0]['conclusion'] == 'success', 'Linux jobs incomplete')
-                # A regular-file sink works across gh versions that refuse ANSI
-                # sequences on a pipe. Parse the bytes without replaying the log.
+                # New gh versions require explicit permission to read raw ANSI
+                # log data. Parse it from a file, without replaying it to a terminal.
+                arguments = ['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/jobs/{jobs[0]["id"]}/logs']
+                if '--allow-escape-sequences' in run('gh', 'api', '--help'):
+                    arguments.append('--allow-escape-sequences')
                 with tempfile.TemporaryFile(mode='w+', dir=ROOT / 'android/evidence') as log:
-                    subprocess.run(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/jobs/{jobs[0]["id"]}/logs'],
-                                   stdout=log, check=True)
+                    subprocess.run(arguments, stdout=log, check=True)
                     log.seek(0)
                     logs = log.read()
                 match = re.search(r'git log -1 --format=%H\n\S+ ([a-f0-9]{40})', logs)
