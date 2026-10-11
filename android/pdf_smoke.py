@@ -208,9 +208,12 @@ def run(mode, harness):
             # the real paused host for every full-process descriptor snapshot.
             pid = h.shell('pidof', h.app).strip()
             _, before = h.activity_records()
-            paused = h.shell('am', 'start', '-W', '-a', 'android.settings.SETTINGS')
-            h.wait_for(lambda: not h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), h.app),
-                       'PDF descriptor snapshot outside frontend focus')
+            # TV Settings can be an overlay that leaves SDL RESUMED. The
+            # existing recipient has an opaque full-screen activity on every
+            # image; the instrumentation still verifies SDL is really PAUSED.
+            paused = h.shell('am', 'start', '-W', '-n', 'org.esdeplus.stub/.RecipientActivity')
+            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), 'org.esdeplus.stub'),
+                       'PDF descriptor snapshot recipient focus')
             time.sleep(2)
             snapshot = command(action)
             h.evidence.joinpath('pdf-' + mode + '-paused-' + stage + '.txt').write_text(
