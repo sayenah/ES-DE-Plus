@@ -452,7 +452,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.31.5'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.31.5'
           echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
       - name: Find source artefact in the requested run and attempt
         id: source
