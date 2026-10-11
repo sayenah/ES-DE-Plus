@@ -203,7 +203,29 @@ def run(mode, harness):
             h.private('sh', '-c', 'echo ' + shlex.quote(value) + ' > cache/pdf-command')
             h.wait_for(lambda: h.private('cat', 'cache/pdf-result', check=False).startswith(value + '\n'), 'PDF session ' + action)
             return h.private('cat', 'cache/pdf-result')
-        result = command('contract')
+        def paused_command(action, stage):
+            # Active frames create and retire graphics fence descriptors. Use
+            # the real paused host for every full-process descriptor snapshot.
+            pid = h.shell('pidof', h.app).strip()
+            _, before = h.activity_records()
+            paused = h.shell('am', 'start', '-W', '-a', 'android.settings.SETTINGS')
+            h.wait_for(lambda: not h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), h.app),
+                       'PDF descriptor snapshot outside frontend focus')
+            time.sleep(2)
+            snapshot = command(action)
+            h.evidence.joinpath('pdf-' + mode + '-paused-' + stage + '.txt').write_text(
+                paused + '\n' + h.shell('dumpsys', 'activity', 'activities') + '\n' + snapshot)
+            h.key('KEYCODE_BACK')
+            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), h.app),
+                       'PDF descriptor snapshot returns frontend focus')
+            h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF snapshot retains process')
+            rejects('PDF snapshot changed process', lambda: h.launch_checks.equal(pid + 'x', pid, 'PDF snapshot process control'))
+            _, after = h.activity_records()
+            h.launch_checks.equal([r[:2] for r in after], [r[:2] for r in before], 'PDF snapshot retains host and task')
+            rejects('PDF snapshot changed host/task', lambda: h.launch_checks.equal(
+                [r[:2] for r in before] + [('wrong', '-1')], [r[:2] for r in before], 'PDF snapshot task control'))
+            return snapshot
+        result = paused_command('contract', 'contract')
         h.smoke_checks.probe_passed(result, 'PASS: D-008 real JNI')
         h.evidence.joinpath('pdf-' + mode + '-contract.txt').write_text(result)
         h.adb('logcat', '-c')
@@ -283,7 +305,7 @@ def run(mode, harness):
             h.launch_checks.equal(displayed_page(first_stress, 1), True, 'Displayed stress page ready')
             h.launch_checks.equal(displayed_page(first_stress, 2), False, 'Wrong stress page readiness control')
             rejects('non-solid stress marker', lambda: solid_bit([128, 128, 128]))
-            baseline = command('stats')
+            baseline = paused_command('stats', 'before-stress')
             for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
                 for _ in range(59): h.key(code)
                 h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), page),
@@ -293,7 +315,7 @@ def run(mode, harness):
             for page in range(1, 61):
                 h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
             h.evidence.joinpath('pdf-' + mode + '-stress-pages.txt').write_text(logs)
-            after = command('stats')
+            after = paused_command('stats', 'after-stress')
             memory = h.shell('dumpsys', 'meminfo', h.app)
             memory_path = h.evidence / ('pdf-' + mode + '-stress-memory-fds.txt')
             memory_path.write_text(baseline + '\n' + after + '\n' + memory)
@@ -306,7 +328,7 @@ def run(mode, harness):
             close_cycle()
             for _ in range(10):
                 open_manual('cycle'); close_cycle()
-            stable = command('stats')
+            stable = paused_command('stats', 'after-cycles')
             memory_path.write_text(baseline + '\n' + after + '\n' + stable + '\n' + memory)
             descriptors(baseline, stable)
             command('fixture=valid')

@@ -208,6 +208,21 @@ def dismiss_stock_onboarding(force=False):
             # stock action through the remote, never a frontend control.
             smoke_checks.onboarding_dismiss_focused(nodes, stock_package)
             key('KEYCODE_DPAD_CENTER')
+        nodes = hierarchy()
+        # Closing the tutorial can expose a separate stock launcher banner.
+        # Dismiss its actual action too; retain the strict clear assertion.
+        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+               n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+            window = shell('dumpsys', 'window')
+            smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
+            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                output.write('Actual stock launcher banner; dismissing its separate action.\n' + window + '\n')
+            ui('Dismiss')
+            nodes = hierarchy()
+            if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+                   n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+                smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
+                key('KEYCODE_DPAD_CENTER')
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion

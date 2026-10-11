@@ -25,6 +25,16 @@ internal object PdfSmoke {
         }
         return entries.size to "STATS: fd=${entries.size}\n$targets"
     }
+    private fun pausedHost(instrumentation: Instrumentation) {
+        fun paused(state: org.libsdl.app.SDLActivity.NativeState?) {
+            check(state == org.libsdl.app.SDLActivity.NativeState.PAUSED) { "PDF measurement requires the actual paused SDL host: $state" }
+        }
+        var state: org.libsdl.app.SDLActivity.NativeState? = null
+        instrumentation.runOnMainSync { state = org.libsdl.app.SDLActivity.mCurrentNativeState }
+        paused(state)
+        rejected { paused(org.libsdl.app.SDLActivity.NativeState.INIT) }
+        rejected { paused(org.libsdl.app.SDLActivity.NativeState.RESUMED) }
+    }
     private fun pixel(bytes: ByteArray, width: Int, x: Int, y: Int, expected: IntArray) {
         val offset = (y * width + x) * 4
         val actual = (0..3).map { bytes[offset + it].toInt() and 255 }
@@ -221,7 +231,10 @@ internal object PdfSmoke {
                     previous = requested
                     val action = requested.substringAfter(':')
                     val value = when {
-                        action == "contract" -> contract(root)
+                        action == "contract" -> {
+                            pausedHost(instrumentation)
+                            contract(root) + "; host=PAUSED; unpaused state controls rejected"
+                        }
                         action.startsWith("fault=") -> {
                             val point = action.substringAfter('=').toInt()
                             PdfManual.beforeCall = { if (it == point) throw java.io.IOException("Injected PDF viewer failure at $point") }
@@ -234,7 +247,10 @@ internal object PdfSmoke {
                             else File(root, if (name == "valid") "Manual spaces \uD83D\uDE80.pdf" else "$name.pdf").copyTo(manual, overwrite = true)
                             "FIXTURE: $name"
                         }
-                        action == "stats" -> descriptorSnapshot().second
+                        action == "stats" -> {
+                            pausedHost(instrumentation)
+                            "HOST: PAUSED; unpaused state controls rejected\n" + descriptorSnapshot().second
+                        }
                         action == "end" -> {
                             result.writeText("$requested\nEND")
                             return "PASS: PDF viewer session completed"
