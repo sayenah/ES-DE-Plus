@@ -83,7 +83,7 @@ Every Android change is built and tested on three emulator images — **Android 
 ES-DE Plus is built AI-first, in the open, under a written [build protocol](/docs/protocol.md). Every decision is recorded in the [decision log](/docs/decision-log.md) and every finished piece in the [build log](/docs/build-log.md).
 
 ```mermaid
-flowchart LR
+flowchart TB
     F([Founder]) --> O[Orchestrator]
     O <-->|design challenge| A[Astra]
     O -->|work order| S[Sol builds]
