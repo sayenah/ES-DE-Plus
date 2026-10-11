@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import time
 import zipfile
 
@@ -201,7 +202,13 @@ def linux_gate(injection):
                 gate('success', conclusion, 'success')
                 jobs = api(f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{selected["id"]}/jobs')['jobs']
                 require(len(jobs) == 1 and jobs[0]['conclusion'] == 'success', 'Linux jobs incomplete')
-                logs = run('gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/jobs/{jobs[0]["id"]}/logs')
+                # A regular-file sink works across gh versions that refuse ANSI
+                # sequences on a pipe. Parse the bytes without replaying the log.
+                with tempfile.TemporaryFile(mode='w+', dir=ROOT / 'android/evidence') as log:
+                    subprocess.run(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/jobs/{jobs[0]["id"]}/logs'],
+                                   stdout=log, check=True)
+                    log.seek(0)
+                    logs = log.read()
                 match = re.search(r'git log -1 --format=%H\n\S+ ([a-f0-9]{40})', logs)
                 require(match and match[1] == commit, 'Linux checkout is not the exact Android-tested commit')
                 (ROOT / 'android/evidence/distribution-linux.txt').write_text(
