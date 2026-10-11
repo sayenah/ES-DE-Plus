@@ -60,15 +60,15 @@
 
 ## 🗺️ Where we are
 
-| | Milestone | |
-|:-:|---|---|
-| ✅ | **Android build pipeline** — the open C++ frontend, the native bridge and all dependencies built from pinned, checksum-verified sources in CI, for `arm64-v8a` and `x86_64` | |
-| ✅ | **First-run setup** — storage choice, permissions, phone / TV / home-screen entry points | |
-| ✅ | **Game launching** — emulator discovery, Intent launching, Android-app importer, optional RetroArch core check | |
-| ✅ | **PDF manuals** through Android's built-in renderer | |
-| 🚧 | **Downloadable test APKs** from every green build on `main`, each with a matching source bundle | in progress |
-| 🧭 | **[ES-DE Companion](https://github.com/RobZombie9043/es-de-companion) features** — second-screen artwork, app drawer, per-game display targeting and more | [planned (#3)](https://github.com/sayenah/ES-DE-Plus/issues/3) |
-| 🧭 | **Signed releases** | planned |
+| Status | Milestone |
+|:-:|---|
+| ✅ | **Android build pipeline** — the open C++ frontend, the native bridge and every dependency built in CI from pinned, checksum-verified sources, for `arm64-v8a` and `x86_64` |
+| ✅ | **First-run setup** — storage choice, permissions, phone / TV / home-screen entry points |
+| ✅ | **Game launching** — emulator discovery, Intent launching, Android-app importer, optional RetroArch core check |
+| ✅ | **PDF manuals** through Android's built-in renderer |
+| 🚧 | **Downloadable test APKs** from every green build on `main`, each with a matching source bundle — *in progress* |
+| 🧭 | **[ES-DE Companion](https://github.com/RobZombie9043/es-de-companion) features** — second-screen artwork, app drawer, per-game display targeting and more — *[planned (#3)](https://github.com/sayenah/ES-DE-Plus/issues/3)* |
+| 🧭 | **Signed releases** — *planned* |
 
 Every Android change is built and tested on three emulator images — **Android 10**, **Android 14** and **Android TV** — driving the real screens, before it can merge.
 
@@ -84,15 +84,16 @@ ES-DE Plus is built AI-first, in the open, under a written [build protocol](/doc
 
 ```mermaid
 flowchart LR
-    F([Founder]) --> O[Orchestrator<br/>Claude Opus]
-    O -- risky designs --> A[Architecture challenge<br/>GPT-6 Astra]
-    A --> O
-    O -- work order --> S[Implementation<br/>GPT-6.1 Sol]
-    S --> CI{{CI: Linux + 3 Android<br/>emulator images}}
-    CI --> Q[Independent QA<br/>Claude Opus]
-    Q -- changes needed --> S
-    Q -- approve --> M([merge to main])
+    F([Founder]) --> O[Orchestrator]
+    O <-->|design challenge| A[Astra]
+    O -->|work order| S[Sol builds]
+    S --> CI{{CI: Linux + 3 Android emulators}}
+    CI --> Q[Opus QA]
+    Q -->|changes| S
+    Q -->|approve| M([main])
 ```
+
+<sub>Orchestrator and QA: Claude Opus · design challenger: GPT-6 Astra · implementer: GPT-6.1 Sol</sub>
 
 No role reviews its own work: designs are challenged before code is written, and code is reviewed by a separate QA pass before it merges.
 
