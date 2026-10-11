@@ -9,14 +9,22 @@ import android.os.Bundle
 import java.io.File
 
 class RuntimeSmoke : Instrumentation() {
+    private var pdfArguments: Bundle? = null
     private var provisionOnly = false
     private var storageOnly = false
     private var ownedAction: String? = null
     private var ownedDirectory: String? = null
+    private var followupMode: String? = null
+    private var userFileArguments: Bundle? = null
+    private var importedTarget = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
+        if (arguments?.getString("mode") == "pdf-session") pdfArguments = arguments
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
+        followupMode = arguments?.getString("mode")
+        if (followupMode in listOf("write-user-file", "remove-user-file")) userFileArguments = arguments
+        if (followupMode == "cleanup-importer") importedTarget = arguments?.getString("file").orEmpty()
         if (arguments?.getString("mode") == "owned-fixture") {
             ownedAction = arguments.getString("action")
             ownedDirectory = arguments.getString("directory")
@@ -26,6 +34,120 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode in listOf("pdf-unicode-prepare", "pdf-unicode-restore")) {
+                result.putString("stream", PdfSmoke.unicodeFixture(targetContext, followupMode == "pdf-unicode-restore"))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "pdf-volume") {
+                result.putString("stream", PdfSmoke.removable(targetContext))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "pdf-unreadable") {
+                result.putString("stream", PdfSmoke.unreadable(targetContext))
+                finish(-1, result)
+                return
+            }
+            if (pdfArguments != null) {
+                result.putString("stream", PdfSmoke.session(this))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "cleanup-importer") {
+                result.putString("stream", LaunchSmoke.cleanupImporter(targetContext, importedTarget))
+                finish(-1, result)
+                return
+            }
+            if (userFileArguments != null) {
+                result.putString("stream", LaunchSmoke.userFile(targetContext,
+                    userFileArguments!!.getString("relative")!!,
+                    if (followupMode == "write-user-file") userFileArguments!!.getString("contents")!! else null))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "launch-probe") {
+                result.putString("stream", LaunchSmoke.run(targetContext))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "revoke-tree") {
+                result.putString("stream", LaunchSmoke.revokeTree(targetContext))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "retained-configurator") {
+                // Deterministically reproduce a retained configurator below a
+                // new SDL activity. No timing retry, native quit injection or
+                // storage preference is involved.
+                val configurator = startActivitySync(Intent(targetContext, ConfiguratorActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ConfiguratorActivity
+                val activity = startActivitySync(Intent(targetContext, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+                fun heldHost(live: MainActivity?, focused: Boolean) {
+                    check(live === activity && !activity.isDestroyed && !activity.isFinishing &&
+                        configurator.taskId == activity.taskId && ConfiguratorSession.configuring && focused) {
+                        "Retained configurator destroyed, duplicated or obscured the new SDL host"
+                    }
+                }
+                var focused = false
+                val deadline = System.nanoTime() + 60_000_000_000L
+                while (!focused && System.nanoTime() < deadline) {
+                    runOnMainSync { focused = configurator.hasWindowFocus() && ConfiguratorSession.configuring }
+                    Thread.sleep(100)
+                }
+                runOnMainSync {
+                    heldHost(MainActivity.liveInstance(), focused)
+                    rejectedCheck { heldHost(null, focused) }
+                    rejectedCheck { heldHost(MainActivity.liveInstance(), false) }
+                }
+                // Also observe stability beyond the transition that used to
+                // destroy the new SDL activity and end the process.
+                Thread.sleep(2000)
+                runOnMainSync { heldHost(MainActivity.liveInstance(), configurator.hasWindowFocus()) }
+                result.putString("stream", "PASS: retained configurator reorders above the same live SDL host; positive controls rejected\n")
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "configurator-session") {
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                val saved = storage.load() ?: error("Real configurator must save first")
+                val session = ConfiguratorSession.session(targetContext)
+                val draft = Bundle().apply {
+                    putString("session", session)
+                    putString("mode", "scoped")
+                    putString("typedPath", "unsaved-session-text")
+                }
+                ConfiguratorSession.rememberDraft(draft)
+                ConfiguratorSession.saveDraft(targetContext, draft)
+                fun restored(id: String) {
+                    check(ConfiguratorSession.loadDraft(targetContext, id)?.getString("typedPath") == "unsaved-session-text")
+                }
+                restored(session)
+                rejectedCheck { restored("different-session") }
+                fun cleared() { check(ConfiguratorSession.loadDraft(targetContext, session) == null) }
+                rejectedCheck { cleared() }
+                fun noConfiguration(needed: Boolean) { check(!needed) }
+                rejectedCheck { noConfiguration(true) }
+                noConfiguration(NativeBridge(targetContext, recoverStartup = true).checkConfigurationNeeded())
+                cleared()
+                val fresh = ConfiguratorSession.session(targetContext)
+                fun distinct(id: String) { check(id != session) }
+                distinct(fresh)
+                rejectedCheck { distinct(session) }
+                // A late pause from the retired screen cannot resurrect its
+                // abandoned draft over this new configurator session.
+                ConfiguratorSession.saveDraft(targetContext, draft)
+                cleared()
+                fun unchanged(selection: org.esdeplus.frontend.bridge.StorageModel.Configuration?) {
+                    check(selection == saved)
+                }
+                unchanged(storage.load())
+                rejectedCheck { unchanged(saved.copy(mode = "unsaved-mode")) }
+                result.putString("stream", "PASS: session-matched draft only; no-config startup clears abandoned draft; positive controls rejected\n")
+                finish(-1, result)
+                return
+            }
             if (ownedAction != null) {
                 check(ownedDirectory in listOf("ES-DE-Plus", "ROMs"))
                 val root = targetContext.getExternalFilesDir(null) ?: error("SDK-owned volume unavailable")
@@ -167,6 +289,11 @@ class RuntimeSmoke : Instrumentation() {
             result.putString("stream", "FAIL: ${error.stackTraceToString()}\n")
             finish(0, result)
         }
+    }
+    private fun rejectedCheck(action: () -> Unit) {
+        try { action() }
+        catch (expected: IllegalStateException) { return }
+        error("Positive control escaped its production assertion")
     }
     companion object { @JvmStatic external fun nativeProbe(directory: String, game: String): Boolean }
 }

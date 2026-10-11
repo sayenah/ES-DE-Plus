@@ -39,11 +39,20 @@ class ConfiguratorActivity : Activity() {
     private var focusId = 0
     private var pathInput: EditText? = null
     private var completed = false
+    private lateinit var sessionId: String
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         storage = StorageModel(applicationContext)
-        val draft = state ?: ConfiguratorSession.loadDraft(this)
+        restoreSelection(state)
+        Log.i("ES-DE-Plus", "Configurator created savedState=${state != null} mode=$mode")
+        render()
+    }
+
+    private fun restoreSelection(state: Bundle?) {
+        sessionId = ConfiguratorSession.session(this)
+        val restoredState = state?.takeIf { it.getString("session") == sessionId }
+        val draft = restoredState ?: ConfiguratorSession.loadDraft(this, sessionId)
         val saved = storage.load()
         mode = draft?.getString("mode") ?: saved?.mode ?: ""
         path = draft?.getString("path") ?: saved?.roms ?: ""
@@ -54,7 +63,7 @@ class ConfiguratorActivity : Activity() {
         permissionPending = draft?.getBoolean("permissionPending") ?: false
         resourceError = ConfiguratorSession.resourceFailure != null ||
             (!ConfiguratorSession.configuring && draft?.getBoolean("resourceError") == true)
-        message = if (state != null) state.getString("message")
+        message = if (restoredState != null) restoredState.getString("message")
             else intent.getStringExtra("message") ?: draft?.getString("message") ?: storage.problem()
         if (!intent.hasExtra("entry") && draft?.containsKey("entry") == true) {
             @Suppress("DEPRECATION")
@@ -62,13 +71,12 @@ class ConfiguratorActivity : Activity() {
             intent.putExtra("entry", entry)
         }
         storage.releaseUnselectedGrants(tree)
-        Log.i("ES-DE-Plus", "Configurator created savedState=${state != null} mode=$mode")
-        render()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (sessionId != ConfiguratorSession.session(this)) restoreSelection(null)
         resourceError = ConfiguratorSession.resourceFailure != null
         message = intent.getStringExtra("message") ?: storage.problem()
         render()
@@ -102,6 +110,7 @@ class ConfiguratorActivity : Activity() {
     }
 
     private fun writeState(state: Bundle) {
+        state.putString("session", sessionId)
         state.putString("mode", mode)
         state.putString("path", path)
         state.putString("tree", tree)
@@ -350,7 +359,7 @@ class ConfiguratorActivity : Activity() {
         finish()
     }
     private fun cancelled() {
-        storage.releaseUnselectedGrants()
+        storage.releaseUnselectedGrants(tree)
         message = getString(R.string.cancelled_recoverable)
         render()
     }

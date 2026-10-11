@@ -692,8 +692,10 @@ extern "C" JNIEXPORT jboolean JNICALL Java_org_esdeplus_frontend_RuntimeSmoke_na
     std::vector<std::pair<std::string, std::string>> apps;
     getInstalledApps(apps, false, false);
     if (checkConfigurationNeeded() || checkEmulatorInstalled("", "") ||
-        checkRACoreInstalled("", "") != -2 || !apps.empty() || getBluetoothStatus() != 0 ||
-        getWifiStatus() != 0 || getCellularStatus() != 0 ||
+        checkRACoreInstalled("", "") != -2 || apps.empty() ||
+        !checkEmulatorInstalled(ANDROID_APPLICATION_ID, ".MainActivity") ||
+        checkEmulatorInstalled(ANDROID_APPLICATION_ID, ".MissingActivity") ||
+        getBluetoothStatus() != 0 || getWifiStatus() != 0 || getCellularStatus() != 0 ||
         getBatteryStatus() != std::make_pair(-1, -1))
         return JNI_FALSE;
     if (getInternalDirectory().find("/data/user/") != 0 ||

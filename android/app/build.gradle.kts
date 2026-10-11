@@ -1,10 +1,42 @@
 // SPDX-License-Identifier: MIT
 // ES-DE-Plus — written for ES-DE-Plus from the upstream resource and native contracts.
 import java.security.MessageDigest
+import javax.xml.parsers.DocumentBuilderFactory
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 val appId = providers.gradleProperty("esde.applicationId").get()
 val appVersion = providers.gradleProperty("esde.versionCode").get().toInt()
 val stagedAssets = layout.buildDirectory.dir("generated/assets/frontend")
+val queryManifest = layout.buildDirectory.file("generated/visibility/AndroidManifest.xml")
+val generateQueries by tasks.registering {
+    inputs.file("../../resources/systems/android/es_find_rules.xml")
+    inputs.file("src/main/AndroidManifest.xml")
+    outputs.file(queryManifest)
+    doLast {
+        val document = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(file("../../resources/systems/android/es_find_rules.xml"))
+        val rules = document.getElementsByTagName("rule")
+        val packages = sortedSetOf<String>()
+        for (i in 0 until rules.length) {
+            val rule = rules.item(i) as org.w3c.dom.Element
+            if (rule.getAttribute("type") != "androidpackage") continue
+            val entries = rule.getElementsByTagName("entry")
+            for (j in 0 until entries.length) {
+                val name = entries.item(j).textContent.trim().substringBefore('/')
+                require(name.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")))
+                packages.add(name)
+            }
+        }
+        val output = queryManifest.get().asFile
+        output.parentFile.mkdirs()
+        val queries = """<queries>
+${packages.joinToString("\n") { "<package android:name=\"$it\" />" }}
+<intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+<intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
+</queries>
+"""
+        output.writeText(file("src/main/AndroidManifest.xml").readText().replace("<application", queries + "<application"))
+    }
+}
 val stageAssets by tasks.registering {
     inputs.dir("../../resources")
     inputs.dir("../../locale/po")
@@ -54,6 +86,7 @@ android {
     }
     externalNativeBuild { cmake { path = file("../../CMakeLists.txt"); version = "3.31.5" } }
     sourceSets.getByName("main") {
+        manifest.srcFile(queryManifest)
         assets.srcDir(stagedAssets)
         jniLibs.srcDir("../libs")
     }
@@ -74,4 +107,39 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
 }
-tasks.named("preBuild") { dependsOn(stageAssets) }
+tasks.named("preBuild") { dependsOn(stageAssets, generateQueries) }
+
+// CI runtime only: reuse the actual debug signing configuration, whose store
+// location is resolved by AGP. No signing material or APK is published.
+tasks.register("signPdfSmokeRelease") {
+    doLast {
+        val signing = android.signingConfigs.getByName("debug")
+        val signer = file("${System.getenv("ANDROID_HOME")}/build-tools/${android.buildToolsVersion}/apksigner")
+        exec {
+            commandLine(signer, "sign", "--ks", signing.storeFile!!,
+                "--ks-key-alias", signing.keyAlias!!, "--ks-pass", "pass:${signing.storePassword}",
+                "--key-pass", "pass:${signing.keyPassword}", "--out",
+                file("build/outputs/apk/release/app-release-smoke.apk"),
+                file("build/outputs/apk/release/app-release-unsigned.apk"))
+        }
+    }
+}
+
+// Reviewed shipped runtime dependencies; build plugins and tools never enter dex.
+tasks.register("auditRuntimeLicences") {
+    doLast {
+        for (variant in listOf("debug", "release")) {
+            val actual = configurations.getByName("${variant}RuntimeClasspath")
+                .resolvedConfiguration.resolvedArtifacts.map {
+                    val id = it.moduleVersion.id
+                    "${id.group}:${id.name}:${id.version}"
+                }.toSet()
+            val reviewed = setOf("org.jetbrains.kotlin:kotlin-stdlib:2.2.21", "org.jetbrains:annotations:13.0")
+            fun verify(inputs: Set<String>) { check(inputs == reviewed) { "Unreviewed dex dependency: $inputs" } }
+            verify(actual)
+            try { verify(actual + "example:unreviewed:1"); error("Runtime licence control escaped") }
+            catch (expected: IllegalStateException) { check(expected.message!!.startsWith("Unreviewed dex dependency:")) }
+            println("PASS: $variant actual dex runtime inputs $actual; unknown dependency positive control rejected")
+        }
+    }
+}

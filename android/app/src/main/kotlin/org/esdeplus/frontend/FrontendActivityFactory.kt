@@ -48,8 +48,11 @@ class FrontendRedirectActivity : Activity() {
             task?.moveToFront()
         } else {
             // The original can finish between creation and this callback.
-            startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            // Clear the orphan task so singleTask cannot deliver the launch
+            // back to this redirect's ActivityRecord. Preserve the entry alias.
+            val entry = Intent(intent).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             finish()
+            startActivity(entry)
         }
     }
 }

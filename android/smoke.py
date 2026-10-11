@@ -9,6 +9,12 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import smoke_checks
+import launch_checks
+import pdf_smoke
+import json
+import os
+import tempfile
 
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
@@ -17,11 +23,17 @@ activity = app + '/org.esdeplus.frontend.MainActivity'
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
 evidence = pathlib.Path('android/evidence')
 evidence.mkdir(parents=True, exist_ok=True)
+(evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
+(evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
 settings = external + '/ES-DE-Plus/settings/es_settings.xml'
 startup_baseline = ''
+stock_package = 'com.google.android.tvlauncher'
+onboarding_guard = False
+dismissing_onboarding = False
+last_onboarding_check = 0.0
 
 
 def adb(*args, check=True, binary=False):
@@ -47,6 +59,35 @@ def shell(*args, check=True):
     return adb('shell', shlex.join(args), check=check)
 
 
+def instrument_with_ui(*arguments, install=False):
+    # The retained-window probe waits inside instrumentation. Keep inspecting
+    # actual system UI during that wait so the existing external-ANR handler
+    # can dismiss a crashed stock launcher. Frontend ANRs still fail, and the
+    # instrumentation assertions, activity state and deadline are unchanged.
+    with tempfile.TemporaryFile(mode='w+t') as output, tempfile.TemporaryFile(mode='w+t') as errors:
+        command = ['adb', *arguments] if install else ['adb', 'shell', shlex.join(arguments)]
+        process = subprocess.Popen(command, stdout=output, stderr=errors)
+        timeout = 300 if install else 90
+        deadline = time.monotonic() + timeout
+        try:
+            while process.poll() is None:
+                nodes = hierarchy()
+                if install:
+                    retroarch_install_confirmation(nodes)
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(process.args, timeout)
+                time.sleep(0.25)
+            output.seek(0)
+            errors.seek(0)
+            result = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
+            result.check_returncode()
+            return result.stdout
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
+
+
 def private(*args, check=True):
     if args and args[0] == 'test':
         # test is a shell builtin; older Android images need not ship an
@@ -58,6 +99,8 @@ def private(*args, check=True):
 def wait_for(condition, description, timeout=90):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if timeout >= 30:
+            dismiss_stock_onboarding()
         if condition():
             return
         time.sleep(0.25)
@@ -132,6 +175,62 @@ def node_matches(node, label):
     return label.casefold() in node.get('text', '').casefold() or label.casefold() in node.get('content-desc', '').casefold()
 
 
+def dismiss_stock_onboarding(force=False):
+    global dismissing_onboarding, last_onboarding_check
+    if not onboarding_guard or dismissing_onboarding:
+        return
+    if not force and time.monotonic() - last_onboarding_check < 2:
+        return
+    last_onboarding_check = time.monotonic()
+    # Focus is display state, omitted by the windows-only dump on newer SDKs.
+    window = shell('dumpsys', 'window')
+    if not smoke_checks.stock_onboarding_focused(window, stock_package):
+        return
+    dismissing_onboarding = True
+    try:
+        nodes = hierarchy()
+        # The hierarchy dump takes several seconds; the frontend may have
+        # resumed while it ran. Validate that transition before any UI action.
+        window = shell('dumpsys', 'window')
+        if not smoke_checks.stock_onboarding_focused(window, stock_package):
+            smoke_checks.onboarding_clear(nodes, stock_package, app)
+            return
+        smoke_checks.probe_passed('Dismiss' if any(n.get('package') == stock_package and
+            n.get('text') == 'Dismiss' for n in nodes) else '', 'Dismiss')
+        with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+            output.write('Actual focused stock ShowDialogsActivity; dismissing external onboarding only.\n' +
+                         window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
+        screenshot('tv-onboarding-before-dismiss')
+        ui('Dismiss')
+        nodes = hierarchy()
+        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' for n in nodes):
+            # On TV, touch may only focus the button. Activate that exact
+            # stock action through the remote, never a frontend control.
+            smoke_checks.onboarding_dismiss_focused(nodes, stock_package)
+            key('KEYCODE_DPAD_CENTER')
+        nodes = hierarchy()
+        # Closing the tutorial can expose a separate stock launcher banner.
+        # Dismiss its actual action too; retain the strict clear assertion.
+        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+               n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+            window = shell('dumpsys', 'window')
+            smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
+            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                output.write('Actual stock launcher banner; dismissing its separate action.\n' + window + '\n')
+            ui('Dismiss')
+            nodes = hierarchy()
+            if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+                   n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+                smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
+                key('KEYCODE_DPAD_CENTER')
+        smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
+        screenshot('tv-onboarding-dismissed')
+        # No frontend launch, task focus change, process restart or assertion
+        # retry is performed. The original condition still has to pass.
+    finally:
+        dismissing_onboarding = False
+
+
 def ui(label, dpad=False):
     if dpad:
         wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
@@ -179,49 +278,67 @@ def resolved_component(action, data=None):
     return next((line.strip() for line in result.splitlines() if '/' in line and ' ' not in line.strip()), None)
 
 
-def permission_row():
+def permission_row(app_label=None):
     # Phone settings can show one app; TV settings can show a list of apps.
     # Select the switch in the smallest subtree containing our exact app label.
     candidates = []
     for parent in hierarchy():
         children = list(parent.iter('node'))
         switches = [n for n in children if n.get('checkable') == 'true']
-        if len(switches) == 1 and any(n.get('text', '').casefold() == label.casefold() for n in children):
+        if len(switches) == 1 and any(n.get('text', '').casefold() == (app_label or label).casefold() for n in children):
             candidates.append((len(children), parent))
     return min(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
-def permission_toggle():
-    row = permission_row()
+def permission_toggle(app_label=None):
+    row = permission_row(app_label)
     return next(n for n in row.iter('node') if n.get('checkable') == 'true') if row is not None else None
 
 
-def grant_from_settings():
+def grant_from_settings(app_label=None, recipient=False):
     # Both app-specific and generic Settings are opened by the application.
     # A generic phone list needs its real app row; TV exposes switches inline.
     wait_for(lambda: bool(hierarchy()), 'all-files Settings UI')
-    if permission_toggle() is None:
-        ui(label)
-    wait_for(lambda: permission_toggle() is not None, 'app-associated all-files switch')
+    if permission_toggle(app_label) is None:
+        ui(app_label or label)
+    wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
+    def recipient_granted():
+        return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b',
+                    shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE')))
+    if recipient and permission_toggle(app_label).get('checked') == 'true' and recipient_granted():
+        screenshot('recipient-all-files-already-granted')
+        key('KEYCODE_BACK')
+        return
+    def toggle_switch():
+        if television:
+            key('KEYCODE_DPAD_CENTER')
+        else:
+            toggle = permission_toggle(app_label)
+            x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
+            shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     if television:
         for _ in range(40):
-            row = permission_row()
+            row = permission_row(app_label)
             focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
             if focused:
                 screenshot('tv-all-files-switch-focused')
-                key('KEYCODE_DPAD_CENTER')
                 break
             key('KEYCODE_DPAD_DOWN')
         else:
             raise AssertionError('TV D-pad cannot reach our all-files switch')
-    else:
-        toggle = permission_toggle()
-        x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
-        shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-    wait_for(lambda: permission_toggle() is not None and permission_toggle().get('checked') == 'true',
+    if recipient and permission_toggle(app_label).get('checked') == 'true' and not recipient_granted():
+        # Settings can retain a checked preference across recipient reinstall,
+        # while the actual app-op is reset. Resynchronize through the real UI.
+        toggle_switch()
+        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale recipient switch reset')
+    toggle_switch()
+    wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
              'real app all-files grant')
-    screenshot('all-files-granted')
+    screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
     key('KEYCODE_BACK')
+    if recipient:
+        launch_checks.all_files_granted(shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE'))
+        return
     if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
     wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') for n in hierarchy()),
@@ -261,6 +378,11 @@ def grant_count(expected):
     return bool(counts) and int(counts[-1]) == expected
 
 
+def cancelled_grant_retained():
+    counts = re.findall(r'Persisted tree grant count=(\d+)', adb('logcat', '-d'))
+    smoke_checks.grants(int(counts[-1]) if counts else None, 1)
+
+
 def destroy_held(name):
     dump, records = activity_records()
     assert any(r[0] == 'ConfiguratorActivity' for r in records), dump
@@ -295,7 +417,14 @@ def destroy_held(name):
     # _exit ends the entire process, including the pending UI join; a post-join
     # Java callback is not claimed on this path. Normal quits still assert it.
     start_entry('HomeEntry', 'android.intent.category.HOME')
-    wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'held configuration restored')
+    def restored():
+        try:
+            smoke_checks.held_restored(activity_records()[1], hierarchy(), shell('pidof', app).strip(), old_pid, app)
+            return True
+        except AssertionError:
+            return False
+    wait_for(restored, 'held configuration restored on a new host in the same task')
+    (evidence / (name + '-restored-activities.txt')).write_text(activity_records()[0])
     screenshot(name + '-restored')
     save_logs(name + '-restored')
 
@@ -430,6 +559,359 @@ def configured_system(name):
     save_logs(name)
 
 
+def launch_contract_probes(mode):
+    if api >= 30 and mode.startswith('direct'):
+        # A raw-path emulator needs its own explicitly granted filesystem
+        # permission. Drive the recipient's real Settings flow under its UID;
+        # provider grants are tested separately and never widened.
+        shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity',
+              '--es', 'queryMode', 'storage-permission')
+        grant_from_settings('ES-DE Plus recipient', recipient=True)
+        (evidence / ('recipient-filesystem-permission-' + mode + '.txt')).write_text(
+            'Recipient opened its own all-files Settings; actual app-associated switch selected.\n' +
+            shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE'))
+    shell('am', 'force-stop', app)
+    adb('logcat', '-c')
+    result = shell('am', 'instrument', '-w', '-e', 'mode', 'launch-probe',
+                   app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / ('launch-contract-' + mode + '.txt')).write_text(result)
+    smoke_checks.probe_passed(result,
+        'PASS: PR-C launch/discovery/provider/query probes; assertion positive controls rejected')
+    (evidence / ('launch-contract-' + mode + '-logcat.txt')).write_text(adb('logcat', '-d', '-v', 'threadtime'))
+    shell('am', 'force-stop', 'org.esdeplus.stub')
+    shell('am', 'force-stop', app)
+    launch()
+    screenshot('launch-contract-' + mode + '-returned-frontend')
+    save_logs('launch-contract-' + mode + '-returned-frontend')
+    gamelist_recipient_flow(mode)
+    # The inherited cases were entered through HOME. The new standalone
+    # gamelist probes must restore that real task type before warm-alias checks;
+    # otherwise HOME correctly uses a redirect instead of same-type onNewIntent.
+    shell('am', 'force-stop', app)
+    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'probe frontend stopped before restoring HOME')
+    time.sleep(1)  # PackageManager's stopped-task cleanup, as in clear_app().
+    adb('logcat', '-c')
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    configured_system('launch-contract-' + mode + '-restored-home')
+    launch_checks.equal('HOME=true' in adb('logcat', '-d'), True, 'Original HOME-entry precondition restored')
+
+
+def search_launch(term, name):
+    key('KEYCODE_ESCAPE')
+    screenshot(name + '-menu')
+    key('KEYCODE_ENTER')
+    screenshot(name + '-text-entry')
+    shell('input', 'text', term)
+    key('KEYCODE_ENTER')
+    screenshot(name + '-results')
+    key('KEYCODE_DPAD_DOWN')
+    key('KEYCODE_ENTER')
+
+
+def user_file(relative, contents=None):
+    shell('am', 'force-stop', app)
+    arguments = ['am', 'instrument', '-w', '-e', 'mode',
+                 'remove-user-file' if contents is None else 'write-user-file', '-e', 'relative', relative]
+    if contents is not None:
+        arguments += ['-e', 'contents', contents]
+    result = shell(*arguments, app + '/org.esdeplus.frontend.RuntimeSmoke')
+    smoke_checks.probe_passed(result, 'PASS: user file prepared under frontend UID; assertion positive controls rejected')
+    with (evidence / 'user-configuration-preparation.txt').open('a') as output:
+        output.write(relative + '\n' + result + '\n')
+    shell('am', 'force-stop', app)
+
+
+def cleanup_importer(name):
+    shell('am', 'force-stop', app)
+    result = shell('am', 'instrument', '-w', '-e', 'mode', 'cleanup-importer', '-e', 'file', name or '',
+                   app + '/org.esdeplus.frontend.RuntimeSmoke')
+    smoke_checks.probe_passed(result, 'PASS: importer probe cleaned under frontend UID; assertion positive controls rejected')
+    with (evidence / 'user-configuration-preparation.txt').open('a') as output:
+        output.write('Importer cleanup: ' + str(name) + '\n' + result + '\n')
+    shell('am', 'force-stop', app)
+
+
+def retroarch_install_confirmation(nodes):
+    # Handle only the pinned recipient's actual legacy-target warning through
+    # its normal user confirmation. Never disable the package verifier.
+    if not launch_checks.retroarch_install_warning([n.attrib for n in nodes]):
+        return
+    choice = next((n for n in nodes if n.get('text', '').casefold().startswith('install anyway')), None)
+    if choice is not None:
+        screenshot('real-retroarch-install-confirmation')
+        (evidence / 'real-retroarch-install-confirmation-ui.txt').write_text(
+            '\n'.join(str(n.attrib) for n in nodes))
+        ui(choice.get('text'))
+    elif any(n.get('text', '').casefold() == 'more details' for n in nodes):
+        screenshot('real-retroarch-install-warning')
+        ui('More details')
+
+
+def stub_launcher_control(mode, enabled):
+    # The recipient changes only its own components under its own UID. This
+    # works on production TV images and needs neither root nor injected grants.
+    launch_checks.equal(shell('id', '-u').strip(), '2000', 'Ordinary shell for stub self-disablement')
+    control = 'restore-launchers' if enabled else 'phone-off'
+    adb('logcat', '-c')
+    # The control activity finishes without drawing; -W can wait indefinitely
+    # for a frame. Its completed control log and exact states are the barrier.
+    shell('am', 'start', '-n', 'org.esdeplus.stub/.TelevisionOnly', '--es', 'queryMode', control)
+    wait_for(lambda: 'Query mode configured=' + control in adb('logcat', '-d'), 'stub self-component control')
+    observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/control.json'))
+    launch_checks.stub_components(observation, enabled)
+    (evidence / (mode + '-stub-' + control + '.txt')).write_text(json.dumps(observation, indent=2))
+
+
+def gamelist_recipient_flow(mode):
+    user_root = shared if mode.startswith('direct') else roms
+    temporary = evidence / 'launch-custom'
+    temporary.mkdir(exist_ok=True)
+    systems = ET.Element('systemList')
+    for name, command in [('nes', '%EMULATOR_PROBE% %ACTION%=android.intent.action.VIEW %CATEGORY%=android.intent.category.DEFAULT '
+                           '%MIMETYPE%=application/octet-stream %DATA%=%ROMPROVIDER% %EXTRA_literal%=雪 '
+                           '%EXTRAARRAY_words%="one,t\\,wo,雪" %EXTRAINTEGER_number%=-2147483648 '
+                           '%EXTRABOOL_yes%=1 %EXTRABOOL_no%=false %ACTIVITY_CLEAR_TOP% %ACTIVITY_NO_HISTORY%'),
+                          ('androidapps', '%ANDROIDAPP%=%FILEINJECT%')]:
+        system = ET.SubElement(systems, 'system')
+        for tag, value in [('name', name), ('fullname', name), ('path', '%ROMPATH%/' + name),
+                           ('extension', '.nes' if name == 'nes' else '.app'), ('command', command),
+                           ('platform', name), ('theme', name)]:
+            ET.SubElement(system, tag).text = value
+    ET.ElementTree(systems).write(temporary / 'es_systems.xml', encoding='utf-8', xml_declaration=True)
+    rules = ET.Element('ruleList')
+    emulator = ET.SubElement(rules, 'emulator', name='PROBE')
+    rule = ET.SubElement(emulator, 'rule', type='androidpackage')
+    ET.SubElement(rule, 'entry').text = 'org.esdeplus.stub/.RecipientActivity'
+    ET.ElementTree(rules).write(temporary / 'es_find_rules.xml', encoding='utf-8', xml_declaration=True)
+    shell('am', 'force-stop', app)
+    for name in ['es_systems.xml', 'es_find_rules.xml']:
+        user_file('custom_systems/' + name, (temporary / name).read_text())
+        (evidence / (mode + '-' + name + '.txt')).write_text((temporary / name).read_text())
+    def start_custom():
+        shell('am', 'force-stop', app)
+        adb('logcat', '-c')
+        launch()
+        save_logs(mode + '-custom-systems-start')
+        launch_checks.equal('Found custom systems configuration file' in log(), True, 'Custom user systems loaded')
+        launch_checks.equal('Found custom find rules configuration file' in log(), True, 'Custom user find rules loaded')
+    def failed_target(name):
+        start_custom()
+        search_launch('Smoke', mode + '-' + name + '-search')
+        wait_for(lambda: "Couldn't launch game, emulator not found" in log(), name + ' target visible error')
+        screenshot(mode + '-' + name + '-target-error')
+        save_logs(mode + '-' + name + '-target-error')
+        launch_checks.equal(bool(shell('pidof', app).strip()), True, 'Frontend survives target failure')
+    imported_name = None
+    try:
+        start_custom()
+        pid = shell('pidof', app).strip()
+        frontend_uid = int(shell('run-as', app, 'id', '-u').strip())
+        search_launch('Smoke', mode + '-provider-search')
+        wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
+                 shell('dumpsys', 'window')), 'recipient focused window')
+        (evidence / ('gamelist-recipient-' + mode + '-window.txt')).write_text(shell('dumpsys', 'window'))
+        observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+        launch_checks.recipient(observation, frontend_uid, b'\x00')
+        (evidence / ('gamelist-recipient-' + mode + '.txt')).write_text(json.dumps(observation, ensure_ascii=False, indent=2))
+        screenshot('gamelist-recipient-' + mode)
+        save_logs('gamelist-recipient-' + mode)
+        key('KEYCODE_BACK')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from recipient to frontend')
+        (evidence / ('gamelist-return-' + mode + '-window.txt')).write_text(shell('dumpsys', 'window'))
+        launch_checks.equal(shell('pidof', app).strip(), pid, 'Return resumes same frontend process')
+        screenshot('gamelist-return-' + mode)
+        if mode == 'scoped':
+            unsupported = ET.fromstring((temporary / 'es_systems.xml').read_text())
+            command = unsupported.find('system/command')
+            command.text = command.text.replace('%ROMPROVIDER%', '%ROMSAF%')
+            user_file('custom_systems/es_systems.xml', ET.tostring(unsupported, encoding='unicode'))
+            try:
+                start_custom()
+                failed_pid = shell('pidof', app).strip()
+                search_launch('Smoke', mode + '-unsupported-saf-search')
+                wait_for(lambda: 'Launch terminated with nonzero return value -1' in log(),
+                         'app-owned SAF native launch error', timeout=20)
+                # The existing info popup lasts six seconds; capture it while
+                # visible rather than waiting the general screenshot delay.
+                time.sleep(0.5)
+                (evidence / 'scoped-unsupported-saf-popup.png').write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
+                save_logs('scoped-unsupported-saf-popup')
+                launch_checks.equal(shell('pidof', app).strip(), failed_pid, 'Unsupported SAF leaves frontend alive')
+                launch_checks.equal('Activity launch accepted:' in adb('logcat', '-d'), False, 'Unsupported SAF never dispatches')
+            finally:
+                user_file('custom_systems/es_systems.xml', (temporary / 'es_systems.xml').read_text())
+        stub_launcher_control(mode, False)
+        try:
+            failed_target('disabled')
+        finally:
+            stub_launcher_control(mode, True)
+        shell('am', 'force-stop', app)
+        adb('uninstall', 'org.esdeplus.stub')
+        failed_target('removed')
+        adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
+        if api == 29:
+            shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
+        start_custom()
+        key('KEYCODE_ESCAPE')
+        for _ in range(7):
+            key('KEYCODE_DPAD_DOWN')
+        key('KEYCODE_ENTER')  # UTILITIES
+        key('KEYCODE_ENTER')  # GAME IMPORTER
+        screenshot('importer-' + mode)
+        key('KEYCODE_INSERT')  # real Y/start importer action
+        temp_files = external + '/ES-DE-Plus/importer_temp/files'
+        wait_for(lambda: bool(shell('ls', temp_files, check=False).strip()), 'real app importer inventory files')
+        time.sleep(3)  # finish the actual importer thread and selector animation
+        paths = shell('find', temp_files, '-type', 'f').splitlines()
+        paths.sort(key=lambda path: pathlib.PurePosixPath(path).stem.upper())
+        recipient_path = next(path for path in paths if shell('cat', path).strip() ==
+                              'org.esdeplus.stub/org.esdeplus.stub.RecipientActivity')
+        for _ in range(paths.index(recipient_path)):
+            key('KEYCODE_DPAD_DOWN')
+        key('KEYCODE_ENTER')  # select this app only
+        screenshot('importer-selection-' + mode)
+        key('KEYCODE_INSERT')  # real Y/import action
+        wait_for(lambda: 'Imported 1 entry for system "androidapps"' in log(), 'import one native app')
+        imported_name = pathlib.PurePosixPath(recipient_path).name
+        launch_checks.imported_app_name(imported_name)
+        (evidence / ('imported-app-name-' + mode + '.txt')).write_text(imported_name + '\n')
+        imported = user_root + '/androidapps/' + imported_name
+        launch_checks.equal(shell('cat', imported).strip(), 'org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', 'Importer target file')
+        screenshot('importer-imported-' + mode)
+        save_logs('importer-imported-' + mode)
+        key('KEYCODE_DEL')  # close importer; its real callback rescans
+        wait_for(lambda: 'Total game count: 3' in log(), 'importer callback rescans gamelist')
+        time.sleep(5)
+        adb('logcat', '-c')
+        search_launch('recipient', mode + '-imported-app-search')
+        wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'imported app gamelist launch')
+        screenshot('imported-app-launched-' + mode)
+        save_logs('imported-app-launched-' + mode)
+        key('KEYCODE_BACK')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'imported app returns to frontend')
+        screenshot('imported-app-return-' + mode)
+    except Exception:
+        screenshot(mode + '-gamelist-failure')
+        save_logs(mode + '-gamelist-failure')
+        raise
+    finally:
+        shell('am', 'force-stop', app)
+        shell('am', 'force-stop', 'org.esdeplus.stub')
+        for name in ['es_systems.xml', 'es_find_rules.xml']:
+            user_file('custom_systems/' + name)
+        cleanup_importer(imported_name)
+        launch()
+
+
+def real_retroarch_flow():
+    apk_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'RetroArch.apk'
+    # Download/verification occurs in CI before this smoke. No copy enters the
+    # checkout or the evidence upload's explicitly enumerated text/image paths.
+    print(instrument_with_ui('install', '-r', str(apk_path), install=True), flush=True)
+    package = shell('dumpsys', 'package', 'com.retroarch')
+    version = re.search(r'versionName=([^\s]+)', package).group(1)
+    launch_checks.equal(version, '1.22.2_GIT', 'Installed official RetroArch versionName')
+    (evidence / 'real-retroarch-package.txt').write_text(package)
+    shell('am', 'force-stop', app)
+    original = shell('cat', settings)
+    edited = evidence / 'retroarch-query-settings.txt'
+    edited.write_text(launch_checks.enable_core_query(original))
+    launch_checks.core_query_enabled(edited.read_text())
+    user_file('settings/es_settings.xml', edited.read_text())
+    try:
+        adb('logcat', '-c')
+        launch()
+        search_launch('Smoke', 'real-retroarch-search')
+        wait_for(lambda: 'Timed out attempting to query RetroArch, proceeding with game launch anyway' in log(), 'bundled RetroArch query timeout proceeds')
+        wait_for(lambda: launch_checks.activity_present(shell('dumpsys', 'activity', 'activities'),
+                 'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'),
+                 'unchanged bundled rule launches real RetroArch activity')
+        native = log()
+        launch_checks.equal('Emulator core is not installed' in native, False, 'Stable query never vetoes launch')
+        current = adb('logcat', '-d', '-v', 'threadtime')
+        smoke_checks.probe_passed(current, 'Activity launch accepted: ComponentInfo{com.retroarch/')
+        # Capture RetroArch's own process messages and ActivityManager's actual
+        # activity/Intent record; no real core/game load is asserted.
+        wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 'real RetroArch process')
+        recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
+        rom_argument = shell('readlink', '-f', roms + '/nes/Smoke Alpha.nes').strip()
+        recipient_log = ''
+        def receipt_ready():
+            nonlocal recipient_log
+            recipient_log = adb('logcat', '-d', '--pid=' + recipient_pid, '-v', 'threadtime')
+            return launch_checks.retroarch_receipt_ready(recipient_log, rom_argument)
+        # Activity/process creation precedes the native worker's Intent logging.
+        # Await that actual process's receipt, then retain the exact assertions.
+        try:
+            wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
+        except AssertionError:
+            # L-N1: collect live thread stacks before a single bounded re-launch.
+            stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+            if not re.search(r'#00\s+pc\s', stacks):
+                root = adb('root', check=False)
+                adb('wait-for-device')
+                if 'cannot run as root' in root:
+                    stacks += '\nCAPABILITY GAP: privileged native backtrace unavailable: ' + root
+                else:
+                    try:
+                        wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged RetroArch diagnostic shell')
+                        stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
+                            'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+                    finally:
+                        adb('unroot', check=False)
+                        adb('wait-for-device')
+                    wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after native diagnostics')
+            (evidence / 'real-retroarch-stall-stacks.txt').write_text(stacks)
+            (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
+            shell('am', 'force-stop', 'com.retroarch')
+            start_entry()
+            wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')),
+                     'return to gamelist for bounded RetroArch retry')
+            # The search launcher closes its menus back to the system view.
+            # Enter the actual NES gamelist before the one retry launch.
+            time.sleep(2)
+            key('KEYCODE_ENTER')
+            screenshot('real-retroarch-retry-gamelist')
+            key('KEYCODE_ENTER')
+            wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 're-launched RetroArch process')
+            recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
+            wait_for(receipt_ready, 'bounded RetroArch retry exact receipt', timeout=20)
+        launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
+        launch_checks.retroarch_receipt(recipient_log, rom_argument)
+        (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
+        (evidence / 'real-retroarch-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        screenshot('real-retroarch-launched')
+        save_logs('real-retroarch-launch')
+        launch_checks.equal('Core query cleanup: com.retroarch result=-1' in current, True, 'Real core query cleanup/timeout')
+        shell('am', 'force-stop', 'com.retroarch')
+        start_entry()
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from real RetroArch')
+        screenshot('real-retroarch-return')
+    except Exception:
+        # Preserve the live recipient before cleanup removes its task/package.
+        # A failed receipt still fails; these records identify any startup UI.
+        pid = shell('pidof', 'com.retroarch', check=False).strip().split()
+        if pid:
+            (evidence / 'real-retroarch-failure-recipient-logcat.txt').write_text(
+                adb('logcat', '-d', '--pid=' + pid[0], '-v', 'threadtime'))
+        (evidence / 'real-retroarch-failure-window.txt').write_text(shell('dumpsys', 'window'))
+        (evidence / 'real-retroarch-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        location = '/data/local/tmp/esde-retroarch-failure.xml'
+        shell('uiautomator', 'dump', location, check=False)
+        (evidence / 'real-retroarch-failure-ui.txt').write_text(shell('cat', location, check=False))
+        save_logs('real-retroarch-failure')
+        screenshot('real-retroarch-failure')
+        raise
+    finally:
+        shell('am', 'force-stop', app)
+        shell('am', 'force-stop', 'com.retroarch')
+        restored = evidence / 'retroarch-settings-restored.txt'
+        restored.write_text(original)
+        user_file('settings/es_settings.xml', original)
+        adb('uninstall', 'com.retroarch')
+
+
 def native_shutdown(pid):
     # Android Runtime.exit skips native atexit cleanup, so the final buffered
     # es_log line is not evidence of SDL completion. Require the actual native
@@ -442,10 +924,48 @@ def native_shutdown(pid):
 
 
 try:
+    features = shell('pm', 'list', 'features')
+    (evidence / 'device-features.txt').write_text(features)
+    television = 'feature:android.software.leanback' in features.splitlines()
+    if television:
+        # Google's TV image launches this dialog asynchronously over other
+        # apps. Disable only that external onboarding component before testing.
+        onboarding = stock_package + '/' + stock_package + '.dialog.ShowDialogsActivity'
+        # dumpsys' resolver table omits activities without intent filters.
+        # The installed stock package owns this explicitly addressed dialog;
+        # pm disable validates that the component itself exists.
+        if 'package:' + onboarding.split('/')[0] in shell('pm', 'list', 'packages').splitlines():
+            if component_enabled(onboarding, False):
+                smoke_checks.onboarding_disabled(True)
+                (evidence / 'tv-onboarding-preamble.txt').write_text(
+                    'Stock TV ShowDialogsActivity disabled before frontend smoke; frontend assertions unchanged.\n')
+            else:
+                # Promotions are optional and may arrive after content loads.
+                # Prepare the actual stock UI, dismiss any present onboarding,
+                # and retain the same guard for a late external dialog.
+                onboarding_guard = True
+                shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME',
+                      '-n', stock_package + '/.MainActivity')
+                wait_for(lambda: any(n.get('package') == stock_package for n in hierarchy()), 'stock TV HOME UI')
+                dismiss_stock_onboarding(force=True)
+                smoke_checks.onboarding_clear(hierarchy(), stock_package)
+                screenshot('tv-onboarding-preamble')
+                (evidence / 'tv-onboarding-preamble.txt').write_text(
+                    'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
+                    (evidence / 'latest-ui.txt').read_text())
     print(adb('install', '-r', str(apk)), flush=True)
+    print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     clear_app()
+    retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
+                     app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'retained-configurator-probe.txt').write_text(retained)
+    smoke_checks.probe_passed(retained,
+        'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
+    clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
+    if api == 29:
+        shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
     (evidence / 'image.txt').write_text(shell('getprop'))
     # Genuine shared files, accessible to users through file transfer; no settings
     # or preferences are written by the host-side automation.
@@ -465,9 +985,6 @@ try:
     # Resize a real display while the native caller is held. Android recreates
     # the plain-view activity; its selections and static registration survive.
     adb('logcat', '-c')
-    features = shell('pm', 'list', 'features')
-    (evidence / 'device-features.txt').write_text(features)
-    television = 'feature:android.software.leanback' in features.splitlines()
     shell('wm', 'size', '1280x720' if television else '720x1280')
     wait_for(lambda: 'Configurator created savedState=true' in adb('logcat', '-d'), 'configurator recreation')
     shell('wm', 'size', 'reset')
@@ -594,8 +1111,8 @@ try:
         select_tree('ESDEPlusSmoke')
         wait_for(lambda: grant_count(1), 'actual pending persisted tree grant')
         ui('Cancel configuration', dpad=True)
-        wait_for(lambda: grant_count(0), 'cancel releases pending persisted grant')
-        save_logs('cancel-releases-pending-grant')
+        cancelled_grant_retained()
+        save_logs('cancel-retains-selected-grant')
         ui('Choose shared ROM folder', dpad=True)
         select_tree('ESDEPlusSmoke')
         shell('mkdir', '-p', '/sdcard/ESDEPlusOtherFolder')
@@ -605,10 +1122,35 @@ try:
         save_logs('selection-releases-pending-grant')
         ui('Choose shared ROM folder', dpad=True)
         select_tree('ESDEPlusSmoke')
+        ui('Cancel configuration', dpad=True)
+        cancelled_grant_retained()
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
+    launch_contract_probes('direct')
+    shell('am', 'force-stop', app)
+    revoked_tree = shell('am', 'instrument', '-w', '-e', 'mode', 'revoke-tree',
+                         app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'revoked-tree-launch.txt').write_text(revoked_tree)
+    shell('am', 'force-stop', app)
+    time.sleep(1)  # Let instrumentation/task teardown finish, as in clear_app().
+    dismiss_stock_onboarding(force=True)
+    start_entry('HomeEntry', 'android.intent.category.HOME')
+    if 'PASS: real selected tree revoked' in revoked_tree:
+        ui('Configure ' + label)
+        screenshot('revoked-tree-recovery')
+        save_logs('revoked-tree-recovery')
+        ui('Use typed folder path', dpad=True)
+        ui('Save and start frontend', dpad=True)
+        configured_system('direct-typed-path-system')
+        wait_for(lambda: grant_count(0), 'typed-path recovery has no persisted tree grant')
+    else:
+        smoke_checks.probe_passed(revoked_tree,
+            'CAPABILITY: real typed-path selection already has no persisted tree')
+        configured_system('direct-typed-path-system')
+    launch_contract_probes('direct-typed')
+    pdf_smoke.run('direct', globals())
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
@@ -618,10 +1160,11 @@ try:
         adb('logcat', '-c')
         start_entry(name, category)
         wait_for(lambda: ('SDL entry reused via onNewIntent' in adb('logcat', '-d') or
-                         'Forwarding entry to sole SDL activity' in adb('logcat', '-d')) and
+                         'Focused redirect forwarding' in adb('logcat', '-d')) and
                  f'HOME={str(home).lower()}' in adb('logcat', '-d'), 'warm entry and HOME state')
         assert shell('pidof', app).strip() == pid, 'Warm entry replaced the process'
         entry_log = adb('logcat', '-d')
+        smoke_checks.warm_entry(entry_log, home)
         assert 'Creating sole SDL activity' not in entry_log and 'Running main function' not in entry_log
         assert len(activity_records()[1]) == 1, activity_records()[0]
         if home:
@@ -647,7 +1190,7 @@ try:
     configured_system('direct-restart')
     shell('test', '!', '-d', shared + '/3do')
     assert shell('cat', shared + '/nes/systeminfo.txt').strip() == 'user-system-metadata'
-    assert 'Creating system directories' not in log(), log()
+    smoke_checks.no_generation(log())
     (evidence / 'one-shot-direct.txt').write_text('PASS: deleted 3do stayed absent; user NES systeminfo.txt unchanged on restart.\n' + log())
     if api == 34:
         real_system_home()
@@ -656,6 +1199,12 @@ try:
                          app + '/org.esdeplus.frontend.RuntimeSmoke')
     assert 'PASS: real persisted direct selection rejects unavailable' in volume_probe, volume_probe
     (evidence / 'selected-volume-unavailable.txt').write_text(volume_probe)
+    shell('am', 'force-stop', app)
+    session_probe = shell('am', 'instrument', '-w', '-e', 'mode', 'configurator-session',
+                          app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'configurator-session-probe.txt').write_text(session_probe)
+    smoke_checks.probe_passed(session_probe,
+        'PASS: session-matched draft only; no-config startup clears abandoned draft; positive controls rejected')
     # Remove the selected shared folder while retaining the real grant/selection.
     # Failure must be a recovery screen; restore it and accept the same selection.
     shell('am', 'force-stop', app)
@@ -803,6 +1352,7 @@ try:
     private('test', '-f', 'files/themes/linear-es-de/theme.xml')
     screenshot('system-view')
     save_logs('first-launch-recovered')
+    launch_contract_probes('scoped')
     # Real keyboard navigation: open the menu, its first SEARCH entry, type, accept.
     key('KEYCODE_ESCAPE')
     screenshot('main-menu-search')
@@ -922,7 +1472,7 @@ try:
     start_entry()
     configured_system('scoped-one-shot-restart')
     restarted_log = log()
-    assert 'Creating system directories' not in restarted_log, restarted_log
+    smoke_checks.no_generation(restarted_log)
     shell('am', 'force-stop', app)
     owned_fixture('verify-systems', 'ROMs')
     (evidence / 'one-shot-scoped.txt').write_text('PASS: SDK-context filesystem probe: deleted app-owned 3do stayed absent; edited NES systeminfo.txt unchanged on restart. No preferences or grants changed.\n' + restarted_log)
@@ -956,7 +1506,10 @@ try:
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
                      native_shutdown(relaunched_pid), 'relaunch quits cleanly')
-    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; API 34 additionally real system HOME over drawer launch. Saved-state probe outcome is recorded separately.\n')
+    pdf_smoke.run('scoped', globals())
+    real_retroarch_flow()
+    pdf_smoke.release(globals())
+    (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
 except BaseException:
     save_logs('failure')
     screenshot('failure')

@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import runpy
 
 source, target, ndk = map(pathlib.Path, sys.argv[1:4])
 host, triple = sys.argv[4:6]
@@ -36,6 +37,9 @@ while pending:
     for dependency in needed:
         if dependency == 'libc++_shared.so' or not (sysroot / '29' / dependency).is_file():
             pending.append(dependency)
+reviewed = runpy.run_path('android/license-inputs.py')
+assert set(closure) <= reviewed['SHARED'], ('Unreviewed package inputs', set(closure) - reviewed['SHARED'])
+assert static <= reviewed['STATIC'], ('Unreviewed static inputs', static - reviewed['STATIC'])
 # This directory is this script's APK-input output, not the install prefix. Remove
 # stale outputs after narrowing the closure (including an old libpng linker alias).
 target.mkdir(parents=True, exist_ok=True)

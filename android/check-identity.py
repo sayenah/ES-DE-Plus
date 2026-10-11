@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import subprocess
 import sys
 import zipfile
+import copy
 
 def dex_definitions(data):
     # Public AOSP DEX class_data_item and method_id_item layouts. Inspect actual
@@ -80,7 +81,8 @@ with zipfile.ZipFile(apk) as archive:
                 assert forbidden.encode(encoding) not in data, (entry, encoding)
         assert not entry.endswith(('.jks', '.keystore')), entry
     assert archive.read('assets/graphics/splash.svg') == pathlib.Path('android/branding/splash.svg').read_bytes()
-for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/'):
+for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/jetbrains/annotations/',
+               'Lorg/intellij/lang/annotations/'):
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
@@ -98,12 +100,52 @@ required_methods = {
     ('setupResources', '(Ljava/lang/String;)Z'), ('startConfigurator', '()V'), ('onNativeFrontendResume', '()V'),
     ('launchGame', '([Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z)I'),
 }
+def pdf_descriptors(methods):
+    expected = {('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'),
+                ('renderPdfPage', '(Ljava/lang/String;III)[B')}
+    assert expected <= methods, ('Missing PDF JNI descriptors', expected - methods)
+
 for owner in ['MainActivity', 'NativeBridge']:
     methods = classes['Lorg/esdeplus/frontend/' + owner + ';']
-    assert required_methods <= methods, (owner, 'Missing JNI methods', required_methods - methods)
-    for name, descriptor in sorted(required_methods):
+    if owner == 'MainActivity':
+        pdf_descriptors(methods)
+        for missing in [('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'), ('renderPdfPage', '(Ljava/lang/String;III)[B')]:
+            try:
+                pdf_descriptors(methods - {missing})
+            except AssertionError:
+                print('PASS: removed PDF JNI descriptor control rejected: ' + missing[0])
+            else:
+                raise AssertionError('PDF JNI control escaped')
+        methods_required = required_methods | {('getPdfPageInfo', '(Ljava/lang/String;)Ljava/lang/String;'),
+                                              ('renderPdfPage', '(Ljava/lang/String;III)[B')}
+    else:
+        methods_required = required_methods
+    assert methods_required <= methods, (owner, 'Missing JNI methods', methods_required - methods)
+    for name, descriptor in sorted(methods_required):
         print(f'KEPT JNI METHOD {owner}.{name}{descriptor}')
 print('PASS: actual defined JNI methods retain every name/descriptor in ' + ('minified release' if release else 'debug') + ' dex')
+
+def dex_licences(names):
+    mapping = {}
+    if release:
+        for line in pathlib.Path('android/app/build/outputs/mapping/release/mapping.txt').read_text().splitlines():
+            match = re.fullmatch(r'(\S+) -> (\S+):', line)
+            if match:
+                mapping['L' + match[2].replace('.', '/') + ';'] = 'L' + match[1].replace('.', '/') + ';'
+    for name in names:
+        original = mapping.get(name, name)
+        assert original.startswith(('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/',
+                                    'Lorg/jetbrains/annotations/', 'Lorg/intellij/lang/annotations/',
+                                    'Lcom/android/tools/r8/')), ('Unreviewed dex class', name, original)
+
+dex_licences(classes)
+try:
+    dex_licences([*classes, 'Lcom/unreviewed/Library;'])
+except AssertionError:
+    print('PASS: unreviewed dex class positive control rejected')
+else:
+    raise AssertionError('Dex licence control escaped')
+print('PASS: actual dex definitions belong to the reviewed runtime inventory (R8 mapping in release)')
 
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
 aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt'
@@ -206,3 +248,62 @@ assert integer_attribute(features['android.software.leanback'], 'required') == 0
 for name in ['nativeSetHold', 'nativeSetHomeApp', 'nativeSetResetTouchOverlay']:
     assert (name, '(Z)V') in classes['Lorg/esdeplus/frontend/MainActivity;']
 print('PASS: packaged launcher aliases, singleTask, configurator export, API-specific permissions, TV banner/feature and static native callbacks')
+
+# Use the packaged values for both variants, with deliberately incomplete
+# manifests as positive controls for the same audit.
+def discovery_manifest(nodes):
+    queries = next(n for n in nodes if n['tag'] == 'queries')
+    actual = {string_attribute(n, 'name') for n in queries['children'] if n['tag'] == 'package'}
+    expected = {entry.text.strip().split('/')[0] for rule in
+                ET.parse('resources/systems/android/es_find_rules.xml').iter('rule')
+                if rule.get('type') == 'androidpackage' for entry in rule.findall('entry')}
+    assert actual == expected, ('Emulator visibility differs from bundled find rules', expected - actual, actual - expected)
+    signatures = {(tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'action'),
+                   tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'category'))
+                  for n in queries['children'] if n['tag'] == 'intent'}
+    assert signatures == {(("android.intent.action.MAIN",), ("android.intent.category.LAUNCHER",)),
+                          (("android.intent.action.MAIN",), ("android.intent.category.LEANBACK_LAUNCHER",))}, signatures
+    assert all(not (n['tag'] == 'uses-permission' and
+                   string_attribute(n, 'name') == 'android.permission.QUERY_ALL_PACKAGES') for n in nodes)
+    provider = next(n for n in nodes if n['tag'] == 'provider' and
+                    string_attribute(n, 'authorities') == application_id + '.roms')
+    assert integer_attribute(provider, 'exported') == 0
+    assert integer_attribute(provider, 'grantUriPermissions') == 0xffffffff
+    assert not any(n['tag'] in ('grant-uri-permission', 'path-permission') for n in provider['children'])
+    return len(actual)
+
+count = discovery_manifest(manifest_nodes)
+for fault in ['package', 'signature', 'broad-query', 'provider-export', 'provider-grants', 'provider-path']:
+    malformed = copy.deepcopy(manifest_nodes)
+    queries = next(n for n in malformed if n['tag'] == 'queries')
+    if fault == 'package':
+        queries['children'] = [n for i, n in enumerate(queries['children']) if i != next(
+            i for i, n in enumerate(queries['children']) if n['tag'] == 'package')]
+    elif fault == 'signature':
+        queries['children'] = [n for n in queries['children'] if n['tag'] != 'intent']
+    elif fault == 'broad-query':
+        malformed.append({'tag': 'uses-permission', 'attributes': {'name': '"android.permission.QUERY_ALL_PACKAGES"'}, 'children': []})
+    elif fault == 'provider-export':
+        next(n for n in malformed if n['tag'] == 'provider')['attributes']['exported'] = '(type 0x12)0xffffffff'
+    elif fault == 'provider-grants':
+        next(n for n in malformed if n['tag'] == 'provider')['attributes']['grantUriPermissions'] = '(type 0x12)0x0'
+    else:
+        next(n for n in malformed if n['tag'] == 'provider')['children'].append(
+            {'tag': 'grant-uri-permission', 'attributes': {}, 'children': []})
+    try:
+        discovery_manifest(malformed)
+    except AssertionError:
+        print('PASS: discovery manifest positive control rejected: ' + fault)
+    else:
+        raise AssertionError('Manifest positive control escaped: ' + fault)
+def frontend_only(definitions):
+    assert not any(n.startswith('Lorg/esdeplus/stub/') for n in definitions), 'CI recipient must never be in the frontend APK'
+
+frontend_only(classes)
+try:
+    frontend_only([*classes, 'Lorg/esdeplus/stub/RecipientActivity;'])
+except AssertionError:
+    print('PASS: separate recipient code positive control rejected')
+else:
+    raise AssertionError('Recipient code positive control escaped')
+print(f'PASS: {count} bundled emulator packages, both launcher signatures, exact-grant non-exported provider; no broad visibility or stub code')

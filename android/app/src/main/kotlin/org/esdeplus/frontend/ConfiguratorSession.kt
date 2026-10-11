@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.Bundle
 import android.util.Log
 import java.io.IOException
+import java.util.UUID
 
 object ConfiguratorSession {
     private val monitor = Object()
@@ -23,6 +24,13 @@ object ConfiguratorSession {
     private val draftStrings = listOf("mode", "path", "tree", "typedPath", "message")
     private val draftBooleans = listOf("createSystems", "permissionPending", "resourceError")
     @Volatile private var pendingDraft: Bundle? = null
+    private var currentSession: String? = null
+
+    @Synchronized fun session(context: Context): String {
+        currentSession?.let { return it }
+        return (context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE)
+            .getString("session", null) ?: UUID.randomUUID().toString()).also { currentSession = it }
+    }
 
     fun recordEntry(intent: Intent) {
         entry = Intent(intent).replaceExtras(null as android.os.Bundle?)
@@ -47,9 +55,16 @@ object ConfiguratorSession {
         if (registered) MainActivity.nativeSetHold(true)
         val app = context.applicationContext
         val launch = Intent(app, ConfiguratorActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("session", session(app))
             .putExtra("entry", entry).putExtra("message", message ?: resourceFailure)
-        Handler(Looper.getMainLooper()).post { app.startActivity(launch) }
+        Handler(Looper.getMainLooper()).post {
+            // A retained configurator may be below a newly started SDL host
+            // after process death. Move it above that host without clearing it.
+            val frontend = MainActivity.liveInstance()
+            if (frontend != null) frontend.startActivity(launch)
+            else app.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     fun finishConfiguration() {
@@ -77,12 +92,16 @@ object ConfiguratorSession {
 
     // App-private draft, separate from accepted storage configuration and
     // upstream user-data files. Persist before SDL destruction can end the VM.
-    fun rememberDraft(state: Bundle) { pendingDraft = Bundle(state) }
+    @Synchronized fun rememberDraft(state: Bundle) {
+        if (state.getString("session") == currentSession) pendingDraft = Bundle(state)
+    }
 
     fun persistPendingDraft(context: Context) { pendingDraft?.let { saveDraft(context, it) } }
 
-    fun saveDraft(context: Context, state: Bundle) {
+    @Synchronized fun saveDraft(context: Context, state: Bundle) {
+        if (state.getString("session") != session(context)) return
         val editor = context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE).edit().clear()
+        editor.putString("session", currentSession)
         for (key in draftStrings) editor.putString(key, state.getString(key))
         for (key in draftBooleans) editor.putBoolean(key, state.getBoolean(key))
         editor.putInt("focusId", state.getInt("focusId"))
@@ -93,10 +112,11 @@ object ConfiguratorSession {
         Log.i("ES-DE-Plus", "Configurator draft saved")
     }
 
-    fun loadDraft(context: Context): Bundle? {
+    fun loadDraft(context: Context, sessionId: String): Bundle? {
         val preferences = context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE)
-        if (!preferences.contains("mode")) return null
+        if (!preferences.contains("mode") || preferences.getString("session", null) != sessionId) return null
         return Bundle().apply {
+            putString("session", sessionId)
             for (key in draftStrings) putString(key, preferences.getString(key, null))
             for (key in draftBooleans) putBoolean(key, preferences.getBoolean(key, false))
             putInt("focusId", preferences.getInt("focusId", 0))
@@ -106,9 +126,11 @@ object ConfiguratorSession {
         }
     }
 
-    fun clearDraft(context: Context) {
+    @Synchronized fun clearDraft(context: Context) {
         if (!context.getSharedPreferences("configurator-draft", Context.MODE_PRIVATE).edit().clear().commit())
             throw IOException(context.getString(R.string.configuration_save_failed))
         pendingDraft = null
+        currentSession = null
+        Log.i("ES-DE-Plus", "Configurator session draft cleared")
     }
 }
