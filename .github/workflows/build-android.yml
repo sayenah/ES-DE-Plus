@@ -57,7 +57,7 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: not-applicable
-      GRADLE_USER_HOME: ${{ runner.temp }}/esde-gradle
+      GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: &android_steps
       - uses: actions/checkout@v4
         with:
@@ -486,7 +486,7 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: ${{ needs.build.result }}
-      GRADLE_USER_HOME: ${{ runner.temp }}/esde-gradle
+      GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: *android_steps
 
   publication-result:
