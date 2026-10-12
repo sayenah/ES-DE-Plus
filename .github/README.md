@@ -82,7 +82,7 @@ Every Android change is built and tested on three emulator images — **Android 
 
 - **Clean room.** Nothing in this repository comes from the proprietary ES-DE Android app or from decompiling it; its observable behaviour is documented in [`docs/ANDROID-CLEAN-ROOM.md`](/docs/ANDROID-CLEAN-ROOM.md) and everything is implemented from public sources. No payment or licence check is bypassed.
 - **Source.** ES-DE Plus's own source is **MIT**, like upstream ES-DE.
-- **Android app.** The APK contains no GPL code except libgit2, which carries a linking exception; it includes LGPL-2.1 libraries (FFmpeg built without GPL parts, libiconv, libintl, and LibRaw inside FreeImage) plus permissive, Apache-2.0, FreeImage (FIPL) and CImg (CeCILL-C) components. The full inventory is in [`android/DEPENDENCY-LICENSES.md`](/android/DEPENDENCY-LICENSES.md).
+- **Android app.** The APK's code contains no GPL code except libgit2, which carries a linking exception; it includes LGPL-2.1 libraries (FFmpeg built without GPL parts, libiconv, libintl, and LibRaw inside FreeImage, under LGPL-2.1 or CDDL-1.0) plus permissive, Apache-2.0, FreeImage (FIPL) and CImg (CeCILL-C) components. Bundled fonts, sounds, themes and certificates keep their own licences — for example the GNU FreeFont font is GPL-3.0. Every licence text ships with each download, and the full inventory is in [`android/DEPENDENCY-LICENSES.md`](/android/DEPENDENCY-LICENSES.md).
 - **Identity.** ES-DE Plus uses its own application ID (`org.esdeplus.frontend`), name and icon, and is **not affiliated with or endorsed by the ES-DE project**. If you want the official ES-DE for Android, please support its developer via [es-de.org](https://es-de.org).
 
 ## 💜 Thanks
