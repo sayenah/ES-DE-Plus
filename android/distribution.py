@@ -5,6 +5,7 @@ import argparse
 import datetime
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -67,14 +68,28 @@ DEX_SOURCES = {
         'file': 'archives/annotations-sources.jar', 'licence': 'Apache-2.0; licenses/Kotlin'},
 }
 FONT_PATH = 'resources/fonts/FreeMono.ttf'
-FONT_SOURCE = {
-    'url': 'https://ftp.gnu.org/gnu/freefont/freefont-src-20120503.tar.gz',
-    'sha256': '0d62e2e22655f841c3ac5fb8c8059a52fe2c09c695d9e8eda9903406e942657a',
-    'file': 'archives/freefont.archive', 'release': '20120503',
-    'licence': 'GPL-3.0; licenses/GNUFreeFont',
+FONT_SOURCES = {
+    'original': {
+        'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont_20120503.orig.tar.xz',
+        'sha256': 'b3850d562f2e227720b4cd67f44490bdcb7abd6482714945b9b65cdcfe8ce0d8',
+        'file': 'archives/fonts-freefont_20120503.orig.tar.xz'},
+    'debian': {
+        'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont_20120503-10.debian.tar.xz',
+        'sha256': '1798c185de175d881a5d5bc7f69c0e0abe050e1294d6f12dac6f08d0dd2cc557',
+        'file': 'archives/fonts-freefont_20120503-10.debian.tar.xz'},
 }
+FONT_BINARY = {
+    'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont-ttf_20120503-10_all.deb',
+    'sha256': '4ca1c21ebc479198a3a5879d236c8317d6f7b2f1c403f7890e24c02eead05615',
+    'file': 'archives/fonts-freefont-ttf_20120503-10_all.deb',
+    'purpose': 'Pinned binary reference for offline font/source binding; not a dependency',
+}
+FONT_DOWNLOADS = {**FONT_SOURCES, 'binary_reference': FONT_BINARY}
 FONT_SHA256 = 'fb1fc7fbdfaf524841d2a6d57d9b0c9add87f6bdcfdde7fc2b27821d7ae0b454'
-FONT_VERSION = '0412.2268'
+FONT_PACKAGE_VERSION = '20120503-10'
+FONT_TOLERANCES = ['head.checkSumAdjustment', 'head.created', 'head.modified',
+                   'FFTM timestamps', 'derived directory checksums']
+SHADER_PATH = 'resources/shaders/glsl/scanlines.glsl'
 
 
 def require(condition, message):
@@ -91,81 +106,159 @@ def run(*args):
     return subprocess.check_output(args, text=True).strip()
 
 
-def ttf_version(data):
-    # OpenType name ID 5 is the version string; the bundled font has Unicode names.
+def font_tables(data):
+    # OpenType directory offsets locate tables; compare their full contents below.
+    require(data[:4] == b'\x00\x01\x00\x00' and len(data) >= 12, 'Expected TrueType font')
     count = struct.unpack_from('>H', data, 4)[0]
-    tables = {tag: (offset, size) for tag, checksum, offset, size in
-              (struct.unpack_from('>4sIII', data, 12 + 16 * i) for i in range(count))}
-    start, size = tables[b'name']
-    form, count, strings = struct.unpack_from('>HHH', data, start)
-    versions = set()
+    require(12 + 16 * count <= len(data), 'Truncated font directory')
+    tables = {}
     for i in range(count):
-        platform, encoding, language, name, length, position = struct.unpack_from(
-            '>HHHHHH', data, start + 6 + 12 * i)
-        if name == 5 and platform in {0, 3}:
-            text = data[start + strings + position:start + strings + position + length].decode('utf-16-be').strip()
-            require(text.startswith('Version '), 'Missing FreeMono version prefix')
-            versions.add(text.removeprefix('Version '))
-    require(len(versions) == 1, 'Missing or inconsistent FreeMono TTF version')
-    return versions.pop()
+        tag, checksum, offset, length = struct.unpack_from('>4sIII', data, 12 + 16 * i)
+        tag = tag.decode('ascii')
+        require(tag not in tables and offset + length <= len(data), 'Invalid font table directory')
+        tables[tag] = (offset, data[offset:offset + length])
+    require({'head', 'FFTM', 'glyf'} <= set(tables), 'Missing required FreeMono tables')
+    return tables
 
 
-def match_font_versions(binary, source, name):
-    # GNU's SFD keeps the SVN revision token; its generated TTF version ends in that revision.
-    revision = re.fullmatch(r'\$Revision: (\d+) \$', source)
-    require(binary == FONT_VERSION and revision and
-            revision[1] == binary.rsplit('.', 1)[1] and name == 'FreeMono',
-            f'FreeMono source/font version mismatch: TTF={binary!r}, SFD={source!r}, name={name!r}')
+def normalized_tables(data):
+    result = {}
+    for tag, (offset, original) in font_tables(data).items():
+        content = bytearray(original)
+        if tag == 'head':
+            require(len(content) == 54, 'Unexpected head table size')
+            content[8:12] = b'\0' * 4  # checkSumAdjustment
+            content[20:36] = b'\0' * 16  # created and modified timestamps
+        elif tag == 'FFTM':
+            require(len(content) == 28, 'Unexpected FFTM table size')
+            content[4:28] = b'\0' * 24  # three FontForge timestamps; version preserved
+        result[tag] = bytes(content)
+    return result
 
 
-def font_mapping(archive, font):
-    require(digest(archive) == FONT_SOURCE['sha256'], 'FreeFont source checksum mismatch')
+def compare_font_tables(bundled, reference):
+    left, right = normalized_tables(bundled), normalized_tables(reference)
+    require(left.keys() == right.keys(), 'FreeMono table set mismatch')
+    for tag in sorted(left):
+        require(left[tag] == right[tag], f'FreeMono table mismatch: {tag}')
+    return {tag: hashlib.sha256(left[tag]).hexdigest() for tag in sorted(left)}
+
+
+def debian_binary_font(path):
+    # Read the pinned .deb's ar/data tar without installing it or adding a tool.
+    data = path.read_bytes()
+    require(data.startswith(b'!<arch>\n'), 'Invalid Debian binary package')
+    members, position = {}, 8
+    while position < len(data):
+        header = data[position:position + 60]
+        require(len(header) == 60 and header[58:60] == b'`\n', 'Invalid ar header')
+        name = header[:16].decode().strip().rstrip('/')
+        size = int(header[48:58])
+        position += 60
+        require(name not in members and position + size <= len(data), 'Invalid ar member')
+        members[name] = data[position:position + size]
+        position += size + size % 2
+    require(members.get('debian-binary') == b'2.0\n', 'Unexpected Debian package format')
+    control = [v for k, v in members.items() if k.startswith('control.tar.')]
+    payload = [v for k, v in members.items() if k.startswith('data.tar.')]
+    require(len(control) == len(payload) == 1, 'Missing/ambiguous Debian payload')
+    with tarfile.open(fileobj=io.BytesIO(control[0])) as archive:
+        text = archive.extractfile('./control').read().decode()
+        require(re.search(r'^Package: fonts-freefont-ttf$', text, re.M) and
+                re.search(r'^Version: ' + re.escape(FONT_PACKAGE_VERSION) + r'$', text, re.M),
+                'Wrong Debian binary package/version')
+    with tarfile.open(fileobj=io.BytesIO(payload[0])) as archive:
+        return archive.extractfile('./usr/share/fonts/truetype/freefont/FreeMono.ttf').read()
+
+
+def font_mapping(directory, font):
+    for pin in FONT_DOWNLOADS.values():
+        require(digest(directory / pathlib.Path(pin['file']).name) == pin['sha256'],
+                f'Debian font input checksum mismatch: {pin["file"]}')
     require(hashlib.sha256(font).hexdigest() == FONT_SHA256, 'Bundled FreeMono checksum mismatch')
-    with tarfile.open(archive) as source:
-        members = [e for e in source if e.isfile() and e.name.endswith('/sfd/FreeMono.sfd')]
-        require(len(members) == 1, 'Missing or ambiguous FreeMono source')
-        text = source.extractfile(members[0]).read().decode()
-        version = re.search(r'^Version: (.+)$', text, re.M)
-        name = re.search(r'^FontName: (.+)$', text, re.M)
-        require(version and name, 'Missing FreeMono source metadata')
-        binary = ttf_version(font)
-        match_font_versions(binary, version[1].strip(), name[1].strip())
-        return {'archive': 'freefont', 'source_path': members[0].name,
-                'font_sha256': FONT_SHA256, 'font_version': binary,
-                'source_version': version[1].strip(), **FONT_SOURCE}
+    with tarfile.open(directory / pathlib.Path(FONT_SOURCES['original']['file']).name) as archive:
+        sources = [m.name for m in archive if m.isfile() and m.name.endswith('/sfd/FreeMono.sfd')]
+        require(len(sources) == 1, 'Missing/ambiguous original FreeMono source')
+    with tarfile.open(directory / pathlib.Path(FONT_SOURCES['debian']['file']).name) as archive:
+        changelog = archive.extractfile('debian/changelog').read().decode()
+        require(changelog.startswith(f'fonts-freefont ({FONT_PACKAGE_VERSION})'), 'Wrong Debian source version')
+        patches = archive.extractfile('debian/patches/series').read().decode().splitlines()
+        patches = [p.split()[0] for p in patches if p.strip() and not p.lstrip().startswith('#')]
+        require('drop_bad_braille.diff' in patches, 'Debian Braille patch missing from series')
+        for patch in patches:
+            require(archive.getmember('debian/patches/' + patch).isfile(), 'Missing Debian patch')
+        require(archive.getmember('debian/rules').isfile(), 'Missing Debian build recipe')
+    reference = debian_binary_font(directory / pathlib.Path(FONT_BINARY['file']).name)
+    tables = compare_font_tables(font, reference)
+    return {'source_package': 'fonts-freefont', 'version': FONT_PACKAGE_VERSION,
+            'sources': FONT_SOURCES, 'source_path': sources[0], 'debian_patches': patches,
+            'modifications': 'Debian modified build; Braille block removed by drop_bad_braille.diff',
+            'binary_reference': FONT_BINARY, 'binary_font_sha256': hashlib.sha256(reference).hexdigest(),
+            'font_sha256': FONT_SHA256, 'table_sha256': tables, 'tolerated_fields': FONT_TOLERANCES,
+            'licence': 'GPL-3.0; licenses/GNUFreeFont'}
+
+
+def font_controls(font):
+    compare_font_tables(font, font)
+    changed = bytearray(font)
+    entries = font_tables(font)
+    for tag, start, length in [('head', 8, 4), ('head', 20, 16), ('FFTM', 4, 24)]:
+        offset = entries[tag][0]
+        changed[offset + start:offset + start + length] = b'\1' * length
+    for i in range(len(entries)):
+        changed[12 + 16 * i + 4:12 + 16 * i + 8] = b'\1' * 4
+    compare_font_tables(font, bytes(changed))
+    print('PASS: allowed FontForge timestamps/head and directory checksum differences tolerated')
+    for tag, byte in [('glyf', 0), ('head', 4), ('FFTM', 0)]:
+        changed = bytearray(font)
+        changed[entries[tag][0] + byte] ^= 1
+        try:
+            compare_font_tables(font, bytes(changed))
+        except ValueError as error:
+            print(f'PASS: modified font table rejected: {error}')
+        else:
+            raise ValueError('Modified font table control escaped')
 
 
 def font_ci():
-    require(os.environ.get('GITHUB_ACTIONS') == 'true', 'FreeFont is fetched in CI only')
-    archive = ROOT / 'android/.deps/downloads/freefont.archive'
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    if not archive.exists():
-        subprocess.check_call(['curl', '--fail', '--location', '--retry', '3',
-                               FONT_SOURCE['url'], '-o', str(archive)])
-    font = (ROOT / FONT_PATH).read_bytes()
-    record = font_mapping(archive, font)
-    print(json.dumps(record, indent=2))
-    for binary, source, name in [('wrong', record['source_version'], 'FreeMono'),
-                                 (FONT_VERSION, 'wrong', 'FreeMono'),
-                                 (FONT_VERSION, '$Revision: 9999 $', 'FreeMono'),
-                                 (FONT_VERSION, record['source_version'], 'wrong')]:
-        try:
-            match_font_versions(binary, source, name)
-        except ValueError as error:
-            print(f'PASS: wrong font/source metadata rejected: {error}')
+    require(os.environ.get('GITHUB_ACTIONS') == 'true', 'Debian font inputs are fetched in CI only')
+    directory = ROOT / 'android/.deps/downloads'
+    directory.mkdir(parents=True, exist_ok=True)
+    for pin in FONT_DOWNLOADS.values():
+        archive = directory / pathlib.Path(pin['file']).name
+        if not archive.exists():
+            print(f'FETCH: pinned Debian font input {pin["file"]}', flush=True)
+            subprocess.check_call(['curl', '--fail', '--location', '--retry', '3', pin['url'], '-o', str(archive)])
         else:
-            raise ValueError('Font metadata control escaped')
-    with tempfile.TemporaryDirectory(dir=archive.parent) as temporary:
-        corrupt = pathlib.Path(temporary) / 'freefont.archive'
-        corrupt.write_bytes(b'corrupt FreeFont source control')
-        for path, binary in [(corrupt, font), (archive, b'corrupt font control')]:
+            print(f'CACHE: pinned Debian font input {pin["file"]}', flush=True)
+        require(digest(archive) == pin['sha256'], 'Debian font download checksum mismatch')
+    font = (ROOT / FONT_PATH).read_bytes()
+    record = font_mapping(directory, font)
+    print(json.dumps(record, indent=2))
+    font_controls(font)
+    with tempfile.TemporaryDirectory(dir=directory) as temporary:
+        corrupt = pathlib.Path(temporary)
+        for pin in FONT_DOWNLOADS.values():
+            name = pathlib.Path(pin['file']).name
+            for original in FONT_DOWNLOADS.values():
+                original_name = pathlib.Path(original['file']).name
+                (corrupt / original_name).symlink_to(directory / original_name)
+            (corrupt / name).unlink()
+            (corrupt / name).write_bytes(b'corrupt Debian font input control')
             try:
-                font_mapping(path, binary)
+                font_mapping(corrupt, font)
             except ValueError as error:
-                print(f'PASS: corrupt font/source rejected: {error}')
+                print(f'PASS: corrupt Debian font input rejected: {error}')
             else:
                 raise ValueError('Font integrity control escaped')
-    print(f'PASS: bundled FreeMono Version {record["font_version"]} matches official GNU FreeFont {FONT_SOURCE["release"]}')
+            for item in corrupt.iterdir():
+                item.unlink()
+    print(f'PASS: every FreeMono table matches Debian fonts-freefont-ttf {FONT_PACKAGE_VERSION}; allowed fields {FONT_TOLERANCES}')
+
+
+def shader_mapping(source):
+    return {'repository_path': SHADER_PATH, 'sha256': hashlib.sha256(source).hexdigest(),
+            'licence': 'GPL-2.0-or-later; RetroArch-derived; shipped source, compiled by GPU driver at runtime'}
 
 
 def dependency_cache(key, hit):
@@ -433,9 +526,12 @@ def make_bundle(apk):
             subprocess.check_call(['curl', '--fail', '--location', '--retry', '3', pin['url'], '-o', str(archive)])
         require(digest(archive) == pin['sha256'], 'Dex source archive checksum mismatch')
         shutil.copyfile(archive, destination / pin['file'])
-    font_archive = ROOT / 'android/.deps/downloads/freefont.archive'
-    asset_sources = {FONT_PATH: font_mapping(font_archive, (ROOT / FONT_PATH).read_bytes())}
-    shutil.copyfile(font_archive, destination / FONT_SOURCE['file'])
+    downloads = ROOT / 'android/.deps/downloads'
+    shader = (ROOT / SHADER_PATH).read_bytes()
+    asset_sources = {FONT_PATH: font_mapping(downloads, (ROOT / FONT_PATH).read_bytes()),
+                    SHADER_PATH: shader_mapping(shader)}
+    for pin in FONT_DOWNLOADS.values():
+        shutil.copyfile(downloads / pathlib.Path(pin['file']).name, destination / pin['file'])
     graphs = {abi: json.loads((ROOT / f'android/.deps/install/{abi}/license-inputs.json').read_text()) for abi in ABIS}
     graphs['native'] = json.loads((ROOT / 'android/evidence/license-native-inputs.txt').read_text())
     inputs = {path: provenance(path, tracked, audit) for graph in graphs.values()
@@ -443,6 +539,8 @@ def make_bundle(apk):
     with zipfile.ZipFile(apk) as archive:
         require(hashlib.sha256(archive.read('assets/fonts/FreeMono.ttf')).hexdigest() == FONT_SHA256,
                 'APK FreeMono differs from the mapped repository font')
+        require(archive.read('assets/shaders/glsl/scanlines.glsl') == shader,
+                'APK scanline shader differs from its mapped source')
         shared = {name: {'sha256': hashlib.sha256(archive.read(name)).hexdigest(),
                          **provenance(name.replace('lib/', 'android/libs/', 1), tracked, audit)}
                   for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')}
@@ -458,7 +556,7 @@ def make_bundle(apk):
     require('Pkg.Revision = 28.2.13676358' in tools['NDK'], 'Unexpected NDK provenance')
     require(os.environ.get('DEPENDENCY_CACHE_HIT') in {'true', 'false'}, 'Missing cache restore result')
     cache = dependency_cache(os.environ['DEPENDENCY_CACHE_KEY'], os.environ['DEPENDENCY_CACHE_HIT'] == 'true')
-    manifest = {'schema': 2, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
+    manifest = {'schema': 3, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
                 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'repository': os.environ['GITHUB_REPOSITORY'],
                 'apk': record, 'archives': archives, 'graphs': graphs, 'inputs': inputs, 'shared': shared,
                 'bundled_codecs': {f'FreeImage/Source/{k}': {'archive': 'freeimage', 'licence': v} for k, v in CODECS.items()},
@@ -467,11 +565,11 @@ def make_bundle(apk):
                 'toolchain': tools, 'recipes': ['tools/Android_dependencies_setup.sh',
                     'tools/Android_dependencies_build.sh', 'android/app/build.gradle.kts',
                     'CMakeLists.txt', 'android/rebuild-source.sh'],
-                'no_patches': 'Every downloaded source file was compared with its pinned archive. No source patches; build flags and generated include layout are recorded in the recipes.',
+                'no_patches': 'No source patches applied by ES-DE-Plus: every downloaded native source file was compared with its pinned archive; build flags and generated include layout are recorded in the recipes. The Debian font source package preserves Debian patches/build scripts for the already-modified bundled font.',
                 'files': {'repository.tar.gz': digest(destination / 'repository.tar.gz'),
                           **{p['file']: p['sha256'] for p in archives.values()},
                           **{p['file']: p['sha256'] for p in DEX_SOURCES.values()},
-                          FONT_SOURCE['file']: FONT_SOURCE['sha256']}}
+                          **{p['file']: p['sha256'] for p in FONT_DOWNLOADS.values()}}}
     (destination / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     validate_bundle(destination)
     apk_dir = destination.parent / 'apk'
@@ -501,21 +599,22 @@ def make_bundle(apk):
 
 def validate_bundle(bundle):
     manifest = json.loads((bundle / 'manifest.json').read_text())
-    require(manifest['schema'] == 2 and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
+    require(manifest['schema'] == 3 and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
     require(manifest['dependency_cache'] == dependency_cache(
         manifest['dependency_cache']['key'], manifest['dependency_cache']['hit']), 'Unexpected cache metadata')
     require(re.fullmatch('[a-f0-9]{64}', manifest['apk']['sha256']), 'Missing APK hash')
     for file, expected in manifest['files'].items():
-        require(file == 'repository.tar.gz' or re.fullmatch(r'archives/[\w-]+\.(archive|zip|jar)', file), 'Unsafe bundle path')
+        require(file == 'repository.tar.gz' or re.fullmatch(r'archives/[\w.-]+\.(archive|zip|jar|deb|tar\.xz)', file), 'Unsafe bundle path')
         require(digest(bundle / file) == expected, f'Bundle hash mismatch: {file}')
     with tarfile.open(bundle / 'repository.tar.gz') as repository:
         require(repository.pax_headers.get('comment') == manifest['commit'], 'git archive commit mismatch')
         tracked = {entry.name for entry in repository if entry.isfile()}
         actual_pins = pins(repository.extractfile('tools/Android_dependencies_setup.sh').read().decode())
-        asset_sources = {FONT_PATH: font_mapping(bundle / FONT_SOURCE['file'],
-                                                repository.extractfile(FONT_PATH).read())}
-    require(manifest['asset_sources'] == asset_sources, 'FreeMono source mapping mismatch')
-    require(manifest['files'][FONT_SOURCE['file']] == FONT_SOURCE['sha256'], 'FreeFont source pin mismatch')
+        asset_sources = {FONT_PATH: font_mapping(bundle / 'archives', repository.extractfile(FONT_PATH).read()),
+                         SHADER_PATH: shader_mapping(repository.extractfile(SHADER_PATH).read())}
+    require(manifest['asset_sources'] == asset_sources, 'Font/shader source mapping mismatch')
+    for pin in FONT_DOWNLOADS.values():
+        require(manifest['files'][pin['file']] == pin['sha256'], 'Debian font input pin mismatch')
     require(manifest['archives'] == actual_pins, 'Source pins differ from the archived build recipe')
     for pin in actual_pins.values():
         require(manifest['files'][pin['file']] == pin['sha256'], 'Archive file hash differs from pin')
@@ -523,7 +622,8 @@ def validate_bundle(bundle):
     for pin in DEX_SOURCES.values():
         require(manifest['files'][pin['file']] == pin['sha256'], 'Dex source hash differs from pin')
     require(set(manifest['files']) == {'repository.tar.gz'} | {p['file'] for p in actual_pins.values()} |
-            {p['file'] for p in DEX_SOURCES.values()} | {FONT_SOURCE['file']}, 'Missing/extra source files')
+            {p['file'] for p in DEX_SOURCES.values()} | {p['file'] for p in FONT_DOWNLOADS.values()},
+            'Missing/extra source files')
     require(all(path in tracked for path in manifest['recipes']), 'Build recipe absent from exact source archive')
     require('No source patches' in manifest['no_patches'], 'Missing no-patches declaration')
     expected_files = {'manifest.json'} | set(manifest['files'])

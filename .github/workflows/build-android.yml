@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
-# ES-DE-Plus — written for ES-DE-Plus. CI evidence and debug APK distribution (D-003, D-007 am. 1, D-009).
+# ES-DE-Plus — written for ES-DE-Plus. CI evidence and debug APK distribution (D-003, D-007 am. 2, D-009 am. 2).
 name: Build Android
 on:
   push:
     branches: [main, "feature/**"]
-    paths: &android_paths ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", "resources/systems/android/**", ".github/workflows/**"]
+    paths: &android_paths ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", "resources/**", "themes/**", "locale/**", "licenses/**", "external/**", ".github/workflows/**"]
   pull_request:
     paths: *android_paths
   workflow_dispatch:
@@ -26,9 +26,9 @@ on:
         description: Source artefact attempt to rebuild
         type: string
         default: "1"
-# Main pushes and dispatches share a publication group. Other runs stay independent.
+# Only publication-capable main pushes/dispatches share a group; no active publication is cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && 'main-publication' || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') && 'main-publication' || github.run_id }}
   cancel-in-progress: false
 permissions:
   contents: read
@@ -67,11 +67,6 @@ jobs:
             echo 'Injected Android-leg failure; downstream API 34 and APK upload must be skipped'
             exit 1
           fi
-      - name: Verify pinned GNU FreeFont source, bundled font match and positive controls
-        run: |
-          set -o pipefail
-          mkdir -p android/evidence
-          python3 android/distribution.py font | tee android/evidence/distribution-freefont.txt
       - name: Check changed C++ formatting (clang-format 18)
         env:
           FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -110,7 +105,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: android/.deps/downloads
-          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh') }}
+          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh', 'android/distribution.py') }}
+      - name: Verify cached pinned Debian font sources, table binding and positive controls
+        run: |
+          set -o pipefail
+          mkdir -p android/evidence
+          python3 android/distribution.py font | tee android/evidence/distribution-freefont.txt
       - name: Prepare source and include layout
         run: |
           set -o pipefail

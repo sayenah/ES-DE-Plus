@@ -17,19 +17,31 @@ by this workflow. If manually removing artefacts, remove the dependent APK
 first; never delete its source while the APK remains available. The workflow
 cannot prevent an administrator deleting an artefact independently.
 
-ES-DE-Plus's own source is MIT. The APK's code includes permissive and
-Apache-2.0 inputs, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its
-linking exception; no GPL code except libgit2 under that exception is included.
+ES-DE-Plus's own source is MIT. Apart from libgit2 under GPL-2.0 with its
+linking exception and the RetroArch-derived scanline shader
+`resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, the APK's code
+contains no GPL code. The shader ships as its own source text and is compiled
+by the GPU driver at runtime; that file is also in `repository.tar.gz`. The APK
+also includes permissive and Apache-2.0 inputs and LGPL-2.1 shared libraries.
 FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and
 CImg's CeCILL-C options are selected. LibRaw inside FreeImage offers LGPL-2.1 or
 CDDL-1.0; LGPL-2.1 selected. Bundled fonts, sounds, themes and certificates keep
-their own licences, including GNU FreeFont (GPL-3.0). See
+their own licences, including GNU FreeFont (Debian's modified build; GPL-3.0). See
 `DEPENDENCY-LICENSES.md`, `licenses/` and `LICENSE` for preserved notices.
 FreeImage and its uncombined LibRaw source are in `archives/freeimage.zip`;
-CImg and its licence are in `repository.tar.gz`. GNU FreeFont's official
-20120503 source release is in `archives/freefont.archive`; the manifest binds
-it to `resources/fonts/FreeMono.ttf` (Version 0412.2268) by version and font
-SHA256. Their source and recipients' rights remain under those component terms.
+CImg and its licence are in `repository.tar.gz`. FreeMono.ttf is Debian's
+modified build of GNU FreeFont 20120503 (fonts-freefont 20120503-10), with the
+Braille block dropped by `drop_bad_braille.diff`. Its corresponding source is
+`archives/fonts-freefont_20120503.orig.tar.xz` plus
+`archives/fonts-freefont_20120503-10.debian.tar.xz`, including Debian patches
+and build recipes. The declared verification input
+`archives/fonts-freefont-ttf_20120503-10_all.deb` allows offline table-by-table
+comparison with Debian's binary FreeMono.ttf. The manifest pins all three
+official Debian URLs/SHA256 values and maps the bundled font to the sources;
+only FontForge timestamp/checksum fields may differ, and a changed table fails.
+These inputs use the pinned download cache and are fetched in CI only. ES-DE-Plus
+applies no native source patches; the font already carries Debian's changes.
+Their source and recipients' rights remain under those component terms.
 CeCILL-C's warranty and liability limitations in Articles 8 and 9 apply;
 software is supplied without warranty.
 
