@@ -200,8 +200,15 @@ def run(mode, harness):
             nonlocal command_number
             command_number += 1
             value = str(command_number) + ':' + action
-            h.private('sh', '-c', 'echo ' + shlex.quote(value) + ' > cache/pdf-command')
-            h.wait_for(lambda: h.private('cat', 'cache/pdf-result', check=False).startswith(value + '\n'), 'PDF session ' + action)
+            # The instrumentation polls every 50 ms. Publish a complete command
+            # by rename so it cannot observe a truncated/partially written file.
+            h.private('sh', '-c', 'printf "%s\\n" ' + shlex.quote(value) +
+                      ' > cache/pdf-command.next && mv cache/pdf-command.next cache/pdf-command')
+            def completed():
+                if process.poll() is not None:
+                    raise AssertionError('PDF session ended before ' + value + ': ' + output_path.read_text())
+                return h.private('cat', 'cache/pdf-result', check=False).startswith(value + '\n')
+            h.wait_for(completed, 'PDF session ' + action)
             return h.private('cat', 'cache/pdf-result')
         def paused_command(action, stage):
             # Active frames create and retire graphics fence descriptors. Use

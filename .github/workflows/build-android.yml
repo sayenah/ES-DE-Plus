@@ -3,7 +3,7 @@
 name: Build Android
 on:
   push:
-    branches: [main, "feature/**"]
+    branches: [main, "feature/**", "fix/**"]
     paths: &android_paths ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", "resources/**", "themes/**", "locale/**", "licenses/**", "external/**", ".github/workflows/**"]
   pull_request:
     paths: *android_paths
@@ -11,6 +11,10 @@ on:
     inputs:
       clean_cache:
         description: Skip downloads and install caches for fully cold evidence
+        type: boolean
+        default: false
+      clean_gradle_cache:
+        description: Skip Gradle cache only; positive control with cached native installs
         type: boolean
         default: false
       failure:
@@ -53,6 +57,7 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: not-applicable
+      GRADLE_USER_HOME: ${{ runner.temp }}/esde-gradle
     steps: &android_steps
       - uses: actions/checkout@v4
         with:
@@ -84,6 +89,29 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Restore Gradle wrapper and dependencies
+        id: gradle-cache
+        if: ${{ !inputs.clean_cache && !inputs.clean_gradle_cache }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+            ${{ env.GRADLE_USER_HOME }}/caches
+          key: android-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/*') }}
+      - name: Record Gradle cache and require offline resolution on exact hits
+        env:
+          CACHE_HIT: ${{ steps.gradle-cache.outputs.cache-hit || 'false' }}
+          COLD: ${{ inputs.clean_cache || inputs.clean_gradle_cache || false }}
+        run: |
+          mkdir -p android/evidence
+          if [[ "$COLD" == true ]]; then
+            test ! -d "$GRADLE_USER_HOME/wrapper"
+            test ! -d "$GRADLE_USER_HOME/caches"
+          fi
+          printf 'Gradle cache hit=%s; forced cold=%s\n' "$CACHE_HIT" "$COLD" | tee android/evidence/gradle-cache.txt
+          if [[ "$CACHE_HIT" == true ]]; then
+            echo 'GRADLE_NETWORK_ARGS=--offline' >> "$GITHUB_ENV"
+          fi
       - name: Install host tools
         run: |
           sudo apt-get update
@@ -111,6 +139,7 @@ jobs:
           set -o pipefail
           mkdir -p android/evidence
           python3 android/distribution.py font | tee android/evidence/distribution-freefont.txt
+          python3 android/distribution.py font-fallback-controls | tee android/evidence/distribution-font-fallback-controls.txt
       - name: Prepare source and include layout
         run: |
           set -o pipefail
@@ -199,7 +228,7 @@ jobs:
         run: |
           set -o pipefail
           cd android
-          ./gradlew --no-daemon assembleDebug 2>&1 | tee assemble.log
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} assembleDebug 2>&1 | tee assemble.log
       - name: Record actual native outputs and Gradle metadata
         run: |
           python3 - <<'PYCODE'
@@ -225,7 +254,7 @@ jobs:
         run: |
           set -o pipefail
           cd android
-          ./gradlew --no-daemon assembleRelease 2>&1 | tee assemble-release.log
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} assembleRelease 2>&1 | tee assemble-release.log
           test -s app/build/outputs/mapping/release/mapping.txt
       - name: Audit actual Android licence input graph and both APK closures
         run: |
@@ -233,13 +262,23 @@ jobs:
           python3 android/license-inputs.py probe "$ANDROID_NDK_HOME" | tee android/evidence/licence-positive-controls.txt
           python3 android/license-inputs.py audit android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/release/app-release-unsigned.apk "$ANDROID_NDK_HOME" | tee android/evidence/licence-closure.txt
           cd android
-          ./gradlew --no-daemon :app:auditRuntimeLicences | tee evidence/licence-dex-dependencies.txt
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:auditRuntimeLicences | tee evidence/licence-dex-dependencies.txt
       - name: Generate PDF fixtures and sign minified APK for CI runtime only
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         run: |
           python3 android/pdf-fixtures.py android/evidence/pdf-fixtures
           cd android
-          ./gradlew --no-daemon :app:signPdfSmokeRelease
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:signPdfSmokeRelease
+      # Save only after every Gradle invocation succeeds, before unrelated
+      # runtime smoke. Exact hits build offline; no build/assertion is retried.
+      - name: Save complete Gradle wrapper and dependency cache
+        if: ${{ success() && steps.gradle-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+            ${{ env.GRADLE_USER_HOME }}/caches
+          key: android-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/*') }}
       - name: Check new native code compiler warnings
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
@@ -341,7 +380,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           sdcard-path-or-size: 512M
           disable-animations: true
+          cores: 4
+          ram-size: 4096M
           script: |
+            python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Check tracked subtree integrity
@@ -444,6 +486,7 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: ${{ needs.build.result }}
+      GRADLE_USER_HOME: ${{ runner.temp }}/esde-gradle
     steps: *android_steps
 
   publication-result:

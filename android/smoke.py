@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import smoke_support
 import json
 import os
 import tempfile
@@ -37,17 +38,21 @@ last_onboarding_check = 0.0
 
 
 def adb(*args, check=True, binary=False):
-    # Retry only read-only log collection after a transient transport closure.
-    # UI actions, process changes and assertions are never replayed here.
+    smoke_support.connected()
+    # Only identified transport errors on read-only diagnostics can be replayed.
+    # Product actions/assertions and ordinary command failures never qualify.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
         result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=not binary, timeout=90)
-        if not result.returncode:
+        if not result.returncode or not smoke_support.transport_error(
+                result.stderr.decode(errors='replace') if binary else result.stderr):
             break
         if args[:2] == ('logcat', '-d'):
             with (evidence / 'logcat-transport-retries.txt').open('a') as output:
                 output.write(f'Attempt {attempt + 1}: exit {result.returncode}; {result.stderr}\n')
-            time.sleep(1)
+            if attempt < 2:
+                time.sleep(1)
+                smoke_support.connected()
     if check and result.returncode:
         print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
         result.check_returncode()
@@ -97,13 +102,19 @@ def private(*args, check=True):
 
 
 def wait_for(condition, description, timeout=90):
-    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    deadline = started + timeout
+    print('WAIT: ' + description, flush=True)
     while time.monotonic() < deadline:
         if timeout >= 30:
             dismiss_stock_onboarding()
         if condition():
+            with (evidence / 'readiness-waits.txt').open('a') as output:
+                output.write(f'READY {time.monotonic() - started:.3f}s: {description}\n')
             return
         time.sleep(0.25)
+    with (evidence / 'readiness-waits.txt').open('a') as output:
+        output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
     raise AssertionError('Timed out: ' + description)
 
 
@@ -223,6 +234,7 @@ def dismiss_stock_onboarding(force=False):
                    n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
                 smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
                 key('KEYCODE_DPAD_CENTER')
+        wait_for(stock_ui_clear, 'external TV onboarding dismissal completed')
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion
@@ -231,7 +243,13 @@ def dismiss_stock_onboarding(force=False):
         dismissing_onboarding = False
 
 
-def ui(label, dpad=False):
+def stock_ui_clear():
+    nodes = hierarchy()
+    return (any(n.get('package') in (stock_package, app) for n in nodes) and
+            not any(n.get('package') == stock_package and n.get('text') == 'Dismiss' for n in nodes))
+
+
+def ui(label, dpad=False, exact=False):
     if dpad:
         wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
         direction = 'KEYCODE_DPAD_DOWN'
@@ -252,11 +270,14 @@ def ui(label, dpad=False):
             last_focus = focused.attrib.copy() if focused is not None else None
             key(direction)
         raise AssertionError('D-pad cannot reach: ' + label)
-    wait_for(lambda: any(node_matches(n, label) for n in hierarchy()), 'UI: ' + label)
-    nodes = hierarchy()
-    exact = [n for n in nodes if n.get('text', '').casefold() == label.casefold() or
-             n.get('content-desc', '').casefold() == label.casefold()]
-    node = exact[0] if exact else next(n for n in nodes if node_matches(n, label))
+    nodes = []
+    def ready():
+        nonlocal nodes
+        nodes = hierarchy()
+        return any(smoke_checks.exact_label(n, label) if exact else node_matches(n, label) for n in nodes)
+    wait_for(ready, 'UI: ' + label)
+    matches = [n for n in nodes if smoke_checks.exact_label(n, label)]
+    node = matches[0] if matches else next(n for n in nodes if node_matches(n, label))
     x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
     shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(1)
@@ -417,13 +438,12 @@ def destroy_held(name):
     # _exit ends the entire process, including the pending UI join; a post-join
     # Java callback is not claimed on this path. Normal quits still assert it.
     start_entry('HomeEntry', 'android.intent.category.HOME')
-    def restored():
-        try:
-            smoke_checks.held_restored(activity_records()[1], hierarchy(), shell('pidof', app).strip(), old_pid, app)
-            return True
-        except AssertionError:
-            return False
-    wait_for(restored, 'held configuration restored on a new host in the same task')
+    # Wait on observable readiness, then evaluate the full product assertion
+    # once. Never replay the task clear or the frontend launch on a timeout.
+    wait_for(lambda: any(n.get('package') == app and n.get('text', '').startswith('Configure ')
+                         for n in hierarchy()) and len(activity_records()[1]) == 2,
+             'held configuration restored on a new host in the same task')
+    smoke_checks.held_restored(activity_records()[1], hierarchy(), shell('pidof', app).strip(), old_pid, app)
     (evidence / (name + '-restored-activities.txt')).write_text(activity_records()[0])
     screenshot(name + '-restored')
     save_logs(name + '-restored')
@@ -457,7 +477,7 @@ def real_system_home():
         shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME', '-n', stock)
         width, height = map(int, re.findall(r'(\d+)x(\d+)', shell('wm', 'size'))[-1])
         shell('input', 'swipe', str(width // 2), str(height - 100), str(width // 2), '100', '500')
-        ui(label)
+        ui(label, exact=True)
         configured_system('system-home-drawer-launch')
         pid = shell('pidof', app).strip()
         before, records = activity_records()
@@ -552,6 +572,8 @@ def configured_system(name):
     wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
+    wait_for(lambda: smoke_checks.package_window_focused(shell('dumpsys', 'window'), app),
+             'configured frontend window focused')
     time.sleep(10)
     if any(n.get('text') == 'Got it' for n in hierarchy()):
         ui('Got it')
@@ -804,6 +826,58 @@ def gamelist_recipient_flow(mode):
         launch()
 
 
+def retroarch_stacks(recipient_pid, recipient_log):
+    stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+    if not re.search(r'#00\s+pc\s', stacks):
+        root = adb('root', check=False)
+        adb('wait-for-device')
+        if 'cannot run as root' in root:
+            stacks += '\nCAPABILITY GAP: privileged native backtrace unavailable: ' + root
+        else:
+            try:
+                wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged RetroArch diagnostic shell')
+                stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
+                    'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
+            finally:
+                adb('unroot', check=False)
+                adb('wait-for-device')
+            wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after native diagnostics')
+    (evidence / 'real-retroarch-stall-stacks.txt').write_text(stacks)
+    (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
+
+
+def prepare_retroarch():
+    # Initialise only the third-party activity before exercising the frontend.
+    # A startup timeout can retry this external app at most once. The product
+    # launch, optional-query assertions and exact-ROM receipt run once afterward.
+    for attempt in range(1, 3):
+        with (evidence / 'real-retroarch-startup-attempts.txt').open('a') as output:
+            output.write(f'External RetroArch startup attempt {attempt}/2; no frontend action replayed.\n')
+        shell('am', 'force-stop', 'com.retroarch')
+        adb('logcat', '-c')
+        shell('am', 'start', '-n', 'com.retroarch/com.retroarch.browser.retroactivity.RetroActivityFuture')
+        recipient_log = ''
+        def ready():
+            nonlocal recipient_log
+            pid = shell('pidof', 'com.retroarch', check=False).strip().split()
+            if not pid:
+                return False
+            recipient_log = adb('logcat', '-d', '--pid=' + pid[0], '-v', 'threadtime')
+            return '[ENV] Checking arguments passed from intent' in recipient_log
+        try:
+            wait_for(ready, 'third-party RetroArch native startup readiness', timeout=20)
+        except AssertionError:
+            pid = shell('pidof', 'com.retroarch', check=False).strip().split()
+            if pid:
+                retroarch_stacks(pid[0], recipient_log)
+            if attempt == 2:
+                raise
+        else:
+            (evidence / 'real-retroarch-startup-logcat.txt').write_text(recipient_log)
+            shell('am', 'force-stop', 'com.retroarch')
+            return
+
+
 def real_retroarch_flow():
     apk_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'RetroArch.apk'
     # Download/verification occurs in CI before this smoke. No copy enters the
@@ -813,6 +887,7 @@ def real_retroarch_flow():
     version = re.search(r'versionName=([^\s]+)', package).group(1)
     launch_checks.equal(version, '1.22.2_GIT', 'Installed official RetroArch versionName')
     (evidence / 'real-retroarch-package.txt').write_text(package)
+    prepare_retroarch()
     shell('am', 'force-stop', app)
     original = shell('cat', settings)
     edited = evidence / 'retroarch-query-settings.txt'
@@ -846,37 +921,8 @@ def real_retroarch_flow():
         try:
             wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
         except AssertionError:
-            # L-N1: collect live thread stacks before a single bounded re-launch.
-            stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
-            if not re.search(r'#00\s+pc\s', stacks):
-                root = adb('root', check=False)
-                adb('wait-for-device')
-                if 'cannot run as root' in root:
-                    stacks += '\nCAPABILITY GAP: privileged native backtrace unavailable: ' + root
-                else:
-                    try:
-                        wait_for(lambda: shell('id', '-u', check=False).strip() == '0', 'privileged RetroArch diagnostic shell')
-                        stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
-                            'debuggerd -b ' + shlex.quote(recipient_pid) + ' 2>&1', check=False)
-                    finally:
-                        adb('unroot', check=False)
-                        adb('wait-for-device')
-                    wait_for(lambda: shell('id', '-u', check=False).strip() == '2000', 'ordinary shell after native diagnostics')
-            (evidence / 'real-retroarch-stall-stacks.txt').write_text(stacks)
-            (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
-            shell('am', 'force-stop', 'com.retroarch')
-            start_entry()
-            wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')),
-                     'return to gamelist for bounded RetroArch retry')
-            # The search launcher closes its menus back to the system view.
-            # Enter the actual NES gamelist before the one retry launch.
-            time.sleep(2)
-            key('KEYCODE_ENTER')
-            screenshot('real-retroarch-retry-gamelist')
-            key('KEYCODE_ENTER')
-            wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 're-launched RetroArch process')
-            recipient_pid = shell('pidof', 'com.retroarch').strip().split()[0]
-            wait_for(receipt_ready, 'bounded RetroArch retry exact receipt', timeout=20)
+            retroarch_stacks(recipient_pid, recipient_log)
+            raise  # Product launch/receipt assertions are never replayed.
         launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
         launch_checks.retroarch_receipt(recipient_log, rom_argument)
         (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
@@ -948,6 +994,7 @@ try:
                       '-n', stock_package + '/.MainActivity')
                 wait_for(lambda: any(n.get('package') == stock_package for n in hierarchy()), 'stock TV HOME UI')
                 dismiss_stock_onboarding(force=True)
+                wait_for(stock_ui_clear, 'stock TV HOME completed onboarding transition')
                 smoke_checks.onboarding_clear(hierarchy(), stock_package)
                 screenshot('tv-onboarding-preamble')
                 (evidence / 'tv-onboarding-preamble.txt').write_text(

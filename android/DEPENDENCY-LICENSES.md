@@ -10,7 +10,7 @@ NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identical
 AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
 measured RELRO values are printed and recorded below. An unmatched file follows
 the strict rule regardless of its filename.
-ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including GNU FreeFont (Debian's modified build; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See the component table below for component terms.
+ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See the component table below for component terms.
 
 D-007 am. 2 and D-009 am. 2 govern Android distribution. PDF rendering uses the Android
 platform; upstream's GPL converter and Poppler remain desktop/iOS inputs only.
@@ -21,8 +21,8 @@ no APK. The provenance manifest covers actual compile, header and link graphs,
 shipped libraries and bundled codecs, with archive URLs/hashes, the exact tracked
 commit, toolchain runtimes, selected terms, dependency-cache key/hit state, build
 recipes and a verified declaration that ES-DE-Plus applies no native source patches. FreeImage includes the uncombined LibRaw source under LGPL;
-CImg's CeCILL-C source is in the tracked tree. FreeMono.ttf is Debian's modified
-build of GNU FreeFont 20120503 (fonts-freefont 20120503-10), with the Braille block
+CImg's CeCILL-C source is in the tracked tree. FreeMono.ttf is Debian's patched
+GNU FreeFont 20120503 (fonts-freefont 20120503-10; patch series in the manifest), with the Braille block
 dropped by drop_bad_braille.diff. The cached, CI-only pinned download set includes
 the Debian original and Debian patch/build-script source archives, plus a declared
 Debian binary verification reference for offline table-by-table font binding. Only
@@ -122,11 +122,12 @@ under the same Apache-2.0 terms.
 | rlottie | 0.2 (tracked subtree) | MIT | Static; threading/modules off by upstream CMake |
 | GLM, RapidJSON, utfcpp, CImg | 1.0.0, 1.1.0, 4.0.6, 3.6.1 (tracked subtrees) | MIT; CImg CeCILL-C selected | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
 | libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; hash-verified NDK copy; architecture/API/SONAME, LOAD alignment and APK zipalign checked; measured RELRO and build IDs below under D-001(b) am. 2; notice in `licenses/libcxx` |
-| GNU FreeFont / FreeMono.ttf asset | Debian fonts-freefont 20120503-10 | GPL-3.0 | Debian's modified build of GNU FreeFont 20120503; Braille block dropped by `drop_bad_braille.diff`; original and Debian source archives pinned/cached, fetched in CI only; `licenses/GNUFreeFont`; font bound table by table to the pinned Debian binary reference, allowing only FontForge timestamps/checksum fields |
+| GNU FreeFont / FreeMono.ttf asset | Debian fonts-freefont 20120503-10 | GPL-3.0 | Debian's patched GNU FreeFont (patch series in the manifest); original/patch archives and signed `.dsc` pinned/cached, with immutable snapshot fallbacks, fetched in CI only; `licenses/GNUFreeFont`; font bound table by table to the pinned Debian binary reference, allowing only FontForge timestamps/checksum fields |
 | RetroArch-derived scanline shader | tracked `resources/shaders/glsl/scanlines.glsl` | GPL-2.0-or-later | Shipped as its own source text, compiled by the GPU driver at runtime; source/copyright notice is the file itself and is retained in the exact repository archive |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
 | Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon/TV banner are original MIT assets |
+| Mozilla-derived CA bundle | curl PEM conversion 2026-08-13 | MPL-2.0 | Unmodified `resources/certificates/curl-ca-bundle.crt` source in `repository.tar.gz`; attribution, source URLs and licence text in `licenses/Mozilla-CA-bundle` |
 
 NDK prebuilt measurements (D-001(b) am. 2):
 

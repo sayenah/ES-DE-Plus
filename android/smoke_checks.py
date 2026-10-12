@@ -42,6 +42,10 @@ def package_window_focused(window, package):
     return bool(re.search(r'\s' + re.escape(package) + '/', focus))
 
 
+def exact_label(node, label):
+    return any(node.get(field, '').casefold() == label.casefold() for field in ('text', 'content-desc'))
+
+
 def stock_banner_dismiss_focused(nodes, package):
     return any(n.get('package') == package and n.get('text') == 'Dismiss' and
                n.get('resource-id') == package + ':id/tray_dismiss' and
@@ -88,6 +92,9 @@ def positive_controls():
         reject('missing entry diagnostic', lambda: warm_entry(f'HOME={str(home).lower()}', home))
         reject('wrong HOME state', lambda: warm_entry(f'Focused redirect forwarding; HOME={str(not home).lower()}', home))
     grants(1, 1)
+    probe_passed('exact' if exact_label({'text': 'ES-DE Plus'}, 'ES-DE Plus') else '', 'exact')
+    reject('recipient is not frontend launcher icon', lambda: probe_passed(
+        'exact' if exact_label({'text': 'ES-DE Plus recipient'}, 'ES-DE Plus') else '', 'exact'))
     reject('cancel revoked selected grant', lambda: grants(0, 1))
     probe_passed('PASS: probe', 'PASS: probe')
     reject('failed runtime probe', lambda: probe_passed('FAIL: probe', 'PASS: probe'))

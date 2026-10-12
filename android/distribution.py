@@ -71,15 +71,23 @@ FONT_PATH = 'resources/fonts/FreeMono.ttf'
 FONT_SOURCES = {
     'original': {
         'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont_20120503.orig.tar.xz',
+        'fallback_url': 'https://snapshot.debian.org/file/ad0fdd136fd7dc5e9dd483772d65d7bd6d429871',
         'sha256': 'b3850d562f2e227720b4cd67f44490bdcb7abd6482714945b9b65cdcfe8ce0d8',
         'file': 'archives/fonts-freefont_20120503.orig.tar.xz'},
     'debian': {
         'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont_20120503-10.debian.tar.xz',
+        'fallback_url': 'https://snapshot.debian.org/file/f15adf92df7e2f0bed31b5623811ff14a73cd955',
         'sha256': '1798c185de175d881a5d5bc7f69c0e0abe050e1294d6f12dac6f08d0dd2cc557',
         'file': 'archives/fonts-freefont_20120503-10.debian.tar.xz'},
+    'descriptor': {
+        'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont_20120503-10.dsc',
+        'fallback_url': 'https://snapshot.debian.org/file/2fd6c5ea9ffcce1b965f36861ac7bd94cc9a6e63',
+        'sha256': 'f51ad79e7894c42bbcaad12d8a6184fa38fc28eeff3663dd92426c7c374aedd9',
+        'file': 'archives/fonts-freefont_20120503-10.dsc'},
 }
 FONT_BINARY = {
     'url': 'https://deb.debian.org/debian/pool/main/f/fonts-freefont/fonts-freefont-ttf_20120503-10_all.deb',
+    'fallback_url': 'https://snapshot.debian.org/file/cf9751582388e978980ecad58f2c9438397bb51c',
     'sha256': '4ca1c21ebc479198a3a5879d236c8317d6f7b2f1c403f7890e24c02eead05615',
     'file': 'archives/fonts-freefont-ttf_20120503-10_all.deb',
     'purpose': 'Pinned binary reference for offline font/source binding; not a dependency',
@@ -176,6 +184,18 @@ def font_mapping(directory, font):
         require(digest(directory / pathlib.Path(pin['file']).name) == pin['sha256'],
                 f'Debian font input checksum mismatch: {pin["file"]}')
     require(hashlib.sha256(font).hexdigest() == FONT_SHA256, 'Bundled FreeMono checksum mismatch')
+    descriptor = (directory / pathlib.Path(FONT_SOURCES['descriptor']['file']).name).read_text()
+    require(descriptor.startswith('-----BEGIN PGP SIGNED MESSAGE-----') and
+            '-----BEGIN PGP SIGNATURE-----' in descriptor and
+            re.search(r'^Source: fonts-freefont$', descriptor, re.M) and
+            re.search(r'^Version: ' + re.escape(FONT_PACKAGE_VERSION) + '$', descriptor, re.M),
+            'Wrong/missing signed Debian source descriptor')
+    checksum_section = descriptor.split('Checksums-Sha256:\n', 1)[1].split('Files:\n', 1)[0]
+    for name in ('original', 'debian'):
+        pin = FONT_SOURCES[name]
+        path = directory / pathlib.Path(pin['file']).name
+        require(f' {pin["sha256"]} {path.stat().st_size} {path.name}\n' in checksum_section,
+                'Debian descriptor does not bind the pinned source: ' + path.name)
     with tarfile.open(directory / pathlib.Path(FONT_SOURCES['original']['file']).name) as archive:
         sources = [m.name for m in archive if m.isfile() and m.name.endswith('/sfd/FreeMono.sfd')]
         require(len(sources) == 1, 'Missing/ambiguous original FreeMono source')
@@ -192,7 +212,7 @@ def font_mapping(directory, font):
     tables = compare_font_tables(font, reference)
     return {'source_package': 'fonts-freefont', 'version': FONT_PACKAGE_VERSION,
             'sources': FONT_SOURCES, 'source_path': sources[0], 'debian_patches': patches,
-            'modifications': 'Debian modified build; Braille block removed by drop_bad_braille.diff',
+            'modifications': "Debian's patched GNU FreeFont (patch series in the manifest); includes drop_bad_braille.diff",
             'binary_reference': FONT_BINARY, 'binary_font_sha256': hashlib.sha256(reference).hexdigest(),
             'font_sha256': FONT_SHA256, 'table_sha256': tables, 'tolerated_fields': FONT_TOLERANCES,
             'licence': 'GPL-3.0; licenses/GNUFreeFont'}
@@ -228,7 +248,7 @@ def font_ci():
         archive = directory / pathlib.Path(pin['file']).name
         if not archive.exists():
             print(f'FETCH: pinned Debian font input {pin["file"]}', flush=True)
-            subprocess.check_call(['curl', '--fail', '--location', '--retry', '3', pin['url'], '-o', str(archive)])
+            fetch_font(pin, archive)
         else:
             print(f'CACHE: pinned Debian font input {pin["file"]}', flush=True)
         require(digest(archive) == pin['sha256'], 'Debian font download checksum mismatch')
@@ -254,6 +274,37 @@ def font_ci():
             for item in corrupt.iterdir():
                 item.unlink()
     print(f'PASS: every FreeMono table matches Debian fonts-freefont-ttf {FONT_PACKAGE_VERSION}; allowed fields {FONT_TOLERANCES}')
+
+
+def fetch_font(pin, archive, primary=None):
+    # The same hash applies to the pool and immutable snapshot. Download into
+    # a temporary path; a transport failure never leaves a partial cache entry.
+    temporary = archive.with_name(archive.name + '.download')
+    try:
+        for url in (primary or pin['url'], pin['fallback_url']):
+            print('FETCH font URL: ' + url, flush=True)
+            result = subprocess.run(['curl', '--fail', '--location', '--connect-timeout', '15',
+                                     '--max-time', '120', url, '-o', str(temporary)])
+            if result.returncode:
+                print(f'Font endpoint failed ({result.returncode}); trying remaining pinned endpoint', flush=True)
+                continue
+            require(digest(temporary) == pin['sha256'], 'Debian font download checksum mismatch')
+            temporary.replace(archive)
+            return
+        raise ValueError('Both pinned Debian font endpoints unavailable: ' + archive.name)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def font_fallback_controls():
+    require(os.environ.get('GITHUB_ACTIONS') == 'true', 'Font downloads are CI only')
+    with tempfile.TemporaryDirectory(dir=ROOT / 'android/.deps') as temporary:
+        for pin in FONT_DOWNLOADS.values():
+            path = pathlib.Path(temporary) / pathlib.Path(pin['file']).name
+            # Closed loopback port positively exercises pool failure and the
+            # production fallback, including the .dsc and binary reference.
+            fetch_font(pin, path, primary='http://127.0.0.1:1/unavailable-font-pin')
+            print('PASS: unavailable pool falls back to hash-verified snapshot: ' + path.name)
 
 
 def shader_mapping(source):
@@ -578,7 +629,7 @@ def make_bundle(apk):
     # Notices come from the exact source commit, never an incidental/untracked file.
     with tarfile.open(destination / 'repository.tar.gz') as repository:
         for path in sorted(tracked):
-            if path == 'LICENSE' or path.startswith('licenses/'):
+            if path in ('LICENSE', 'CREDITS.md') or path.startswith('licenses/'):
                 notice = apk_dir / path
                 notice.parent.mkdir(parents=True, exist_ok=True)
                 notice.write_bytes(repository.extractfile(path).read())
@@ -604,7 +655,7 @@ def validate_bundle(bundle):
         manifest['dependency_cache']['key'], manifest['dependency_cache']['hit']), 'Unexpected cache metadata')
     require(re.fullmatch('[a-f0-9]{64}', manifest['apk']['sha256']), 'Missing APK hash')
     for file, expected in manifest['files'].items():
-        require(file == 'repository.tar.gz' or re.fullmatch(r'archives/[\w.-]+\.(archive|zip|jar|deb|tar\.xz)', file), 'Unsafe bundle path')
+        require(file == 'repository.tar.gz' or re.fullmatch(r'archives/[\w.-]+\.(archive|zip|jar|deb|dsc|tar\.xz)', file), 'Unsafe bundle path')
         require(digest(bundle / file) == expected, f'Bundle hash mismatch: {file}')
     with tarfile.open(bundle / 'repository.tar.gz') as repository:
         require(repository.pax_headers.get('comment') == manifest['commit'], 'git archive commit mismatch')
@@ -766,7 +817,7 @@ def gate_controls():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['identity', 'bundle', 'validate', 'controls', 'gates', 'linux', 'inject', 'uploaded', 'font', 'publication'])
+    parser.add_argument('mode', choices=['identity', 'bundle', 'validate', 'controls', 'gates', 'linux', 'inject', 'uploaded', 'font', 'font-fallback-controls', 'publication'])
     parser.add_argument('path', nargs='?', default='none')
     args = parser.parse_args()
     if args.mode == 'identity':
@@ -785,6 +836,8 @@ if __name__ == '__main__':
         uploaded_source(args.path)
     elif args.mode == 'font':
         font_ci()
+    elif args.mode == 'font-fallback-controls':
+        font_fallback_controls()
     elif args.mode == 'publication':
         verify_publication(args.path)
     else:
