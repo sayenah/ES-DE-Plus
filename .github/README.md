@@ -66,7 +66,7 @@
 | ✅ | **First-run setup** — storage choice, permissions, phone / TV / home-screen entry points |
 | ✅ | **Game launching** — emulator discovery, Intent launching, Android-app importer, optional RetroArch core check |
 | ✅ | **PDF manuals** through Android's built-in renderer |
-| 🚧 | **Downloadable test APKs** from every green build on `main`, each with a matching source bundle — *in progress* |
+| ✅ | **Downloadable test APKs** from every green build on `main`, each with a matching source bundle |
 | 🧭 | **[ES-DE Companion](https://github.com/RobZombie9043/es-de-companion) features** — second-screen artwork, app drawer, per-game display targeting and more — *[planned (#3)](https://github.com/sayenah/ES-DE-Plus/issues/3)* |
 | 🧭 | **Signed releases** — *planned* |
 
@@ -74,7 +74,7 @@ Every Android change is built and tested on three emulator images — **Android 
 
 ## 📦 Get it
 
-**Android.** Test builds are about to start appearing: once publishing lands, every successful build of `main` will offer an installable debug APK under **[Actions](https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml) → a green run → Artifacts**, next to a bundle of the exact source it was built from. Test builds are signed with a throwaway key per build, so installing a newer one means uninstalling the old one first — back up first, because uninstalling deletes the app's own data.
+**Android.** Every successful build of `main` publishes an installable debug APK: open **[Actions → Build Android](https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml?query=branch%3Amain)**, pick the latest green run, and download `es-de-plus-debug-apk-…` from its Artifacts (you need to be signed in to GitHub; APKs are kept for 7 days). The matching `es-de-plus-source-…` bundle holds the exact source it was built from. These are test builds signed with a throwaway key per build, so installing a newer one means uninstalling the old one first — back up first, because uninstalling deletes the app's own data.
 
 **Desktop.** ES-DE Plus keeps upstream's Linux, macOS and Windows builds (with global search added). Build from source with [INSTALL.md](/INSTALL.md); Linux is built on every change in CI.
 
