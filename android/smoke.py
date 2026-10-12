@@ -38,7 +38,8 @@ last_onboarding_check = 0.0
 
 
 def adb(*args, check=True, binary=False):
-    smoke_support.connected()
+    if args != ('wait-for-device',):
+        smoke_support.connected()
     # Only identified transport errors on read-only diagnostics can be replayed.
     # Product actions/assertions and ordinary command failures never qualify.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):

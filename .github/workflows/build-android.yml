@@ -181,7 +181,7 @@ jobs:
         run: |
           set -o pipefail
           cd android
-          ./gradlew --no-daemon help :app:compileDebugKotlin :stub-emulator:assembleDebug 2>&1 | tee gradle-configure.log
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} help :app:compileDebugKotlin :stub-emulator:assembleDebug 2>&1 | tee gradle-configure.log
       - name: Build both dependency ABIs
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
