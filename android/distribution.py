@@ -111,7 +111,10 @@ def ttf_version(data):
 
 
 def match_font_versions(binary, source, name):
-    require(binary == source == FONT_VERSION and name == 'FreeMono',
+    # GNU's SFD keeps the SVN revision token; its generated TTF version ends in that revision.
+    revision = re.fullmatch(r'\$Revision: (\d+) \$', source)
+    require(binary == FONT_VERSION and revision and
+            revision[1] == binary.rsplit('.', 1)[1] and name == 'FreeMono',
             f'FreeMono source/font version mismatch: TTF={binary!r}, SFD={source!r}, name={name!r}')
 
 
@@ -128,7 +131,8 @@ def font_mapping(archive, font):
         binary = ttf_version(font)
         match_font_versions(binary, version[1].strip(), name[1].strip())
         return {'archive': 'freefont', 'source_path': members[0].name,
-                'font_sha256': FONT_SHA256, 'font_version': binary, **FONT_SOURCE}
+                'font_sha256': FONT_SHA256, 'font_version': binary,
+                'source_version': version[1].strip(), **FONT_SOURCE}
 
 
 def font_ci():
@@ -141,9 +145,10 @@ def font_ci():
     font = (ROOT / FONT_PATH).read_bytes()
     record = font_mapping(archive, font)
     print(json.dumps(record, indent=2))
-    for binary, source, name in [('wrong', FONT_VERSION, 'FreeMono'),
+    for binary, source, name in [('wrong', record['source_version'], 'FreeMono'),
                                  (FONT_VERSION, 'wrong', 'FreeMono'),
-                                 (FONT_VERSION, FONT_VERSION, 'wrong')]:
+                                 (FONT_VERSION, '$Revision: 9999 $', 'FreeMono'),
+                                 (FONT_VERSION, record['source_version'], 'wrong')]:
         try:
             match_font_versions(binary, source, name)
         except ValueError as error:
