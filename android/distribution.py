@@ -112,7 +112,7 @@ def ttf_version(data):
 
 def match_font_versions(binary, source, name):
     require(binary == source == FONT_VERSION and name == 'FreeMono',
-            'FreeMono source/font version mismatch')
+            f'FreeMono source/font version mismatch: TTF={binary!r}, SFD={source!r}, name={name!r}')
 
 
 def font_mapping(archive, font):
