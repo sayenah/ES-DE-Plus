@@ -140,7 +140,16 @@ def launch():
     # Startup logging precedes the render loop's first frame/texture uploads.
     time.sleep(10)
     # Dismiss the real Android immersive-mode tutorial through its actual UI.
-    wait_for(lambda: bool(hierarchy()), 'frontend UI hierarchy')
+    try:
+        wait_for(lambda: bool(hierarchy()), 'frontend UI hierarchy')
+    except AssertionError:
+        # Capture the live failure before a caller's cleanup reinstalls debug
+        # or force-stops the process (notably the minified-release check).
+        screenshot('frontend-readiness-failure')
+        save_logs('frontend-readiness-failure')
+        (evidence / 'frontend-readiness-failure-window.txt').write_text(shell('dumpsys', 'window'))
+        (evidence / 'frontend-readiness-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        raise
     if any(node.get('text') == 'Got it' for node in hierarchy()):
         ui('Got it')
 
@@ -573,7 +582,21 @@ def configured_system(name):
     wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
-    wait_for(lambda: smoke_checks.package_window_focused(shell('dumpsys', 'window'), app),
+    def focused():
+        if smoke_checks.package_window_focused(shell('dumpsys', 'window'), app):
+            return True
+        # Android's first-use immersive tutorial owns focus until its real
+        # action is selected. Dismiss it before requiring frontend focus.
+        nodes = hierarchy()
+        tutorial = next((node for node in nodes if node.get('text') == 'Got it' and
+                         node.get('package') in {'android', 'com.android.systemui'}), None)
+        if tutorial:
+            ui('Got it')
+            wait_for(lambda: not any(node.get('text') == 'Got it' and
+                     node.get('package') in {'android', 'com.android.systemui'}
+                     for node in hierarchy()), 'Android immersive tutorial dismissed')
+        return smoke_checks.package_window_focused(shell('dumpsys', 'window'), app)
+    wait_for(focused,
              'configured frontend window focused')
     time.sleep(10)
     if any(n.get('text') == 'Got it' for n in hierarchy()):
