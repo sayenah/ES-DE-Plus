@@ -4,8 +4,9 @@ name: Build Android
 on:
   push:
     branches: [main, "feature/**"]
+    paths: &android_paths ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", "resources/systems/android/**", ".github/workflows/**"]
   pull_request:
-    paths: ["android/**", "es-core/**", "es-app/**", "es-pdf-converter/**", "CMakeLists.txt", "CMake/**", "tools/Android_*", "resources/systems/android/**", ".github/workflows/**"]
+    paths: *android_paths
   workflow_dispatch:
     inputs:
       clean_cache:
@@ -15,7 +16,7 @@ on:
       failure:
         description: Dry-run failure control (forbidden on main)
         type: choice
-        options: [none, android, linux, source-upload, source-validation]
+        options: [none, android, linux, source-upload, source-validation, apk-upload]
         default: none
       rebuild_run:
         description: Source-only rebuild; originating run ID (empty means normal CI)
@@ -25,6 +26,10 @@ on:
         description: Source artefact attempt to rebuild
         type: string
         default: "1"
+# Main pushes and dispatches share a publication group. Other runs stay independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && 'main-publication' || github.run_id }}
+  cancel-in-progress: false
 permissions:
   contents: read
   actions: read
@@ -62,6 +67,11 @@ jobs:
             echo 'Injected Android-leg failure; downstream API 34 and APK upload must be skipped'
             exit 1
           fi
+      - name: Verify pinned GNU FreeFont source, bundled font match and positive controls
+        run: |
+          set -o pipefail
+          mkdir -p android/evidence
+          python3 android/distribution.py font | tee android/evidence/distribution-freefont.txt
       - name: Check changed C++ formatting (clang-format 18)
         env:
           FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -124,6 +134,11 @@ jobs:
               evidence.mkdir(exist_ok=True)
               (evidence / 'source-checksum-positive-control.txt').write_text('PASS: corrupt cache archive rejected before extraction.\n' + rejected.stderr)
           PYCODE
+      - name: Record dependency cache key
+        id: dependency-cache
+        env:
+          KEY: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+        run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
       - name: Restore per-ABI dependencies
         id: deps
         if: ${{ !inputs.clean_cache }}
@@ -132,7 +147,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          key: ${{ steps.dependency-cache.outputs.key }}
       - name: Validate committed Gradle project
         run: |
           set -o pipefail
@@ -176,7 +191,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          key: ${{ steps.dependency-cache.outputs.key }}
       - name: Restore ABI-neutral generated headers
         run: tools/Android_dependencies_setup.sh
       - name: Assemble debug APK with committed wrapper
@@ -308,6 +323,9 @@ jobs:
       - name: Build and verify exact source bundle and APK distribution directory
         id: bundle
         if: ${{ success() && matrix.image == 'api34' }}
+        env:
+          DEPENDENCY_CACHE_KEY: ${{ steps.dependency-cache.outputs.key }}
+          DEPENDENCY_CACHE_HIT: ${{ steps.deps.outputs.cache-hit || 'false' }}
         run: |
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
@@ -394,6 +412,7 @@ jobs:
       # This is the ONLY APK upload. Source upload/download/validation precede it.
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
       - name: Publish exact smoked debug APK on main only (7 days)
+        id: apk-upload
         if: ${{ success() && matrix.image == 'api34' && env.EARLY_LEGS_RESULT == 'success' && steps.source-validate.outcome == 'success' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
         uses: actions/upload-artifact@v4
         with:
@@ -402,6 +421,13 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+      - name: Require completed APK upload on eligible main runs (dry-run miss control)
+        if: ${{ always() && matrix.image == 'api34' }}
+        env:
+          FAILURE: ${{ inputs.failure || 'none' }}
+          APK_UPLOAD_OUTCOME: ${{ steps.apk-upload.outcome }}
+          APK_ARTIFACT_ID: ${{ steps.apk-upload.outputs.artifact-id }}
+        run: python3 android/distribution.py publication "$FAILURE"
 
   api34:
     needs: build
@@ -437,7 +463,7 @@ jobs:
           echo 'All Android legs succeeded; API 34 recorded the gated main/dry-run decision.'
 
   rebuild-source:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_run != '' }}
+    if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.event_name == 'workflow_dispatch' && inputs.rebuild_run != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -466,6 +492,19 @@ jobs:
           run, attempt = os.environ['REBUILD_RUN'], os.environ['REBUILD_ATTEMPT']
           assert run.isdecimal() and attempt.isdecimal()
           repo = os.environ['GITHUB_REPOSITORY']
+          def require_repository(value):
+              assert value == 'sayenah/ES-DE-Plus', 'Foreign source-run repository rejected'
+          require_repository(repo)
+          for foreign in ['someone/ES-DE-Plus', '', None]:
+              try:
+                  require_repository(foreign)
+              except AssertionError:
+                  print('PASS: foreign source-run repository positive control rejected:', foreign)
+              else:
+                  raise AssertionError('Repository control escaped')
+          metadata = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run}']))
+          require_repository(metadata['repository']['full_name'])
+          print('PASS: accepted source run repository:', metadata['repository']['full_name'])
           result = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run}/artifacts?per_page=100']))
           matches = [a for a in result['artifacts'] if re.fullmatch(r'es-de-plus-source-[a-f0-9]{9}-run' + run + '-attempt' + attempt, a['name']) and not a['expired']]
           assert len(matches) == 1, 'Missing or ambiguous source artefact'

@@ -10,6 +10,7 @@ import os
 import pathlib
 import re
 import shutil
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -26,7 +27,7 @@ LICENCES = {
     'ffmpeg': 'LGPL-2.1-or-later and permissive notices; GPL/nonfree disabled',
     'libiconv': 'LGPL-2.1-or-later runtime', 'gettext': 'LGPL-2.1-or-later runtime',
     'openssl': 'Apache-2.0', 'curl': 'curl (MIT-like)',
-    'freeimage': 'FIPL selected; bundled codec notices; LibRaw LGPL-2.1-or-later selected',
+    'freeimage': 'FIPL, GPL-2.0 or GPL-3.0; FIPL selected; bundled codec notices; LibRaw LGPL-2.1 or CDDL-1.0; LGPL-2.1 selected',
 }
 LIBRARIES = {
     **dict.fromkeys(['libmain.so', 'libes-core.a'], 'repository'),
@@ -52,7 +53,7 @@ LIBRARIES = {
 }
 CODECS = {
     'LibJPEG': 'IJG', 'LibPNG': 'libpng', 'LibTIFF4': 'BSD', 'ZLib': 'zlib',
-    'LibOpenJPEG': 'BSD-2-Clause', 'OpenEXR': 'BSD', 'LibRawLite': 'LGPL-2.1-or-later selected',
+    'LibOpenJPEG': 'BSD-2-Clause', 'OpenEXR': 'BSD', 'LibRawLite': 'LGPL-2.1 or CDDL-1.0; LGPL-2.1 selected',
     'LibWebP': 'BSD-3-Clause', 'LibJXR': 'BSD-2-Clause',
 }
 DEX_SOURCES = {
@@ -65,6 +66,15 @@ DEX_SOURCES = {
         'sha256': '42a5e144b8e81d50d6913d1007b695e62e614705268d8cf9f13dbdc478c2c68e',
         'file': 'archives/annotations-sources.jar', 'licence': 'Apache-2.0; licenses/Kotlin'},
 }
+FONT_PATH = 'resources/fonts/FreeMono.ttf'
+FONT_SOURCE = {
+    'url': 'https://ftp.gnu.org/gnu/freefont/freefont-src-20120503.tar.gz',
+    'sha256': '0d62e2e22655f841c3ac5fb8c8059a52fe2c09c695d9e8eda9903406e942657a',
+    'file': 'archives/freefont.archive', 'release': '20120503',
+    'licence': 'GPL-3.0; licenses/GNUFreeFont',
+}
+FONT_SHA256 = 'fb1fc7fbdfaf524841d2a6d57d9b0c9add87f6bdcfdde7fc2b27821d7ae0b454'
+FONT_VERSION = '0412.2268'
 
 
 def require(condition, message):
@@ -79,6 +89,104 @@ def digest(path):
 
 def run(*args):
     return subprocess.check_output(args, text=True).strip()
+
+
+def ttf_version(data):
+    # OpenType name ID 5 is the version string; the bundled font has Unicode names.
+    count = struct.unpack_from('>H', data, 4)[0]
+    tables = {tag: (offset, size) for tag, checksum, offset, size in
+              (struct.unpack_from('>4sIII', data, 12 + 16 * i) for i in range(count))}
+    start, size = tables[b'name']
+    form, count, strings = struct.unpack_from('>HHH', data, start)
+    versions = set()
+    for i in range(count):
+        platform, encoding, language, name, length, position = struct.unpack_from(
+            '>HHHHHH', data, start + 6 + 12 * i)
+        if name == 5 and platform in {0, 3}:
+            text = data[start + strings + position:start + strings + position + length].decode('utf-16-be').strip()
+            require(text.startswith('Version '), 'Missing FreeMono version prefix')
+            versions.add(text.removeprefix('Version '))
+    require(len(versions) == 1, 'Missing or inconsistent FreeMono TTF version')
+    return versions.pop()
+
+
+def match_font_versions(binary, source, name):
+    require(binary == source == FONT_VERSION and name == 'FreeMono',
+            'FreeMono source/font version mismatch')
+
+
+def font_mapping(archive, font):
+    require(digest(archive) == FONT_SOURCE['sha256'], 'FreeFont source checksum mismatch')
+    require(hashlib.sha256(font).hexdigest() == FONT_SHA256, 'Bundled FreeMono checksum mismatch')
+    with tarfile.open(archive) as source:
+        members = [e for e in source if e.isfile() and e.name.endswith('/sfd/FreeMono.sfd')]
+        require(len(members) == 1, 'Missing or ambiguous FreeMono source')
+        text = source.extractfile(members[0]).read().decode()
+        version = re.search(r'^Version: (.+)$', text, re.M)
+        name = re.search(r'^FontName: (.+)$', text, re.M)
+        require(version and name, 'Missing FreeMono source metadata')
+        binary = ttf_version(font)
+        match_font_versions(binary, version[1].strip(), name[1].strip())
+        return {'archive': 'freefont', 'source_path': members[0].name,
+                'font_sha256': FONT_SHA256, 'font_version': binary, **FONT_SOURCE}
+
+
+def font_ci():
+    require(os.environ.get('GITHUB_ACTIONS') == 'true', 'FreeFont is fetched in CI only')
+    archive = ROOT / 'android/.deps/downloads/freefont.archive'
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    if not archive.exists():
+        subprocess.check_call(['curl', '--fail', '--location', '--retry', '3',
+                               FONT_SOURCE['url'], '-o', str(archive)])
+    font = (ROOT / FONT_PATH).read_bytes()
+    record = font_mapping(archive, font)
+    print(json.dumps(record, indent=2))
+    for binary, source, name in [('wrong', FONT_VERSION, 'FreeMono'),
+                                 (FONT_VERSION, 'wrong', 'FreeMono'),
+                                 (FONT_VERSION, FONT_VERSION, 'wrong')]:
+        try:
+            match_font_versions(binary, source, name)
+        except ValueError as error:
+            print(f'PASS: wrong font/source metadata rejected: {error}')
+        else:
+            raise ValueError('Font metadata control escaped')
+    with tempfile.TemporaryDirectory(dir=archive.parent) as temporary:
+        corrupt = pathlib.Path(temporary) / 'freefont.archive'
+        corrupt.write_bytes(b'corrupt FreeFont source control')
+        for path, binary in [(corrupt, font), (archive, b'corrupt font control')]:
+            try:
+                font_mapping(path, binary)
+            except ValueError as error:
+                print(f'PASS: corrupt font/source rejected: {error}')
+            else:
+                raise ValueError('Font integrity control escaped')
+    print(f'PASS: bundled FreeMono Version {record["font_version"]} matches official GNU FreeFont {FONT_SOURCE["release"]}')
+
+
+def dependency_cache(key, hit):
+    require(isinstance(key, str) and re.fullmatch(r'android-ndk28\.2\.13676358-api29-[a-f0-9]{64}', key),
+            'Missing or invalid dependency-cache key')
+    require(isinstance(hit, bool), 'Invalid dependency-cache hit state')
+    return {'key': key, 'hit': hit}
+
+
+def publication_result(eligible, outcome, artifact_id):
+    if eligible:
+        require(outcome == 'success' and str(artifact_id).isdecimal() and int(artifact_id) > 0,
+                'Eligible main publication missed its APK upload')
+    else:
+        require(outcome == 'skipped' and not artifact_id, 'Unexpected APK upload outside main')
+
+
+def verify_publication(injection):
+    validate_injection(injection)
+    eligible = permitted_publication(os.environ['GITHUB_REPOSITORY'],
+                                     os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'])
+    # Simulate only the eligible-main verdict; the actual upload guard stays main-only.
+    if injection == 'apk-upload':
+        eligible = True
+    publication_result(eligible, os.environ['APK_UPLOAD_OUTCOME'], os.environ.get('APK_ARTIFACT_ID', ''))
+    print('PASS: APK publication completed' if eligible else 'PASS: dry run uploaded no APK')
 
 
 def audit_module():
@@ -320,11 +428,16 @@ def make_bundle(apk):
             subprocess.check_call(['curl', '--fail', '--location', '--retry', '3', pin['url'], '-o', str(archive)])
         require(digest(archive) == pin['sha256'], 'Dex source archive checksum mismatch')
         shutil.copyfile(archive, destination / pin['file'])
+    font_archive = ROOT / 'android/.deps/downloads/freefont.archive'
+    asset_sources = {FONT_PATH: font_mapping(font_archive, (ROOT / FONT_PATH).read_bytes())}
+    shutil.copyfile(font_archive, destination / FONT_SOURCE['file'])
     graphs = {abi: json.loads((ROOT / f'android/.deps/install/{abi}/license-inputs.json').read_text()) for abi in ABIS}
     graphs['native'] = json.loads((ROOT / 'android/evidence/license-native-inputs.txt').read_text())
     inputs = {path: provenance(path, tracked, audit) for graph in graphs.values()
               for paths in graph.values() for path in paths}
     with zipfile.ZipFile(apk) as archive:
+        require(hashlib.sha256(archive.read('assets/fonts/FreeMono.ttf')).hexdigest() == FONT_SHA256,
+                'APK FreeMono differs from the mapped repository font')
         shared = {name: {'sha256': hashlib.sha256(archive.read(name)).hexdigest(),
                          **provenance(name.replace('lib/', 'android/libs/', 1), tracked, audit)}
                   for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')}
@@ -338,18 +451,22 @@ def make_bundle(apk):
         'SDK CMake': '3.31.5', 'build-tools': '36.0.0', 'minSdk': '29',
     }
     require('Pkg.Revision = 28.2.13676358' in tools['NDK'], 'Unexpected NDK provenance')
-    manifest = {'schema': 1, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
+    require(os.environ.get('DEPENDENCY_CACHE_HIT') in {'true', 'false'}, 'Missing cache restore result')
+    cache = dependency_cache(os.environ['DEPENDENCY_CACHE_KEY'], os.environ['DEPENDENCY_CACHE_HIT'] == 'true')
+    manifest = {'schema': 2, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
                 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'repository': os.environ['GITHUB_REPOSITORY'],
                 'apk': record, 'archives': archives, 'graphs': graphs, 'inputs': inputs, 'shared': shared,
                 'bundled_codecs': {f'FreeImage/Source/{k}': {'archive': 'freeimage', 'licence': v} for k, v in CODECS.items()},
                 'runtime_dex': DEX_SOURCES,
+                'asset_sources': asset_sources, 'dependency_cache': cache,
                 'toolchain': tools, 'recipes': ['tools/Android_dependencies_setup.sh',
                     'tools/Android_dependencies_build.sh', 'android/app/build.gradle.kts',
                     'CMakeLists.txt', 'android/rebuild-source.sh'],
                 'no_patches': 'Every downloaded source file was compared with its pinned archive. No source patches; build flags and generated include layout are recorded in the recipes.',
                 'files': {'repository.tar.gz': digest(destination / 'repository.tar.gz'),
                           **{p['file']: p['sha256'] for p in archives.values()},
-                          **{p['file']: p['sha256'] for p in DEX_SOURCES.values()}}}
+                          **{p['file']: p['sha256'] for p in DEX_SOURCES.values()},
+                          FONT_SOURCE['file']: FONT_SOURCE['sha256']}}
     (destination / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     validate_bundle(destination)
     apk_dir = destination.parent / 'apk'
@@ -379,7 +496,9 @@ def make_bundle(apk):
 
 def validate_bundle(bundle):
     manifest = json.loads((bundle / 'manifest.json').read_text())
-    require(manifest['schema'] == 1 and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
+    require(manifest['schema'] == 2 and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
+    require(manifest['dependency_cache'] == dependency_cache(
+        manifest['dependency_cache']['key'], manifest['dependency_cache']['hit']), 'Unexpected cache metadata')
     require(re.fullmatch('[a-f0-9]{64}', manifest['apk']['sha256']), 'Missing APK hash')
     for file, expected in manifest['files'].items():
         require(file == 'repository.tar.gz' or re.fullmatch(r'archives/[\w-]+\.(archive|zip|jar)', file), 'Unsafe bundle path')
@@ -388,6 +507,10 @@ def validate_bundle(bundle):
         require(repository.pax_headers.get('comment') == manifest['commit'], 'git archive commit mismatch')
         tracked = {entry.name for entry in repository if entry.isfile()}
         actual_pins = pins(repository.extractfile('tools/Android_dependencies_setup.sh').read().decode())
+        asset_sources = {FONT_PATH: font_mapping(bundle / FONT_SOURCE['file'],
+                                                repository.extractfile(FONT_PATH).read())}
+    require(manifest['asset_sources'] == asset_sources, 'FreeMono source mapping mismatch')
+    require(manifest['files'][FONT_SOURCE['file']] == FONT_SOURCE['sha256'], 'FreeFont source pin mismatch')
     require(manifest['archives'] == actual_pins, 'Source pins differ from the archived build recipe')
     for pin in actual_pins.values():
         require(manifest['files'][pin['file']] == pin['sha256'], 'Archive file hash differs from pin')
@@ -395,7 +518,7 @@ def validate_bundle(bundle):
     for pin in DEX_SOURCES.values():
         require(manifest['files'][pin['file']] == pin['sha256'], 'Dex source hash differs from pin')
     require(set(manifest['files']) == {'repository.tar.gz'} | {p['file'] for p in actual_pins.values()} |
-            {p['file'] for p in DEX_SOURCES.values()}, 'Missing/extra source files')
+            {p['file'] for p in DEX_SOURCES.values()} | {FONT_SOURCE['file']}, 'Missing/extra source files')
     require(all(path in tracked for path in manifest['recipes']), 'Build recipe absent from exact source archive')
     require('No source patches' in manifest['no_patches'], 'Missing no-patches declaration')
     expected_files = {'manifest.json'} | set(manifest['files'])
@@ -513,11 +636,32 @@ def gate_controls():
     require(set(first).isdisjoint(rerun), 'Rerun artefacts would overwrite an earlier pair')
     print(f'PASS: attempt identities never overwrite: {first} versus {rerun}')
     print('PASS: green gates would publish; no overwrite or delete operation')
+    publication_result(True, 'success', '123')
+    publication_result(False, 'skipped', '')
+    for eligible, outcome, artifact_id in [(True, outcome, '') for outcome in
+                                           ['success', 'skipped', 'failure', 'cancelled', '']] + [
+                                           (False, 'success', '123')]:
+        try:
+            publication_result(eligible, outcome, artifact_id)
+        except ValueError as error:
+            print(f'PASS: missed/forbidden APK upload rejected: {error}')
+        else:
+            raise ValueError('APK publication control escaped')
+    key = 'android-ndk28.2.13676358-api29-' + 'a' * 64
+    dependency_cache(key, True)
+    dependency_cache(key, False)
+    for invalid_key, invalid_hit in [('', False), (key, 'true')]:
+        try:
+            dependency_cache(invalid_key, invalid_hit)
+        except ValueError as error:
+            print(f'PASS: invalid cache provenance rejected: {error}')
+        else:
+            raise ValueError('Cache provenance control escaped')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['identity', 'bundle', 'validate', 'controls', 'gates', 'linux', 'inject', 'uploaded'])
+    parser.add_argument('mode', choices=['identity', 'bundle', 'validate', 'controls', 'gates', 'linux', 'inject', 'uploaded', 'font', 'publication'])
     parser.add_argument('path', nargs='?', default='none')
     args = parser.parse_args()
     if args.mode == 'identity':
@@ -534,5 +678,9 @@ if __name__ == '__main__':
         linux_gate(args.path)
     elif args.mode == 'uploaded':
         uploaded_source(args.path)
+    elif args.mode == 'font':
+        font_ci()
+    elif args.mode == 'publication':
+        verify_publication(args.path)
     else:
         validate_injection(args.path)

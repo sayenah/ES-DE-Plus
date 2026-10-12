@@ -10,7 +10,7 @@ NDK-supplied prebuilts are identified by the NDK file's SHA256 (raw or identical
 AGP-stripped), and checked by LOAD alignment plus actual APK zipalign; their
 measured RELRO values are printed and recorded below. An unmatched file follows
 the strict rule regardless of its filename.
-ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK contains permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code without that exception is included. FreeImage's FIPL, FreeType's FTL and CImg's CeCILL-C options are selected, with LGPL LibRaw inside FreeImage. Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See the component table below for component terms.
+ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK's code includes permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code except libgit2 under that exception is included. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including GNU FreeFont (GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See the component table below for component terms.
 
 D-007 am. 1 and D-009 govern Android distribution. PDF rendering uses the Android
 platform; upstream's GPL converter and Poppler remain desktop/iOS inputs only.
@@ -19,9 +19,13 @@ relink/rebuild README. Source is uploaded and validated first, retained 14 days
 against the APK's 7, with run/attempt-specific names; branch/PR/fork runs upload
 no APK. The provenance manifest covers actual compile, header and link graphs,
 shipped libraries and bundled codecs, with archive URLs/hashes, the exact tracked
-commit, toolchain runtimes, selected terms, build recipes and a verified no-source-
+commit, toolchain runtimes, selected terms, dependency-cache key/hit state, build
+recipes and a verified no-source-
 patches declaration. FreeImage includes the uncombined LibRaw source under LGPL;
-CImg's CeCILL-C source is in the tracked tree. The full sources accompany each APK.
+CImg's CeCILL-C source is in the tracked tree. GNU FreeFont 20120503 source is
+CI-fetched from its pinned official GNU release; the manifest binds FreeMono.ttf
+(Version 0412.2268) to that release. Asset terms remain in preserved notices,
+including `licenses/GNUFreeFont` (GPL-3.0). The full sources accompany each APK.
 No proprietary Android package or code is used.
 
 The APK contains these 21 shared-library entries for each ABI (the component table
@@ -100,8 +104,8 @@ under the same Apache-2.0 terms.
 | SDL2 and vendored SDL Java | 2.32.10 (`release-2.32.10`) | zlib | Shared SDL2; test/static targets off; Java implementations unchanged, tag LICENSE.txt notice prepended intact |
 | OpenSSL crypto/ssl | 3.5.9 LTS | Apache-2.0 | Android target, API29, shared, no-tests, no-apps |
 | curl | 8.22.0 | curl (MIT-like) | Shared; OpenSSL on; CLI/tests, libpsl, SSH/SSH2, nghttp2, brotli, zstd, c-ares off |
-| FreeImage and its bundled codecs | 3.18.0 | FreeImage Public License or GPL-2.0; FIPL selected | Shared; `FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0`; bundled codec notices recorded in `licenses/FreeImage-bundled-codecs`; C++11, source-specific `_byteswap_ulong=__builtin_bswap32` for JPEG XR segdec.c and `-include wchar.h` for JXRGlueJxr.c |
-| FreeImage bundled JPEG, PNG, TIFF, ZLib, OpenJPEG, OpenEXR, LibRawLite, LibWebP, LibJXR | JPEG 9c, PNG 1.6.35, TIFF 4.0.9, zlib 1.2.11, OpenJPEG 2.0.0, OpenEXR/IlmBase 2.2.0, LibRaw 0.19.0, WebP 1.0.0, JPEG XR 1.1 | IJG/BSD/zlib/MIT; LibRaw LGPL-2.1-or-later or CDDL-1.0 | Static within FreeImage; `licenses/FreeImage-bundled-codecs` preserves the codec notices; LibRaw LGPL-2.1 selected; no LCMS |
+| FreeImage and its bundled codecs | 3.18.0 | FIPL, GPL-2.0 or GPL-3.0; FIPL selected | Shared; `FREEIMAGE_EXPORTS NO_LCMS __ANSI__ HAVE_UNISTD_H DISABLE_PERF_MEASUREMENT PNG_ARM_NEON_OPT=0`; bundled codec notices recorded in `licenses/FreeImage-bundled-codecs`; C++11, source-specific `_byteswap_ulong=__builtin_bswap32` for JPEG XR segdec.c and `-include wchar.h` for JXRGlueJxr.c |
+| FreeImage bundled JPEG, PNG, TIFF, ZLib, OpenJPEG, OpenEXR, LibRawLite, LibWebP, LibJXR | JPEG 9c, PNG 1.6.35, TIFF 4.0.9, zlib 1.2.11, OpenJPEG 2.0.0, OpenEXR/IlmBase 2.2.0, LibRaw 0.19.0, WebP 1.0.0, JPEG XR 1.1 | IJG/BSD/zlib/MIT; LibRaw LGPL-2.1 or CDDL-1.0; LGPL-2.1 selected | Static within FreeImage; `licenses/FreeImage-bundled-codecs` preserves the codec notices; LibRaw LGPL-2.1 selected; no LCMS |
 | libpng | 1.6.58 | libpng-2.0 | Shared; tests/tools off |
 | HarfBuzz | 14.2.1 | MIT | Shared core packaged; GPU, raster and vector outputs are build-only; subset, ICU, FreeType integration off |
 | FreeType | 2.14.3 | FTL or GPL-2.0; FTL selected | Shared; HarfBuzz, bzip2, brotli off |
@@ -113,6 +117,7 @@ under the same Apache-2.0 terms.
 | rlottie | 0.2 (tracked subtree) | MIT | Static; threading/modules off by upstream CMake |
 | GLM, RapidJSON, utfcpp, CImg | 1.0.0, 1.1.0, 4.0.6, 3.6.1 (tracked subtrees) | MIT; CImg CeCILL-C selected | Header-only native dependencies, existing notices; CImg’s CeCILL-C option applies |
 | libc++_shared | NDK 28.2.13676358 (r28c) | Apache-2.0 with LLVM exception | Shared; hash-verified NDK copy; architecture/API/SONAME, LOAD alignment and APK zipalign checked; measured RELRO and build IDs below under D-001(b) am. 2; notice in `licenses/libcxx` |
+| GNU FreeFont / FreeMono.ttf asset | 20120503; font Version 0412.2268 | GPL-3.0 | Source release pinned and fetched in CI only; `licenses/GNUFreeFont`; source manifest records font SHA256/version and release mapping |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
 | Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon/TV banner are original MIT assets |

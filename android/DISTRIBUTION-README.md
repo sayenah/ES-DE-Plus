@@ -3,7 +3,9 @@
 
 This directory contains the exact debug APK built, audited and smoked on API 34.
 `manifest.json` records its SHA256, Android Debug certificate fingerprint, full
-source commit, run and attempt, both ABIs and the complete source-input mapping.
+source commit, run and attempt, both ABIs, the dependency-cache key/hit state
+and the complete source-input mapping. Tool versions describe the current runner;
+a cache hit identifies restored dependency outputs.
 Verify the APK with SDK `apksigner verify --print-certs app-debug.apk` and
 `aapt2 dump badging app-debug.apk`; its identity is `org.esdeplus.frontend`,
 display name **ES-DE Plus**, with `arm64-v8a` and `x86_64` only.
@@ -15,16 +17,21 @@ by this workflow. If manually removing artefacts, remove the dependent APK
 first; never delete its source while the APK remains available. The workflow
 cannot prevent an administrator deleting an artefact independently.
 
-ES-DE-Plus's own source is MIT. The Android composition includes permissive and
-Apache-2.0 inputs, LGPL-2.1 shared libraries, and libgit2 under GPL-2.0 with its
-linking exception; no GPL code without that exception is included. FreeImage's
-FIPL, FreeType's FTL and CImg's CeCILL-C options are selected. LibRaw inside
-FreeImage uses LGPL-2.1-or-later. See `DEPENDENCY-LICENSES.md` and the accompanying
-`licenses/` and `LICENSE` for all notices, including FreeImage's bundled codecs. FreeImage and
-the bundled uncombined LibRaw source are in `archives/freeimage.zip`; CImg and
-its licence are in `repository.tar.gz`. Their source and recipients' rights
-remain under those component terms. CeCILL-C's warranty and liability limitations
-in Articles 8 and 9 apply; software is supplied without warranty.
+ES-DE-Plus's own source is MIT. The APK's code includes permissive and
+Apache-2.0 inputs, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its
+linking exception; no GPL code except libgit2 under that exception is included.
+FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and
+CImg's CeCILL-C options are selected. LibRaw inside FreeImage offers LGPL-2.1 or
+CDDL-1.0; LGPL-2.1 selected. Bundled fonts, sounds, themes and certificates keep
+their own licences, including GNU FreeFont (GPL-3.0). See
+`DEPENDENCY-LICENSES.md`, `licenses/` and `LICENSE` for preserved notices.
+FreeImage and its uncombined LibRaw source are in `archives/freeimage.zip`;
+CImg and its licence are in `repository.tar.gz`. GNU FreeFont's official
+20120503 source release is in `archives/freefont.archive`; the manifest binds
+it to `resources/fonts/FreeMono.ttf` (Version 0412.2268) by version and font
+SHA256. Their source and recipients' rights remain under those component terms.
+CeCILL-C's warranty and liability limitations in Articles 8 and 9 apply;
+software is supplied without warranty.
 
 To rebuild or relink with modified LGPL components, extract `repository.tar.gz`
 into an empty directory. On Ubuntu 24.04 install JDK 17, Python 3.12+, Git,

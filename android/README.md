@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 # ES-DE Plus Android host
 
-ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK contains permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code without that exception is included. FreeImage's FIPL, FreeType's FTL and CImg's CeCILL-C options are selected, with LGPL LibRaw inside FreeImage. Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
+ES-DE-Plus is a fork whose own source remains MIT-licensed. Its Android APK's code includes permissive and Apache-2.0 components, LGPL-2.1 shared libraries and libgit2 under GPL-2.0 with its linking exception; no GPL code except libgit2 under that exception is included. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including GNU FreeFont (GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
 
 Published CI debug APKs use a different throwaway key per run and cannot update
 one another. **Back up before uninstalling:** uninstall deletes app-owned ROMs,
