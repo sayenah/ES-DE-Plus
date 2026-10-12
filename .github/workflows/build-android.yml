@@ -116,6 +116,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
+      - name: Ensure pinned SDK tools before offline Gradle configuration
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.31.5'
+          test -f "$ANDROID_NDK_HOME/source.properties"
+          grep -Fx 'Pkg.Revision = 28.2.13676358' "$ANDROID_NDK_HOME/source.properties"
+          echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
       - name: Download and verify pinned stable RetroArch (CI only)
         run: |
           curl --fail --location --retry 3 https://buildbot.libretro.com/stable/1.22.2/android/RetroArch.apk -o "$RUNNER_TEMP/RetroArch.apk"
