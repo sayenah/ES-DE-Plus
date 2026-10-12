@@ -166,12 +166,29 @@ def controls():
         try: pixels(invalid)
         except AssertionError: checks.append('PASS: PNG decoder control rejected: ' + name)
         else: raise AssertionError('PNG control escaped: ' + name)
+    assert session_acknowledged('16:end\nEND', '16:end', True, 'PASS: session completed')
+    assert not session_acknowledged('15:reset\nRESET', '16:end', False, '')
+    checks.append('PASS: final acknowledgement remains valid after instrumentation exit; stale live ack waits')
+    for result in ['', '15:reset\nRESET', '16:end-wrong\nEND']:
+        try: session_acknowledged(result, '16:end', True, 'failed session')
+        except AssertionError: checks.append('PASS: terminated session without exact acknowledgement rejected')
+        else: raise AssertionError('PDF session exit control escaped')
     return '\n'.join(checks) + '\n'
 
 
 def settings_xml(document):
     # Upstream persists sibling settings, not the parser's temporary wrapper.
     return '<?xml version="1.0"?>\n' + ''.join(ET.tostring(child, encoding='unicode') for child in document)
+
+
+def session_acknowledged(result, value, finished, diagnostic):
+    # "end" writes its acknowledgement and exits normally. A completed
+    # instrumentation process is only an error when its expected ack is absent.
+    if result.startswith(value + '\n'):
+        return True
+    if finished:
+        raise AssertionError('PDF session ended before ' + value + ': ' + diagnostic)
+    return False
 
 
 def run(mode, harness):
@@ -205,9 +222,12 @@ def run(mode, harness):
             h.private('sh', '-c', 'printf "%s\\n" ' + shlex.quote(value) +
                       ' > cache/pdf-command.next && mv cache/pdf-command.next cache/pdf-command')
             def completed():
-                if process.poll() is not None:
-                    raise AssertionError('PDF session ended before ' + value + ': ' + output_path.read_text())
-                return h.private('cat', 'cache/pdf-result', check=False).startswith(value + '\n')
+                # Sample exit before reading: if exit has been observed, all
+                # preceding ack writes are complete. Sampling it afterward can
+                # mistake a command completing between the two reads for failure.
+                finished = process.poll() is not None
+                result = h.private('cat', 'cache/pdf-result', check=False)
+                return session_acknowledged(result, value, finished, output_path.read_text())
             h.wait_for(completed, 'PDF session ' + action)
             return h.private('cat', 'cache/pdf-result')
         def paused_command(action, stage):
