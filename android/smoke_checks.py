@@ -3,6 +3,7 @@
 # ES-DE-Plus — written for ES-DE-Plus. Shared smoke assertions and positive controls.
 import pathlib
 import re
+import xml.etree.ElementTree as ET
 
 
 def no_generation(output):
@@ -44,6 +45,11 @@ def package_window_focused(window, package):
 
 def exact_label(node, label):
     return any(node.get(field, '').casefold() == label.casefold() for field in ('text', 'content-desc'))
+
+
+def immersive_tutorial_present(nodes):
+    return next((node for node in nodes if node.get('text') == 'Got it' and
+                 node.get('package') in {'android', 'com.android.systemui'}), None) is not None
 
 
 def stock_banner_dismiss_focused(nodes, package):
@@ -92,6 +98,14 @@ def positive_controls():
         reject('missing entry diagnostic', lambda: warm_entry(f'HOME={str(home).lower()}', home))
         reject('wrong HOME state', lambda: warm_entry(f'Focused redirect forwarding; HOME={str(not home).lower()}', home))
     grants(1, 1)
+    # UIAutomator buttons are XML leaves: Element truthiness is false even
+    # when the actual system action was found. Test the real node shape.
+    tutorial = ET.fromstring('<node text="Got it" package="android" />')
+    assert len(tutorial) == 0 and immersive_tutorial_present([tutorial])
+    for nodes in [[], [{'text': 'Got it', 'package': 'smoke.app'}],
+                  [{'text': 'Other action', 'package': 'android'}]]:
+        reject('unrelated UI is not immersive tutorial', lambda: probe_passed(
+            'found' if immersive_tutorial_present(nodes) else '', 'found'))
     probe_passed('exact' if exact_label({'text': 'ES-DE Plus'}, 'ES-DE Plus') else '', 'exact')
     reject('recipient is not frontend launcher icon', lambda: probe_passed(
         'exact' if exact_label({'text': 'ES-DE Plus recipient'}, 'ES-DE Plus') else '', 'exact'))

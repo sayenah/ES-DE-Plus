@@ -588,13 +588,10 @@ def configured_system(name):
         # Android's first-use immersive tutorial owns focus until its real
         # action is selected. Dismiss it before requiring frontend focus.
         nodes = hierarchy()
-        tutorial = next((node for node in nodes if node.get('text') == 'Got it' and
-                         node.get('package') in {'android', 'com.android.systemui'}), None)
-        if tutorial:
+        if smoke_checks.immersive_tutorial_present(nodes):
             ui('Got it')
-            wait_for(lambda: not any(node.get('text') == 'Got it' and
-                     node.get('package') in {'android', 'com.android.systemui'}
-                     for node in hierarchy()), 'Android immersive tutorial dismissed')
+            wait_for(lambda: not smoke_checks.immersive_tutorial_present(hierarchy()),
+                     'Android immersive tutorial dismissed')
         return smoke_checks.package_window_focused(shell('dumpsys', 'window'), app)
     wait_for(focused,
              'configured frontend window focused')
