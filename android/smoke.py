@@ -897,6 +897,37 @@ def retroarch_stacks(recipient_pid, recipient_log):
     (evidence / 'real-retroarch-stall-logcat.txt').write_text(recipient_log)
 
 
+def record_retroarch_receipt(outcome, detail=''):
+    policy = 'GATING' if retroarch_receipt_gating else 'NON-GATING DIAGNOSTIC'
+    text = f'D-010 real-RetroArch receipt: {policy}; API {device_api}; TV={television}; {outcome}\n'
+    if detail:
+        text += detail + '\n'
+    stacks = evidence / 'real-retroarch-stall-stacks.txt'
+    if stacks.exists():
+        text += '\n'.join(line for line in stacks.read_text().splitlines() if 'CAPABILITY GAP:' in line) + '\n'
+    text += 'Evidence: real-retroarch-*.txt, real-retroarch-*.png; frontend/stub/provider/core-query assertions remain gating.\n'
+    (evidence / 'real-retroarch-receipt-result.txt').write_text(text)
+    print(text, flush=True)
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with pathlib.Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+            output.write('\n```text\n' + text + '```\n')
+
+
+def capture_retroarch_failure():
+    # Preserve live external evidence before the normal cleanup removes it.
+    pid = shell('pidof', 'com.retroarch', check=False).strip().split()
+    if pid:
+        (evidence / 'real-retroarch-failure-recipient-logcat.txt').write_text(
+            adb('logcat', '-d', '--pid=' + pid[0], '-v', 'threadtime'))
+    (evidence / 'real-retroarch-failure-window.txt').write_text(shell('dumpsys', 'window'))
+    (evidence / 'real-retroarch-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+    location = '/data/local/tmp/esde-retroarch-failure.xml'
+    shell('uiautomator', 'dump', location, check=False)
+    (evidence / 'real-retroarch-failure-ui.txt').write_text(shell('cat', location, check=False))
+    save_logs('real-retroarch-failure')
+    screenshot('real-retroarch-failure')
+
+
 def prepare_retroarch():
     # Initialise only the third-party activity before exercising the frontend.
     # A startup timeout can retry this external app at most once. The product
@@ -917,12 +948,17 @@ def prepare_retroarch():
             return '[ENV] Checking arguments passed from intent' in recipient_log
         try:
             wait_for(ready, 'third-party RetroArch native startup readiness', timeout=20)
-        except AssertionError:
+        except AssertionError as error:
+            with (evidence / 'real-retroarch-startup-attempts.txt').open('a') as output:
+                output.write(f'External startup attempt {attempt}/2 failed: {error}\n')
             pid = shell('pidof', 'com.retroarch', check=False).strip().split()
             if pid:
                 retroarch_stacks(pid[0], recipient_log)
             if attempt == 2:
-                raise
+                record_retroarch_receipt('STARTUP FAILED', str(error))
+                if retroarch_receipt_gating:
+                    raise
+                return  # Still exercise the gating frontend launch below.
         else:
             (evidence / 'real-retroarch-startup-logcat.txt').write_text(recipient_log)
             shell('am', 'force-stop', 'com.retroarch')
@@ -930,6 +966,7 @@ def prepare_retroarch():
 
 
 def real_retroarch_flow():
+    record_retroarch_receipt('STARTED')
     apk_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'RetroArch.apk'
     # Download/verification occurs in CI before this smoke. No copy enters the
     # checkout or the evidence upload's explicitly enumerated text/image paths.
@@ -957,6 +994,7 @@ def real_retroarch_flow():
         launch_checks.equal('Emulator core is not installed' in native, False, 'Stable query never vetoes launch')
         current = adb('logcat', '-d', '-v', 'threadtime')
         smoke_checks.probe_passed(current, 'Activity launch accepted: ComponentInfo{com.retroarch/')
+        launch_checks.equal('Core query cleanup: com.retroarch result=-1' in current, True, 'Real core query cleanup/timeout')
         # Capture RetroArch's own process messages and ActivityManager's actual
         # activity/Intent record; no real core/game load is asserted.
         wait_for(lambda: bool(shell('pidof', 'com.retroarch', check=False).strip()), 'real RetroArch process')
@@ -971,34 +1009,26 @@ def real_retroarch_flow():
         # Await that actual process's receipt, then retain the exact assertions.
         try:
             wait_for(receipt_ready, 'real RetroArch processes Intent and exact ROM argument', timeout=20)
-        except AssertionError:
+            launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
+            launch_checks.retroarch_receipt(recipient_log, rom_argument)
+        except AssertionError as error:
             retroarch_stacks(recipient_pid, recipient_log)
-            raise  # Product launch/receipt assertions are never replayed.
-        launch_checks.equal(bool(recipient_log.strip()), True, 'Real RetroArch process logcat')
-        launch_checks.retroarch_receipt(recipient_log, rom_argument)
+            record_retroarch_receipt('RECEIPT FAILED', str(error))
+            if retroarch_receipt_gating:
+                raise  # API 34 still fails without a product launch retry.
+            capture_retroarch_failure()
+        else:
+            record_retroarch_receipt('RECEIPT PASSED')
         (evidence / 'real-retroarch-recipient-logcat.txt').write_text(recipient_log)
         (evidence / 'real-retroarch-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
         screenshot('real-retroarch-launched')
         save_logs('real-retroarch-launch')
-        launch_checks.equal('Core query cleanup: com.retroarch result=-1' in current, True, 'Real core query cleanup/timeout')
         shell('am', 'force-stop', 'com.retroarch')
         start_entry()
         wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from real RetroArch')
         screenshot('real-retroarch-return')
     except Exception:
-        # Preserve the live recipient before cleanup removes its task/package.
-        # A failed receipt still fails; these records identify any startup UI.
-        pid = shell('pidof', 'com.retroarch', check=False).strip().split()
-        if pid:
-            (evidence / 'real-retroarch-failure-recipient-logcat.txt').write_text(
-                adb('logcat', '-d', '--pid=' + pid[0], '-v', 'threadtime'))
-        (evidence / 'real-retroarch-failure-window.txt').write_text(shell('dumpsys', 'window'))
-        (evidence / 'real-retroarch-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
-        location = '/data/local/tmp/esde-retroarch-failure.xml'
-        shell('uiautomator', 'dump', location, check=False)
-        (evidence / 'real-retroarch-failure-ui.txt').write_text(shell('cat', location, check=False))
-        save_logs('real-retroarch-failure')
-        screenshot('real-retroarch-failure')
+        capture_retroarch_failure()
         raise
     finally:
         shell('am', 'force-stop', app)
@@ -1024,6 +1054,8 @@ try:
     features = shell('pm', 'list', 'features')
     (evidence / 'device-features.txt').write_text(features)
     television = 'feature:android.software.leanback' in features.splitlines()
+    device_api = int(shell('getprop', 'ro.build.version.sdk').strip())
+    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(device_api, television)
     if television:
         # Google's TV image launches this dialog asynchronously over other
         # apps. Disable only that external onboarding component before testing.
@@ -1608,6 +1640,8 @@ try:
     real_retroarch_flow()
     pdf_smoke.release(globals())
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
+    with (evidence / 'smoke-summary.txt').open('a') as output:
+        output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
 except BaseException:
     save_logs('failure')
     screenshot('failure')

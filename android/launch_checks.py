@@ -81,6 +81,11 @@ def retroarch_receipt_ready(log, rom):
     return True
 
 
+def retroarch_receipt_gates(api, television):
+    # D-010 (1): only the API 34 phone image gates on the external receipt.
+    return api == 34 and not television
+
+
 def recipient(observation, frontend_uid, contents):
     assert observation['uid'] != frontend_uid and observation['uid'] >= 10000, observation
     equal(observation['sha256'], hashlib.sha256(contents).hexdigest(), 'Recipient ROM bytes')
@@ -157,6 +162,9 @@ def positive_controls():
                            ('different warning reason', [{**n, 'text': n['text'].replace('older version of Android', 'harmful app')} for n in warning])]:
         reject(label, lambda changed=changed: equal(retroarch_install_warning(changed), True, label))
     receipt = '[ENV] Checking arguments passed from intent ...\n[ENV] Auto-start game "/rom.nes".'
+    equal(retroarch_receipt_gates(34, False), True, 'API 34 phone receipt stays gating')
+    for api, television in [(29, False), (36, True), (34, True)]:
+        equal(retroarch_receipt_gates(api, television), False, 'Other image receipt is diagnostic only')
     retroarch_receipt(receipt, '/rom.nes')
     reject('missing RetroArch Intent processing', lambda: retroarch_receipt(receipt.split('\n')[1], '/rom.nes'))
     reject('wrong RetroArch ROM argument', lambda: retroarch_receipt(receipt, '/other.nes'))

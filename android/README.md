@@ -142,6 +142,12 @@ release APK declares Android `versionName` `1.22.2_GIT`, verified exactly in CI.
 When the emulator presents Play Protect's older-Android-target warning, CI uses
 the visible installation confirmation for this pinned APK. Package verification
 stays enabled and the APK is not modified.
+Under D-010, the pinned stable RetroArch exact-ROM receipt gates only on the
+API 34 phone image. It still runs on TV (and API 29) as a clearly labelled
+non-gating diagnostic, with outcome, live logs and backtrace capability gaps
+in the evidence and CI summary. Frontend launch, stub-recipient, provider,
+core-query and host lifecycle checks stay gating on every image; no product
+assertion is retried.
 
 The `stub-emulator` module is a separate-UID, debug-only CI recipient written
 for ES-DE Plus; it is never included in the frontend APK or a release variant.
