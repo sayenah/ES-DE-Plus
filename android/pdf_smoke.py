@@ -147,6 +147,10 @@ def volume_mounted(output, identifier):
                for fields in (line.split() for line in output.splitlines()))
 
 
+def wait_for_focus(h, package, description):
+    h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), package), description)
+
+
 def controls():
     # A valid PNG with no manual markers must fail the real viewer-image gate.
     root = pathlib.Path('android/evidence/pdf-fixtures')
@@ -166,12 +170,56 @@ def controls():
         try: pixels(invalid)
         except AssertionError: checks.append('PASS: PNG decoder control rejected: ' + name)
         else: raise AssertionError('PNG control escaped: ' + name)
+    assert session_acknowledged('16:end\nEND', '16:end', True, 'PASS: session completed')
+    assert not session_acknowledged('15:reset\nRESET', '16:end', False, '')
+    checks.append('PASS: final acknowledgement remains valid after instrumentation exit; stale live ack waits')
+    for result in ['', '15:reset\nRESET', '16:end-wrong\nEND']:
+        try: session_acknowledged(result, '16:end', True, 'failed session')
+        except AssertionError: checks.append('PASS: terminated session without exact acknowledgement rejected')
+        else: raise AssertionError('PDF session exit control escaped')
+    import smoke_checks
+    for package in ('org.esdeplus.stub', 'org.esdeplus.frontend'):
+        live = 'WINDOW MANAGER DISPLAY CONTENTS\nmCurrentFocus=Window{x u0 ' + package + '/.Activity}'
+        stale = 'WINDOW MANAGER LAST ANR\nmCurrentFocus=Window{x u0 other/.Activity}\n' + live
+        class FocusHarness:
+            def __init__(self, current, full):
+                self.current, self.full = current, full
+                self.smoke_checks = smoke_checks
+                self.samples = 0
+            def shell(self, *args):
+                assert args == ('dumpsys', 'window'), args
+                return self.full
+            def focused_window(self):
+                self.samples += 1
+                return smoke_checks.live_window(self.current)
+            def wait_for(self, predicate, description):
+                assert predicate(), description
+        h = FocusHarness(live, stale)
+        assert not smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), package)
+        wait_for_focus(h, package, 'PDF live focus despite stale ANR')
+        assert h.samples == 1
+        checks.append('PASS: PDF focus wait ignores stale ANR for ' + package)
+        wrong = FocusHarness(live.replace(package, 'other'), stale.replace('other', package))
+        try: wait_for_focus(wrong, package, 'PDF wrong live focus')
+        except AssertionError: checks.append('PASS: PDF wrong live owner rejected despite matching cached ANR for ' + package)
+        else: raise AssertionError('PDF live focus control escaped')
+        assert wrong.samples == 1
     return '\n'.join(checks) + '\n'
 
 
 def settings_xml(document):
     # Upstream persists sibling settings, not the parser's temporary wrapper.
     return '<?xml version="1.0"?>\n' + ''.join(ET.tostring(child, encoding='unicode') for child in document)
+
+
+def session_acknowledged(result, value, finished, diagnostic):
+    # "end" writes its acknowledgement and exits normally. A completed
+    # instrumentation process is only an error when its expected ack is absent.
+    if result.startswith(value + '\n'):
+        return True
+    if finished:
+        raise AssertionError('PDF session ended before ' + value + ': ' + diagnostic)
+    return False
 
 
 def run(mode, harness):
@@ -200,8 +248,18 @@ def run(mode, harness):
             nonlocal command_number
             command_number += 1
             value = str(command_number) + ':' + action
-            h.private('sh', '-c', 'echo ' + shlex.quote(value) + ' > cache/pdf-command')
-            h.wait_for(lambda: h.private('cat', 'cache/pdf-result', check=False).startswith(value + '\n'), 'PDF session ' + action)
+            # The instrumentation polls every 50 ms. Publish a complete command
+            # by rename so it cannot observe a truncated/partially written file.
+            h.private('sh', '-c', 'printf "%s\\n" ' + shlex.quote(value) +
+                      ' > cache/pdf-command.next && mv cache/pdf-command.next cache/pdf-command')
+            def completed():
+                # Sample exit before reading: if exit has been observed, all
+                # preceding ack writes are complete. Sampling it afterward can
+                # mistake a command completing between the two reads for failure.
+                finished = process.poll() is not None
+                result = h.private('cat', 'cache/pdf-result', check=False)
+                return session_acknowledged(result, value, finished, output_path.read_text())
+            h.wait_for(completed, 'PDF session ' + action)
             return h.private('cat', 'cache/pdf-result')
         def paused_command(action, stage):
             # Active frames create and retire graphics fence descriptors. Use
@@ -212,15 +270,13 @@ def run(mode, harness):
             # existing recipient has an opaque full-screen activity on every
             # image; the instrumentation still verifies SDL is really PAUSED.
             paused = h.shell('am', 'start', '-W', '-n', 'org.esdeplus.stub/.RecipientActivity')
-            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), 'org.esdeplus.stub'),
-                       'PDF descriptor snapshot recipient focus')
+            wait_for_focus(h, 'org.esdeplus.stub', 'PDF descriptor snapshot recipient focus')
             time.sleep(2)
             snapshot = command(action)
             h.evidence.joinpath('pdf-' + mode + '-paused-' + stage + '.txt').write_text(
                 paused + '\n' + h.shell('dumpsys', 'activity', 'activities') + '\n' + snapshot)
             h.key('KEYCODE_BACK')
-            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), h.app),
-                       'PDF descriptor snapshot returns frontend focus')
+            wait_for_focus(h, h.app, 'PDF descriptor snapshot returns frontend focus')
             h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF snapshot retains process')
             rejects('PDF snapshot changed process', lambda: h.launch_checks.equal(pid + 'x', pid, 'PDF snapshot process control'))
             _, after = h.activity_records()

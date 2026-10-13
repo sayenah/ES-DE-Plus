@@ -3,6 +3,7 @@
 # ES-DE-Plus — written for ES-DE-Plus. Shared smoke assertions and positive controls.
 import pathlib
 import re
+import xml.etree.ElementTree as ET
 
 
 def no_generation(output):
@@ -30,6 +31,25 @@ def onboarding_disabled(changed):
 def onboarding_clear(nodes, package, frontend=None):
     assert any(n.get('package') in {package, frontend} - {None} for n in nodes), 'Launcher/frontend UI missing'
     assert not any(n.get('package') == package and n.get('text') == 'Dismiss' for n in nodes), 'Stock onboarding remains visible'
+    assert not stock_tutorial_action(nodes, package), 'Stock tutorial negative action remains visible'
+
+
+def stock_tutorial_action(nodes, package):
+    return next((n.get('text') for n in nodes if n.get('package') == package and
+                 n.get('resource-id') == package + ':id/tutorial_negative_action' and
+                 n.get('text') in {'Dismiss', 'Continue'} and n.get('clickable') == 'true'), '')
+
+
+def stock_tutorial_page(nodes, package):
+    titles = tuple(sorted({n.get('text', '') for n in nodes if n.get('package') == package and
+                          n.get('resource-id') == package + ':id/overlay_tutorial_title'}))
+    return titles, stock_tutorial_action(nodes, package)
+
+
+def live_window(window):
+    assert 'WINDOW MANAGER LAST ANR' not in window, 'Historical ANR state cannot prove live focus'
+    assert 'WINDOW MANAGER DISPLAY CONTENTS' in window, 'Live WindowManager display dump missing'
+    return window
 
 
 def stock_onboarding_focused(window, package):
@@ -42,6 +62,15 @@ def package_window_focused(window, package):
     return bool(re.search(r'\s' + re.escape(package) + '/', focus))
 
 
+def exact_label(node, label):
+    return any(node.get(field, '').casefold() == label.casefold() for field in ('text', 'content-desc'))
+
+
+def immersive_tutorial_present(nodes):
+    return next((node for node in nodes if node.get('text') == 'Got it' and
+                 node.get('package') in {'android', 'com.android.systemui'}), None) is not None
+
+
 def stock_banner_dismiss_focused(nodes, package):
     return any(n.get('package') == package and n.get('text') == 'Dismiss' and
                n.get('resource-id') == package + ':id/tray_dismiss' and
@@ -49,11 +78,12 @@ def stock_banner_dismiss_focused(nodes, package):
                for n in nodes)
 
 
-def onboarding_dismiss_focused(nodes, package):
-    assert any(n.get('package') == package and n.get('text') == 'Dismiss' and
+def onboarding_dismiss_focused(nodes, package, action='Dismiss'):
+    assert action in {'Dismiss', 'Continue'}, action
+    assert any(n.get('package') == package and n.get('text') == action and
                n.get('resource-id') == package + ':id/tutorial_negative_action' and
                n.get('focused') == 'true' and n.get('clickable') == 'true'
-               for n in nodes), 'Stock onboarding Dismiss action is not focused'
+               for n in nodes), 'Stock onboarding negative action is not focused'
 
 
 def held_restored(records, nodes, pid, old_pid, app):
@@ -88,9 +118,28 @@ def positive_controls():
         reject('missing entry diagnostic', lambda: warm_entry(f'HOME={str(home).lower()}', home))
         reject('wrong HOME state', lambda: warm_entry(f'Focused redirect forwarding; HOME={str(not home).lower()}', home))
     grants(1, 1)
+    # UIAutomator buttons are XML leaves: Element truthiness is false even
+    # when the actual system action was found. Test the real node shape.
+    tutorial = ET.fromstring('<node text="Got it" package="android" />')
+    assert len(tutorial) == 0 and immersive_tutorial_present([tutorial])
+    for nodes in [[], [{'text': 'Got it', 'package': 'smoke.app'}],
+                  [{'text': 'Other action', 'package': 'android'}]]:
+        reject('unrelated UI is not immersive tutorial', lambda: probe_passed(
+            'found' if immersive_tutorial_present(nodes) else '', 'found'))
+    probe_passed('exact' if exact_label({'text': 'ES-DE Plus'}, 'ES-DE Plus') else '', 'exact')
+    reject('recipient is not frontend launcher icon', lambda: probe_passed(
+        'exact' if exact_label({'text': 'ES-DE Plus recipient'}, 'ES-DE Plus') else '', 'exact'))
     reject('cancel revoked selected grant', lambda: grants(0, 1))
     probe_passed('PASS: probe', 'PASS: probe')
     reject('failed runtime probe', lambda: probe_passed('FAIL: probe', 'PASS: probe'))
+    live = 'WINDOW MANAGER DISPLAY CONTENTS\nmCurrentFocus=Window{x u0 smoke.app/.MainActivity}'
+    assert live_window(live) == live and package_window_focused(live_window(live), 'smoke.app')
+    other = 'WINDOW MANAGER DISPLAY CONTENTS\nmCurrentFocus=Window{x u0 stock.launcher/.Home}'
+    assert not package_window_focused(live_window(other), 'smoke.app')
+    for cached, current in [(other, live), (live, other)]:
+        reject('cached ANR focus never proves current focus', lambda cached=cached, current=current: live_window(
+            'WINDOW MANAGER LAST ANR\n' + cached + '\n' + current))
+    reject('missing live display dump', lambda: live_window('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}'))
     onboarding_disabled(True)
     reject('onboarding control failed', lambda: onboarding_disabled(False))
     onboarding_clear([{'package': 'stock.launcher', 'text': 'Home'}], 'stock.launcher')
@@ -112,6 +161,18 @@ def positive_controls():
         reject('wrong Dismiss ' + field, lambda field=field, wrong=wrong:
                onboarding_dismiss_focused([dict(dismiss, **{field: wrong})], 'stock.launcher'))
     reject('missing Dismiss action', lambda: onboarding_dismiss_focused([], 'stock.launcher'))
+    continued = dict(dismiss, text='Continue')
+    assert stock_tutorial_action([continued], 'stock.launcher') == 'Continue'
+    onboarding_dismiss_focused([continued], 'stock.launcher', 'Continue')
+    reject('Continue tutorial still visible', lambda: onboarding_clear([continued], 'stock.launcher'))
+    for field, wrong in [('package', 'smoke.app'), ('text', "See what's on"),
+                         ('resource-id', 'stock.launcher:id/tutorial_positive_action'), ('clickable', 'false')]:
+        reject('unsafe stock tutorial action ' + field, lambda field=field, wrong=wrong: probe_passed(
+            stock_tutorial_action([dict(continued, **{field: wrong})], 'stock.launcher'), 'Continue'))
+    title = {'package': 'stock.launcher', 'resource-id': 'stock.launcher:id/overlay_tutorial_title', 'text': 'Live TV'}
+    page = stock_tutorial_page([title, continued], 'stock.launcher')
+    assert page == stock_tutorial_page([title, title, continued], 'stock.launcher')
+    assert page != stock_tutorial_page([dict(title, text='Apps'), continued], 'stock.launcher')
     probe_passed('focused' if package_window_focused(focus, 'stock.launcher') else '', 'focused')
     reject('unrelated window is not stock launcher', lambda: probe_passed(
         'focused' if package_window_focused('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}', 'stock.launcher') else '', 'focused'))

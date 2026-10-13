@@ -3,9 +3,12 @@
 
 This directory contains the exact debug APK built, audited and smoked on API 34.
 `manifest.json` records its SHA256, Android Debug certificate fingerprint, full
-source commit, run and attempt, both ABIs, the dependency-cache key/hit state
-and the complete source-input mapping. Tool versions describe the current runner;
-a cache hit identifies restored dependency outputs.
+source commit, run and attempt, both ABIs, the native dependency-cache and
+Gradle wrapper/dependency-cache key/hit states, and the complete source-input
+mapping. Tool versions describe the current runner; each cache record identifies
+the inputs restored from that cache.
+New source manifests use schema 4 and require the Gradle cache record;
+schema-3 source artefacts retain their original validation/rebuild support.
 Verify the APK with SDK `apksigner verify --print-certs app-debug.apk` and
 `aapt2 dump badging app-debug.apk`; its identity is `org.esdeplus.frontend`,
 display name **ES-DE Plus**, with `arm64-v8a` and `x86_64` only.
@@ -26,22 +29,29 @@ also includes permissive and Apache-2.0 inputs and LGPL-2.1 shared libraries.
 FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and
 CImg's CeCILL-C options are selected. LibRaw inside FreeImage offers LGPL-2.1 or
 CDDL-1.0; LGPL-2.1 selected. Bundled fonts, sounds, themes and certificates keep
-their own licences, including GNU FreeFont (Debian's modified build; GPL-3.0). See
-`DEPENDENCY-LICENSES.md`, `licenses/` and `LICENSE` for preserved notices.
+their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). See
+`DEPENDENCY-LICENSES.md`, `licenses/`, `CREDITS.md` and `LICENSE` for preserved notices.
 FreeImage and its uncombined LibRaw source are in `archives/freeimage.zip`;
 CImg and its licence are in `repository.tar.gz`. FreeMono.ttf is Debian's
-modified build of GNU FreeFont 20120503 (fonts-freefont 20120503-10), with the
-Braille block dropped by `drop_bad_braille.diff`. Its corresponding source is
+patched GNU FreeFont 20120503 (fonts-freefont 20120503-10; patch series in the
+manifest), including `drop_bad_braille.diff`. Its corresponding source is
 `archives/fonts-freefont_20120503.orig.tar.xz` plus
 `archives/fonts-freefont_20120503-10.debian.tar.xz`, including Debian patches
-and build recipes. The declared verification input
+and build recipes, plus the preserved signed source descriptor
+`archives/fonts-freefont_20120503-10.dsc` (SHA256-pinned; its source checksums
+are checked offline, without claiming a fresh PGP trust verification).
+The declared verification input
 `archives/fonts-freefont-ttf_20120503-10_all.deb` allows offline table-by-table
-comparison with Debian's binary FreeMono.ttf. The manifest pins all three
-official Debian URLs/SHA256 values and maps the bundled font to the sources;
+comparison with Debian's binary FreeMono.ttf. The manifest pins the official
+Debian pool and immutable `snapshot.debian.org` fallback URLs and SHA256 values,
+and maps the bundled font to the sources;
 only FontForge timestamp/checksum fields may differ, and a changed table fails.
 These inputs use the pinned download cache and are fetched in CI only. ES-DE-Plus
 applies no native source patches; the font already carries Debian's changes.
 Their source and recipients' rights remain under those component terms.
+The Mozilla-derived CA bundle `resources/certificates/curl-ca-bundle.crt` is
+MPL-2.0; its unmodified PEM source is in `repository.tar.gz`. Attribution,
+source locations and the MPL-2.0 text are in `licenses/Mozilla-CA-bundle`.
 CeCILL-C's warranty and liability limitations in Articles 8 and 9 apply;
 software is supplied without warranty.
 

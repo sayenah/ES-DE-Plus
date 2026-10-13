@@ -53,7 +53,13 @@ open class RecipientActivity : Activity() {
                 sendBroadcast(Intent("org.esdeplus.stub.OBSERVATION").setPackage(it)
                     .putExtra("json", result.toString()))
             }
-            finish(); return
+            // Query probes must not repeatedly expose/restart the stock HOME
+            // (hotword discovery, promotions and rendering) inside their real
+            // one-second broadcast deadline. Keep this CI-only opaque fixture
+            // visible; component controls and Settings still finish normally.
+            if (control in listOf("phone-off", "restore-launchers", "storage-permission")) finish()
+            else setContentView(TextView(this).apply { text = "ES-DE Plus recipient query ready: $control" })
+            return
         }
         val observation = JSONObject().put("uid", Process.myUid()).put("component", intent.component?.flattenToString())
             .put("action", intent.action).put("mime", intent.type).put("data", intent.dataString)
