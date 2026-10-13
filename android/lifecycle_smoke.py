@@ -117,7 +117,7 @@ def run(harness):
     h.adb('install', '-r', str(h.apk))
     (h.evidence / 'lifecycle-summary.txt').write_text(
         '\n'.join(failures) + '\n' if failures else
-        'PASS: debug and minified early recreation, running recreation and running finish; 5 s bound, native return/join, no second main, next launch.\n')
+        'PASS: debug and minified early recreation, running recreation and running finish; 5 s bound, saved-state startup exit or running native return/join, no second main, next launch.\n')
     assert not failures, '\n'.join(failures)
     h.start_entry('HomeEntry', 'android.intent.category.HOME')
     h.configured_system('lifecycle-restored-home')
