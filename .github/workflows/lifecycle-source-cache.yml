@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. Temporary source-cache preparation for lifecycle evidence.
+name: Prepare lifecycle source cache
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: sayenah/ES-DE-Plus
+          run-id: 38394674616
+          artifact-ids: 11838514562
+          merge-multiple: true
+          path: source-bundle
+      - name: Verify cached archives against current pins before extraction
+        run: |
+          mkdir -p android/.deps/downloads
+          cp source-bundle/archives/* android/.deps/downloads/
+          python3 android/distribution.py font
+          tools/Android_dependencies_setup.sh
+          git diff --exit-code -- external/
+      - uses: actions/cache/save@v4
+        with:
+          path: android/.deps/downloads
+          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh', 'android/distribution.py') }}
