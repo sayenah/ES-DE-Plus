@@ -65,6 +65,12 @@ def shell(*args, check=True):
     return adb('shell', shlex.join(args), check=check)
 
 
+def focused_window():
+    # The default dump begins with a cached LAST ANR snapshot. Read live
+    # display state for focus assertions; retain full dumps in diagnostics.
+    return smoke_checks.live_window(shell('dumpsys', 'window', 'displays'))
+
+
 def instrument_with_ui(*arguments, install=False):
     # The retained-window probe waits inside instrumentation. Keep inspecting
     # actual system UI during that wait so the existing external-ANR handler
@@ -203,8 +209,8 @@ def dismiss_stock_onboarding(force=False):
     if not force and time.monotonic() - last_onboarding_check < 2:
         return
     last_onboarding_check = time.monotonic()
-    # Focus is display state, omitted by the windows-only dump on newer SDKs.
-    window = shell('dumpsys', 'window')
+    # Focus comes from live display state, never the cached last-ANR snapshot.
+    window = focused_window()
     if not smoke_checks.stock_onboarding_focused(window, stock_package):
         return
     dismissing_onboarding = True
@@ -216,13 +222,13 @@ def dismiss_stock_onboarding(force=False):
             nodes = []
             def ready():
                 nonlocal nodes, window
-                window = shell('dumpsys', 'window')
+                window = focused_window()
                 if not smoke_checks.stock_onboarding_focused(window, stock_package):
                     return True
                 nodes = hierarchy()
                 return bool(smoke_checks.stock_tutorial_action(nodes, stock_package))
             wait_for(ready, 'stock tutorial negative action ready')
-            window = shell('dumpsys', 'window')
+            window = focused_window()
             if not smoke_checks.stock_onboarding_focused(window, stock_package):
                 break
             action = smoke_checks.stock_tutorial_action(nodes, stock_package)
@@ -232,7 +238,7 @@ def dismiss_stock_onboarding(force=False):
                 output.write(f'External stock tutorial step {step}/4: {page}; no frontend action.\n' +
                              window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
             (evidence / f'tv-onboarding-step-{step}.png').write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
-            if not smoke_checks.stock_onboarding_focused(shell('dumpsys', 'window'), stock_package):
+            if not smoke_checks.stock_onboarding_focused(focused_window(), stock_package):
                 break
             # Use the captured exact stock resource, rather than a same-label
             # control in an unrelated window. Focus was rechecked above.
@@ -243,27 +249,27 @@ def dismiss_stock_onboarding(force=False):
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
             time.sleep(1)
             nodes = hierarchy()
-            window = shell('dumpsys', 'window')
+            window = focused_window()
             if (smoke_checks.stock_onboarding_focused(window, stock_package) and
                     smoke_checks.stock_tutorial_page(nodes, stock_package) == page):
                 # On TV, touch may only focus the negative button.
                 smoke_checks.onboarding_dismiss_focused(nodes, stock_package, action)
                 key('KEYCODE_DPAD_CENTER')
             def advanced():
-                if not smoke_checks.stock_onboarding_focused(shell('dumpsys', 'window'), stock_package):
+                if not smoke_checks.stock_onboarding_focused(focused_window(), stock_package):
                     return True
                 current_page = smoke_checks.stock_tutorial_page(hierarchy(), stock_package)
                 return (bool(current_page[1]) and current_page != page and
                         (not page[0] or bool(current_page[0])))
             wait_for(advanced, 'stock tutorial page advanced or closed')
-        wait_for(lambda: not smoke_checks.stock_onboarding_focused(shell('dumpsys', 'window'), stock_package),
+        wait_for(lambda: not smoke_checks.stock_onboarding_focused(focused_window(), stock_package),
                  'bounded stock tutorial flow closed')
         nodes = hierarchy()
         # Closing the tutorial can expose a separate stock launcher banner.
         # Dismiss its actual action too; retain the strict clear assertion.
         if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
                n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
-            window = shell('dumpsys', 'window')
+            window = focused_window()
             smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
             with (evidence / 'tv-onboarding-events.txt').open('a') as output:
                 output.write('Actual stock launcher banner; dismissing its separate action.\n' + window + '\n')
@@ -540,7 +546,7 @@ def real_system_home():
         def frontend_focused():
             window = shell('dumpsys', 'window', '-a')
             (evidence / 'system-home-current-window.txt').write_text(window)
-            return re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', window)
+            return re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focused_window())
         wait_for(frontend_focused, 'system HOME handoff restores frontend window focus', timeout=30)
         screenshot('system-home-reused')
         key('KEYCODE_BACK')
@@ -551,7 +557,7 @@ def real_system_home():
         back_dump, back_records = activity_records()
         assert len(back_records) == 1 and back_records[0][1:] == records[0][1:], back_dump
         wait_for(frontend_focused, 'system HOME Back retains focused frontend window', timeout=30)
-        focus = shell('dumpsys', 'window')
+        focus = focused_window()
         assert re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focus), focus
         (evidence / 'system-home-back-activities.txt').write_text(back_dump)
         (evidence / 'system-home-back-window.txt').write_text(focus)
@@ -613,7 +619,7 @@ def configured_system(name):
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
     def focused():
-        if smoke_checks.package_window_focused(shell('dumpsys', 'window'), app):
+        if smoke_checks.package_window_focused(focused_window(), app):
             return True
         # Android's first-use immersive tutorial owns focus until its real
         # action is selected. Dismiss it before requiring frontend focus.
@@ -622,7 +628,7 @@ def configured_system(name):
             ui('Got it')
             wait_for(lambda: not smoke_checks.immersive_tutorial_present(hierarchy()),
                      'Android immersive tutorial dismissed')
-        return smoke_checks.package_window_focused(shell('dumpsys', 'window'), app)
+        return smoke_checks.package_window_focused(focused_window(), app)
     try:
         wait_for(focused, 'configured frontend window focused')
     except AssertionError:
@@ -790,7 +796,7 @@ def gamelist_recipient_flow(mode):
         search_launch('Smoke', mode + '-provider-search')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
         wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
-                 shell('dumpsys', 'window')), 'recipient focused window')
+                 focused_window()), 'recipient focused window')
         (evidence / ('gamelist-recipient-' + mode + '-window.txt')).write_text(shell('dumpsys', 'window'))
         observation = json.loads(shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         launch_checks.recipient(observation, frontend_uid, b'\x00')
@@ -798,7 +804,7 @@ def gamelist_recipient_flow(mode):
         screenshot('gamelist-recipient-' + mode)
         save_logs('gamelist-recipient-' + mode)
         key('KEYCODE_BACK')
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from recipient to frontend')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focused_window()), 'return from recipient to frontend')
         (evidence / ('gamelist-return-' + mode + '-window.txt')).write_text(shell('dumpsys', 'window'))
         launch_checks.equal(shell('pidof', app).strip(), pid, 'Return resumes same frontend process')
         screenshot('gamelist-return-' + mode)
@@ -870,7 +876,7 @@ def gamelist_recipient_flow(mode):
         screenshot('imported-app-launched-' + mode)
         save_logs('imported-app-launched-' + mode)
         key('KEYCODE_BACK')
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'imported app returns to frontend')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focused_window()), 'imported app returns to frontend')
         screenshot('imported-app-return-' + mode)
     except Exception:
         screenshot(mode + '-gamelist-failure')
@@ -1033,7 +1039,7 @@ def real_retroarch_flow():
         save_logs('real-retroarch-launch')
         shell('am', 'force-stop', 'com.retroarch')
         start_entry()
-        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', shell('dumpsys', 'window')), 'return from real RetroArch')
+        wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focused_window()), 'return from real RetroArch')
         screenshot('real-retroarch-return')
     except Exception:
         capture_retroarch_failure()

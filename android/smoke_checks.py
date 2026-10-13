@@ -46,6 +46,12 @@ def stock_tutorial_page(nodes, package):
     return titles, stock_tutorial_action(nodes, package)
 
 
+def live_window(window):
+    assert 'WINDOW MANAGER LAST ANR' not in window, 'Historical ANR state cannot prove live focus'
+    assert 'WINDOW MANAGER DISPLAY CONTENTS' in window, 'Live WindowManager display dump missing'
+    return window
+
+
 def stock_onboarding_focused(window, package):
     focus = next((line for line in window.splitlines() if 'mCurrentFocus=' in line), '')
     return bool(re.search(re.escape(package) + r'/(?:\.|' + re.escape(package) + r'\.)dialog\.ShowDialogsActivity', focus))
@@ -126,6 +132,14 @@ def positive_controls():
     reject('cancel revoked selected grant', lambda: grants(0, 1))
     probe_passed('PASS: probe', 'PASS: probe')
     reject('failed runtime probe', lambda: probe_passed('FAIL: probe', 'PASS: probe'))
+    live = 'WINDOW MANAGER DISPLAY CONTENTS\nmCurrentFocus=Window{x u0 smoke.app/.MainActivity}'
+    assert live_window(live) == live and package_window_focused(live_window(live), 'smoke.app')
+    other = 'WINDOW MANAGER DISPLAY CONTENTS\nmCurrentFocus=Window{x u0 stock.launcher/.Home}'
+    assert not package_window_focused(live_window(other), 'smoke.app')
+    for cached, current in [(other, live), (live, other)]:
+        reject('cached ANR focus never proves current focus', lambda cached=cached, current=current: live_window(
+            'WINDOW MANAGER LAST ANR\n' + cached + '\n' + current))
+    reject('missing live display dump', lambda: live_window('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}'))
     onboarding_disabled(True)
     reject('onboarding control failed', lambda: onboarding_disabled(False))
     onboarding_clear([{'package': 'stock.launcher', 'text': 'Home'}], 'stock.launcher')
