@@ -3,9 +3,12 @@
 
 This directory contains the exact debug APK built, audited and smoked on API 34.
 `manifest.json` records its SHA256, Android Debug certificate fingerprint, full
-source commit, run and attempt, both ABIs, the dependency-cache key/hit state
-and the complete source-input mapping. Tool versions describe the current runner;
-a cache hit identifies restored dependency outputs.
+source commit, run and attempt, both ABIs, the native dependency-cache and
+Gradle wrapper/dependency-cache key/hit states, and the complete source-input
+mapping. Tool versions describe the current runner; each cache record identifies
+the inputs restored from that cache.
+New source manifests use schema 4 and require the Gradle cache record;
+schema-3 source artefacts retain their original validation/rebuild support.
 Verify the APK with SDK `apksigner verify --print-certs app-debug.apk` and
 `aapt2 dump badging app-debug.apk`; its identity is `org.esdeplus.frontend`,
 display name **ES-DE Plus**, with `arm64-v8a` and `x86_64` only.

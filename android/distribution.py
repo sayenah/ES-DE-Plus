@@ -4,6 +4,7 @@
 import argparse
 import datetime
 import hashlib
+import http.server
 import importlib.util
 import io
 import json
@@ -11,10 +12,12 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import struct
 import subprocess
 import tarfile
 import tempfile
+import threading
 import time
 import zipfile
 
@@ -276,7 +279,7 @@ def font_ci():
     print(f'PASS: every FreeMono table matches Debian fonts-freefont-ttf {FONT_PACKAGE_VERSION}; allowed fields {FONT_TOLERANCES}')
 
 
-def fetch_font(pin, archive, primary=None):
+def fetch_font(pin, archive, primary=None, env=None):
     # The same hash applies to the pool and immutable snapshot. Download into
     # a temporary path; a transport failure never leaves a partial cache entry.
     temporary = archive.with_name(archive.name + '.download')
@@ -284,7 +287,7 @@ def fetch_font(pin, archive, primary=None):
         for url in (primary or pin['url'], pin['fallback_url']):
             print('FETCH font URL: ' + url, flush=True)
             result = subprocess.run(['curl', '--fail', '--location', '--connect-timeout', '15',
-                                     '--max-time', '120', url, '-o', str(temporary)])
+                                     '--max-time', '120', url, '-o', str(temporary)], env=env)
             if result.returncode:
                 print(f'Font endpoint failed ({result.returncode}); trying remaining pinned endpoint', flush=True)
                 continue
@@ -297,7 +300,53 @@ def fetch_font(pin, archive, primary=None):
 
 
 def font_fallback_controls():
+    # Every normal leg proves the real fetch path with only cached pinned bytes
+    # and loopback HTTP. Snapshot availability must not affect this control.
+    downloads = ROOT / 'android/.deps/downloads'
+    files = {}
+    for pin in FONT_DOWNLOADS.values():
+        name = pathlib.Path(pin['file']).name
+        require(digest(downloads / name) == pin['sha256'], 'Corrupt cached fallback control input: ' + name)
+        files['/' + name] = (downloads / name).read_bytes()
+
+    class CachedFontHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            data = files.get(self.path)
+            if data is None:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format, *args):
+            pass
+
+    # A bound, non-listening socket reserves a reliably unreachable primary.
+    with socket.socket() as primary, http.server.HTTPServer(('127.0.0.1', 0), CachedFontHandler) as server:
+        primary.bind(('127.0.0.1', 0))
+        unavailable = f'http://127.0.0.1:{primary.getsockname()[1]}/unavailable-font-pin'
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            with tempfile.TemporaryDirectory(dir=ROOT / 'android/.deps') as temporary:
+                for pin in FONT_DOWNLOADS.values():
+                    name = pathlib.Path(pin['file']).name
+                    local = dict(pin, fallback_url=f'http://127.0.0.1:{server.server_port}/{name}')
+                    # Keep even proxy-configured CI confined to loopback.
+                    local_env = {**os.environ, 'NO_PROXY': '127.0.0.1', 'no_proxy': '127.0.0.1'}
+                    fetch_font(local, pathlib.Path(temporary) / name, primary=unavailable, env=local_env)
+                    print('PASS: unavailable primary falls back to hash-verified local cached file: ' + name)
+        finally:
+            server.shutdown()
+            worker.join(timeout=5)
+            require(not worker.is_alive(), 'Local fallback control server did not stop')
+
+
+def font_live_fallback_controls():
     require(os.environ.get('GITHUB_ACTIONS') == 'true', 'Font downloads are CI only')
+    require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'Live snapshot control is dispatch only')
     with tempfile.TemporaryDirectory(dir=ROOT / 'android/.deps') as temporary:
         for pin in FONT_DOWNLOADS.values():
             path = pathlib.Path(temporary) / pathlib.Path(pin['file']).name
@@ -316,6 +365,13 @@ def dependency_cache(key, hit):
     require(isinstance(key, str) and re.fullmatch(r'android-ndk28\.2\.13676358-api29-[a-f0-9]{64}', key),
             'Missing or invalid dependency-cache key')
     require(isinstance(hit, bool), 'Invalid dependency-cache hit state')
+    return {'key': key, 'hit': hit}
+
+
+def gradle_cache(key, hit):
+    require(isinstance(key, str) and re.fullmatch(r'android-gradle-v1-[A-Za-z0-9_]+-[A-Za-z0-9_]+-[a-f0-9]{64}', key),
+            'Missing or invalid Gradle cache key')
+    require(isinstance(hit, bool), 'Invalid Gradle cache hit state')
     return {'key': key, 'hit': hit}
 
 
@@ -607,12 +663,14 @@ def make_bundle(apk):
     require('Pkg.Revision = 28.2.13676358' in tools['NDK'], 'Unexpected NDK provenance')
     require(os.environ.get('DEPENDENCY_CACHE_HIT') in {'true', 'false'}, 'Missing cache restore result')
     cache = dependency_cache(os.environ['DEPENDENCY_CACHE_KEY'], os.environ['DEPENDENCY_CACHE_HIT'] == 'true')
-    manifest = {'schema': 3, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
+    require(os.environ.get('GRADLE_CACHE_HIT') in {'true', 'false'}, 'Missing Gradle cache restore result')
+    gradle = gradle_cache(os.environ['GRADLE_CACHE_KEY'], os.environ['GRADLE_CACHE_HIT'] == 'true')
+    manifest = {'schema': 4, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
                 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'repository': os.environ['GITHUB_REPOSITORY'],
                 'apk': record, 'archives': archives, 'graphs': graphs, 'inputs': inputs, 'shared': shared,
                 'bundled_codecs': {f'FreeImage/Source/{k}': {'archive': 'freeimage', 'licence': v} for k, v in CODECS.items()},
                 'runtime_dex': DEX_SOURCES,
-                'asset_sources': asset_sources, 'dependency_cache': cache,
+                'asset_sources': asset_sources, 'dependency_cache': cache, 'gradle_cache': gradle,
                 'toolchain': tools, 'recipes': ['tools/Android_dependencies_setup.sh',
                     'tools/Android_dependencies_build.sh', 'android/app/build.gradle.kts',
                     'CMakeLists.txt', 'android/rebuild-source.sh'],
@@ -641,6 +699,7 @@ def make_bundle(apk):
     text = text.replace('@SOURCE_NAME@', source_name)
     text = text.replace('@RUN_URL@', f'https://github.com/{manifest["repository"]}/actions/runs/{manifest["run_id"]}')
     (apk_dir / 'README.md').write_text(text)
+    apk_notice_controls(apk_dir)
     output = os.environ.get('GITHUB_OUTPUT')
     if output:
         with open(output, 'a') as stream:
@@ -648,9 +707,42 @@ def make_bundle(apk):
     print(f'PASS: exact source bundle {source_name}; APK SHA256 {record["sha256"]}')
 
 
+def validate_apk_notices(directory):
+    for name in ('CREDITS.md', 'licenses/Mozilla-CA-bundle'):
+        require((directory / name).is_file(), 'Missing required APK artefact notice: ' + name)
+
+
+def apk_notice_controls(directory):
+    validate_apk_notices(directory)
+    # Exercise the actual staged directory, restoring both exact-commit files
+    # before publication outputs are exposed. Temporary files stay outside it.
+    with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
+        for name in ('CREDITS.md', 'licenses/Mozilla-CA-bundle'):
+            notice = directory / name
+            saved = pathlib.Path(temporary) / 'notice'
+            notice.rename(saved)
+            try:
+                try:
+                    validate_apk_notices(directory)
+                except ValueError as error:
+                    print('PASS: missing staged APK notice rejected: ' + str(error))
+                else:
+                    raise ValueError('Missing APK notice control escaped: ' + name)
+            finally:
+                saved.rename(notice)
+    validate_apk_notices(directory)
+    print('PASS: required APK artefact credits and CA notice present after controls')
+
+
 def validate_bundle(bundle):
     manifest = json.loads((bundle / 'manifest.json').read_text())
-    require(manifest['schema'] == 3 and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
+    require(manifest['schema'] in (3, 4) and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
+    # Schema 3 predates Gradle provenance. Its archived validator/rebuild recipe
+    # remains usable; every newly produced schema-4 bundle requires this field.
+    if manifest['schema'] == 4:
+        require(isinstance(manifest.get('gradle_cache'), dict), 'Missing or invalid Gradle cache provenance')
+        require(manifest['gradle_cache'] == gradle_cache(
+            manifest['gradle_cache'].get('key'), manifest['gradle_cache'].get('hit')), 'Unexpected Gradle cache metadata')
     require(manifest['dependency_cache'] == dependency_cache(
         manifest['dependency_cache']['key'], manifest['dependency_cache']['hit']), 'Unexpected cache metadata')
     require(re.fullmatch('[a-f0-9]{64}', manifest['apk']['sha256']), 'Missing APK hash')
@@ -749,6 +841,24 @@ def bundle_controls(bundle):
     finally:
         archive.unlink(missing_ok=True)
         saved.rename(archive)
+    if manifest['schema'] == 4:
+        for invalid in [None, {'key': '', 'hit': False},
+                        {'key': manifest['gradle_cache']['key'], 'hit': 'true'}]:
+            changed = json.loads(original)
+            if invalid is None:
+                del changed['gradle_cache']
+            else:
+                changed['gradle_cache'] = invalid
+            (bundle / 'manifest.json').write_text(json.dumps(changed))
+            try:
+                try:
+                    validate_bundle(bundle)
+                except ValueError as error:
+                    print('PASS: invalid/missing Gradle cache provenance rejected: ' + str(error))
+                else:
+                    raise ValueError('Gradle cache manifest control escaped')
+            finally:
+                (bundle / 'manifest.json').write_text(original)
     for path in ['android/.deps/install/x86_64/include/unmapped.h',
                  'android/.deps/sources/ffmpeg/unmapped-added-source.c']:
         try:
@@ -817,7 +927,7 @@ def gate_controls():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['identity', 'bundle', 'validate', 'controls', 'gates', 'linux', 'inject', 'uploaded', 'font', 'font-fallback-controls', 'publication'])
+    parser.add_argument('mode', choices=['identity', 'bundle', 'validate', 'controls', 'gates', 'linux', 'inject', 'uploaded', 'font', 'font-fallback-controls', 'font-live-fallback-controls', 'publication'])
     parser.add_argument('path', nargs='?', default='none')
     args = parser.parse_args()
     if args.mode == 'identity':
@@ -838,6 +948,8 @@ if __name__ == '__main__':
         font_ci()
     elif args.mode == 'font-fallback-controls':
         font_fallback_controls()
+    elif args.mode == 'font-live-fallback-controls':
+        font_live_fallback_controls()
     elif args.mode == 'publication':
         verify_publication(args.path)
     else:

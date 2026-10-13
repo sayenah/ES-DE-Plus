@@ -623,8 +623,16 @@ def configured_system(name):
             wait_for(lambda: not smoke_checks.immersive_tutorial_present(hierarchy()),
                      'Android immersive tutorial dismissed')
         return smoke_checks.package_window_focused(shell('dumpsys', 'window'), app)
-    wait_for(focused,
-             'configured frontend window focused')
+    try:
+        wait_for(focused, 'configured frontend window focused')
+    except AssertionError:
+        # Preserve focus ownership and activity state before any cleanup or
+        # later screenshot can change the timeout's live evidence.
+        (evidence / (name + '-focus-failure-window.txt')).write_text(shell('dumpsys', 'window'))
+        (evidence / (name + '-focus-failure-activity.txt')).write_text(shell('dumpsys', 'activity'))
+        (evidence / (name + '-focus-failure.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
+        save_logs(name + '-focus-failure')
+        raise
     time.sleep(10)
     if any(n.get('text') == 'Got it' for n in hierarchy()):
         ui('Got it')
@@ -1055,7 +1063,7 @@ try:
     (evidence / 'device-features.txt').write_text(features)
     television = 'feature:android.software.leanback' in features.splitlines()
     device_api = int(shell('getprop', 'ro.build.version.sdk').strip())
-    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(device_api, television)
+    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(television)
     if television:
         # Google's TV image launches this dialog asynchronously over other
         # apps. Disable only that external onboarding component before testing.

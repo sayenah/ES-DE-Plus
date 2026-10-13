@@ -89,6 +89,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Record exact Gradle cache key
+        id: gradle-cache-key
+        env:
+          KEY: android-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/*') }}
+        run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
       - name: Restore Gradle wrapper and dependencies
         id: gradle-cache
         if: ${{ !inputs.clean_cache && !inputs.clean_gradle_cache }}
@@ -97,9 +102,10 @@ jobs:
           path: |
             ${{ env.GRADLE_USER_HOME }}/wrapper
             ${{ env.GRADLE_USER_HOME }}/caches
-          key: android-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/*') }}
+          key: ${{ steps.gradle-cache-key.outputs.key }}
       - name: Record Gradle cache and require offline resolution on exact hits
         env:
+          CACHE_KEY: ${{ steps.gradle-cache-key.outputs.key }}
           CACHE_HIT: ${{ steps.gradle-cache.outputs.cache-hit || 'false' }}
           COLD: ${{ inputs.clean_cache || inputs.clean_gradle_cache || false }}
         run: |
@@ -109,6 +115,9 @@ jobs:
             test ! -d "$GRADLE_USER_HOME/caches"
           fi
           printf 'Gradle cache hit=%s; forced cold=%s\n' "$CACHE_HIT" "$COLD" | tee android/evidence/gradle-cache.txt
+          printf 'Gradle cache key=%s\n' "$CACHE_KEY" | tee -a android/evidence/gradle-cache.txt
+          echo "GRADLE_CACHE_KEY=$CACHE_KEY" >> "$GITHUB_ENV"
+          echo "GRADLE_CACHE_HIT=$CACHE_HIT" >> "$GITHUB_ENV"
           if [[ "$CACHE_HIT" == true ]]; then
             echo 'GRADLE_NETWORK_ARGS=--offline' >> "$GITHUB_ENV"
           fi
@@ -146,6 +155,11 @@ jobs:
           mkdir -p android/evidence
           python3 android/distribution.py font | tee android/evidence/distribution-freefont.txt
           python3 android/distribution.py font-fallback-controls | tee android/evidence/distribution-font-fallback-controls.txt
+      - name: Verify live pinned font snapshot fallback (dispatch only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -o pipefail
+          python3 android/distribution.py font-live-fallback-controls | tee android/evidence/distribution-font-live-fallback-controls.txt
       - name: Prepare source and include layout
         run: |
           set -o pipefail
@@ -284,7 +298,7 @@ jobs:
           path: |
             ${{ env.GRADLE_USER_HOME }}/wrapper
             ${{ env.GRADLE_USER_HOME }}/caches
-          key: android-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/*') }}
+          key: ${{ steps.gradle-cache-key.outputs.key }}
       - name: Check new native code compiler warnings
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: |
