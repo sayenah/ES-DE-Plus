@@ -72,8 +72,18 @@ def run(harness):
                     old_lines = '\n'.join(line for line in logs.splitlines()
                                           if re.search(r'\s' + old + r'\s', line))
                     assert 'Destroying SDL activity held=false' in old_lines, 'No destruction callback; see ' + name + '-failure-logcat.txt'
-                    assert 'Finished main function' in old_lines, 'Native main did not return; see ' + name + '-failure-logcat.txt'
-                    assert 'SDL activity destroy join returned' in old_lines, 'Native join did not return; see ' + name + '-failure-logcat.txt'
+                    startup_exit = ('SDL_QUIT observed before frontend initialization; configuration and '
+                                    'resources saved; ending process') in old_lines
+                    if startup_exit:
+                        # The handoff permits the held-style bounded startup
+                        # exit after state is saved. Require its real checkpoint
+                        # and completed resource repair, never infer a main return.
+                        assert mode == 'recreate-early', 'Startup exit on a running frontend'
+                        assert 'Resource installation committed' in old_lines, 'Resource repair was not committed before startup exit'
+                        assert old_lines.index('Resource installation committed') < old_lines.index('SDL_QUIT observed before frontend initialization'), 'Startup exit preceded resource commit'
+                    else:
+                        assert 'Finished main function' in old_lines, 'Native main did not return; see ' + name + '-failure-logcat.txt'
+                        assert 'SDL activity destroy join returned' in old_lines, 'Native join did not return; see ' + name + '-failure-logcat.txt'
                     assert old_lines.count('Running main function') == 1, 'Second native main; see ' + name + '-failure-logcat.txt'
                     assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs, 'ANR/JNI failure; see ' + name + '-failure-logcat.txt'
                     if mode == 'recreate-early':
@@ -85,7 +95,9 @@ def run(harness):
                     h.save_logs(name + '-next-launch')
                     (h.evidence / (name + '-result.txt')).write_text(
                         f'PASS: {mode} via platform Activity API; old PID {old} ended within 5 s '
-                        f'(observed {elapsed:.3f}s), native main returned, join returned, '
+                        f'(observed {elapsed:.3f}s), ' +
+                        ('native startup quit observed after resources were committed; bounded process exit, '
+                         if startup_exit else 'native main returned, join returned, ') +
                         'one native main in old process; next ordinary launch loaded two games.\n')
                 except Exception as error:
                     failures.append(name + ': ' + str(error))
