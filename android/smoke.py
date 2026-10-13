@@ -209,26 +209,55 @@ def dismiss_stock_onboarding(force=False):
         return
     dismissing_onboarding = True
     try:
-        nodes = hierarchy()
-        # The hierarchy dump takes several seconds; the frontend may have
-        # resumed while it ran. Validate that transition before any UI action.
-        window = shell('dumpsys', 'window')
-        if not smoke_checks.stock_onboarding_focused(window, stock_package):
-            smoke_checks.onboarding_clear(nodes, stock_package, app)
-            return
-        smoke_checks.probe_passed('Dismiss' if any(n.get('package') == stock_package and
-            n.get('text') == 'Dismiss' for n in nodes) else '', 'Dismiss')
-        with (evidence / 'tv-onboarding-events.txt').open('a') as output:
-            output.write('Actual focused stock ShowDialogsActivity; dismissing external onboarding only.\n' +
-                         window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
-        screenshot('tv-onboarding-before-dismiss')
-        ui('Dismiss')
-        nodes = hierarchy()
-        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' for n in nodes):
-            # On TV, touch may only focus the button. Activate that exact
-            # stock action through the remote, never a frontend control.
-            smoke_checks.onboarding_dismiss_focused(nodes, stock_package)
-            key('KEYCODE_DPAD_CENTER')
+        # The stock launcher can present a multi-page Live TV/Shop tutorial.
+        # Each page gets its exact negative action once, and must visibly
+        # advance before another page is driven. No frontend action is replayed.
+        for step in range(1, 5):
+            nodes = []
+            def ready():
+                nonlocal nodes, window
+                window = shell('dumpsys', 'window')
+                if not smoke_checks.stock_onboarding_focused(window, stock_package):
+                    return True
+                nodes = hierarchy()
+                return bool(smoke_checks.stock_tutorial_action(nodes, stock_package))
+            wait_for(ready, 'stock tutorial negative action ready')
+            window = shell('dumpsys', 'window')
+            if not smoke_checks.stock_onboarding_focused(window, stock_package):
+                break
+            action = smoke_checks.stock_tutorial_action(nodes, stock_package)
+            assert action in {'Dismiss', 'Continue'}, nodes
+            page = smoke_checks.stock_tutorial_page(nodes, stock_package)
+            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                output.write(f'External stock tutorial step {step}/4: {page}; no frontend action.\n' +
+                             window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
+            (evidence / f'tv-onboarding-step-{step}.png').write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
+            if not smoke_checks.stock_onboarding_focused(shell('dumpsys', 'window'), stock_package):
+                break
+            # Use the captured exact stock resource, rather than a same-label
+            # control in an unrelated window. Focus was rechecked above.
+            node = next(n for n in nodes if n.get('package') == stock_package and
+                        n.get('resource-id') == stock_package + ':id/tutorial_negative_action' and
+                        n.get('text') == action and n.get('clickable') == 'true')
+            x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
+            shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+            time.sleep(1)
+            nodes = hierarchy()
+            window = shell('dumpsys', 'window')
+            if (smoke_checks.stock_onboarding_focused(window, stock_package) and
+                    smoke_checks.stock_tutorial_page(nodes, stock_package) == page):
+                # On TV, touch may only focus the negative button.
+                smoke_checks.onboarding_dismiss_focused(nodes, stock_package, action)
+                key('KEYCODE_DPAD_CENTER')
+            def advanced():
+                if not smoke_checks.stock_onboarding_focused(shell('dumpsys', 'window'), stock_package):
+                    return True
+                current_page = smoke_checks.stock_tutorial_page(hierarchy(), stock_package)
+                return (bool(current_page[1]) and current_page != page and
+                        (not page[0] or bool(current_page[0])))
+            wait_for(advanced, 'stock tutorial page advanced or closed')
+        wait_for(lambda: not smoke_checks.stock_onboarding_focused(shell('dumpsys', 'window'), stock_package),
+                 'bounded stock tutorial flow closed')
         nodes = hierarchy()
         # Closing the tutorial can expose a separate stock launcher banner.
         # Dismiss its actual action too; retain the strict clear assertion.
@@ -256,7 +285,8 @@ def dismiss_stock_onboarding(force=False):
 def stock_ui_clear():
     nodes = hierarchy()
     return (any(n.get('package') in (stock_package, app) for n in nodes) and
-            not any(n.get('package') == stock_package and n.get('text') == 'Dismiss' for n in nodes))
+            not any(n.get('package') == stock_package and n.get('text') == 'Dismiss' for n in nodes) and
+            not smoke_checks.stock_tutorial_action(nodes, stock_package))
 
 
 def ui(label, dpad=False, exact=False):

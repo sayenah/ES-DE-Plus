@@ -31,6 +31,19 @@ def onboarding_disabled(changed):
 def onboarding_clear(nodes, package, frontend=None):
     assert any(n.get('package') in {package, frontend} - {None} for n in nodes), 'Launcher/frontend UI missing'
     assert not any(n.get('package') == package and n.get('text') == 'Dismiss' for n in nodes), 'Stock onboarding remains visible'
+    assert not stock_tutorial_action(nodes, package), 'Stock tutorial negative action remains visible'
+
+
+def stock_tutorial_action(nodes, package):
+    return next((n.get('text') for n in nodes if n.get('package') == package and
+                 n.get('resource-id') == package + ':id/tutorial_negative_action' and
+                 n.get('text') in {'Dismiss', 'Continue'} and n.get('clickable') == 'true'), '')
+
+
+def stock_tutorial_page(nodes, package):
+    titles = tuple(sorted({n.get('text', '') for n in nodes if n.get('package') == package and
+                          n.get('resource-id') == package + ':id/overlay_tutorial_title'}))
+    return titles, stock_tutorial_action(nodes, package)
 
 
 def stock_onboarding_focused(window, package):
@@ -59,11 +72,12 @@ def stock_banner_dismiss_focused(nodes, package):
                for n in nodes)
 
 
-def onboarding_dismiss_focused(nodes, package):
-    assert any(n.get('package') == package and n.get('text') == 'Dismiss' and
+def onboarding_dismiss_focused(nodes, package, action='Dismiss'):
+    assert action in {'Dismiss', 'Continue'}, action
+    assert any(n.get('package') == package and n.get('text') == action and
                n.get('resource-id') == package + ':id/tutorial_negative_action' and
                n.get('focused') == 'true' and n.get('clickable') == 'true'
-               for n in nodes), 'Stock onboarding Dismiss action is not focused'
+               for n in nodes), 'Stock onboarding negative action is not focused'
 
 
 def held_restored(records, nodes, pid, old_pid, app):
@@ -133,6 +147,18 @@ def positive_controls():
         reject('wrong Dismiss ' + field, lambda field=field, wrong=wrong:
                onboarding_dismiss_focused([dict(dismiss, **{field: wrong})], 'stock.launcher'))
     reject('missing Dismiss action', lambda: onboarding_dismiss_focused([], 'stock.launcher'))
+    continued = dict(dismiss, text='Continue')
+    assert stock_tutorial_action([continued], 'stock.launcher') == 'Continue'
+    onboarding_dismiss_focused([continued], 'stock.launcher', 'Continue')
+    reject('Continue tutorial still visible', lambda: onboarding_clear([continued], 'stock.launcher'))
+    for field, wrong in [('package', 'smoke.app'), ('text', "See what's on"),
+                         ('resource-id', 'stock.launcher:id/tutorial_positive_action'), ('clickable', 'false')]:
+        reject('unsafe stock tutorial action ' + field, lambda field=field, wrong=wrong: probe_passed(
+            stock_tutorial_action([dict(continued, **{field: wrong})], 'stock.launcher'), 'Continue'))
+    title = {'package': 'stock.launcher', 'resource-id': 'stock.launcher:id/overlay_tutorial_title', 'text': 'Live TV'}
+    page = stock_tutorial_page([title, continued], 'stock.launcher')
+    assert page == stock_tutorial_page([title, title, continued], 'stock.launcher')
+    assert page != stock_tutorial_page([dict(title, text='Apps'), continued], 'stock.launcher')
     probe_passed('focused' if package_window_focused(focus, 'stock.launcher') else '', 'focused')
     reject('unrelated window is not stock launcher', lambda: probe_passed(
         'focused' if package_window_focused('mCurrentFocus=Window{x u0 smoke.app/.MainActivity}', 'stock.launcher') else '', 'focused'))
