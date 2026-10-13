@@ -18,7 +18,7 @@ def run(harness):
         # Debug remains installed before either variant's first test, so
         # run-as can remove only app-private generated resources before the
         # minified install. No runtime privilege change is needed.
-        h.shell('run-as', h.app, 'rm', '-rf', 'files/resources', 'files/themes',
+        h.shell('run-as', h.app, 'rm', '-rf', 'files/resources', 'files/themes/linear-es-de',
                 'files/resources-installed')
         h.adb('install', '-r', str(apk))
         for mode in ['recreate-early', 'recreate-running', 'finish-running']:

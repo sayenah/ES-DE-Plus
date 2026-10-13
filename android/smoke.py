@@ -173,6 +173,7 @@ def capture_frontend_stacks(name):
     pid = shell('pidof', app, check=False).strip()
     if not pid.isdigit():
         return
+    (evidence / (name + '-events.txt')).write_text(adb('logcat', '-d', '-b', 'events', '-v', 'threadtime'))
     stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(pid) + ' 2>&1', check=False)
     if not re.search(r'#00\s+pc\s', stacks):
         root = adb('root', check=False)
