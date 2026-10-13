@@ -1029,7 +1029,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 34 still fails without a product launch retry.
+                raise  # API 29 and API 34 still fail without a product launch retry.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')

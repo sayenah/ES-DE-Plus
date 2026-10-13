@@ -147,6 +147,10 @@ def volume_mounted(output, identifier):
                for fields in (line.split() for line in output.splitlines()))
 
 
+def wait_for_focus(h, package, description):
+    h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), package), description)
+
+
 def controls():
     # A valid PNG with no manual markers must fail the real viewer-image gate.
     root = pathlib.Path('android/evidence/pdf-fixtures')
@@ -173,6 +177,33 @@ def controls():
         try: session_acknowledged(result, '16:end', True, 'failed session')
         except AssertionError: checks.append('PASS: terminated session without exact acknowledgement rejected')
         else: raise AssertionError('PDF session exit control escaped')
+    import smoke_checks
+    for package in ('org.esdeplus.stub', 'org.esdeplus.frontend'):
+        live = 'WINDOW MANAGER DISPLAY CONTENTS\nmCurrentFocus=Window{x u0 ' + package + '/.Activity}'
+        stale = 'WINDOW MANAGER LAST ANR\nmCurrentFocus=Window{x u0 other/.Activity}\n' + live
+        class FocusHarness:
+            def __init__(self, current, full):
+                self.current, self.full = current, full
+                self.smoke_checks = smoke_checks
+                self.samples = 0
+            def shell(self, *args):
+                assert args == ('dumpsys', 'window'), args
+                return self.full
+            def focused_window(self):
+                self.samples += 1
+                return smoke_checks.live_window(self.current)
+            def wait_for(self, predicate, description):
+                assert predicate(), description
+        h = FocusHarness(live, stale)
+        assert not smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), package)
+        wait_for_focus(h, package, 'PDF live focus despite stale ANR')
+        assert h.samples == 1
+        checks.append('PASS: PDF focus wait ignores stale ANR for ' + package)
+        wrong = FocusHarness(live.replace(package, 'other'), stale.replace('other', package))
+        try: wait_for_focus(wrong, package, 'PDF wrong live focus')
+        except AssertionError: checks.append('PASS: PDF wrong live owner rejected despite matching cached ANR for ' + package)
+        else: raise AssertionError('PDF live focus control escaped')
+        assert wrong.samples == 1
     return '\n'.join(checks) + '\n'
 
 
@@ -239,15 +270,13 @@ def run(mode, harness):
             # existing recipient has an opaque full-screen activity on every
             # image; the instrumentation still verifies SDL is really PAUSED.
             paused = h.shell('am', 'start', '-W', '-n', 'org.esdeplus.stub/.RecipientActivity')
-            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), 'org.esdeplus.stub'),
-                       'PDF descriptor snapshot recipient focus')
+            wait_for_focus(h, 'org.esdeplus.stub', 'PDF descriptor snapshot recipient focus')
             time.sleep(2)
             snapshot = command(action)
             h.evidence.joinpath('pdf-' + mode + '-paused-' + stage + '.txt').write_text(
                 paused + '\n' + h.shell('dumpsys', 'activity', 'activities') + '\n' + snapshot)
             h.key('KEYCODE_BACK')
-            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.shell('dumpsys', 'window'), h.app),
-                       'PDF descriptor snapshot returns frontend focus')
+            wait_for_focus(h, h.app, 'PDF descriptor snapshot returns frontend focus')
             h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF snapshot retains process')
             rejects('PDF snapshot changed process', lambda: h.launch_checks.equal(pid + 'x', pid, 'PDF snapshot process control'))
             _, after = h.activity_records()

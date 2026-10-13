@@ -162,8 +162,7 @@ def positive_controls():
                            ('different warning reason', [{**n, 'text': n['text'].replace('older version of Android', 'harmful app')} for n in warning])]:
         reject(label, lambda changed=changed: equal(retroarch_install_warning(changed), True, label))
     receipt = '[ENV] Checking arguments passed from intent ...\n[ENV] Auto-start game "/rom.nes".'
-    for api in (29, 34):
-        equal(retroarch_receipt_gates(False), True, f'API {api} phone receipt stays gating')
+    equal(retroarch_receipt_gates(False), True, 'Non-TV receipt stays gating')
     equal(retroarch_receipt_gates(True), False, 'Only TV receipt is diagnostic')
     retroarch_receipt(receipt, '/rom.nes')
     reject('missing RetroArch Intent processing', lambda: retroarch_receipt(receipt.split('\n')[1], '/rom.nes'))
