@@ -2,7 +2,7 @@
 
 Stage: IMPLEMENTATION
 Owner: Sol
-Next: **Sol: "Android host lifecycle stall" fix PR** — branch `fix/host-lifecycle-stall` from `origin/main`, work order and AC-1…AC-6 in the section below; new Sol thread from `~/dev/ES-DE-Plus-sol` with `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/c9e6a9b1-71a7-485b-aec1-a4b888cfaf44/scratchpad/sol_stall/prompt.md`. In parallel the Orchestrator verifies the publication run 38463872344 started by the PR #10 merge (65e8bea29). Then the Orchestrator gate, one Opus pass, merge. PR #10 merged as 65e8bea29 after Opus verify pass 3 APPROVE; its carried LOW: unretried NDK download in the api34 job (`build-android.yml:130`), L-2 TV warm-up asymmetry, L-5 stub visibility in query modes; remaining flakes API 29 `logcat -c`, API 34 configured-focus.
+Next: **Sol: "Android host lifecycle stall" fix PR** — branch `fix/host-lifecycle-stall` from `origin/main`, work order and AC-1…AC-6 in the section below; new Sol thread from `~/dev/ES-DE-Plus-sol` with `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/c9e6a9b1-71a7-485b-aec1-a4b888cfaf44/scratchpad/sol_stall/prompt.md` (new thread `01a136fa-481e-7242-b230-e3d32459c1c5`, own PID 78332, `run.jsonl`, `out.md`; watchdog armed). In parallel the Orchestrator verifies the publication run 38463872344 started by the PR #10 merge (65e8bea29). Then the Orchestrator gate, one Opus pass, merge. PR #10 merged as 65e8bea29 after Opus verify pass 3 APPROVE; its carried LOW: unretried NDK download in the api34 job (`build-android.yml:130`), L-2 TV warm-up asymmetry, L-5 stub visibility in query modes; remaining flakes API 29 `logcat -c`, API 34 configured-focus.
 
 ## Android host lifecycle stall — active work order (D-010 (2))
 
