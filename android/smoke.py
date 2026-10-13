@@ -155,6 +155,7 @@ def launch():
         save_logs('frontend-readiness-failure')
         (evidence / 'frontend-readiness-failure-window.txt').write_text(shell('dumpsys', 'window'))
         (evidence / 'frontend-readiness-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        capture_frontend_stacks('frontend-readiness-failure')
         raise
     if any(node.get('text') == 'Got it' for node in hierarchy()):
         ui('Got it')
@@ -163,6 +164,36 @@ def launch():
 def save_logs(name):
     (evidence / (name + '-es_log.txt')).write_text(log())
     (evidence / (name + '-logcat.txt')).write_text(adb('logcat', '-d', '-v', 'threadtime'))
+
+
+def capture_frontend_stacks(name):
+    # Diagnose the live blocked process before caller cleanup. This never
+    # restarts the app or replays a product action/assertion.
+    pid = shell('pidof', app, check=False).strip()
+    if not pid.isdigit():
+        return
+    stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(pid) + ' 2>&1', check=False)
+    if not re.search(r'#00\s+pc\s', stacks):
+        root = adb('root', check=False)
+        adb('wait-for-device')
+        if 'cannot run as root' in root:
+            stacks += '\nCAPABILITY GAP: privileged frontend backtrace unavailable: ' + root
+        else:
+            try:
+                wait_for(lambda: shell('id', '-u', check=False).strip() == '0',
+                         'privileged frontend diagnostic shell', timeout=10)
+                stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
+                    'debuggerd -b ' + shlex.quote(pid) + ' 2>&1', check=False)
+                shell('kill', '-3', pid, check=False)
+                time.sleep(2)
+                stacks += '\nJava trace files:\n' + shell('sh', '-c',
+                    'cat /data/anr/* 2>/dev/null', check=False)
+            finally:
+                adb('unroot', check=False)
+                adb('wait-for-device')
+            wait_for(lambda: shell('id', '-u', check=False).strip() == '2000',
+                     'ordinary shell after frontend diagnostics', timeout=10)
+    (evidence / (name + '-stacks.txt')).write_text(stacks)
 
 
 def key(code):
