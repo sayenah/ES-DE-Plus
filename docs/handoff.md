@@ -1,8 +1,8 @@
 # Handoff
 
-Stage: IMPLEMENTATION
-Owner: Sol
-Next: **Sol: PR #10 round 4 (head `6d72b8155`)**, resuming thread `01a131a8-5aa1-7d21-82e4-6cc2c844a946` with `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/c9e6a9b1-71a7-485b-aec1-a4b888cfaf44/scratchpad/sol_ci/prompt_r4.md` (own PID 87862, `run_r4.jsonl`, `out_r4.md`; watchdog armed). Opus verify pass 2 (effort 15): REQUEST CHANGES — M-1, M-2, L-1, L-3, L-4 CLOSED; the live-focus correction judged a sound harness fix, not a loosening; the PR neither causes nor masks the API 29 stall. **MEDIUM-1** (`pdf_smoke.py:242,249` still read the stale-ANR focus line, so the round-3 fix's failure class still fails later; PR body overclaims) **to Sol**; **LOW-1** (stale comment `smoke.py:1032`, inert loop `launch_checks.py:165-166`) **to Sol**. Then the Orchestrator gate, Opus verify pass 3 (MEDIUM-1 only), merge on green gating checks (republishes; verify), then **the API 29 host lifecycle stall fix — top priority** (runs 38335670543, 38335666479, 38394674616, 38394668163).
+Stage: QA
+Owner: Opus
+Next: **Opus verify pass 3 (narrow) on PR #10 at head `a31fcda20`** through `esde-opus-qa` with `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/c9e6a9b1-71a7-485b-aec1-a4b888cfaf44/scratchpad/opus_ci/prompt_pass3.md` (QA clone detached at `a31fcda20`, artefacts `.opus-scratch/ci-q3/`). Sol round 4 (PID 87862, completed 13:50 CDT 2026-10-13): both `pdf_smoke.py` focus waits on the live display source with stale-ANR controls; LOW-1 fixed; Linux PR/push green, Android push 38424898722 and dispatch 38424916340 full-matrix green, Android PR 38424907394 attempt 1 failed installing the pinned NDK (infra; failed jobs re-run by the Orchestrator). **Orchestrator gate passed.** Then: on APPROVE and green PR checks, merge (republishes; verify), build-log line; then **the API 29 host lifecycle stall fix — top priority** (runs 38335670543, 38335666479, 38394674616, 38394668163).
 
 ## CI reliability and distribution follow-ups — active work order
 
