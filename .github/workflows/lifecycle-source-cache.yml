@@ -2,6 +2,9 @@
 # ES-DE-Plus — written for ES-DE-Plus. Temporary source-cache preparation for lifecycle evidence.
 name: Prepare lifecycle source cache
 on:
+  push:
+    branches: [fix/host-lifecycle-stall]
+    paths: [.github/workflows/lifecycle-source-cache.yml]
   workflow_dispatch:
 permissions:
   contents: read
