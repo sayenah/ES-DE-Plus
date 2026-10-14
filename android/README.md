@@ -4,7 +4,7 @@
 ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
 
 Published CI debug APKs use one stable **test** key held only in GitHub's
-`test-signing` environment (main branches only). Certificate SHA-256:
+`test-signing` environment (the `main` branch only). Certificate SHA-256:
 `6bd277aa2b4feb1bd4eae5524defff7be22600c043aaa5e7d9e675aee6920ff0`.
 When moving from older throwaway-key builds, **back up and uninstall once**:
 uninstall deletes app-owned ROMs, settings, collections, media and logs. ROMs in
@@ -13,7 +13,7 @@ place and preserve app data. This is test signing; production/store signing
 requires a separate Founder decision. Missing, lost, corrupt or compromised key
 material stops publication pending a Founder ruling; CI has no fallback key.
 
-Only successful main push/dispatch runs in `sayenah/ES-DE-Plus` publish. Each
+Only successful push/dispatch runs on the `main` branch in `sayenah/ES-DE-Plus` publish. Each
 creates a pre-release `android-test-<short-sha>` on the exact full commit with
 four assets: the exact smoked debug APK, licence-notice ZIP, complete source TAR
 and `SHA256SUMS.txt`. The source TAR includes pinned third-party archives,
@@ -22,8 +22,14 @@ are insufficient. Notes record version, certificate, APK hash and originating
 run/attempt. Version code is `1000 + git rev-list --count --first-parent <sha>`
 from full history; version name is `test-<short-sha>`. Older out-of-order new
 publications are refused. CI stages and downloads/verifies every asset in a
-draft before publishing. A matching draft resumes; a completed matching release
-is verified without mutation. Conflicts, corrupt/missing assets and wrong tags
+draft before publishing. A matching draft resumes only from the same originating
+run/attempt and artefact IDs (rerun the failed publisher job to retain the successful
+API 34 job's outputs). A completed release for the same commit, including one
+from another run, is fully verified against its original APK/source/provenance
+and succeeds without mutation. A new same-commit dispatch retains that original
+release; its Actions artefacts remain specific to the new run. A partial draft
+from another run/attempt fails with manual recovery instructions: the Orchestrator
+removes that unpublished draft, then starts another run. Conflicts, corrupt/missing assets and wrong tags
 fail instead of overwriting a published set. CI never deletes releases, tags or
 source bundles, and pre-releases are never marked latest.
 
@@ -36,6 +42,12 @@ eligible API 34 job accesses the signing environment; credentials reach SDK
 keystore is removed before audits/smoke and on signing failures, outside caches
 and uploads. Rebuild jobs do not access that environment. See
 [the distribution README](DISTRIBUTION-README.md) for source and own-key rebuilding.
+Every third-party action in the environment-bound job is pinned to a full
+commit SHA. Residual trust in Gradle/AGP resolution without dependency
+verification and dependency build code is accepted for this test key under
+D-013 am. 2. A compromise stops publication for a Founder ruling on rotation,
+which requires another uninstall. Release signing is a separate Founder decision
+and cannot reuse this arrangement without a fresh ruling.
 
 CI proves replacement on API 29/34 with two version codes and one throwaway key:
 `adb install -r` retains settings, accepted storage configuration and app data,

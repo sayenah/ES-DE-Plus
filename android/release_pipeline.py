@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -27,6 +28,12 @@ def bytes_hash(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def asset_names(commit):
+    short = commit[:9]
+    return {'apk': f'es-de-plus-{short}-debug.apk', 'source': f'es-de-plus-{short}-source.tar',
+            'licences': f'es-de-plus-{short}-licenses.zip'}
+
+
 def provenance(release):
     matches = MARKER.findall(release.get('body') or '')
     require(len(matches) == 1, 'Missing or ambiguous release provenance')
@@ -35,7 +42,15 @@ def provenance(release):
             value['repository'] == REPOSITORY and
             all(str(value[k]).isdecimal() and int(value[k]) > 0 for k in
                 ('run_id', 'run_attempt', 'source_id', 'apk_id')) and
-            type(value['version_code']) is int, 'Invalid release provenance')
+            type(value['version_code']) is int and 1001 <= value['version_code'] <= 2100000000 and
+            value['version_name'] == 'test-' + value['commit'][:9] and
+            re.fullmatch('[a-f0-9]{64}', value['signer_sha256']) and
+            set(value['files']) == set(asset_names(value['commit']).values()) | {'SHA256SUMS.txt'} and
+            all(re.fullmatch('[a-f0-9]{64}', record['sha256']) and
+                type(record['size']) is int and 0 < record['size'] < ASSET_LIMIT
+                for record in value['files'].values()) and
+            value['apk_sha256'] == value['files'][asset_names(value['commit'])['apk']]['sha256'],
+            'Invalid release provenance')
     return value
 
 
@@ -80,10 +95,8 @@ def validate_pair(source, apk_dir, expected_cert):
 def package(source, apk_dir, destination, source_id, apk_id, expected_cert):
     manifest = validate_pair(source, apk_dir, expected_cert)
     require(manifest['repository'] == REPOSITORY, 'Foreign source repository')
-    short = manifest['commit'][:9]
     destination.mkdir(parents=True, exist_ok=False)
-    names = {'apk': f'es-de-plus-{short}-debug.apk', 'source': f'es-de-plus-{short}-source.tar',
-             'licences': f'es-de-plus-{short}-licenses.zip'}
+    names = asset_names(manifest['commit'])
     # Standalone release source tar carries the entire exact Actions source set.
     # Normalize outer packaging only; do not modify any source file or APK byte.
     with tarfile.open(destination / names['source'], 'w') as archive:
@@ -99,7 +112,6 @@ def package(source, apk_dir, destination, source_id, apk_id, expected_cert):
                 info = zipfile.ZipInfo(str(path.relative_to(apk_dir)), date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 archive.writestr(info, path.read_bytes())
-    import shutil
     shutil.copyfile(apk_dir / 'app-debug.apk', destination / names['apk'])
     files = {name: {'sha256': distribution.digest(destination / name), 'size': (destination / name).stat().st_size}
              for name in names.values()}
@@ -112,19 +124,25 @@ def package(source, apk_dir, destination, source_id, apk_id, expected_cert):
     origin.update(schema=1, source_id=str(source_id), apk_id=str(apk_id), files=files,
                   version_code=manifest['apk']['version_code'], version_name=manifest['apk']['version_name'],
                   signer_sha256=manifest['apk']['signer_sha256'], apk_sha256=manifest['apk']['sha256'])
+    return description_for(origin), origin
+
+
+def description_for(origin):
+    names = asset_names(origin['commit'])
+    short = origin['commit'][:9]
     tag = 'android-test-' + short
     text = pathlib.Path('android/RELEASE-NOTES.md').read_text()
-    substitutions = {'SHA': manifest['commit'], 'SHORT': short, 'TAG': tag, 'RUN': manifest['run_id'],
-                     'ATTEMPT': manifest['run_attempt'], 'VERSION': origin['version_name'],
+    substitutions = {'SHA': origin['commit'], 'SHORT': short, 'TAG': tag, 'RUN': origin['run_id'],
+                     'ATTEMPT': origin['run_attempt'], 'VERSION': origin['version_name'],
                      'CODE': str(origin['version_code']), 'CERT': origin['signer_sha256'],
                      'HASH': origin['apk_sha256'], 'APK': names['apk'], 'SOURCE': names['source'],
                      'LICENCES': names['licences']}
     for key, value in substitutions.items():
         text = text.replace('@' + key + '@', value)
     text += '\n<!-- ESDEPLUS-PROVENANCE ' + json.dumps(origin, sort_keys=True) + ' -->\n'
-    return {'tag_name': tag, 'target_commitish': manifest['commit'],
+    return {'tag_name': tag, 'target_commitish': origin['commit'],
             'name': 'ES-DE-Plus Android test build ' + short, 'body': text,
-            'draft': True, 'prerelease': True, 'make_latest': 'false'}, origin
+            'draft': True, 'prerelease': True, 'make_latest': 'false'}
 
 
 class GitHub:
@@ -240,7 +258,7 @@ class Memory:
 
 def verify_asset(transport, asset, expected, directory):
     require(asset['state'] == 'uploaded' and asset['size'] == expected['size'] and
-            asset.get('digest') == 'sha256:' + expected['sha256'], 'Release asset metadata/hash conflict')
+            asset.get('digest') in (None, 'sha256:' + expected['sha256']), 'Release asset metadata/hash conflict')
     # Download every asset, including source, before publishing and on retries.
     with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
         path = pathlib.Path(temporary) / 'asset'
@@ -257,9 +275,28 @@ def deliver(transport, description, origin, directory):
     require(tag_commit in (None, origin['commit']), 'Existing tag points to the wrong full commit')
     release = matches[0] if matches else None
     if release:
-        require(provenance(release) == origin and release['body'] == description['body'] and
-                release['name'] == description['name'] and release['prerelease'], 'Release provenance conflicts')
-        require(release['target_commitish'] == origin['commit'], 'Release target conflicts')
+        published = provenance(release)
+        if release['draft']:
+            require(published == origin,
+                    'Stale partial draft belongs to another run/attempt. Manual recovery: the Orchestrator '
+                    'must delete this unpublished draft, then rerun; CI never deletes it.')
+            expected = description
+        else:
+            require(all(published[key] == origin[key] for key in
+                        ('repository', 'commit', 'version_code', 'version_name', 'signer_sha256')),
+                    'Completed release commit/version/signer conflicts')
+            expected = description_for(published)
+        require(all(release[key] == expected[key] for key in
+                    ('body', 'name', 'target_commitish', 'prerelease')), 'Release provenance conflicts')
+        if not release['draft']:
+            require(tag_commit == origin['commit'], 'Completed release tag missing or wrong')
+            assets = transport.assets(release)
+            require(len(assets) == 4 and {a['name'] for a in assets} == set(published['files']),
+                    'Completed release has missing/extra assets; never repair/overwrite it')
+            for asset in assets:
+                verify_asset(transport, asset, published['files'][asset['name']], directory)
+            print('PASS: complete immutable pre-release verified without mutation: ' + description['tag_name'])
+            return published
     if not release or release['draft']:
         # Refuse out-of-order publication, including an old interrupted draft.
         for record in records:
@@ -294,6 +331,45 @@ def deliver(transport, description, origin, directory):
     for asset in assets:
         verify_asset(transport, asset, origin['files'][asset['name']], directory)
     print('PASS: complete immutable pre-release verified: ' + description['tag_name'])
+    return origin
+
+
+def validate_existing(transport, origin, directory, expected_cert):
+    # A later run cannot compare its newly built bytes with the first run's
+    # bytes. Revalidate the complete original set against its own provenance,
+    # including the actual signer and APK/source/notice relationships.
+    release = next(r for r in transport.releases() if r['tag_name'] == 'android-test-' + origin['commit'][:9])
+    names = asset_names(origin['commit'])
+    with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
+        root = pathlib.Path(temporary)
+        assets = transport.assets(release)
+        require(len(assets) == 4 and {a['name'] for a in assets} == set(origin['files']),
+                'Original release asset set changed before revalidation')
+        for asset in assets:
+            path = root / asset['name']
+            transport.download(asset, path)
+            require(distribution.digest(path) == origin['files'][asset['name']]['sha256'],
+                    'Original release download hash mismatch')
+        source = root / 'source'; source.mkdir()
+        with tarfile.open(root / names['source']) as archive:
+            require(all(m.isfile() and not pathlib.PurePosixPath(m.name).is_absolute() and
+                        '..' not in pathlib.PurePosixPath(m.name).parts for m in archive),
+                    'Unsafe release source member')
+            archive.extractall(source, filter='data')
+        apk_dir = root / 'apk'; apk_dir.mkdir()
+        with zipfile.ZipFile(root / names['licences']) as archive:
+            require(all(not m.is_dir() and not pathlib.PurePosixPath(m.filename).is_absolute() and
+                        '..' not in pathlib.PurePosixPath(m.filename).parts for m in archive.infolist()),
+                    'Unsafe release notice member')
+            archive.extractall(apk_dir)
+        shutil.copyfile(root / names['apk'], apk_dir / 'app-debug.apk')
+        manifest = validate_pair(source, apk_dir, expected_cert)
+        require(all(manifest[key] == origin[key] for key in ('repository', 'commit', 'run_id', 'run_attempt')) and
+                all(manifest['apk'][key] == origin[key] for key in ('version_code', 'version_name', 'signer_sha256')) and
+                manifest['apk']['sha256'] == origin['apk_sha256'], 'Original source/release provenance mismatch')
+        sums = ''.join(f'{origin["files"][name]["sha256"]}  {name}\n' for name in sorted(names.values()))
+        require((root / 'SHA256SUMS.txt').read_text() == sums, 'Original release checksum list mismatch')
+    print('PASS: original completed release APK/source/signer/notices revalidated; later run is a no-op')
 
 
 def rejected(label, action):
@@ -305,13 +381,36 @@ def rejected(label, action):
         raise ValueError('Release control escaped: ' + label)
 
 
-def controls(description, origin, directory):
+def controls(description, origin, directory, verify_completed=None):
     transport = Memory()
     deliver(transport, description, origin, directory)
     operations = transport.operations[:]
     deliver(transport, description, origin, directory)
     require(transport.operations == operations, 'Completed matching retry mutated a release')
     print('PASS: completed same-origin rerun verified without mutation')
+    later = copy.deepcopy(origin)
+    for key in ('run_id', 'source_id', 'apk_id'):
+        later[key] = str(int(later[key]) + 100)
+    later['run_attempt'] = '1'
+    # Another valid build need not reproduce the first build's APK bytes.
+    later['apk_sha256'] = 'f' * 64
+    later['files'][asset_names(later['commit'])['apk']]['sha256'] = later['apk_sha256']
+    later_description = description_for(later)
+    published = deliver(transport, later_description, later, directory)
+    require(published == origin and transport.operations == operations, 'Later same-commit run mutated a release')
+    if verify_completed:
+        verify_completed(transport, published, directory)
+    print('PASS: another run of the same commit verifies the original complete set without mutation')
+    without_digests = copy.deepcopy(transport)
+    for asset in without_digests.records[0]['assets']:
+        asset['digest'] = None
+    deliver(without_digests, later_description, later, directory)
+    require(without_digests.operations == operations, 'Null-digest verification mutated a release')
+    print('PASS: null asset digests verified by downloading and hashing every original byte')
+    asset = without_digests.records[0]['assets'][0]
+    without_digests.data[asset['id']] = b'corrupt'
+    rejected('corrupt asset with null digest', lambda: deliver(without_digests, later_description, later, directory))
+    require(without_digests.operations == operations, 'Null-digest corruption mutated a release')
     for label in ('wrong tag', 'conflicting APK', 'corrupt source', 'missing asset', 'extra asset', 'mismatched provenance'):
         broken = copy.deepcopy(transport)
         if label == 'wrong tag':
@@ -336,6 +435,18 @@ def controls(description, origin, directory):
     require(sum(op == 'draft' for op in staged.operations) == 1 and staged.operations.count('upload:' + first) == 1,
             'Interrupted draft did not resume')
     print('PASS: matching interrupted draft resumed and verified')
+    stale = Memory()
+    stale_draft = stale.create(description)
+    stale.upload(stale_draft, directory / first)
+    before = stale.operations[:]
+    try:
+        deliver(stale, later_description, later, directory)
+    except ValueError as error:
+        require('Orchestrator must delete this unpublished draft' in str(error), 'Stale draft omitted manual recovery')
+    else:
+        raise ValueError('Stale draft from another run escaped')
+    require(stale.operations == before and stale.records[0]['draft'], 'Stale draft was mutated')
+    print('PASS: stale partial draft from another run refused with explicit manual recovery; no mutation')
     for failure in ('upload', 'publish'):
         broken = Memory(); setattr(broken, 'fail_' + failure, True)
         rejected(failure + ' failure required', lambda: deliver(broken, description, origin, directory))
@@ -382,13 +493,17 @@ if __name__ == '__main__':
     destination = pathlib.Path('android/.deps/release-assets')
     description, origin = package(source, apk_dir, destination, os.getenv('SOURCE_ID', '1'), os.getenv('APK_ID', '2'), cert)
     if mode == 'dry-run':
-        controls(description, origin, destination)
+        controls(description, origin, destination,
+                 lambda t, o, d: validate_existing(t, o, d, cert))
         original = (apk_dir / 'manifest.json').read_bytes()
-        try:
-            (apk_dir / 'manifest.json').write_text('{}')
-            rejected('mismatched APK/source manifest', lambda: validate_pair(source, apk_dir, cert))
-        finally:
-            (apk_dir / 'manifest.json').write_bytes(original)
+        with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
+            control_apk = pathlib.Path(temporary)
+            (control_apk / 'manifest.json').write_text('{}')
+            rejected('mismatched APK/source manifest', lambda: validate_pair(source, control_apk, cert))
+        require((apk_dir / 'manifest.json').read_bytes() == original, 'Dry run mutated the publication manifest')
+        print('PASS: manifest mismatch control uses a disposable copy; original manifest unchanged')
     else:
-        deliver(transport, description, origin, destination)
+        published = deliver(transport, description, origin, destination)
+        if published != origin:
+            validate_existing(transport, published, destination, cert)
         print(f'https://github.com/{REPOSITORY}/releases/tag/{description["tag_name"]}')

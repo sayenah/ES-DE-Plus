@@ -112,7 +112,7 @@ def credential_file(encoded, password):
     with tempfile.TemporaryDirectory(prefix='esdeplus-sign-', dir=os.environ['RUNNER_TEMP']) as temporary:
         key = pathlib.Path(temporary) / 'test.p12'
         try:
-            data = base64.b64decode(encoded, validate=True)
+            data = base64.b64decode(''.join(encoded.split()), validate=True)
         except (ValueError, TypeError):
             raise ValueError('Invalid signing material; publication stopped pending Founder ruling') from None
         descriptor = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -181,6 +181,12 @@ with test_signing.credential_file(base64.b64encode(b'non-secret fixture').decode
 def fixture_signing():
     UPDATE.mkdir(parents=True, exist_ok=True)
     password = secrets.token_urlsafe(32)
+    before = set(pathlib.Path(os.environ['RUNNER_TEMP']).glob('esdeplus-sign-*'))
+    with credential_file(' \n bm9uLXNlY3JldCBmaXh0dXJl \t\r\n', password) as material:
+        require(material.read_bytes() == b'non-secret fixture', 'Wrapped base64 decoding changed material')
+    require(set(pathlib.Path(os.environ['RUNNER_TEMP']).glob('esdeplus-sign-*')) == before,
+            'Wrapped base64 fixture left signing material')
+    print('PASS: whitespace-wrapped base64 decoded and mode-600 material removed; non-secret fixture only')
     # No stable credentials are inherited by any fixture process.
     with tempfile.TemporaryDirectory(prefix='esdeplus-controls-', dir=os.environ['RUNNER_TEMP']) as temporary:
         directory = pathlib.Path(temporary)

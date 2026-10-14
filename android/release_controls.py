@@ -46,10 +46,10 @@ def check():
             files[name] = {'sha256': release_pipeline.bytes_hash(data), 'size': len(data)}
         origin = {'schema': 1, 'repository': test_signing.REPOSITORY, 'commit': 'a' * 40,
                   'run_id': '1', 'run_attempt': '1', 'source_id': '1', 'apk_id': '2',
-                  'version_code': version['version_code'], 'files': files}
-        description = {'tag_name': 'android-test-aaaaaaaaa', 'target_commitish': 'a' * 40,
-                       'name': 'Fixture', 'body': '<!-- ESDEPLUS-PROVENANCE ' + json.dumps(origin) + ' -->',
-                       'draft': True, 'prerelease': True, 'make_latest': 'false'}
+                  'version_code': version['version_code'], 'version_name': 'test-aaaaaaaaa',
+                  'signer_sha256': test_signing.TEST_CERT_SHA256,
+                  'apk_sha256': files['es-de-plus-aaaaaaaaa-debug.apk']['sha256'], 'files': files}
+        description = release_pipeline.description_for(origin)
         release_pipeline.controls(description, origin, directory)
     print('PASS: fixture controls; no release API transport constructed')
 

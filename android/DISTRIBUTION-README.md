@@ -85,8 +85,25 @@ Rebuild the complete audited dependency graph with
 `tools/Android_dependencies_build.sh <ABI>` for each ABI. This rebuilds the shared
 library and dependent native inputs; for LibRaw edits it rebuilds FreeImage with
 the bundled uncombined LibRaw. Run setup again for generated include links, then
-`cd android && ./gradlew --no-daemon clean :app:assembleRelease` to relink and
-repackage. Source edits intentionally invalidate the original no-patches/hash
+relink and repackage using the version from the original source manifest:
+
+```bash
+source_manifest=/absolute/path/to/extracted-source-artefact/manifest.json
+read -r relink_code relink_name < <(python3 - "$source_manifest" <<'PYCODE'
+import json, sys
+record = json.load(open(sys.argv[1]))['apk']
+print(record['version_code'], record['version_name'])
+PYCODE
+)
+(
+    cd android
+    ./gradlew --no-daemon -Pesde.versionCode="$relink_code" -Pesde.versionName="$relink_name" clean :app:assembleRelease
+)
+```
+
+Extracted source has no Git history. Both properties are required there even
+when the directory sits inside another Git work tree; Gradle refuses to use a
+parent repository's history. Source edits intentionally invalidate the original no-patches/hash
 attestation; a modified binary is your own build. Full source and build recipes
 are provided so recipients can modify and relink these components. Reverse
 engineering for debugging such modifications is permitted.

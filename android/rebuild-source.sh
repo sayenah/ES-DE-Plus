@@ -20,7 +20,7 @@ tools/Android_dependencies_setup.sh
 read -r rebuild_code rebuild_name < <(python3 - "$bundle/manifest.json" <<'PYCODE'
 import json, sys
 record = json.load(open(sys.argv[1]))['apk']
-print(record.get('version_code', 1), record.get('version_name', 'slice-1'))
+print(record['version_code'], record['version_name'])
 PYCODE
 )
 (cd android; ./gradlew --no-daemon -Pesde.versionCode="$rebuild_code" -Pesde.versionName="$rebuild_name" :app:assembleDebug :app:assembleRelease :app:auditRuntimeLicences)

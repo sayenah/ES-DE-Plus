@@ -6,15 +6,28 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 val appId = providers.gradleProperty("esde.applicationId").get()
 // Full-history builds derive a monotonic code; extracted source rebuilds and
 // in-run update fixtures pass the recorded version explicitly, without secrets.
-val appVersion = providers.gradleProperty("esde.versionCode").orElse(providers.exec {
-    workingDir(rootProject.projectDir.parentFile)
-    commandLine("git", "rev-list", "--count", "--first-parent", "HEAD")
-}.standardOutput.asText.map { (1000 + it.trim().toLong()).toString() }).get().toInt()
+fun repositoryGit(vararg arguments: String): String {
+    val repository = rootProject.projectDir.parentFile.canonicalFile
+    val missingHistory = "Repository history unavailable: pass -Pesde.versionCode and " +
+        "-Pesde.versionName from the source bundle manifest. Parent repository history is never used."
+    require(repository.resolve(".git").exists()) { missingHistory }
+    val top = providers.exec {
+        workingDir(repository)
+        commandLine("git", "rev-parse", "--show-toplevel")
+    }.standardOutput.asText.get().trim()
+    require(file(top).canonicalFile == repository) { missingHistory }
+    return providers.exec {
+        workingDir(repository)
+        commandLine(listOf("git") + arguments)
+    }.standardOutput.asText.get().trim()
+}
+val appVersion = providers.gradleProperty("esde.versionCode").orElse(providers.provider {
+    (1000 + repositoryGit("rev-list", "--count", "--first-parent", "HEAD").toLong()).toString()
+}).get().toInt()
 require(appVersion in 1001..2100000000)
-val appVersionName = providers.gradleProperty("esde.versionName").orElse(providers.exec {
-    workingDir(rootProject.projectDir.parentFile)
-    commandLine("git", "rev-parse", "--short=9", "HEAD")
-}.standardOutput.asText.map { "test-${it.trim()}" }).get()
+val appVersionName = providers.gradleProperty("esde.versionName").orElse(providers.provider {
+    "test-${repositoryGit("rev-parse", "--short=9", "HEAD")}"
+}).get()
 val stagedAssets = layout.buildDirectory.dir("generated/assets/frontend")
 val queryManifest = layout.buildDirectory.file("generated/visibility/AndroidManifest.xml")
 val generateQueries by tasks.registering {
