@@ -41,8 +41,6 @@ object ConfiguratorSession {
         Log.i("ES-DE-Plus", "Entry component=${intent.component} HOME=$home")
     }
 
-    internal fun restartEntry(): Intent = Intent(entry)
-
     // Called only after SDL loads libmain. Function targets are static JNI
     // exports, independent of the current/destroyed activity. A new process
     // gets a new registration when its SDL activity loads the library.
