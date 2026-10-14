@@ -3,10 +3,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="320dp" android:height="180dp" android:viewportWidth="320" android:viewportHeight="180">
     <path android:fillColor="#170B38" android:pathData="M0,0h320v180h-320z" />
-    <group android:translateX="106" android:translateY="12">
-    <path android:fillColor="#170B38" android:pathData="M0,0h108v108h-108z" />
-    <path android:fillColor="#7B2FF7" android:pathData="M18,20h4v4h-4z M84,80h4v4h-4z" />
-    <path android:fillColor="#00D1FF" android:fillAlpha="0.7" android:pathData="M82,22h3v3h-3z" />
+    <group android:scaleX="1.75" android:scaleY="1.75"
+        android:translateX="65.5" android:translateY="-31">
     <path android:fillColor="#000000" android:fillAlpha="0.45"
         android:pathData="M52,31h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M34,49h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M52,49h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M70,49h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M52,67h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z" />
     <path android:fillColor="#00D1FF" android:pathData="M49,28h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z" />
@@ -15,8 +13,11 @@
     <path android:fillColor="#FFC23D" android:pathData="M67,46h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z" />
     <path android:fillColor="#22D68C" android:pathData="M49,64h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z" />
     </group>
-    <!-- Original outlined lettering: ES-DE Plus. -->
+    <!-- Original outlined lettering: ES-DE Plus, centred at x=160. -->
+    <group android:scaleX="1.4" android:scaleY="1.4"
+        android:translateX="-71" android:translateY="-61.8">
     <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="2.5"
         android:strokeLineCap="round" android:strokeLineJoin="round"
         android:pathData="M94,137h-12v22h12 M82,148h10 M113,137h-9q-4,0 -4,4v3q0,4 4,4h5q4,0 4,4v3q0,4 -4,4h-9 M120,148h9 M136,137h6q8,0 8,8v6q0,8 -8,8h-6z M170,137h-12v22h12 M158,148h10 M186,159v-22h8q6,0 6,6t-6,6h-8 M208,137v22 M218,143v12q0,4 4,4h3q4,0 4,-4v-12 M248,143h-8q-4,0 -4,4t4,4h4q4,0 4,4t-4,4h-8" />
+    </group>
 </vector>

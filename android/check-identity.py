@@ -160,9 +160,12 @@ resources = {}
 resource_names = {}
 current = None
 for line in resource_table.splitlines():
-    match = re.search(r'(?<!spec )resource (0x[0-9a-f]+) [^:]+:(drawable|mipmap)/(\w+)', line)
+    if re.match(r'\s*type \d+ ', line):
+        current = None
+    match = re.search(r'(?<!spec )resource (0x[0-9a-f]+) [^:]+:(\w+)/(\w+)', line)
     if match:
-        current = match[2] + '/' + match[3]
+        current = match[2] + '/' + match[3] if match[2] in ('drawable', 'mipmap') else None
+    if match and current:
         resource_names[int(match[1], 16)] = current
         resources.setdefault(current, set())
     if current:
@@ -173,6 +176,8 @@ def resource_reference(value):
     assert match, ('Not a packaged resource reference', value)
     return resource_names[int(match[1], 16)]
 
+packaged_art = {}
+
 def compiled_art(name):
     kind, basename = name.split('/')
     directory = 'mipmap-anydpi' if kind == 'mipmap' else kind
@@ -182,38 +187,60 @@ def compiled_art(name):
     for path in sorted(resources[name]):
         tree = subprocess.check_output([str(aapt), 'dump', 'xmltree', str(apk), path], text=True)
         print(f'PACKAGED ART {name} {path}\n{tree}')
-        nodes = re.split(r'^\s*E:\s+([\w-]+).*$', tree, flags=re.M)[1:]
-        assert nodes[::2] == [node.tag for node in expected_nodes], (name, 'Art geometry differs')
-        for expected, body in zip(expected_nodes, nodes[1::2]):
-            attributes = dict(re.findall(r'^\s*A:\s+android:(\w+)\([^)]*\)=(.*)$', body, re.M))
-            expected_attributes = {key.rsplit('}', 1)[-1]: value for key, value in expected.attrib.items()}
-            assert attributes.keys() == expected_attributes.keys(), (name, attributes)
-            for key, value in expected_attributes.items():
-                actual = attributes[key]
-                if value.startswith('@'):
-                    assert resource_reference(actual) == value[1:], (name, key, actual)
-                    continue
-                if key == 'pathData':
-                    assert re.match(r'^"([^"]*)"', actual)[1] == value, (name, key, actual)
-                    continue
-                kind, data = re.match(r'\(type 0x([0-9a-f]+)\)0x([0-9a-f]+)', actual).groups()
-                kind, data = int(kind, 16), int(data, 16)
-                if key in ('fillColor', 'strokeColor'):
-                    colour = int(value[1:], 16) | (0xff000000 if len(value) == 7 else 0)
-                    assert 28 <= kind <= 31 and data == colour, (name, key, actual)
-                elif key in ('strokeLineCap', 'strokeLineJoin'):
-                    assert kind == 16 and data == {'round': 1}[value], (name, key, actual)
-                elif key in ('width', 'height'):
-                    mantissa = struct.unpack('<i', struct.pack('<I', data))[0] >> 8
-                    dimension = mantissa * (1, 1/128, 1/32768, 1/8388608)[(data >> 4) & 3]
-                    assert kind == 5 and (data & 15) == 1 and value.endswith('dp') and dimension == float(value[:-2]), (name, key, actual)
-                else:
-                    assert kind == 4 and abs(struct.unpack('<f', struct.pack('<I', data))[0] - float(value)) < 1e-6, (name, key, actual)
+        validate_art(name, tree, expected_nodes)
+        packaged_art[name] = (tree, expected_nodes)
+
+def validate_art(name, tree, expected_nodes):
+    nodes = re.split(r'^\s*E:\s+([\w-]+).*$', tree, flags=re.M)[1:]
+    assert nodes[::2] == [node.tag for node in expected_nodes], (name, 'Art geometry differs')
+    for expected, body in zip(expected_nodes, nodes[1::2]):
+        attributes = dict(re.findall(r'^\s*A:\s+android:(\w+)\([^)]*\)=(.*)$', body, re.M))
+        expected_attributes = {key.rsplit('}', 1)[-1]: value for key, value in expected.attrib.items()}
+        assert attributes.keys() == expected_attributes.keys(), (name, attributes)
+        for key, value in expected_attributes.items():
+            actual = attributes[key]
+            if value.startswith('@'):
+                assert resource_reference(actual) == value[1:], (name, key, actual)
+                continue
+            if key == 'pathData':
+                assert re.match(r'^"([^"]*)"', actual)[1] == value, (name, key, actual)
+                continue
+            kind, data = re.match(r'\(type 0x([0-9a-f]+)\)0x([0-9a-f]+)', actual).groups()
+            kind, data = int(kind, 16), int(data, 16)
+            if key in ('fillColor', 'strokeColor'):
+                colour = int(value[1:], 16) | (0xff000000 if len(value) == 7 else 0)
+                assert 28 <= kind <= 31 and data == colour, (name, key, actual)
+            elif key in ('strokeLineCap', 'strokeLineJoin'):
+                assert kind == 16 and data == {'round': 1}[value], (name, key, actual)
+            elif key in ('width', 'height'):
+                mantissa = struct.unpack('<i', struct.pack('<I', data))[0] >> 8
+                dimension = mantissa * (1, 1/128, 1/32768, 1/8388608)[(data >> 4) & 3]
+                assert kind == 5 and (data & 15) == 1 and value.endswith('dp') and dimension == float(value[:-2]), (name, key, actual)
+            else:
+                assert kind == 4 and abs(struct.unpack('<f', struct.pack('<I', data))[0] - float(value)) < 1e-6, (name, key, actual)
 
 for name in ['mipmap/ic_launcher', 'mipmap/ic_launcher_round', 'drawable/pixel_plus_background',
              'drawable/pixel_plus_foreground', 'drawable/pixel_plus_monochrome',
              'drawable/pixel_plus_mark', 'drawable/tv_banner']:
     compiled_art(name)
+# Positive controls use the same validator and actual packaged trees: neither
+# changed colour data nor an absent adaptive monochrome layer may pass.
+controls = []
+tree, expected = packaged_art['drawable/pixel_plus_foreground']
+assert '0xff00d1ff' in tree, 'Colour control requires the compiled cyan block'
+controls.append(('altered colour', 'drawable/pixel_plus_foreground',
+                 tree.replace('0xff00d1ff', '0xff123456', 1), expected))
+tree, expected = packaged_art['mipmap/ic_launcher']
+missing = re.sub(r'(?ms)^\s*E: monochrome\b.*\Z', '', tree)
+assert missing != tree, 'Monochrome control requires the compiled layer'
+controls.append(('missing monochrome layer', 'mipmap/ic_launcher', missing, expected))
+for fault, name, tree, expected in controls:
+    try:
+        validate_art(name, tree, expected)
+    except AssertionError:
+        print('PASS: packaged art positive control rejected: ' + fault)
+    else:
+        raise AssertionError('Packaged art positive control escaped: ' + fault)
 icons = set(re.findall(r"^application-icon-\d+:'([^']+)'$", badging, re.M))
 assert icons and icons <= resources['mipmap/ic_launcher'] | resources['mipmap/ic_launcher_round'], icons
 assert 'placeholder_icon' not in resource_table, 'Placeholder identity art is still packaged'
