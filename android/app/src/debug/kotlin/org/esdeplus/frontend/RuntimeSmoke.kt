@@ -66,6 +66,23 @@ class RuntimeSmoke : Instrumentation() {
                 finish(-1, result)
                 return
             }
+            if (followupMode == "legacy-direct-data") {
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                val selected = storage.load() ?: error("Select storage through the real configurator first")
+                check(selected.mode == "direct" && selected.data.isNotEmpty())
+                // Model an upgrade from the old host preferences: remove only
+                // the newly introduced field, keep the real ROM/mode/grant.
+                check(targetContext.getSharedPreferences("storage", 0).edit().remove("data").commit())
+                check(storage.load() == selected.copy(data = ""))
+                result.putString("stream", "PASS: pre-data-folder direct preferences retained ROM=${selected.roms}\n")
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "app-data-probe") {
+                result.putString("stream", AppDataSmoke.run(this))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "launch-probe") {
                 result.putString("stream", LaunchSmoke.run(targetContext))
                 finish(-1, result)
@@ -204,7 +221,7 @@ class RuntimeSmoke : Instrumentation() {
                 // Create ordinary SDK-owned directories before adb pushes files.
                 // MainActivity is not launched and no resources/marker are installed.
                 val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
-                storage.verifyDirectory(storage.appData(), true)
+                storage.verifyDirectory(storage.privateData(), true)
                 val roms = File(storage.ownedROMs(), "nes")
                 check(roms.mkdirs() || roms.isDirectory)
                 result.putString("stream", "PROVISIONED: ${roms.absolutePath}\n")

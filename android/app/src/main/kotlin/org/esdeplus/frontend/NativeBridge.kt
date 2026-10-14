@@ -17,6 +17,8 @@ import java.security.MessageDigest
 
 class NativeBridge(private val context: Context, private val recoverStartup: Boolean = false) {
     private val storage = StorageModel(context)
+    @Volatile var pathsSelected = false
+        private set
     @Volatile var windowSnapshot: IntArray = intArrayOf(0, 0)
     private var earlyCopyFailed = false
     private val tag = "ES-DE-Plus"
@@ -115,10 +117,29 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
             }
         }
     }
-    fun getAppDataDirectory(): String = storage.verifyDirectory(storage.appData(), true).path
+    private fun <T> withStorageRecovery(query: () -> T): T {
+        while (true) {
+            try { return query() }
+            catch (error: Exception) {
+                if (!recoverStartup) throw error
+                Log.w(tag, "Storage requires configuration: ${error.message}")
+                ConfiguratorSession.open(context, error.message)
+                MainActivity.nativeWaitForConfiguration()
+            }
+        }
+    }
+    fun getAppDataDirectory(): String = withStorageRecovery {
+        val config = storage.load() ?: throw IOException(context.getString(R.string.storage_choice_required))
+        storage.validate(config)
+        storage.appData().path
+    }
     // FileData/createSystemDirectories require the final slash.
-    fun getROMDirectory(): String = storage.validate(storage.load()
-        ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
+    fun getROMDirectory(): String = withStorageRecovery {
+        val roms = storage.validate(storage.load()
+            ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
+        pathsSelected = true
+        roms
+    }
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")
@@ -147,5 +168,10 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun getCellularStatus(): Int = 0
     fun getBatteryStatus(): IntArray = intArrayOf(-1, -1)
     fun startConfigurator() { ConfiguratorSession.open(context, storage.problem()) }
-    fun onNativeFrontendResume() {}
+    fun onNativeFrontendResume() { checkStorageOnResume() }
+    fun checkStorageOnResume() {
+        if (pathsSelected && !ConfiguratorSession.configuring) storage.problem()?.let {
+            ConfiguratorSession.open(context, it)
+        }
+    }
 }

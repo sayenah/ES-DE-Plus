@@ -229,7 +229,7 @@ def run(mode, harness):
     original = h.shell('cat', h.settings)
     settings = h.launch_checks.settings_fragment(original)
     node = settings.find("string[@name='MediaDirectory']")
-    media = h.external + '/ES-DE-Plus/Manual spaces 🚀'
+    media = h.data_root + '/Manual spaces 🚀'
     node.set('value', media)
     h.user_file('settings/es_settings.xml', settings_xml(settings))
     h.adb('logcat', '-c')
@@ -490,7 +490,7 @@ def release(harness):
     h.shell('am', 'force-stop', h.app)
     original = h.shell('cat', h.settings)
     settings = h.launch_checks.settings_fragment(original)
-    settings.find("string[@name='MediaDirectory']").set('value', h.external + '/ES-DE-Plus/Manual spaces 🚀')
+    settings.find("string[@name='MediaDirectory']").set('value', h.data_root + '/Manual spaces 🚀')
     h.user_file('settings/es_settings.xml', settings_xml(settings))
     prepared = False
     try:

@@ -5,36 +5,64 @@ ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 u
 
 Published CI debug APKs use a different throwaway key per run and cannot update
 one another. **Back up before uninstalling:** uninstall deletes app-owned ROMs,
-settings, collections, media and logs. ROM files in a selected shared directory
-survive, but application settings do not. Keep the matching source artefact with
+settings, collections, media and logs in private storage. Data and ROM files in
+selected shared directories survive. Keep the matching source artefact with
 your APK; source is retained 14 days and APKs 7 days. Only main push/dispatch runs
 in `sayenah/ES-DE-Plus` publish; branch, fork and PR runs exercise the gates in
 dry-run and never upload an APK. See [the distribution README](DISTRIBUTION-README.md)
 for source, relinking and rebuild/signing instructions.
 
-On first launch choose a storage mode before granting permissions. Application
-settings, collections and logs stay in the current user's app-specific external
-`ES-DE-Plus` directory. Official ES-DE application data is never adopted or migrated.
+On first launch choose storage access, then the application-data folder, then the
+ROM folder. The native frontend uses the selected data folder for settings, media,
+gamelists, collections, downloaded themes, scripts and `custom_systems`.
 
-- **App-owned storage (default):** ROMs live in the app-specific external `ROMs`
-  directory. The configurator shows its exact path and how to populate it: install
-  Android platform tools on a computer, enable USB debugging, authorize that
-  computer, then use `adb push your-ROM-folder/. <displayed-ROM-path>/`. Organize
-  games into system folders such as `nes`. Uninstalling removes these games.
-  SAF import is deferred.
-- **Direct filesystem compatibility (explicit choice):** Android 10 requests
-  legacy read/write storage permission. Android 11 and later open the app's
-  all-files-access settings, falling back to the generic settings page if the
-  app-specific page is unavailable. Select a local shared ROM folder through the system
-  picker, then copy games there using USB file transfer or a file manager. Only
-  external-storage-provider trees on a verified mounted current-user volume can
-  be mapped to a native path. Both persisted URI grants and actual filesystem
-  read/write access are checked. A SAF grant alone does not enable native access.
-  If the picker is missing, enter an absolute local folder path; this fallback
-  verifies the same volumes/access and creates no URI grant. If all-files settings
-  are both missing, use app-owned storage or grant access through device settings.
-  Accepting another folder releases superseded pending grants; cancel keeps the
-  displayed selection and its grant. Saving app-owned mode releases the old shared grant.
+- **Full file access (first, recommended choice):** explicitly grant Android 10's
+  legacy read/write permission or Android 11+'s all-files access. Confirm the
+  proposed `<current-user primary volume>/ES-DE-Plus` data folder, or choose a
+  different local folder through the picker or the D-pad-accessible typed path.
+  The default takes a create/use confirmation; every other destination takes an
+  adoption warning **before the app inspects or writes anything there**. An existing
+  `ES-DE` or `.emulationstation` folder can be used in place after that warning.
+  Existing settings and custom event scripts take effect; normal writes and upstream
+  migrations happen. Back up first and close the other frontend: concurrent use can
+  lose or corrupt changes. The app never automatically copies, moves or deletes
+  data between roots. The previous private location is shown and is deleted on
+  uninstall. A changed destination needs new consent.
+- **App-owned storage (secondary choice):** settings stay in the current user's
+  app-specific external `ES-DE-Plus` directory and ROMs in its `ROMs` sibling.
+  Both are deleted on uninstall. The configurator shows their paths. To provision
+  games, enable USB debugging, authorize a computer with Android platform tools,
+  then use `adb push your-ROM-folder/. <displayed-ROM-path>/`, with system folders
+  such as `nes`. SAF import is deferred.
+
+Data and ROM folders must be separate folders on verified current-user volumes,
+not volume roots or volume-relative `Android/` paths. ROM selection also refuses
+legacy frontend data directory names. A SAF tree is picker UX and ROM interop; it
+never substitutes for native filesystem access. Only the ROM selection keeps a
+persisted URI grant; data selection creates no extra persisted grant. Missing
+picker or all-files settings screens have typed-path or app-owned alternatives.
+Changing ROM folders releases superseded pending grants; saving app-owned mode
+releases the accepted shared grant.
+
+An existing direct-mode configuration without a data selection returns to the new
+data step while keeping its ROM folder. Mode, data folder, ROM folder and system
+creation request commit together. Unfinished steps and destination consent are a
+separate private draft, restored across Activity recreation/process death.
+Cancelling never accepts the draft. Missing, read-only, revoked or obstructed
+storage opens recoverable configuration; validation never recreates a missing root
+or silently substitutes another one. Changing roots after native startup restarts
+the frontend in a fresh process (the lifecycle fix in PR #11).
+
+The configurator's ROM selection overrides XML `ROMDirectory` without rewriting
+that setting. An existing `MediaDirectory` override stays authoritative and is
+shown after consent; restore an inaccessible override or correct the settings file
+before retrying. Both `settings/es_settings.xml` and the upstream legacy root file
+are supported, with the normal upstream migration. Formats stay unchanged.
+
+Unlike the inherited upstream Android documentation's private-themes statement,
+ES-DE-Plus stores downloaded themes in `<selected application-data folder>/themes`.
+In shared mode these survive uninstall together with the rest of that folder;
+only bundled resources and the private draft/preferences are app-owned.
 
 **Create system folders** is a one-shot request on configuration save. The request
 is persisted as consumed before native creation begins. Later starts never

@@ -46,6 +46,15 @@ class MainActivity : SDLActivity() {
         // Re-present a pending startup screen after backgrounding or unlock;
         // user interaction never expires and HOME is still set only by entry.
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+        else bridge.checkStorageOnResume()
+    }
+    // PR #11 retires the old native process on framework recreation and restores
+    // the recorded entry. Cached native settings/paths never switch in place.
+    internal fun restartAfterStorageSelection(): Boolean {
+        if (!bridge.pathsSelected) return false
+        Log.i("ES-DE-Plus", "Storage selection requires a fresh frontend start")
+        recreate()
+        return true
     }
     @Suppress("DEPRECATION")
     override fun onBackPressed() {

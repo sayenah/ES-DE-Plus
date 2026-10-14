@@ -2,12 +2,12 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 <resources><string name="app_name">ES-DE Plus</string>
     <string name="configure_title">Configure %1$s</string>
-    <string name="storage_choice">Choose a storage mode first. Application data stays in app-owned storage; official ES-DE data is never adopted.</string>
-    <string name="scoped_mode">Use app-owned storage (recommended)</string>
-    <string name="direct_mode">Use direct filesystem compatibility</string>
+    <string name="storage_choice">1. Choose storage access. Full file access is recommended so your application data and games survive uninstall. Then choose the application-data folder, followed by the ROM folder.</string>
+    <string name="scoped_mode">Use app-owned storage (secondary; deleted on uninstall)</string>
+    <string name="direct_mode">Use direct filesystem compatibility (recommended full file access)</string>
     <string name="scoped_howto">ROM folder: %1$s
 How to add games: connect USB, install Android platform tools on your computer, enable USB debugging, and authorize the computer. Run adb push your-ROM-folder/. %2$s/ (organize games into system folders such as nes). No storage permission is required. Uninstalling removes app-owned games. Import through a file picker is not available yet.</string>
-    <string name="direct_explanation">Compatibility mode requires broad storage access. Select your shared ROM folder after granting access. A SAF selection alone does not provide the native filesystem access this mode needs.</string>
+    <string name="direct_explanation">Compatibility mode requires broad storage access. Choose your application-data folder, then your shared ROM folder after granting access. A SAF selection alone does not provide the native filesystem access this mode needs.</string>
     <string name="grant_access">Grant direct filesystem access</string>
     <string name="choose_folder">Choose shared ROM folder</string>
     <string name="direct_howto">Selected ROM folder: %1$s
@@ -58,4 +58,21 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="storage_validation_failed">Storage validation failed. Retry.</string>
     <string name="resource_verification_failed">Resource verification failed: %1$s</string>
     <string name="resource_installation_incomplete">Resource installation is incomplete. Retry.</string>
+    <string name="data_folder_step">2. Choose the application-data folder before the ROM folder.</string>
+    <string name="data_path_hint">Absolute application-data folder path</string>
+    <string name="choose_data_folder">Choose application-data folder</string>
+    <string name="change_data_folder">Change application-data folder</string>
+    <string name="confirm_data_folder">Review application-data folder</string>
+    <string name="use_data_folder">Confirm and use this data folder</string>
+    <string name="data_selected">Application-data folder: %1$s
+3. Choose a separate ROM folder.</string>
+    <string name="data_create_consent">Create or use %1$s for settings, media, gamelists, collections, themes and custom systems? Shared data survives uninstall. No files have been read or written there yet.</string>
+    <string name="data_adopt_consent">Use %1$s in place? Existing settings, custom systems, gamelists, collections, themes, media overrides and custom event scripts take effect. Optional Android settings may require capabilities this device lacks. Normal writes and upstream migrations will happen. Concurrent use with another frontend can lose or corrupt changes. Back up this folder and close the other app first. No files have been read or written there yet.</string>
+    <string name="previous_private_data">Previous private location: %1$s. No data is automatically copied, moved or deleted between roots. Data left in that private location is deleted on uninstall.</string>
+    <string name="private_data_warning">Application-data folder: %1$s. This private data, including settings, media and themes, is deleted on uninstall.</string>
+    <string name="data_folder_required">Choose and confirm the application-data folder before continuing. Your existing ROM selection is kept.</string>
+    <string name="overlapping_folders">Application-data and ROM folders must be separate; neither may contain the other.</string>
+    <string name="media_override">Existing MediaDirectory override: %1$s. Media stays there; the selected ROM folder remains authoritative.</string>
+    <string name="media_unavailable">MediaDirectory points to inaccessible storage: %1$s. Restore this folder or correct MediaDirectory in es_settings.xml, then retry. No replacement media folder will be selected.</string>
+    <string name="invalid_adopted_settings">Cannot read the selected settings file. Correct es_settings.xml or select another data folder.</string>
 </resources>

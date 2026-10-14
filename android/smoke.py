@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import app_data_smoke
 import smoke_support
 import json
 import os
@@ -28,8 +29,9 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
-logpath = external + '/ES-DE-Plus/logs/es_log.txt'
-settings = external + '/ES-DE-Plus/settings/es_settings.xml'
+data_root = external + '/ES-DE-Plus'
+logpath = data_root + '/logs/es_log.txt'
+settings = data_root + '/settings/es_settings.xml'
 startup_baseline = ''
 stock_package = 'com.google.android.tvlauncher'
 onboarding_guard = False
@@ -123,6 +125,14 @@ def wait_for(condition, description, timeout=90):
     with (evidence / 'readiness-waits.txt').open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
     raise AssertionError('Timed out: ' + description)
+
+
+def select_data_root(root):
+    global data_root, logpath, settings, startup_baseline
+    data_root = root
+    logpath = root + '/logs/es_log.txt'
+    settings = root + '/settings/es_settings.xml'
+    startup_baseline = log()
 
 
 def log():
@@ -408,7 +418,8 @@ def grant_from_settings(app_label=None, recipient=False):
         return
     if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
-    wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') for n in hierarchy()),
+    wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') or
+                             node_matches(n, 'Choose application-data folder') for n in hierarchy()),
              'configurator returned from all-files Settings')
 
 
@@ -847,7 +858,7 @@ def gamelist_recipient_flow(mode):
         key('KEYCODE_ENTER')  # GAME IMPORTER
         screenshot('importer-' + mode)
         key('KEYCODE_INSERT')  # real Y/start importer action
-        temp_files = external + '/ES-DE-Plus/importer_temp/files'
+        temp_files = data_root + '/importer_temp/files'
         wait_for(lambda: bool(shell('ls', temp_files, check=False).strip()), 'real app importer inventory files')
         time.sleep(3)  # finish the actual importer thread and selector animation
         paths = shell('find', temp_files, '-type', 'f').splitlines()
@@ -1211,6 +1222,19 @@ try:
         screenshot('all-files-denied')
         ui('Grant direct filesystem access', dpad=True)
         grant_from_settings()
+    # The proposed shared data root remains absent until its exact-path consent.
+    direct_data = '/sdcard/ES-DE-Plus'
+    shell('test', '!', '-e', direct_data)
+    ui('Review application-data folder', dpad=True)
+    ui('Cancel', dpad=True, exact=True)
+    shell('test', '!', '-e', direct_data)
+    ui('Review application-data folder', dpad=True)
+    ui('Confirm and use this data folder', dpad=True)
+    select_data_root(direct_data)
+    destroy_held('destroy-data-consent-held')
+    ui('Application-data folder:')
+    assert private('test', '!', '-f', 'shared_prefs/storage.xml') == '', 'Draft became accepted storage'
+    screenshot('confirmed-application-data-before-roms')
     # Real editable field and focus survive an Activity resume/re-render.
     ui('Absolute shared ROM folder path', dpad=television)
     if television:
@@ -1380,6 +1404,7 @@ try:
     # Recover through an explicit scoped choice, without pm clear hiding old
     # persisted grants. The accepted shared grant must be released on save.
     ui('Use app-owned storage', dpad=True)
+    select_data_root(external + '/ES-DE-Plus')
     ui('Create system folders', dpad=True)
     ui('How to add games')
     screenshot('scoped-provisioning-howto')
@@ -1653,6 +1678,7 @@ try:
     pdf_smoke.run('scoped', globals())
     real_retroarch_flow()
     pdf_smoke.release(globals())
+    app_data_smoke.run(globals())
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
