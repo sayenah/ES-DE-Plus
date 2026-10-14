@@ -322,6 +322,29 @@ int main(int argc, char** argv)
         require(EmulatorLaunchProfile::receivers("org.original/com.shared.Game", "org.fork") ==
                     std::vector<std::string>({"com.shared.Game"}),
                 "independent activity namespace preserved");
+        const std::string aliasDirectory {root + "/aliases"};
+        require(mkdir(aliasDirectory.c_str(), 0700) == 0, "alias fixture directory");
+        EmulatorManagerConfig aliases {aliasDirectory, bundle, bundledRules};
+        const std::string alias {"org.example/org.example.Handler-alias_雪"};
+        aliases.add("test", "Alias", alias, collisionProfile, ".zip", true);
+        aliases.save();
+        EmulatorManagerConfig aliasReadback {aliasDirectory, bundle, bundledRules};
+        require(aliasReadback.profileTargets(aliasReadback.system("test").commands.back().value) ==
+                    std::vector<std::string>({alias}),
+                "arbitrary Unicode alias name preserved through standard find rules");
+        const auto aliasSystemsBefore = read(aliasDirectory + "/es_systems.xml");
+        const auto aliasRulesBefore = read(aliasDirectory + "/es_find_rules.xml");
+        for (const auto& invalid :
+             {std::string {"org.example/"}, std::string {"../outside/Activity"},
+              std::string {"org.example/Activity\nInjected"},
+              std::string {"org.example/Activity"} + '\0' + "Injected"}) {
+            refused([&] {
+                aliasReadback.add("test", "Invalid", invalid, collisionProfile, ".zip", true);
+            });
+        }
+        require(read(aliasDirectory + "/es_systems.xml") == aliasSystemsBefore &&
+                    read(aliasDirectory + "/es_find_rules.xml") == aliasRulesBefore,
+                "invalid components leave both override files unchanged");
         const std::string profileText {
             "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
             "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "

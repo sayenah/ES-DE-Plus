@@ -7,6 +7,9 @@
         <activity-alias android:name=".ZipMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
             <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/zip" /></intent-filter>
         </activity-alias>
+        <activity-alias android:name=".Handler-alias_雪" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Named ZIP alias">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/zip" /></intent-filter>
+        </activity-alias>
         <activity-alias android:name=".WildcardMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
             <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/*" /></intent-filter>
         </activity-alias>

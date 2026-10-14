@@ -225,7 +225,7 @@ void GuiEmulatorManager::rebuild()
                         }
                         const auto package = mComponent.substr(0, slash);
                         mWindow->pushGui(new GuiEmulatorManagerKeyboard(
-                            0.0f, _("RECEIVING ACTIVITY: RELATIVE OR FULL CLASS NAME"),
+                            0.0f, _("RECEIVING ACTIVITY: RELATIVE OR FULL NAME"),
                             mComponent.substr(slash + 1),
                             [this, package](const std::string& value) {
                                 auto activity = Utils::String::trim(value);

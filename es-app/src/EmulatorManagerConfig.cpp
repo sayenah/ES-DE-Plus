@@ -402,9 +402,14 @@ std::string EmulatorManagerConfig::add(const std::string& name,
                                        const std::string& extensions,
                                        bool nameUnlabelled)
 {
-    if (!std::regex_match(
-            component,
-            std::regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+/[A-Za-z_][A-Za-z0-9_.$]*")))
+    const auto slash = component.find('/');
+    // Android aliases are names, not Java classes. The GUI validates accessibility
+    // with PackageManager; preserve the exact alias in upstream's package/activity grammar.
+    if (slash == std::string::npos || slash + 1 == component.size() ||
+        !std::regex_match(component.substr(0, slash),
+                          std::regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)*")) ||
+        std::any_of(component.begin() + slash + 1, component.end(),
+                    [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
         throw std::runtime_error(_("Select a valid installed package and receiving activity"));
     if (label.empty() || label.size() > 256 ||
         std::any_of(label.begin(), label.end(),
