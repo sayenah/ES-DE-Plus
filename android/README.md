@@ -160,6 +160,8 @@ and evidence-capture time. During a request the same process must remain alive,
 focused and free of frontend ANRs. Permission, TLS, UI, startup and frontend
 failures always fail the leg and are never retried. The INTERNET grant is checked
 before each attempt: a resolve diagnostic alone cannot distinguish a missing grant.
+An SDL destruction-start log from the current PID also fails immediately, even
+when the process and focus still appear live before an ANR.
 
 The downloader cannot cancel an active clone through its UI. On a healthy remote
 deadline the harness captures evidence, rechecks health, stops that healthy

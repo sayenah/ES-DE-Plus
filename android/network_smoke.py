@@ -57,6 +57,15 @@ def remote_outcome(api, error, record):
         raise error
 
 
+def frontend_process(pid, current, logcat):
+    assert pid and current == pid, 'Frontend process died or restarted'
+    # An SDL destroy join can stall while its process/window still look alive.
+    # Match this process's threadtime PID, excluding earlier fixture processes.
+    assert not re.search(r'^\S+\s+\S+\s+' + re.escape(pid) +
+                         r'\s+\d+\s+\w\s+ES-DE-Plus\s*:\s*Destroying SDL activity\b',
+                         logcat, re.M), 'Frontend entered SDL destruction during network wait'
+
+
 def resolve_error(output):
     return any(value in output.lower() for value in
                ['could not resolve host', "couldn't resolve host", 'failed to resolve address'])
@@ -132,7 +141,7 @@ def controls():
                 assert api != 34
         else:
             raise AssertionError('Stalled-remote control escaped')
-    for problem in ['Frontend process died', 'Frontend ANR', 'Frontend lost focus',
+    for problem in ['Frontend process died', 'Frontend ANR', 'Frontend lost focus', 'Frontend SDL destruction',
                     'INTERNET permission differs', 'TLS certificate verification failed']:
         attempts = []
         ticks = [0]
@@ -155,6 +164,15 @@ def controls():
     reports.append('PASS: a bare no-INTERNET resolve error is textually remote; the per-attempt grant check prevents masking. '
                    'Negative permission probes bypass retries and must receive their one resolve error.')
     reports.append('PASS: only an HTTPS service reply satisfies scraper reachability.')
+    destruction = '10-14 12:34:56.789  1234  1250 I ES-DE-Plus: Destroying SDL activity held=false'
+    frontend_process('5678', '5678', destruction)
+    try:
+        frontend_process('1234', '1234', destruction)
+    except AssertionError as error:
+        assert 'SDL destruction' in str(error)
+    else:
+        raise AssertionError('Live/focused destruction control escaped')
+    reports.append('PASS: current-PID SDL destruction is hard even before ANR; earlier-PID logs cannot fail a healthy request.')
     return '\n'.join(reports) + '\n'
 
 
@@ -222,9 +240,10 @@ def run(harness):
         assert pid, 'Frontend process died'
         h.dismiss_stock_onboarding()
         h.hierarchy()  # The shared handler raises on a frontend ANR.
-        assert h.shell('pidof', h.app, check=False).strip() == pid, 'Frontend process died or restarted'
+        logcat = h.adb('logcat', '-d', '-v', 'threadtime')
+        frontend_process(pid, h.shell('pidof', h.app, check=False).strip(), logcat)
         assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'Frontend lost focus'
-        assert 'ANR in ' + h.app not in h.adb('logcat', '-d'), 'Frontend ANR'
+        assert 'ANR in ' + h.app not in logcat, 'Frontend ANR'
 
     def request_result(before, success, failure, description, timeout, negative=False):
         pid = h.shell('pidof', h.app, check=False).strip()
