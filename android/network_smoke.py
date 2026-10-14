@@ -30,6 +30,7 @@ def wait_request(read, healthy, success, failure, description, timeout,
         healthy()  # Includes the completing poll and the deadline poll.
         if success(output) or failure(output):
             return output
+        assert 'Error:' not in output and 'No themes.json file found' not in output, output
         # Never turn a TLS/permission diagnostic into a stall just because the
         # expected completion line is absent.
         assert not any(value in output.lower() for value in
@@ -173,6 +174,21 @@ def controls():
     else:
         raise AssertionError('Live/focused destruction control escaped')
     reports.append('PASS: current-PID SDL destruction is hard even before ANR; earlier-PID logs cannot fail a healthy request.')
+    for diagnostic in ['Error: frontend failed to parse theme list', 'No themes.json file found',
+                       'SSL certificate verification failed', 'Permission denied']:
+        attempts = []
+        def invalid_request():
+            attempts.append(1)
+            return wait_request(lambda: diagnostic, lambda: None, lambda _: False, lambda _: False,
+                                'fixture invalid completion', 10)
+        try:
+            remote_attempts(invalid_request, lambda error: reports.append('BAD RECOVERY'),
+                            reports.append, 'fixture')
+        except AssertionError:
+            assert attempts == [1]
+        else:
+            raise AssertionError('Incomplete frontend/TLS/permission error became a remote stall')
+    reports.append('PASS: incomplete frontend/error, TLS and permission diagnostics stay hard before deadline classification.')
     return '\n'.join(reports) + '\n'
 
 
@@ -258,6 +274,7 @@ def run(harness):
             output = delta(before)
             if success(output) or failure(output):
                 return output  # Completion during evidence capture wins over the deadline.
+            assert 'Error:' not in output and 'No themes.json file found' not in output, output
             assert not any(value in output.lower() for value in
                            ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']), output
             # A no-INTERNET control must produce its resolve error, never a
