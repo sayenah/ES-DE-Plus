@@ -554,7 +554,7 @@ object LaunchSmoke {
                 equal(stubRecords.any { it.activityName == "$stub.$activity" }, false, "Inaccessible emulator activity $activity")
             equal(stubRecords.filter { it.label == "ZIP handler" }.map { it.activityName }.distinct().size, 2, "Equal labels keep components")
             val handlersOnly = emulatorRecords.filter { it.packageName == "org.esdeplus.handlerstub" }
-            for (activity in listOf("ZipMime", "WildcardMime", "ZipPath", "Handler-alias_雪"))
+            for (activity in listOf("ZipMime", "WildcardMime", "ZipPath", "HandlerAlias_雪"))
                 equal(handlersOnly.single { it.activityName == "$stub.$activity" }.declaredHandler, true, "No-launcher package discovered: $activity")
             equal(handlersOnly.any { it.activityName == "$stub.NonMatchingMime" }, false, "No-launcher nonmatching handler")
             equal(context.packageManager.getLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no launcher")

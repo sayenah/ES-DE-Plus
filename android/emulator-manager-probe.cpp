@@ -325,7 +325,7 @@ int main(int argc, char** argv)
         const std::string aliasDirectory {root + "/aliases"};
         require(mkdir(aliasDirectory.c_str(), 0700) == 0, "alias fixture directory");
         EmulatorManagerConfig aliases {aliasDirectory, bundle, bundledRules};
-        const std::string alias {"org.example/org.example.Handler-alias_雪"};
+        const std::string alias {"org.example/org.example.HandlerAlias_雪"};
         aliases.add("test", "Alias", alias, collisionProfile, ".zip", true);
         aliases.save();
         EmulatorManagerConfig aliasReadback {aliasDirectory, bundle, bundledRules};
