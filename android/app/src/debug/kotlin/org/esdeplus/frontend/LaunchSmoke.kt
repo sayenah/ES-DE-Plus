@@ -5,6 +5,7 @@ package org.esdeplus.frontend
 import android.app.Instrumentation
 import android.app.BroadcastOptions
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -289,6 +290,8 @@ object LaunchSmoke {
                 equal(bridge.checkEmulatorInstalled(stub, activity), false, "Invalid target discovery $activity")
                 equal(bridge.launchGame(base(activity = activity), empty, empty, empty, empty, empty, false), -1, "Invalid target launch $activity")
             }
+            for (activity in listOf(".RecipientActivity/other", ".RecipientActivity\u0000", ".RecipientActivity\n", ".RecipientActivity\u0085"))
+                equal(bridge.checkEmulatorInstalled(stub, activity), false, "Malformed explicit target")
             equal(bridge.checkEmulatorInstalled("org.esdeplus.missing", ""), false, "Missing package")
             val launcher = GameLauncher(context)
             val expectedHash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -556,6 +559,10 @@ object LaunchSmoke {
             val handlersOnly = emulatorRecords.filter { it.packageName == "org.esdeplus.handlerstub" }
             for (activity in listOf("ZipMime", "WildcardMime", "ZipPath", "HandlerAlias_雪"))
                 equal(handlersOnly.single { it.activityName == "$stub.$activity" }.declaredHandler, true, "No-launcher package discovered: $activity")
+            val alias = handlersOnly.single { it.activityName == "$stub.HandlerAlias_雪" }
+            equal(bridge.checkEmulatorInstalled(alias.packageName, alias.activityName), true, "Unicode alias target")
+            equal(AppDiscovery(context).target(alias.packageName, alias.activityName).component,
+                ComponentName(alias.packageName, alias.activityName), "Exact Unicode alias component")
             equal(handlersOnly.any { it.activityName == "$stub.NonMatchingMime" }, false, "No-launcher nonmatching handler")
             equal(context.packageManager.getLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no launcher")
             equal(context.packageManager.getLeanbackLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no Leanback entry")

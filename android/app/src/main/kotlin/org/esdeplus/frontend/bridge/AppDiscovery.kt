@@ -28,7 +28,7 @@ class AppDiscovery(private val context: Context) {
         require(packageName.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")))
         val intent = if (activityName.isNotEmpty()) {
             val name = if (activityName.startsWith('.')) packageName + activityName else activityName
-            require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_.$]*")))
+            require(name.isNotEmpty() && name.none { it.isISOControl() || it == '/' })
             Intent(Intent.ACTION_MAIN).setComponent(ComponentName(packageName, name))
         } else {
             val tv = context.getSystemService(UiModeManager::class.java).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
