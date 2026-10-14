@@ -221,6 +221,38 @@ def fixture_signing():
     print('PASS: throwaway keys removed; controls cannot upload APKs or call release APIs')
 
 
+def sdk_controls():
+    # Fast format/tool controls before native assembly. The real frontend APKs
+    # still repeat every control after building; these payloads never upload.
+    global DEBUG, RELEASE, UNSIGNED_RELEASE, UPDATE
+    os.environ['IMAGE'] = 'sdk-controls'
+    with tempfile.TemporaryDirectory(prefix='esdeplus-sdk-controls-', dir=os.environ['RUNNER_TEMP']) as temporary:
+        root = pathlib.Path(temporary)
+        DEBUG = root / 'debug.apk'
+        RELEASE = root / 'release-smoke.apk'
+        UNSIGNED_RELEASE = root / 'release-unsigned.apk'
+        UPDATE = root / 'update'
+        UPDATE.mkdir()
+        version = public_version()
+        for destination, code, debug in [(DEBUG, version['version_code'], True),
+                                         (UNSIGNED_RELEASE, version['version_code'], False),
+                                         (UPDATE / 'lower-unsigned.apk', version['version_code'] - 1, True)]:
+            manifest = root / 'AndroidManifest.xml'
+            manifest.write_text(f"""<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+package="org.esdeplus.frontend" android:versionCode="{code}" android:versionName="{version['version_name']}">
+<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36"/>
+<application android:label="ES-DE Plus" android:debuggable="{str(debug).lower()}"/>
+</manifest>""")
+            subprocess.run([str(tools() / 'aapt2'), 'link', '--manifest', str(manifest), '-I',
+                            str(pathlib.Path(os.environ['ANDROID_HOME']) / 'platforms/android-36/android.jar'),
+                            '-o', str(destination)], check=True)
+        fixture_signing()
+    # No placeholder identity may survive into the real-APK gates/smoke.
+    for name in ('test-signer.txt', 'update-identity.txt'):
+        pathlib.Path('android/evidence', name).unlink(missing_ok=True)
+    print('PASS: SDK-only signing fixtures removed; real frontend controls remain required after assembly')
+
+
 def stable_signing():
     require(stable_run(), 'Stable signing is forbidden on this run/leg')
     encoded = os.environ.pop('ESDEPLUS_TEST_KEYSTORE_B64', '')
@@ -243,6 +275,8 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, terminate_signing)
     if sys.argv[1] == 'stable':
         stable_signing()
+    elif sys.argv[1] == 'sdk-controls':
+        sdk_controls()
     elif sys.argv[1] == 'fixtures':
         fixture_signing()
     else:

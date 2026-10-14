@@ -136,6 +136,10 @@ jobs:
           test -f "$ANDROID_NDK_HOME/source.properties"
           grep -Fx 'Pkg.Revision = 28.2.13676358' "$ANDROID_NDK_HOME/source.properties"
           echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
+      - name: Fast SDK signing/rejection/cleanup controls before native assembly
+        run: |
+          set -o pipefail
+          python3 android/test_signing.py sdk-controls | tee android/evidence/signing-sdk-controls.txt
       - name: Download and verify pinned stable RetroArch (CI only)
         run: |
           curl --fail --location --retry 3 https://buildbot.libretro.com/stable/1.22.2/android/RetroArch.apk -o "$RUNNER_TEMP/RetroArch.apk"
