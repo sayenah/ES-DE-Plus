@@ -344,17 +344,22 @@ def run(harness):
         def recover(error):
             if isinstance(error, RemoteStall):
                 restart_remote(error, repository)
-                permission(True)
-                before_list = h.log()
-                downloader()  # Existing list opens without first-use PROCEED.
-                output = request_result(before_list,
-                    lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
-                    lambda s: "Couldn't fetch" in s or "Couldn't clone" in s,
-                    'existing themes-list ready after remote cancellation', 300)
-                # Recovery is never another retry budget for the list.
-                assert 'parseThemesList(): Parsed ' in output, output
-                if 'Not running the most current application release' in output:
-                    h.key('KEYCODE_ENTER')
+                def reopen():
+                    permission(True)
+                    before_list = h.log()
+                    downloader()  # Upstream automatically fetches the existing list.
+                    output = request_result(before_list,
+                        lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
+                        lambda s: "Couldn't fetch" in s or "Couldn't clone" in s,
+                        'existing themes-list ready after remote cancellation', 300)
+                    if 'parseThemesList(): Parsed ' not in output:
+                        raise RemoteFailure(output)
+                    if 'Not running the most current application release' in output:
+                        h.key('KEYCODE_ENTER')
+                # Reopening necessarily issues upstream's refresh. Its remote
+                # failure uses the same bound/classification; the saved list is
+                # never deleted, and startup itself is never retried.
+                remote_attempts(reopen, restart_remote, record, 'themes-list reopen')
             else:
                 h.key('KEYCODE_ENTER')  # Completed remote error OK; selection retained.
         remote_attempts(attempt, recover, record, 'theme')
