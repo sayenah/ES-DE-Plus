@@ -272,6 +272,23 @@ permissions = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'
 for permission in ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']:
     assert integer_attribute(permissions['android.permission.' + permission], 'maxSdkVersion') == 29
 assert 'android.permission.MANAGE_EXTERNAL_STORAGE' in permissions
+expected_permissions = {'android.permission.' + name for name in
+                        ['INTERNET', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE',
+                         'MANAGE_EXTERNAL_STORAGE']}
+def network_permissions(actual):
+    assert set(actual) == expected_permissions, ('Unexpected APK permissions', set(actual))
+
+network_permissions(permissions)
+network_permissions(re.findall(r"^uses-permission(?:-sdk-\d+)?: name='([^']+)'", badging, re.M))
+for wrong in [expected_permissions - {'android.permission.INTERNET'},
+              expected_permissions | {'android.permission.ACCESS_NETWORK_STATE'}]:
+    try:
+        network_permissions(wrong)
+    except AssertionError:
+        print('PASS: missing INTERNET / added permission positive control rejected')
+    else:
+        raise AssertionError('Network permission control escaped')
+print('PASS: badging and packaged manifest declare INTERNET and only the three existing storage permissions')
 application = next(n for n in manifest_nodes if n['tag'] == 'application')
 assert string_attribute(application, 'appComponentFactory') == 'org.esdeplus.frontend.FrontendActivityFactory'
 assert ('nativeWaitForConfiguration', '()V') in classes['Lorg/esdeplus/frontend/MainActivity;']

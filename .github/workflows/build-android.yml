@@ -289,6 +289,12 @@ jobs:
           python3 android/pdf-fixtures.py android/evidence/pdf-fixtures
           cd android
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:signPdfSmokeRelease
+      - name: Package no-INTERNET control with the exact built native code (API 34, CI only)
+        if: ${{ success() && matrix.image == 'api34' }}
+        run: |
+          set -o pipefail
+          python3 android/network-control.py 2>&1 | tee android/network-control.log
+          git diff --exit-code -- android/app/src/main/AndroidManifest.xml
       # Save only after every Gradle invocation succeeds, before unrelated
       # runtime smoke. Exact hits build offline; no build/assertion is retried.
       - name: Save complete Gradle wrapper and dependency cache
