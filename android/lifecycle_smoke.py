@@ -8,9 +8,9 @@ import subprocess
 import time
 
 
-def framework_recreation(harness, variant, failures, home=False):
+def framework_recreation(harness, variant, failures, home=False, background=False):
     h = type('Harness', (), harness)
-    name = 'lifecycle-' + variant + '-framework-recreation' + ('-home' if home else '')
+    name = 'lifecycle-' + variant + '-framework-recreation' + ('-home' if home else '-background' if background else '')
     setting = 'debug_view_attributes_application_package'
     original = h.shell('settings', 'get', 'global', setting).strip()
     h.shell('am', 'force-stop', h.app)
@@ -44,6 +44,17 @@ def framework_recreation(harness, variant, failures, home=False):
         before = h.log()
         old = h.shell('pidof', h.app).strip()
         assert old.isdigit()
+        if background:
+            h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity')
+            def stopped():
+                dump, records = h.activity_records()
+                sections = re.split(r'\n\s*\*\s+Hist\s+#\d+:', dump)
+                return (len(records) == 1 and any(records[0][2] in section and
+                        re.search(r'\bstate=STOPPED\b', section) for section in sections) and
+                        h.smoke_checks.package_window_focused(h.focused_window(), 'org.esdeplus.stub'))
+            h.wait_for(stopped, name + ' ordinary frontend STOPPED behind recipient', timeout=30)
+            (h.evidence / (name + '-stopped-activities.txt')).write_text(h.activity_records()[0])
+            (h.evidence / (name + '-stopped-window.txt')).write_text(h.focused_window())
         # AOSP's CoreSettings observer requests a real local relaunch when
         # this app's view-attribute flag changes. No target instrumentation,
         # injected quit, Activity retry or harness relaunch is involved.
@@ -65,12 +76,19 @@ def framework_recreation(harness, variant, failures, home=False):
             assert 'SDL destruction caller' not in old_lines, 'Release logged the debug stack trace'
         assert 'Finished main function' in old_lines and 'SDL activity destroy join returned' in old_lines
         assert old_lines.count('Running main function') == 1
-        h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
-                   name + ' product restores entry', timeout=10)
-        # The first log line changes only when the new native process opens
-        # its log. Old-process shutdown messages cannot satisfy fresh startup.
+        if background:
+            # Keep the actual platform decision before any user entry. This
+            # process is not instrumented: instrumentation teardown cannot
+            # remove the helper or supply background-launch privileges.
+            h.save_logs(name + '-before-next-entry')
+            (h.evidence / (name + '-before-next-entry-activities.txt')).write_text(h.activity_records()[0])
+            (h.evidence / (name + '-before-next-entry-window.txt')).write_text(h.focused_window())
+            h.start_entry()
+        else:
+            h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
+                       name + ' product restores entry', timeout=10)
         h.wait_for(lambda: h.log().splitlines()[0:1] != before.splitlines()[0:1] and
-                   'Application startup time:' in h.log(), name + ' automatic fresh startup')
+                   'Application startup time:' in h.log(), name + ' fresh startup')
         harness['startup_baseline'] = before
         h.configured_system(name + '-automatic-relaunch')
         new = h.shell('pidof', h.app).strip()
@@ -78,6 +96,8 @@ def framework_recreation(harness, variant, failures, home=False):
         logs = h.adb('logcat', '-d', '-v', 'threadtime')
         new_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + new + r'\s', line))
         assert new_lines.count('Running main function') == 1
+        if background:
+            assert logs.count('Running main function') == 2, 'Background relaunch started an extra native main'
         assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs
         if home:
             assert 'HOME=true' in new_lines, 'Restored entry lost HOME semantics'
@@ -98,8 +118,10 @@ def framework_recreation(harness, variant, failures, home=False):
         h.save_logs(name)
         (h.evidence / (name + '-result.txt')).write_text(
             f'PASS: AOSP CoreSettings local relaunch; old PID {old} returned/joined and ended '
-            f'within 5 s (observed {elapsed:.3f}s); private product activity restored the entry '
-            f'without a harness relaunch; new PID {new} loaded two games with one native main; HOME={home}.\n')
+            f'within 5 s (observed {elapsed:.3f}s); ' +
+            ('next foreground entry restored the frontend after actual STOPPED destruction; ' if background else
+             'private product activity restored the entry without a harness relaunch; ') +
+            f'new PID {new} loaded two games with one native main; HOME={home}; background={background}.\n')
     except Exception as error:
         failures.append(name + ': ' + str(error))
         h.save_logs(name + '-failure')
@@ -197,6 +219,7 @@ def run(harness):
             h.shell('am', 'force-stop', h.app)
         framework_recreation(harness, variant, failures)
         framework_recreation(harness, variant, failures, home=True)
+        framework_recreation(harness, variant, failures, background=True)
         slow_restart(harness, variant, failures)
         slow_restart(harness, variant, failures, expire=True)
         # Recreate an actual uncommitted installation for the startup schedule
