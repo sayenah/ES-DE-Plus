@@ -4,7 +4,17 @@ import java.security.MessageDigest
 import javax.xml.parsers.DocumentBuilderFactory
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 val appId = providers.gradleProperty("esde.applicationId").get()
-val appVersion = providers.gradleProperty("esde.versionCode").get().toInt()
+// Full-history builds derive a monotonic code; extracted source rebuilds and
+// in-run update fixtures pass the recorded version explicitly, without secrets.
+val appVersion = providers.gradleProperty("esde.versionCode").orElse(providers.exec {
+    workingDir("../..")
+    commandLine("git", "rev-list", "--count", "--first-parent", "HEAD")
+}.standardOutput.asText.map { (1000 + it.trim().toLong()).toString() }).get().toInt()
+require(appVersion in 1001..2100000000)
+val appVersionName = providers.gradleProperty("esde.versionName").orElse(providers.exec {
+    workingDir("../..")
+    commandLine("git", "rev-parse", "--short=9", "HEAD")
+}.standardOutput.asText.map { "test-${it.trim()}" }).get()
 val stagedAssets = layout.buildDirectory.dir("generated/assets/frontend")
 val queryManifest = layout.buildDirectory.file("generated/visibility/AndroidManifest.xml")
 val generateQueries by tasks.registering {
@@ -70,7 +80,7 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = appVersion
-        versionName = "slice-1"
+        versionName = appVersionName
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
             cmake {
@@ -108,22 +118,6 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 tasks.named("preBuild") { dependsOn(stageAssets, generateQueries) }
-
-// CI runtime only: reuse the actual debug signing configuration, whose store
-// location is resolved by AGP. No signing material or APK is published.
-tasks.register("signPdfSmokeRelease") {
-    doLast {
-        val signing = android.signingConfigs.getByName("debug")
-        val signer = file("${System.getenv("ANDROID_HOME")}/build-tools/${android.buildToolsVersion}/apksigner")
-        exec {
-            commandLine(signer, "sign", "--ks", signing.storeFile!!,
-                "--ks-key-alias", signing.keyAlias!!, "--ks-pass", "pass:${signing.storePassword}",
-                "--key-pass", "pass:${signing.keyPassword}", "--out",
-                file("build/outputs/apk/release/app-release-smoke.apk"),
-                file("build/outputs/apk/release/app-release-unsigned.apk"))
-        }
-    }
-}
 
 // Reviewed shipped runtime dependencies; build plugins and tools never enter dex.
 tasks.register("auditRuntimeLicences") {

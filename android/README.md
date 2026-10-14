@@ -3,14 +3,45 @@
 
 ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
 
-Published CI debug APKs use a different throwaway key per run and cannot update
-one another. **Back up before uninstalling:** uninstall deletes app-owned ROMs,
-settings, collections, media and logs. ROM files in a selected shared directory
-survive, but application settings do not. Keep the matching source artefact with
-your APK; source is retained 14 days and APKs 7 days. Only main push/dispatch runs
-in `sayenah/ES-DE-Plus` publish; branch, fork and PR runs exercise the gates in
-dry-run and never upload an APK. See [the distribution README](DISTRIBUTION-README.md)
-for source, relinking and rebuild/signing instructions.
+Published CI debug APKs use one stable **test** key held only in GitHub's
+`test-signing` environment (main branches only). Certificate SHA-256:
+`6bd277aa2b4feb1bd4eae5524defff7be22600c043aaa5e7d9e675aee6920ff0`.
+When moving from older throwaway-key builds, **back up and uninstall once**:
+uninstall deletes app-owned ROMs, settings, collections, media and logs. ROMs in
+selected shared folders survive. Higher-version stable-key builds then update in
+place and preserve app data. This is test signing; production/store signing
+requires a separate Founder decision. Missing, lost, corrupt or compromised key
+material stops publication pending a Founder ruling; CI has no fallback key.
+
+Only successful main push/dispatch runs in `sayenah/ES-DE-Plus` publish. Each
+creates a pre-release `android-test-<short-sha>` on the exact full commit with
+four assets: the exact smoked debug APK, licence-notice ZIP, complete source TAR
+and `SHA256SUMS.txt`. The source TAR includes pinned third-party archives,
+Debian's font patches and build/relink recipes; GitHub-generated source snapshots
+are insufficient. Notes record version, certificate, APK hash and originating
+run/attempt. Version code is `1000 + git rev-list --count --first-parent <sha>`
+from full history; version name is `test-<short-sha>`. Older out-of-order new
+publications are refused. CI stages and downloads/verifies every asset in a
+draft before publishing. A matching draft resumes; a completed matching release
+is verified without mutation. Conflicts, corrupt/missing assets and wrong tags
+fail instead of overwriting a published set. CI never deletes releases, tags or
+source bundles, and pre-releases are never marked latest.
+
+The same run's Actions source/APK artefacts remain available for 14/7 days.
+Keep the corresponding source beside your APK. PR, fork and branch runs use
+throwaway keys, exercise packaging and the same release decisions through a
+non-writing transport, and never upload an APK or call release APIs. Only the
+eligible API 34 job accesses the signing environment; credentials reach SDK
+`apksigner` outside Gradle through `env:` password inputs. Its mode-600 temporary
+keystore is removed before audits/smoke and on signing failures, outside caches
+and uploads. Rebuild jobs do not access that environment. See
+[the distribution README](DISTRIBUTION-README.md) for source and own-key rebuilding.
+
+CI proves replacement on API 29/34 with two version codes and one throwaway key:
+`adb install -r` retains settings, accepted storage configuration and app data,
+then launches the higher build. Stable-key custody, real release API publication
+and retries, and continuity across two stable-key publications require real
+main-run evidence after merge; branch fixtures do not prove those outcomes.
 
 On first launch choose a storage mode before granting permissions. Application
 settings, collections and logs stay in the current user's app-specific external

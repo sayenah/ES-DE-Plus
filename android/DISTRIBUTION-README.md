@@ -2,18 +2,23 @@
 # ES-DE Plus CI debug distribution
 
 This directory contains the exact debug APK built, audited and smoked on API 34.
-`manifest.json` records its SHA256, Android Debug certificate fingerprint, full
+`manifest.json` records its SHA256, single signing certificate fingerprint, full
 source commit, run and attempt, both ABIs, the native dependency-cache and
 Gradle wrapper/dependency-cache key/hit states, and the complete source-input
 mapping. Tool versions describe the current runner; each cache record identifies
 the inputs restored from that cache.
-New source manifests use schema 4 and require the Gradle cache record;
-schema-3 source artefacts retain their original validation/rebuild support.
+New source manifests use schema 5 and record version code/name and the signer,
+in addition to the Gradle cache record;
+schema-3/4 source artefacts retain their original validation/rebuild support.
 Verify the APK with SDK `apksigner verify --print-certs app-debug.apk` and
 `aapt2 dump badging app-debug.apk`; its identity is `org.esdeplus.frontend`,
 display name **ES-DE Plus**, with `arm64-v8a` and `x86_64` only.
 
-Download **@SOURCE_NAME@** from [the same CI run](@RUN_URL@).
+Download **@SOURCE_NAME@** from [the same CI run](@RUN_URL@), or the
+complete `es-de-plus-<sha>-source.tar` beside the APK on GitHub Releases.
+The matching release includes notices and `SHA256SUMS.txt`, version, signer and
+originating run/attempt. GitHub-generated source snapshots omit dependencies
+and cannot substitute for this source bundle. CI never prunes releases or tags.
 Save that source artefact alongside the APK: CI retains source for 14 days and
 the APK for 7 days. Attempt-specific artefacts are never overwritten or deleted
 by this workflow. If manually removing artefacts, remove the dependent APK
@@ -88,9 +93,10 @@ engineering for debugging such modifications is permitted.
 
 Sign your rebuilt unsigned release APK with your own key using SDK `apksigner`
 (after SDK `zipalign` if repackaging). Keep that key private and outside the
-source/distribution directory. This workflow provides no signing key. The CI
-debug key is throwaway and differs between runs: these APKs cannot update one
-another. Back up before uninstalling: app-owned ROMs, settings, collections,
+source/distribution directory. This workflow provides no signing key. The stable CI test key is held only in GitHub Actions and is never provided.
+Certificate SHA-256: `6bd277aa2b4feb1bd4eae5524defff7be22600c043aaa5e7d9e675aee6920ff0`.
+Higher-version test APKs signed with that key update in place. Moving from the
+older throwaway-key builds needs one last uninstall. Back up before uninstalling: app-owned ROMs, settings, collections,
 media and logs are deleted. ROM files in a selected shared directory survive;
 application settings do not. Android may reject installing a build signed with
 your key over the CI build, so back up and uninstall the CI build first.
