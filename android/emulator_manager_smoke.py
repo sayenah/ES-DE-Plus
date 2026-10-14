@@ -47,6 +47,10 @@ def run(mode, harness, minified=False):
         except (json.JSONDecodeError, KeyError, TypeError):
             return False
     def discard_receipt():
+        # Compare identical cold recipient states. Android can add
+        # FLAG_ACTIVITY_BROUGHT_TO_FRONT when reusing an existing recipient task;
+        # retain exact flag equality rather than masking any delivered flags.
+        h.shell('am', 'force-stop', 'org.esdeplus.stub')
         h.shell('run-as', 'org.esdeplus.stub', 'rm', '-f', 'files/observation.json')
     def fragment(value):
         return ET.fromstring('<document>' + re.sub(r'<\?xml[^>]*\?>', '', value) + '</document>')
@@ -374,3 +378,7 @@ def run(mode, harness, minified=False):
         fixture('cleanup')
         for name, content in original.items(): h.user_file('custom_systems/' + name, content)
         h.user_file('settings/es_settings.xml', original_settings)
+    # Cleanup deliberately stops the fixture frontend. Restore the caller's
+    # original library and a fully started native activity before its warm-entry
+    # checks; this is a new launch, not a retry of a failed lifecycle operation.
+    h.launch()
