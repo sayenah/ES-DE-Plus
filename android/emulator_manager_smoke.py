@@ -69,12 +69,22 @@ def run(mode, harness, minified=False):
             for _ in range(erase): h.key('KEYCODE_DEL')
         if value: h.shell('input', 'text', value.replace(' ', '%s'))
         h.key('KEYCODE_ENTER')
-    def start():
+    def start_native(count, description):
         h.shell('am', 'force-stop', h.app)
+        baseline = h.log()
         h.adb('logcat', '-c')
         h.start_entry()
-        h.wait_for(lambda: 'Total game count: 0' in h.log(), 'no recognised games from fixture')
-        h.wait_for(lambda: bool(h.hierarchy()), 'no-games native window')
+        def fresh_start():
+            log = h.log()
+            return (log != baseline and 'Application startup time:' in log and
+                    re.search(r'Total game count: ' + str(count) + r'\s', log) is not None)
+        h.wait_for(fresh_start, description)
+        h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app),
+                   'fresh frontend window focused')
+        h.wait_for(lambda: any(n.get('package') == h.app for n in h.hierarchy()),
+                   'fresh frontend native window')
+    def start():
+        start_native(0, 'fresh no-recognised-games fixture startup')
         if any(n.get('text') == 'Got it' for n in h.hierarchy()): h.ui('Got it')
         h.screenshot('emulator-manager-' + mode + '-no-games')
         if h.api != 36:
@@ -108,9 +118,7 @@ def run(mode, harness, minified=False):
         h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); page('systems')
         pick(1); page('system')
     def restart_games():
-        h.shell('am', 'force-stop', h.app); h.adb('logcat', '-c'); h.start_entry()
-        h.wait_for(lambda: 'Total game count: 2' in h.log(), 'fresh startup manager configuration')
-        h.wait_for(lambda: bool(h.hierarchy()), 'fresh startup native window')
+        start_native(2, 'fresh startup manager configuration')
     def cancel_notice():
         if h.api != 36: tap('CANCEL')
         else: h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
@@ -257,6 +265,21 @@ def run(mode, harness, minified=False):
             pick(1); page('defaults'); pick(1); page('system')
         h.wait_for(lambda: 'Emulator manager default saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'ordinary default persisted')
         controls('EMUPLUS TEST', fragment(current()[2]).find('alternativeEmulator/label').text, 'gamelist default')
+        # Close manager/system-list, alternative-emulator, Other settings and main
+        # dialogs through their normal callbacks, then exercise the fresh find rules
+        # before restarting the native frontend.
+        h.key('KEYCODE_DEL'); page('systems')
+        for _ in range(4): h.key('KEYCODE_DEL')
+        discard_receipt()
+        h.search_launch('Manager', 'emulator-manager-' + mode + '-immediate')
+        h.wait_for(lambda: 'Activity launch accepted:' in h.adb('logcat', '-d'), 'new saved command resolves before restart')
+        h.wait_for(lambda: receipt_ready(lambda r: r.get('data', '').startswith('content://' + h.app + '.roms/')), 'fresh immediate-launch recipient observation')
+        immediate = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+        for field in ['component', 'action', 'mime', 'data', 'flags', 'categories', 'extras']:
+            controls(provider[field], immediate[field], 'test/immediate Intent ' + field)
+        controls(fixture_data['sha256'], immediate.get('sha256'), 'immediate provider exact ZIP bytes')
+        h.evidence.joinpath('emulator-manager-' + mode + '-immediate-recipient.json.txt').write_text(json.dumps(immediate, indent=2))
+        h.screenshot('emulator-manager-' + mode + '-immediate-recipient')
         # Closing and a fresh start prove the unchanged upstream readers consume the files.
         restart_games()
         discard_receipt()
