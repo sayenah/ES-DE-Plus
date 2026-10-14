@@ -19,9 +19,8 @@ Intent/RetroArch launching, Android-app import, PDF manuals, TV and HOME entry.
 hardware coverage. Bluetooth/Wi-Fi/cellular/battery indicators are placeholders;
 other-screen launching and SAF import into app-owned ROMs are deferred. PDF
 rendering runs in process and visited-page memory is unbounded until close.
-Known issues pending PR #11/#12: Android 10 can freeze when the SDL host is
-destroyed while the frontend runs; the missing network permission prevents
-theme downloading and scraper network requests.
+Known issue pending PR #11: Android 10 can freeze when the SDL host is
+destroyed while the frontend runs.
 Consult the originating run and open issues for device or lifecycle limitations.
 
 **Licences and source:** ES-DE-Plus's own source is MIT. The APK includes
