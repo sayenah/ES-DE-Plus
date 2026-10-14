@@ -125,9 +125,8 @@ class StorageModel(private val context: Context) {
         if (!broadAccess()) throw failure(R.string.direct_not_granted)
         if (!path.startsWith('/') || path.contains('\u0000') || path.contains('\\'))
             throw failure(R.string.absolute_path_required)
-        val primary = volumeRoot("primary", readOnly)
         val mapped = if (path == "/sdcard" || path.startsWith("/sdcard/"))
-            primary.path + path.removePrefix("/sdcard") else path
+            volumeRoot("primary", readOnly).path + path.removePrefix("/sdcard") else path
         val candidate = File(mapped)
         val manager = context.getSystemService(StorageManager::class.java)
         val roots = manager.storageVolumes.mapNotNull { volume ->

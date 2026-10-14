@@ -320,9 +320,16 @@ class ConfiguratorActivity : Activity() {
 
     private fun renderDataSelection() {
         text(getString(R.string.data_folder_step))
-        text(getString(R.string.previous_private_data, storage.privateData().path))
+        try { text(getString(R.string.previous_private_data, storage.privateData().path)) }
+        catch (error: java.io.IOException) { text(getString(R.string.private_location_unavailable)) }
         if (typedPath.isEmpty()) {
-            typedPath = dataPath.ifEmpty { storage.defaultData().path }
+            typedPath = dataPath.ifEmpty {
+                try { storage.defaultData().path }
+                catch (error: java.io.IOException) {
+                    text(error.message ?: getString(R.string.volume_unavailable))
+                    ""
+                }
+            }
         }
         button(R.string.choose_data_folder) { chooseFolder(data = true) }
         val input = EditText(this).apply {
@@ -372,7 +379,8 @@ class ConfiguratorActivity : Activity() {
         // positive action; no metadata or contents from a proposed destination.
         val destination = storage.structuralPath(candidate, data = true).path
         if (path.isNotEmpty()) storage.disjoint(java.io.File(destination), java.io.File(path))
-        val ownDefault = destination == storage.defaultData().path
+        val ownDefault = try { destination == storage.defaultData().path }
+            catch (_: java.io.IOException) { false }
         AlertDialog.Builder(this)
             .setTitle(R.string.confirm_data_folder)
             .setMessage(getString(if (ownDefault) R.string.data_create_consent else R.string.data_adopt_consent,
