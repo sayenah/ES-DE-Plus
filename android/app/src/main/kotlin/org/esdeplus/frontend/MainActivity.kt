@@ -14,15 +14,14 @@ import org.libsdl.app.SDLActivity
 class MainActivity : SDLActivity() {
     private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
-    override fun loadLibraries() {
-        super.loadLibraries()
-        ConfiguratorSession.registerNative()
-    }
     override fun onCreate(savedInstanceState: Bundle?) {
         live = WeakReference(this)
         Log.i("ES-DE-Plus", "Creating sole SDL activity task=$taskId")
         ConfiguratorSession.recordEntry(intent)
         super.onCreate(savedInstanceState)
+        // SDL's JNI bindings are now ready; prepare cancellation before
+        // onResume can start the native thread and its configuration query.
+        if (!SDLActivity.mBrokenLibraries) ConfiguratorSession.registerNative()
         updateWindowSize()
         window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
     }

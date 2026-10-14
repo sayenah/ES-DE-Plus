@@ -39,6 +39,7 @@ namespace AndroidVariables
 
 namespace
 {
+    std::atomic<bool> sLifecycleEventsReady {false};
     std::atomic<bool> sQuitRequested {false};
     std::atomic<bool> sStartupDirectoriesRead {false};
 
@@ -68,15 +69,18 @@ namespace
 
     void prepareLifecycleEvents()
     {
-        // Called on the native startup thread after SDL's JNI setup. Install
-        // before resource work can outlive the Java activity. The startup
-        // configurator's existing event queue and quit poll remain intact.
+        // Registration runs after SDL's JNI setup, before onResume can start
+        // SDLThread. Subsequent hold updates and native directory setup reuse
+        // the queue/watch; quit must survive even the first configuration query.
+        if (sLifecycleEventsReady)
+            return;
         if (SDL_InitSubSystem(SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
             __android_log_print(ANDROID_LOG_ERROR, ANDROID_APPLICATION_ID,
                                 "Cannot initialize Android lifecycle events: %s", SDL_GetError());
             _exit(EXIT_FAILURE);
         }
         SDL_AddEventWatch(observeQuitRequest, nullptr);
+        sLifecycleEventsReady = true;
     }
 
     void prepareConfigurationWait()
@@ -658,8 +662,7 @@ namespace Utils
 extern "C" JNIEXPORT void JNICALL
 Java_org_esdeplus_frontend_MainActivity_nativeSetHold(JNIEnv*, jclass, jboolean hold)
 {
-    if (hold == JNI_TRUE)
-        prepareConfigurationWait();
+    prepareLifecycleEvents();
     AndroidVariables::sHold = hold == JNI_TRUE;
 }
 
