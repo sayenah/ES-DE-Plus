@@ -113,7 +113,7 @@ Every thread was dispatched with `launch.py` (copy in `…/8a7338b1-9e52-4d9f-b1
 | #16 | emulator manager (D-015) | `-sol6` | `01a13a8f-b4f3-77d0-bbd6-69162661171e` | 95055 running, round 2 (Unicode alias ruling, final evidence); `sol_emu/prompt_r2.md` | AC-13 touch narrowed (D-018 (3)); integrate after #11/#15 |
 | #17 | network-smoke reliability (PR-G2) | `-sol2` | `01a13be3-9944-7dc3-bb00-5941c85e337a` | 91105 running; `sol_net2/` | review → Opus pass |
 
-Design work: touch-overlay design workflow wf_d017750f-fc7 running (→ Astra challenge for WO-1 → Sol in a new clone); WO-2 and WO-4 adjudicated (D-018 am. 1, am. 2), Sol after #15 (and #16 for WO-4). QA clones: `~/dev/ES-DE-Plus-qa` (free; next: PR #11 verify), `-qa2` (PR #13), `-qa3` (free).
+Design work: touch-overlay design workflow wf_d017750f-fc7 completed (candidate `…/scratchpad/astra_wo1/candidate.md`: 14 controls on upstream's existing `DEVICE_TOUCH` ids, upstream's own MIT overlay art in `resources/graphics/overlay/`, header-only model + shell in `InputOverlay.cpp`, no bridge change, one Android-guarded upstream string); Astra challenge running (thread `01a13cdb-44f7-75b0-a57f-18f743f71863`, PID 47239, `…/scratchpad/astra_wo1/`) → adjudicate → Sol in a new clone `-sol7`; WO-2 and WO-4 adjudicated (D-018 am. 1, am. 2), Sol after #15 (and #16 for WO-4). QA clones: `~/dev/ES-DE-Plus-qa` (free; next: PR #11 verify), `-qa2` (PR #13), `-qa3` (free).
 
 ## Android gap audit — register and batches (D-018)
 
