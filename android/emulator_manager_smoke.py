@@ -46,6 +46,8 @@ def run(mode, harness, minified=False):
             return predicate(json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False)))
         except (json.JSONDecodeError, KeyError, TypeError):
             return False
+    def discard_receipt():
+        h.shell('run-as', 'org.esdeplus.stub', 'rm', '-f', 'files/observation.json')
     def fragment(value):
         return ET.fromstring('<document>' + re.sub(r'<\?xml[^>]*\?>', '', value) + '</document>')
     def current():
@@ -163,6 +165,7 @@ def run(mode, harness, minified=False):
         pick(13); page('draft'); pick(13); page('draft')
         h.screenshot('emulator-manager-' + mode + '-draft')
         # Exact candidate test, independent of the original/default profile.
+        discard_receipt()
         pick(16)
         h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved candidate accepted')
         h.wait_for(lambda: receipt_ready(lambda r: r.get('extras', {}).get('ROM', {}).get('value') == fixture_data['file']), 'candidate recipient observed file')
@@ -203,6 +206,7 @@ def run(mode, harness, minified=False):
             h.screenshot('emulator-manager-' + mode + '-package-removed')
             h.key('KEYCODE_ENTER')
             h.adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
+        discard_receipt()
         pick(16)
         h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved provider candidate')
         h.wait_for(lambda: receipt_ready(lambda r: r.get('data', '').startswith('content://' + h.app + '.roms/')), 'provider recipient observation')
@@ -235,10 +239,12 @@ def run(mode, harness, minified=False):
         controls('EMUPLUS TEST', fragment(current()[2]).find('alternativeEmulator/label').text, 'gamelist default')
         # Closing and a fresh start prove the unchanged upstream readers consume the files.
         restart_games()
+        discard_receipt()
         h.search_launch('Manager', 'emulator-manager-' + mode + '-saved')
         h.wait_for(lambda: 'Activity launch accepted:' in h.adb('logcat', '-d'), 'saved command resolves immediately')
+        h.wait_for(lambda: receipt_ready(lambda r: r.get('data', '').startswith('content://' + h.app + '.roms/')), 'fresh saved-launch recipient observation')
         receipt = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
-        for field in ['component', 'action', 'mime', 'data', 'flags', 'categories']:
+        for field in ['component', 'action', 'mime', 'data', 'flags', 'categories', 'extras']:
             controls(provider[field], receipt[field], 'test/saved Intent ' + field)
         controls(fixture_data['sha256'], receipt.get('sha256'), 'saved provider exact ZIP bytes')
         h.screenshot('emulator-manager-' + mode + '-saved-recipient')
@@ -261,6 +267,7 @@ def run(mode, harness, minified=False):
                 count.text = '7'
             h.user_file('gamelists/ps3/gamelist.xml', '\n'.join(ET.tostring(e, encoding='unicode') for e in selections))
             restart_games()
+            discard_receipt()
             h.search_launch('Upper', 'emulator-manager-' + mode + '-per-game')
             h.wait_for(lambda: receipt_ready(lambda r: r.get('extras', {}).get('ROM', {}).get('value') == fixture_data['upper']), 'per-game recipient')
             per_game = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
