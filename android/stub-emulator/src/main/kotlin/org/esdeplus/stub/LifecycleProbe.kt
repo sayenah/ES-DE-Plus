@@ -55,7 +55,7 @@ class LifecycleProbe : Instrumentation() {
 
     override fun callActivityOnCreate(activity: Activity, state: Bundle?) {
         super.callActivityOnCreate(activity, state)
-        if (mode !in listOf("recreate-early", "recreate-preconfiguration") ||
+        if (mode !in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup") ||
             activity.javaClass.name != "org.esdeplus.frontend.MainActivity") return
         if (earlyTriggered) return
         // Forward every real SDK result. Delay one resource or configuration
@@ -94,7 +94,7 @@ class LifecycleProbe : Instrumentation() {
         field.set(bridge, object : ContextWrapper(original) {
             override fun getAssets(): AssetManager {
                 if (!earlyTriggered && Thread.currentThread().name == "SDLThread" &&
-                    Thread.currentThread().stackTrace.any { it.methodName == "setupResources" &&
+                    Thread.currentThread().stackTrace.any { it.methodName == (if (mode == "recreate-startup") "checkNeedResourceCopy" else "setupResources") &&
                         it.className == "org.esdeplus.frontend.NativeBridge" }) {
                     destroyAtBarrier(activity)
                     check(preferences.all == saved) { "Persisted storage selection changed" }
@@ -105,11 +105,37 @@ class LifecycleProbe : Instrumentation() {
         })
     }
 
+    override fun callActivityOnStop(activity: Activity) {
+        super.callActivityOnStop(activity)
+        if (activity.javaClass.name == "org.esdeplus.frontend.MainActivity")
+            Log.i("ES-DE-Plus-Probe", "Lifecycle frontend stopped mode=$mode")
+    }
+
     override fun onStart() {
         val result = Bundle()
         try {
-            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-running", "finish-running"))
+            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait"))
             val command = File("/data/local/tmp/esde-lifecycle-command")
+            if (mode == "restart-wait") {
+                // Isolated helper probe: keep its real parent alive beyond the
+                // former 5-second deadline, then end this test process. This
+                // does not exercise or change the destruction timing gate.
+                val entry = Intent(Intent.ACTION_MAIN).setClassName(targetContext.packageName,
+                    "org.esdeplus.frontend.MainActivity").addCategory(Intent.CATEGORY_LAUNCHER)
+                targetContext.startActivity(Intent().setClassName(targetContext.packageName,
+                    "org.esdeplus.frontend.FrontendRestartActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra("parentPid", Process.myPid()).putExtra("entry", entry))
+                Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent pid=${Process.myPid()}")
+                val deadline = System.nanoTime() + 60_000_000_000L
+                while (!command.isFile) {
+                    check(System.nanoTime() < deadline) { "Slow-parent helper barrier timed out" }
+                    Thread.sleep(20)
+                }
+                Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent exiting")
+                Process.killProcess(Process.myPid())
+                return
+            }
             if (mode == "recreate-early") {
                 // Generated packaged content, not user data. Its real repair
                 // enters setupResources after the native window exists.
@@ -122,7 +148,7 @@ class LifecycleProbe : Instrumentation() {
             check(activity.javaClass.name == "org.esdeplus.frontend.MainActivity")
             Log.i("ES-DE-Plus-Probe", "Lifecycle probe ready mode=$mode pid=${Process.myPid()}")
             val deadline = System.nanoTime() + 60_000_000_000L
-            if (mode !in listOf("recreate-early", "recreate-preconfiguration")) {
+            if (mode !in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup")) {
                 while (!command.isFile) {
                     check(System.nanoTime() < deadline) { "External running-frontend barrier not reached" }
                     Thread.sleep(20)

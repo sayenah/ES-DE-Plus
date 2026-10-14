@@ -164,6 +164,7 @@ def launch():
 
 def save_logs(name):
     (evidence / (name + '-es_log.txt')).write_text(log())
+    (evidence / (name + '-es_log.txt.bak.txt')).write_text(shell('cat', logpath + '.bak', check=False))
     (evidence / (name + '-logcat.txt')).write_text(adb('logcat', '-d', '-v', 'threadtime'))
 
 

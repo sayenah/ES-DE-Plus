@@ -8,18 +8,33 @@ import subprocess
 import time
 
 
-def framework_recreation(harness, variant, failures):
+def framework_recreation(harness, variant, failures, home=False):
     h = type('Harness', (), harness)
-    name = 'lifecycle-' + variant + '-framework-recreation'
+    name = 'lifecycle-' + variant + '-framework-recreation' + ('-home' if home else '')
     setting = 'debug_view_attributes_application_package'
     original = h.shell('settings', 'get', 'global', setting).strip()
     h.shell('am', 'force-stop', h.app)
+    original_home = None
+    if home:
+        resolved = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
+                           '-c', 'android.intent.category.HOME')
+        original_home = next(line.strip() for line in resolved.splitlines() if '/' in line and ' ' not in line.strip())
+        if 'ResolverActivity' in original_home:
+            candidates = h.shell('cmd', 'package', 'query-activities', '--brief', '-a', 'android.intent.action.MAIN',
+                                 '-c', 'android.intent.category.HOME')
+            original_home = next(line.strip() for line in candidates.splitlines() if '/' in line and
+                                 ' ' not in line.strip() and not line.startswith(h.app + '/') and 'ResolverActivity' not in line)
+        assert 'Success' in h.shell('cmd', 'package', 'set-home-activity', h.app + '/org.esdeplus.frontend.HomeEntry')
     try:
         assert h.shell('settings', 'get', 'global', 'debug_view_attributes').strip() in ['null', '0'], 'Global view debugging unexpectedly enabled'
         if original == h.app:
             h.shell('settings', 'delete', 'global', setting)
         h.adb('logcat', '-c')
-        h.launch()
+        if home:
+            harness['startup_baseline'] = h.log()
+            h.key('KEYCODE_HOME')
+        else:
+            h.launch()
         h.configured_system(name + '-before')
         before = h.log()
         old = h.shell('pidof', h.app).strip()
@@ -39,7 +54,10 @@ def framework_recreation(harness, variant, failures):
         logs = h.adb('logcat', '-d', '-v', 'threadtime')
         old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
         assert 'changingConfigurations=true' in old_lines and 'finishing=false' in old_lines
-        assert 'handleRelaunchActivityLocally' in old_lines, 'Not the original framework trigger'
+        if variant == 'debug':
+            assert 'handleRelaunchActivityLocally' in old_lines, 'Not the original framework trigger'
+        else:
+            assert 'SDL destruction caller' not in old_lines, 'Release logged the debug stack trace'
         assert 'Finished main function' in old_lines and 'SDL activity destroy join returned' in old_lines
         assert old_lines.count('Running main function') == 1
         h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
@@ -56,11 +74,24 @@ def framework_recreation(harness, variant, failures):
         new_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + new + r'\s', line))
         assert new_lines.count('Running main function') == 1
         assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs
+        if home:
+            assert 'HOME=true' in new_lines, 'Restored entry lost HOME semantics'
+            resolved = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
+                               '-c', 'android.intent.category.HOME')
+            assert h.app + '/org.esdeplus.frontend.HomeEntry' in resolved, resolved
+            dump, records = h.activity_records()
+            assert len(records) == 1 and records[0][0] in ['MainActivity', 'HomeEntry'], dump
+            assert re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump), dump
+            h.key('KEYCODE_HOME')
+            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app),
+                       name + ' next HOME focused', timeout=30)
+            assert h.shell('pidof', h.app).strip() == new
+            h.save_logs(name + '-next-home')
         h.save_logs(name)
         (h.evidence / (name + '-result.txt')).write_text(
             f'PASS: AOSP CoreSettings local relaunch; old PID {old} returned/joined and ended '
             f'within 5 s (observed {elapsed:.3f}s); private product activity restored the entry '
-            f'without a harness relaunch; new PID {new} loaded two games with one native main.\n')
+            f'without a harness relaunch; new PID {new} loaded two games with one native main; HOME={home}.\n')
     except Exception as error:
         failures.append(name + ': ' + str(error))
         h.save_logs(name + '-failure')
@@ -73,10 +104,61 @@ def framework_recreation(harness, variant, failures):
         # End the recorded case before restoring its developer setting. No
         # failed destruction/start is retried and every failure stays gating.
         h.shell('am', 'force-stop', h.app)
+        if original_home:
+            assert 'Success' in h.shell('cmd', 'package', 'set-home-activity', original_home)
         if original == 'null':
             h.shell('settings', 'delete', 'global', setting)
         else:
             h.shell('settings', 'put', 'global', setting, original)
+
+
+def slow_restart(harness, variant, failures):
+    h = type('Harness', (), harness)
+    name = 'lifecycle-' + variant + '-restart-wait'
+    command = '/data/local/tmp/esde-lifecycle-command'
+    h.shell('am', 'force-stop', h.app)
+    h.shell('rm', '-f', command)
+    h.adb('logcat', '-c')
+    before = h.log()
+    h.dismiss_stock_onboarding(force=True)
+    with (h.evidence / (name + '-instrumentation.txt')).open('w') as output:
+        process = subprocess.Popen(['adb', 'shell', shlex.join([
+            'am', 'instrument', '-w', '-e', 'mode', 'restart-wait',
+            'org.esdeplus.stub/.LifecycleProbe'])], stdout=output, stderr=subprocess.STDOUT)
+        try:
+            h.wait_for(lambda: 'Lifecycle slow restart parent pid=' in h.adb('logcat', '-d') and
+                       'FrontendRestartActivity' in h.focused_window(), name + ' helper visible', timeout=30)
+            old = re.search(r'Lifecycle slow restart parent pid=(\d+)', h.adb('logcat', '-d'))[1]
+            time.sleep(6)
+            assert old in h.shell('pidof', h.app).split(), 'Slow parent ended before the wait control'
+            assert 'FrontendRestartActivity' in h.focused_window(), 'Helper disappeared after former 5 s limit'
+            assert 'Running main function' not in h.adb('logcat', '-d'), 'Helper overlapped the live parent'
+            h.screenshot(name + '-still-waiting')
+            h.shell('touch', command)
+            h.wait_for(lambda: old not in h.shell('pidof', h.app, check=False).split(), name + ' test parent exits', timeout=5)
+            h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
+                       name + ' helper observes real exit', timeout=10)
+            harness['startup_baseline'] = before
+            h.configured_system(name + '-automatic-relaunch')
+            new = h.shell('pidof', h.app).strip()
+            logs = h.adb('logcat', '-d', '-v', 'threadtime')
+            assert new.isdigit() and new != old
+            assert sum('Running main function' in line and bool(re.search(r'\s' + new + r'\s', line))
+                       for line in logs.splitlines()) == 1
+            assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs
+            h.save_logs(name)
+            (h.evidence / (name + '-result.txt')).write_text(
+                f'PASS: isolated helper stayed visible with live parent {old} for more than 6 s; '
+                f'no native main before actual parent exit; automatically restored one native main in {new}.\n')
+        except Exception as error:
+            failures.append(name + ': ' + str(error))
+            h.save_logs(name + '-failure')
+            (h.evidence / (name + '-failure-window.txt')).write_text(h.shell('dumpsys', 'window'))
+            (h.evidence / (name + '-result.txt')).write_text('FAIL: ' + str(error) + '\n')
+        finally:
+            h.shell('am', 'force-stop', h.app)
+            if process.poll() is None:
+                process.wait(timeout=15)
 
 
 def run(harness):
@@ -105,12 +187,14 @@ def run(harness):
         finally:
             h.shell('am', 'force-stop', h.app)
         framework_recreation(harness, variant, failures)
+        framework_recreation(harness, variant, failures, home=True)
+        slow_restart(harness, variant, failures)
         # Recreate an actual uncommitted installation for the startup schedule
         # probe. Release retains the files generated by its installed-start case.
         if variant == 'debug':
             h.shell('run-as', h.app, 'rm', '-rf', 'files/resources', 'files/themes/linear-es-de',
                     'files/resources-installed')
-        for mode in ['recreate-early', 'recreate-preconfiguration', 'recreate-running', 'finish-running']:
+        for mode in ['recreate-early', 'recreate-preconfiguration', 'recreate-startup', 'recreate-running', 'finish-running', 'recreate-background']:
             name = 'lifecycle-' + variant + '-' + mode
             h.shell('am', 'force-stop', h.app)
             h.shell('rm', '-f', command)
@@ -124,18 +208,27 @@ def run(harness):
                 # every ROM and restore the directory before the next launch.
                 h.shell('mv', h.shared, parked_root)
             output_path = h.evidence / (name + '-instrumentation.txt')
+            h.dismiss_stock_onboarding(force=True)
             with output_path.open('w') as output:
                 process = subprocess.Popen(['adb', 'shell', shlex.join([
                     'am', 'instrument', '-w', '-e', 'mode', mode,
                     'org.esdeplus.stub/.LifecycleProbe'])], stdout=output, stderr=subprocess.STDOUT)
                 try:
-                    if mode not in ['recreate-early', 'recreate-preconfiguration']:
+                    if mode not in ['recreate-early', 'recreate-preconfiguration', 'recreate-startup']:
                         h.wait_for(lambda: 'Lifecycle probe ready mode=' + mode in h.adb('logcat', '-d') and
                                    h.log() != baseline and 'Application startup time:' in h.log(),
                                    name + ' actual frontend startup', timeout=60)
                         time.sleep(10)
-                        assert h.smoke_checks.package_window_focused(h.focused_window(), h.app)
+                        h.dismiss_stock_onboarding(force=True)
+                        h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app),
+                                   name + ' frontend focused before action', timeout=30)
                         h.screenshot(name + '-before')
+                        if mode == 'recreate-background':
+                            h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity')
+                            h.wait_for(lambda: 'Lifecycle frontend stopped mode=' + mode in h.adb('logcat', '-d') and
+                                       h.smoke_checks.package_window_focused(h.focused_window(), 'org.esdeplus.stub'),
+                                       name + ' real STOPPED frontend behind recipient', timeout=30)
+                            h.save_logs(name + '-stopped')
                         h.shell('touch', command)
                     trigger = 'Lifecycle probe triggering ' + mode
                     h.wait_for(lambda: trigger in h.adb('logcat', '-d'), name + ' platform trigger', timeout=60)
@@ -159,6 +252,11 @@ def run(harness):
                         assert configuration_exit, 'Quit was lost before the recovery hold'
                         assert 'Lifecycle preconfiguration selection preserved' in old_lines, 'Persisted selection changed'
                         assert not startup_exit, 'Recovery hold was not exercised'
+                    elif mode == 'recreate-startup':
+                        assert startup_exit, 'Installed-resource startup checkpoint was not exercised'
+                        assert 'Resource copy required=false' in old_lines, 'Startup unexpectedly needed resource copy'
+                        assert 'Resource installation committed' not in old_lines and not copy_cancelled
+                        assert 'Lifecycle resource selection preserved' in old_lines
                     elif copy_cancelled:
                         assert mode == 'recreate-early', 'Resource cancellation on a running frontend'
                         assert not startup_exit and 'Resource installation committed' not in old_lines, 'Cancelled installation was committed'
@@ -177,7 +275,7 @@ def run(harness):
                         assert 'SDL activity destroy join returned' in old_lines, 'Native join did not return; see ' + name + '-failure-logcat.txt'
                     assert old_lines.count('Running main function') == 1, 'Second native main; see ' + name + '-failure-logcat.txt'
                     assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs, 'ANR/JNI failure; see ' + name + '-failure-logcat.txt'
-                    if mode in ['recreate-early', 'recreate-preconfiguration']:
+                    if mode in ['recreate-early', 'recreate-preconfiguration', 'recreate-startup']:
                         assert 'Lifecycle startup barrier released after destruction quit/join' in old_lines, 'Startup barrier did not release'
                         assert old_lines.count(trigger) == 1, 'Early trigger repeated'
                     if mode == 'recreate-early':
@@ -186,9 +284,25 @@ def run(harness):
                     if root_parked:
                         h.shell('mv', parked_root, h.shared)
                         root_parked = False
-                    h.launch()
+                    if mode == 'recreate-background':
+                        # Android may defer a background launch. A user entry
+                        # must recover one clean frontend in either case.
+                        h.save_logs(name + '-before-next-entry')
+                    if mode == 'recreate-background':
+                        harness['startup_baseline'] = baseline
+                        h.start_entry()
+                        h.wait_for(lambda: h.log().splitlines()[0:1] != baseline.splitlines()[0:1] and
+                                   'Application startup time:' in h.log(), name + ' fresh next entry')
+                        h.configured_system(name + '-next-foreground')
+                    else:
+                        h.launch()
                     new = h.shell('pidof', h.app).strip()
-                    assert new != old
+                    assert new.isdigit() and new != old
+                    new_lines = '\n'.join(line for line in h.adb('logcat', '-d', '-v', 'threadtime').splitlines()
+                                          if re.search(r'\s' + new + r'\s', line))
+                    assert new_lines.count('Running main function') == 1, 'Next entry started more than one native main'
+                    if variant == 'minified':
+                        assert 'SDL destruction caller' not in old_lines, 'Release logged a destruction stack'
                     if copy_cancelled:
                         next_logs = '\n'.join(line for line in h.adb('logcat', '-d', '-v', 'threadtime').splitlines()
                                               if re.search(r'\s' + new + r'\s', line))
@@ -224,7 +338,7 @@ def run(harness):
     h.adb('install', '-r', str(h.apk))
     (h.evidence / 'lifecycle-summary.txt').write_text(
         '\n'.join(failures) + '\n' if failures else
-        'PASS: debug and minified framework recreation with automatic product restoration, resource-startup and preconfiguration recreation, running recreation and running finish; 5 s bound, saved-state startup exit or running native return/join, no second main, next launch.\n')
+        'PASS: debug and minified framework/HOME recreation with automatic product restoration, resource-startup, installed-resource startup and preconfiguration recreation, running/background recreation and running finish; 5 s bound, saved-state startup exit or running native return/join, no second main, next launch.\n')
     assert not failures, '\n'.join(failures)
     h.start_entry('HomeEntry', 'android.intent.category.HOME')
     h.configured_system('lifecycle-restored-home')

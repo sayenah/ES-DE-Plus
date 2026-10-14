@@ -67,10 +67,11 @@ class MainActivity : SDLActivity() {
     override fun onDestroy() {
         destroying = true
         val terminal = !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
-        Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring} " +
+        val destruction = "Destroying SDL activity held=${ConfiguratorSession.configuring} " +
             "finishing=$isFinishing changingConfigurations=$isChangingConfigurations " +
-            "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId",
-            Throwable("SDL destruction caller"))
+            "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId"
+        if (BuildConfig.DEBUG) Log.i("ES-DE-Plus", destruction, Throwable("SDL destruction caller"))
+        else Log.i("ES-DE-Plus", destruction)
         // Android's non-finishing relaunch must retain a foreground owner
         // while this process retires. The private Java activity waits for
         // actual process death; it cannot conceal a native quit/join stall.
