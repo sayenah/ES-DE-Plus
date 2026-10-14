@@ -18,6 +18,16 @@ Acceptance criteria:
 - AC-5 No regression of PR-A…PR-D and PR #10 behaviour; D-009 unchanged; no APK from branch or PR runs.
 - AC-6 B-1 Linux and Android, B-2 for any changed C++, B-4, B-5; no dependency.
 
+## PR-G network permission — active parallel work order (D-014)
+
+Stage: IMPLEMENTATION. Owner: Sol (second clone `~/dev/ES-DE-Plus-sol2`, git metadata `~/dev/ES-DE-Plus-sol2-git`). Branch `fix/network-permission` from `origin/main`, title "Declare the network permission (theme downloader, scrapers)". Objective: the upstream theme downloader and scrapers work on Android. Change: `android.permission.INTERNET` in `android/app/src/main/AndroidManifest.xml`, nothing else in the manifest; smoke additions; `android/README.md` permission list if it has one. Non-goals: the lifecycle stall (Sol's other thread, PR #11 — do not touch `MainActivity`/`ConfiguratorSession`/`PlatformUtilAndroid.cpp`), network-state permissions for the status bar stubs, scraper accounts.
+
+- AC-1 The built APK's badging lists `android.permission.INTERNET` and no other added permission (B-5 inventory updated if it lists permissions).
+- AC-2 On API 34, the smoke opens the theme downloader through the real UI, the `themes-list` clone from `https://gitlab.com/es-de/themes/themes-list.git` succeeds with the bundled CA bundle, the theme list renders (screenshot, `es_log.txt` excerpt), and one theme is downloaded and appears as selectable; gating on API 34 with bounded, logged retries only for network/remote failures; run and recorded on API 29 and TV.
+- AC-3 One scraper HTTPS request from the frontend reaches its service (a result or a service-level reply, not a resolve/connect/TLS error), recorded on API 34.
+- AC-4 Positive control: the same AC-2/AC-3 checks fail with the resolve error against the APK built without the permission (record the run).
+- AC-5 No regression of PR-A…PR-D, PR #10 behaviour; D-009 unchanged; no APK from branch or PR runs; B-1 Linux and Android, B-4, B-5; no dependency.
+
 ## PR-E release pipeline — queued work order (D-011, D-013, D-013 am. 1)
 
 Objective: every published test APK is signed with the stable test key so updates install in place, and every successful `main` publication also appears as a GitHub pre-release `android-test-<sha>` (four assets as on the manual `android-test-65e8bea29`: `es-de-plus-<sha>-debug.apk`, `…-licenses.zip`, `…-source.tar`, `SHA256SUMS.txt`; notes as there). Branch `fix/release-pipeline`, title "Stable test signing and automated test pre-releases". Design is D-013 am. 1 (binding); key bootstrap is done (environment `test-signing`, branch policy `main` only; secrets `ESDEPLUS_TEST_KEYSTORE_B64`, `ESDEPLUS_TEST_KEYSTORE_PASSWORD`; variables `ESDEPLUS_TEST_KEY_ALIAS`, `ESDEPLUS_TEST_CERT_SHA256` = `6bd277aa…0ff0`). Touches `.github/workflows/build-android.yml`, `android/app/build.gradle.kts` (version only; no signing credentials in Gradle), `android/distribution.py`, notes template, `android/README.md`, `.github/README.md` "Get it". D-009 guarantees unchanged. Non-goals: release signing, store distribution, pruning.
@@ -36,7 +46,7 @@ Objective: every published test APK is signed with the stable test key so update
 
 ## PR-F application-data folder — queued work order (D-012, D-012 am. 1)
 
-Objective: in direct-filesystem mode the first-run configurator asks for the application-data folder before the ROM folder (default `<primary volume>/ES-DE-Plus`), so settings, media, gamelists, collections, themes and `custom_systems` survive uninstall; an existing official `ES-DE` folder may be adopted in place only after an explicit warning. Branch `feature/app-data-folder`, title "Choose the application-data folder in the configurator". Design is D-012 am. 1 (binding). Host changes in `android/app/…` (`ConfiguratorActivity`, `ConfiguratorSession`, `StorageModel`, `NativeBridge`, strings); existing JNI signatures and C++ path consumers reused; only evidenced, Android-guarded C++ changes for recovery; no new permission; ES-DE-Plus docs corrected (themes live under the data folder). Non-goals: copying old private data, SAF-only data folders, scoped-mode change beyond its warning.
+Objective (D-012 am. 2: full file access is the first, recommended choice; order permission → data folder → ROM folder, as in the original; app-private storage only as the labelled secondary option): in direct-filesystem mode the first-run configurator asks for the application-data folder before the ROM folder (default `<primary volume>/ES-DE-Plus`), so settings, media, gamelists, collections, themes and `custom_systems` survive uninstall; an existing official `ES-DE` folder may be adopted in place only after an explicit warning. Branch `feature/app-data-folder`, title "Choose the application-data folder in the configurator". Design is D-012 am. 1 (binding). Host changes in `android/app/…` (`ConfiguratorActivity`, `ConfiguratorSession`, `StorageModel`, `NativeBridge`, strings); existing JNI signatures and C++ path consumers reused; only evidenced, Android-guarded C++ changes for recovery; no new permission; ES-DE-Plus docs corrected (themes live under the data folder). Non-goals: copying old private data, SAF-only data folders, scoped-mode change beyond its warning.
 
 - AC-1 Selection and guards: in direct mode, after access is granted, data-folder selection precedes ROM selection; the proposed default `<verified primary-volume root>/ES-DE-Plus` is created only after confirmation; both selections reject volume roots, volume-relative `Android/` paths, escapes and overlapping roots; ROM selection keeps the official-directory refusals.
 - AC-2 Consent: before confirmation for the exact destination, nothing enumerates it, reads its settings or writes a probe there; the default `ES-DE-Plus` destination takes a create/use confirmation, every other destination the adoption warning; changing the destination invalidates confirmation; cancelling leaves accepted configuration and destination contents unchanged.
@@ -51,7 +61,7 @@ Objective: in direct-filesystem mode the first-run configurator asks for the app
 
 ## Founder gate (open)
 
-None. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) → PR-E → PR-F.
+None. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-E → PR-F (amended by D-012 am. 2).
 
 ## State (verified 2026-10-12 14:50 CDT; re-verify from the repository)
 
