@@ -81,6 +81,8 @@ def framework_recreation(harness, variant, failures, home=False):
             assert any(line.strip() in [h.app + '/.HomeEntry', h.app + '/org.esdeplus.frontend.HomeEntry']
                        for line in resolved.splitlines()), resolved
             dump, records = h.activity_records()
+            (h.evidence / (name + '-home-activities.txt')).write_text(dump)
+            (h.evidence / (name + '-home-resolver.txt')).write_text(resolved)
             assert len(records) == 1 and records[0][0] in ['MainActivity', 'HomeEntry'], dump
             assert re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump), dump
             h.key('KEYCODE_HOME')
@@ -241,6 +243,7 @@ def run(harness):
                                        h.smoke_checks.package_window_focused(h.focused_window(), 'org.esdeplus.stub'),
                                        name + ' real STOPPED frontend behind recipient', timeout=30)
                             h.save_logs(name + '-stopped')
+                            (h.evidence / (name + '-stopped-activities.txt')).write_text(h.activity_records()[0])
                         h.shell('touch', command)
                     trigger = 'Lifecycle probe triggering ' + mode
                     h.wait_for(lambda: trigger in h.adb('logcat', '-d'), name + ' platform trigger', timeout=60)
@@ -300,6 +303,8 @@ def run(harness):
                         # Android may defer a background launch. A user entry
                         # must recover one clean frontend in either case.
                         h.save_logs(name + '-before-next-entry')
+                        (h.evidence / (name + '-before-next-entry-activities.txt')).write_text(h.activity_records()[0])
+                        (h.evidence / (name + '-before-next-entry-window.txt')).write_text(h.focused_window())
                     if mode == 'recreate-background':
                         harness['startup_baseline'] = baseline
                         h.start_entry()
