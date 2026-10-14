@@ -34,7 +34,8 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
-            if (followupMode in listOf("emulator-manager-prepare", "emulator-manager-read", "emulator-manager-cleanup")) {
+            if (followupMode in listOf("emulator-manager-prepare", "emulator-manager-read", "emulator-manager-cleanup",
+                "emulator-manager-default-block", "emulator-manager-default-unblock")) {
                 result.putString("stream", EmulatorManagerSmoke.fixture(targetContext, followupMode!!))
                 finish(-1, result)
                 return

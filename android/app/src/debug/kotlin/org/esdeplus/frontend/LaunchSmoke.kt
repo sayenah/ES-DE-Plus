@@ -55,7 +55,7 @@ object LaunchSmoke {
         // App-owned user configuration must be prepared through the actual
         // application's UID; adb sync cannot write it on all Android images.
         equal(relative in listOf("custom_systems/es_systems.xml", "custom_systems/es_find_rules.xml",
-            "settings/es_settings.xml"), true, "Probe user-file scope")
+            "settings/es_settings.xml", "gamelists/ps3/gamelist.xml"), true, "Probe user-file scope")
         val file = File(StorageModel(context).appData(), relative)
         if (contents == null) {
             if (file.exists()) equal(file.delete(), true, "Remove probe user file")

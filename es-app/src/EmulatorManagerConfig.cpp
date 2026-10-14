@@ -424,13 +424,13 @@ std::string EmulatorManagerConfig::add(const std::string& name,
         std::string value {cmd.attribute("label").value()};
         if (!labels.insert(value).second)
             throw std::runtime_error(
-                "Duplicate existing command labels: repair them before adding");
+                _("Duplicate existing command labels: repair them before adding"));
     }
     if (labels.count(label))
         throw std::runtime_error(_("That emulator label already exists"));
     if (labels.count("") && (count != 1 || !nameUnlabelled))
         throw std::runtime_error(
-            "An unlabelled command needs an explicit label before adding alternatives");
+            _("An unlabelled command needs an explicit label before adding alternatives"));
     auto addedExtensions = words(extensions);
     for (auto ext : addedExtensions) {
         if (ext.size() < 2 || ext[0] != '.' ||
@@ -438,7 +438,7 @@ std::string EmulatorManagerConfig::add(const std::string& name,
                 ".abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") !=
                 std::string::npos)
             throw std::runtime_error(
-                "Extensions must be dot-prefixed file types separated by spaces");
+                _("Extensions must be dot-prefixed file types separated by spaces"));
     }
     const auto key = fingerprint(name + "\n" + label + "\n" + component + "\n" + profile);
     std::string id {"ESDEPLUS_" + key};
@@ -598,11 +598,11 @@ void EmulatorManagerConfig::refresh(const std::string& name)
         fresh.append_copy(child);
     }
     const std::string originalExtensions {source.child("extension").text().get()};
-    fresh.prepend_child(pugi::node_comment)
-        .set_value((snapshotPrefix + mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) +
-                    " " + fingerprint(xml(source)) + " " + baseline(fresh, originalExtensions) +
-                    " " + hex(originalExtensions) + " " + fingerprint(extensionValue))
-                       .c_str());
+    const std::string metadata {
+        snapshotPrefix + mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) + " " +
+        fingerprint(xml(source)) + " " + baseline(fresh, originalExtensions) + " " +
+        hex(originalExtensions) + " " + fingerprint(extensionValue)};
+    fresh.prepend_child(pugi::node_comment).set_value(metadata.c_str());
     fresh.child("extension").text().set(extensionValue.c_str());
     parent.remove_child(node);
 }
@@ -664,7 +664,7 @@ void EmulatorManagerConfig::save()
     auto unchanged = [&] {
         if (read(systemsPath, true) != mSystemsBytes || read(rulesPath, true) != mRulesBytes)
             throw std::runtime_error(
-                "Configuration changed outside the manager; reopen it before applying");
+                _("Configuration changed outside the manager; reopen it before applying"));
     };
     const auto systemsBytes = xml(mSystems);
     const auto rulesBytes = xml(mRules);

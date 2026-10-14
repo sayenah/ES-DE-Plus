@@ -205,5 +205,6 @@ void EmulatorManagerRuntime::apply(const std::string& systemName)
     auto system = SystemData::getSystemByName(systemName);
     if (system)
         ViewController::getInstance()->goToSystemView(system, false);
+    LOG(LogInfo) << "Emulator manager applied: " << systemName;
 }
 #endif

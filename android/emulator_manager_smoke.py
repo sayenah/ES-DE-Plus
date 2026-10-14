@@ -89,6 +89,18 @@ def run(mode, harness, minified=False):
         h.adb('logcat', '-c')
         h.shell('input', 'tap', str(round(float(match[2]))), str(round(float(match[3]))))
         h.time.sleep(0.5)
+    def manager():
+        h.key('KEYCODE_ESCAPE')
+        for _ in range(6): h.key('KEYCODE_DPAD_DOWN')
+        h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); page('systems')
+        pick(1); page('system')
+    def restart_games():
+        h.shell('am', 'force-stop', h.app); h.adb('logcat', '-c'); h.start_entry()
+        h.wait_for(lambda: 'Total game count: 2' in h.log(), 'fresh startup manager configuration')
+        h.wait_for(lambda: bool(h.hierarchy()), 'fresh startup native window')
+    def cancel_notice():
+        if h.api != 36: tap('CANCEL')
+        else: h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
 
     release_installed = False
     try:
@@ -118,6 +130,11 @@ def run(mode, harness, minified=False):
             tap('ADD EMULATOR')
             page('draft')
         pick(0); text('EMUPLUS TEST'); page('draft')
+        # Cancel asynchronous discovery through the ordinary keyboard back mapping.
+        cancel_started = h.time.monotonic()
+        pick(1); page('apps'); h.key('KEYCODE_DEL'); page('draft')
+        controls(True, h.time.monotonic() - cancel_started < 10, 'discovery cancellation stays responsive')
+        controls(before, current(), 'discovery cancellation preserves configuration')
         pick(1); page('apps')
         # Search is UI input, preserving the actual component even with equal labels.
         pick(0); text('.RecipientActivity')
@@ -132,6 +149,18 @@ def run(mode, harness, minified=False):
         page('draft')
         pick(4); text('.zip .ZIP'); page('draft')
         pick(15); page('files'); pick(0); text(fixture_data['file']); page('draft')
+        # Configure a supported typed extra in the GUI and exercise its validation.
+        pick(11); page('extras'); pick(2); page('extra')
+        pick(2); text('2147483648', erase=1); page('extra')
+        h.key('KEYCODE_DEL'); page('extras'); h.key('KEYCODE_DEL'); page('draft')
+        pick(16)
+        h.wait_for(lambda: 'Integer extras must fit a signed 32-bit integer' in h.adb('logcat', '-d'), 'typed integer validation error')
+        controls(before, current(), 'invalid typed extra test isolation')
+        h.screenshot('emulator-manager-' + mode + '-typed-extra-error'); h.key('KEYCODE_ENTER')
+        pick(11); page('extras'); pick(2); page('extra')
+        pick(2); text('3', erase=10); page('extra')
+        h.key('KEYCODE_DEL'); page('extras'); h.key('KEYCODE_DEL'); page('draft')
+        pick(13); page('draft'); pick(13); page('draft')
         h.screenshot('emulator-manager-' + mode + '-draft')
         # Exact candidate test, independent of the original/default profile.
         pick(16)
@@ -144,6 +173,7 @@ def run(mode, harness, minified=False):
         else:
             controls(True, bool(observation.get('readError')), 'recipient reports scoped raw-path access refusal')
         controls('java.lang.Integer', observation['extras']['slot']['type'], 'typed integer')
+        controls('3', str(observation['extras']['slot']['value']), 'GUI-edited typed integer value')
         controls('java.lang.Boolean', observation['extras']['boot']['type'], 'typed boolean')
         controls(before, current(), 'test leaves files/default/statistics unchanged')
         h.evidence.joinpath('emulator-manager-' + mode + '-test-recipient.json.txt').write_text(json.dumps(observation, indent=2))
@@ -196,11 +226,7 @@ def run(mode, harness, minified=False):
         rule_id = re.search(r'%EMULATOR_([^%]+)%', commands[-1].text)[1]
         controls(True, ET.fromstring(saved[1]).find("emulator[@name='" + rule_id + "']") is not None, 'new rule read back')
         # Re-enter through the ordinary menu, set default and launch through normal search.
-        h.key('KEYCODE_ESCAPE')
-        # Main menu: SEARCH, SCRAPER, UI, SOUND, INPUT, GAME COLLECTION, OTHER.
-        for _ in range(6): h.key('KEYCODE_DPAD_DOWN')
-        h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); page('systems')
-        pick(1); page('system')
+        manager()
         if h.api != 36:
             tap('SET SYSTEM DEFAULT'); page('defaults'); tap('EMUPLUS TEST'); page('system')
         else:
@@ -208,9 +234,7 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: 'Emulator manager default saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'ordinary default persisted')
         controls('EMUPLUS TEST', fragment(current()[2]).find('alternativeEmulator/label').text, 'gamelist default')
         # Closing and a fresh start prove the unchanged upstream readers consume the files.
-        h.shell('am', 'force-stop', h.app); h.adb('logcat', '-c'); h.start_entry()
-        h.wait_for(lambda: 'Total game count: 2' in h.log(), 'fresh startup manager configuration')
-        h.wait_for(lambda: bool(h.hierarchy()), 'fresh startup native window')
+        restart_games()
         h.search_launch('Manager', 'emulator-manager-' + mode + '-saved')
         h.wait_for(lambda: 'Activity launch accepted:' in h.adb('logcat', '-d'), 'saved command resolves immediately')
         receipt = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
@@ -218,6 +242,73 @@ def run(mode, harness, minified=False):
             controls(provider[field], receipt[field], 'test/saved Intent ' + field)
         controls(fixture_data['sha256'], receipt.get('sha256'), 'saved provider exact ZIP bytes')
         h.screenshot('emulator-manager-' + mode + '-saved-recipient')
+        if not minified:
+            # Standard gamelist fixtures exercise the unchanged per-game reader.
+            # Keep unrelated choices and ordinary play metadata across the apply cycles.
+            selections = fragment(current()[2])
+            games = selections.find('gameList')
+            if games is None: games = ET.SubElement(selections, 'gameList')
+            for filename, label in [('ESDEPlus Manager Test.zip', 'EMUPLUS TEST'),
+                                    ('ESDEPlus Upper Test.ZIP', 'Original')]:
+                game = next((g for g in games.findall('game') if g.findtext('path') == './' + filename), None)
+                if game is None:
+                    game = ET.SubElement(games, 'game'); ET.SubElement(game, 'path').text = './' + filename
+                choice = game.find('altemulator')
+                if choice is None: choice = ET.SubElement(game, 'altemulator')
+                choice.text = label
+                count = game.find('playcount')
+                if count is None: count = ET.SubElement(game, 'playcount')
+                count.text = '7'
+            h.user_file('gamelists/ps3/gamelist.xml', '\n'.join(ET.tostring(e, encoding='unicode') for e in selections))
+            restart_games()
+            h.search_launch('Upper', 'emulator-manager-' + mode + '-per-game')
+            h.wait_for(lambda: receipt_ready(lambda r: r.get('extras', {}).get('ROM', {}).get('value') == fixture_data['upper']), 'per-game recipient')
+            per_game = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+            controls('org.esdeplus.stub/org.esdeplus.stub.TelevisionOnly', per_game['component'], 'per-game overrides system default')
+            h.evidence.joinpath('emulator-manager-' + mode + '-per-game.json.txt').write_text(json.dumps(per_game, indent=2))
+            # A real filesystem obstacle exercises ordinary gamelist save failure.
+            # Restore the original data before any following configuration operation.
+            overrides_before = current()[:2]
+            fixture('default-block')
+            restart_games(); manager(); pick(1); page('defaults'); pick(1)
+            h.wait_for(lambda: 'Could not save the default emulator to gamelist.xml' in h.adb('logcat', '-d'), 'actionable default persistence failure')
+            controls(overrides_before, current()[:2], 'default failure leaves emulator definitions unchanged')
+            h.screenshot('emulator-manager-' + mode + '-default-save-failure')
+            fixture('default-unblock')
+            restart_games(); manager()
+            before_removal = current()
+            pick(3); cancel_notice()
+            controls(before_removal, current(), 'cancelled removal preserves selections and definitions')
+            pick(3); h.key('KEYCODE_ENTER')
+            # Removal requires explicit repair of the selected manager entry.
+            h.screenshot('emulator-manager-' + mode + '-repair-consent')
+            cancel_notice()
+            controls(before_removal, current(), 'declined repair preserves selections and definitions')
+            pick(3); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER')
+            h.wait_for(lambda: 'Emulator manager applied: ps3' in h.adb('logcat', '-d'), 'remove reapplies with accepted extensions')
+            repaired = fragment(current()[2])
+            controls('', repaired.findtext('alternativeEmulator/label') or '', 'affected system selection repaired')
+            choices = {g.findtext('path'): g.findtext('altemulator') or '' for g in repaired.find('gameList').findall('game')}
+            controls('', choices['./ESDEPlus Manager Test.zip'], 'affected per-game selection repaired')
+            controls('Original', choices['./ESDEPlus Upper Test.ZIP'], 'unrelated per-game selection preserved')
+            controls(1, len(fragment(current()[0]).find('systemList/system').findall('command')), 'only manager command removed')
+            manager()
+            before_reset = current()
+            pick(3); h.screenshot('emulator-manager-' + mode + '-whole-override-reset-consent'); cancel_notice()
+            controls(before_reset, current(), 'reset needs explicit confirmation')
+            pick(3); h.key('KEYCODE_ENTER')
+            # The remaining per-game Original choice also needs explicit repair.
+            h.key('KEYCODE_ENTER')
+            h.wait_for(lambda: 'Emulator manager applied: ps3' in h.adb('logcat', '-d') and 'Total game count: 0' in h.log(), 'reset reapplies bundled file types immediately')
+            reset = fragment(current()[0])
+            controls(True, reset.find('loadExclusive') is not None, 'exclusive directive survives reset')
+            controls('Sony PlayStation 3', reset.findtext('systemList/system/fullname'), 'bundled snapshot retained under exclusive reset')
+            controls(False, '.zip' in reset.findtext('systemList/system/extension').split(), 'reset restores bundled extensions')
+            repaired_after_reset = fragment(current()[2])
+            controls(True, all(not g.findtext('altemulator') for g in repaired_after_reset.find('gameList').findall('game')), 'reset repairs remaining invalid selections')
+            h.screenshot('emulator-manager-' + mode + '-reset-applied')
+            h.evidence.joinpath('emulator-manager-' + mode + '-selection-reset-summary.txt').write_text(
+                'PASS: per-game override beats system default; real gamelist save failure reported without changing definitions; cancelled removal and declined repair preserve files; explicit repair clears affected system/game choices and keeps unrelated choice; removal reapplies with accepted types; whole-override reset requires confirmation, repairs remaining choices and immediately restores bundled types under loadExclusive.\n')
         h.save_logs('emulator-manager-' + mode)
         h.evidence.joinpath('emulator-manager-' + mode + '-summary.txt').write_text(
             'PASS: native no-games link, effective/loadExclusive system, installed component via UI search, copied structured profile, .zip/.ZIP and matching draft file, exact archive bytes, accepted/refused unsaved test isolation, provider data transport, immediate rescan/rule resolution, default gamelist persistence, fresh upstream readback and equal test/saved Intent. Screenshots capture the real GUI; APK never uploaded.\n')

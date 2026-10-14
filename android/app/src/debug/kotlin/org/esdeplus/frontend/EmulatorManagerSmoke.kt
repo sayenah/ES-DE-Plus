@@ -19,6 +19,13 @@ object EmulatorManagerSmoke {
         val lower = File(directory, "ESDEPlus Manager Test.zip")
         val upper = File(directory, "ESDEPlus Upper Test.ZIP")
         val gamelist = File(data, "gamelists/ps3/gamelist.xml")
+        val savedGamelist = File(data, "gamelists/ps3/emulator-manager-gamelist-backup.xml")
+        fun unblock() {
+            if (savedGamelist.exists()) {
+                check(gamelist.isDirectory && gamelist.listFiles()!!.isEmpty())
+                check(gamelist.delete() && savedGamelist.renameTo(gamelist))
+            }
+        }
         when (mode) {
             "emulator-manager-prepare" -> {
                 check(!lower.exists() && !upper.exists() && !gamelist.exists())
@@ -32,7 +39,14 @@ object EmulatorManagerSmoke {
                 check(!File(directory, "original-bytes.rom").exists())
             }
             "emulator-manager-read" -> Unit
+            "emulator-manager-default-block" -> {
+                check(gamelist.isFile && !savedGamelist.exists())
+                check(gamelist.readText().contains("EMUPLUS TEST"))
+                check(gamelist.renameTo(savedGamelist) && gamelist.mkdir())
+            }
+            "emulator-manager-default-unblock" -> unblock()
             "emulator-manager-cleanup" -> {
+                unblock()
                 for (file in listOf(lower, upper)) {
                     if (file.exists()) {
                         check(file.readBytes().take(2) == listOf<Byte>(80, 75))
@@ -40,14 +54,15 @@ object EmulatorManagerSmoke {
                     }
                 }
                 if (gamelist.exists()) {
-                    check(gamelist.readText().contains("EMUPLUS TEST"))
+                    check(gamelist.readText().contains("EMUPLUS TEST") ||
+                        gamelist.readText().contains(lower.name))
                     check(gamelist.delete())
                 }
                 check(!File(directory, "original-bytes.rom").exists())
             }
             else -> error("Unknown emulator-manager fixture mode")
         }
-        fun contents(relative: String): String? = File(data, relative).let { if (it.exists()) it.readText() else null }
+        fun contents(relative: String): String? = File(data, relative).let { if (it.isFile) it.readText() else null }
         val output = JSONObject().put("dataRoot", data.path).put("root", root.path).put("file", lower.path).put("upper", upper.path)
             .put("sha256", if (lower.exists()) MessageDigest.getInstance("SHA-256").digest(lower.readBytes())
                 .joinToString("") { "%02x".format(it) } else "")

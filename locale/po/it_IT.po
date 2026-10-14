@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-14 10:40-0500\n"
+"POT-Creation-Date: 2026-10-14 11:22-0500\n"
 "PO-Revision-Date: 2026-09-05 21:44+0300\n"
 "Last-Translator: Lorenzo Castelletta <lorenzo.castelletta@gmail.com>\n"
 "Language-Team: Italiano <info@es-de.org>\n"
@@ -262,7 +262,17 @@ msgstr ""
 msgid "The target system has missing or ambiguous required fields"
 msgstr ""
 
+msgid "Duplicate existing command labels: repair them before adding"
+msgstr ""
+
 msgid "That emulator label already exists"
+msgstr ""
+
+msgid ""
+"An unlabelled command needs an explicit label before adding alternatives"
+msgstr ""
+
+msgid "Extensions must be dot-prefixed file types separated by spaces"
 msgstr ""
 
 msgid "Original emulator"

@@ -13,6 +13,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <sys/stat.h>
+#include <unistd.h>
 
 namespace
 {
@@ -127,6 +128,24 @@ int main(int argc, char** argv)
         snapshot.save();
         require(!EmulatorManagerConfig(root, bundle, bundledRules).system("test").stale,
                 "fresh snapshot");
+        // A SAF-mode variant change is stale even when this individual entry is identical.
+        const std::string safBundle {root + "/bundle-saf.xml"};
+        put(safBundle, source);
+        const auto beforeModeChange = read(systems);
+        EmulatorManagerConfig safMode {root, safBundle, bundledRules};
+        require(safMode.system("test").stale && read(systems) == beforeModeChange,
+                "SAF variant change reports staleness without rewriting");
+        safMode.refresh("test");
+        safMode.save();
+        require(!EmulatorManagerConfig(root, safBundle, bundledRules).system("test").stale &&
+                    EmulatorManagerConfig(root, safBundle, bundledRules)
+                            .system("test")
+                            .commands.size() == 2,
+                "explicit SAF variant refresh preserves manager addition");
+        EmulatorManagerConfig normalMode {root, bundle, bundledRules};
+        require(normalMode.system("test").stale, "switch back to normal variant is stale");
+        normalMode.refresh("test");
+        normalMode.save();
         auto newer = source;
         newer.replace(newer.find("<fullname>Test"), 14, "<fullname>New ");
         put(bundle, newer);
@@ -170,6 +189,14 @@ int main(int argc, char** argv)
         refused([&] { collision.save(); });
         require(read(systems) == collisionBefore && read(rules) == collisionRules,
                 "before-save failure leaves both files unchanged");
+        collision.setSaveCheckpoint([](int point) {
+            if (point == 2)
+                throw std::runtime_error("injected after replacements before apply");
+        });
+        refused([&] { collision.save(); });
+        require(EmulatorManagerConfig(root, bundle, bundledRules).system("test").commands.size() ==
+                    2,
+                "post-save failure remains parseable with exactly one addition");
         collision.setSaveCheckpoint({});
         collision.save();
         require(read(rules).find("org.other/Keep") != std::string::npos,
@@ -216,6 +243,43 @@ int main(int argc, char** argv)
         require(EmulatorManagerConfig(root, bundle, bundledRules).system("test").commands.size() ==
                     2,
                 "encoded input readback");
+        const auto validSystems = read(systems);
+        const auto validRules = read(rules);
+        require(std::remove(systems.c_str()) == 0 && mkdir(systems.c_str(), 0700) == 0,
+                "unreadable override obstacle");
+        refused([&] { EmulatorManagerConfig unreadable(root, bundle, bundledRules); });
+        require(read(rules) == validRules && rmdir(systems.c_str()) == 0,
+                "unreadable override refusal leaves rules unchanged");
+        require(symlink(bundle.c_str(), systems.c_str()) == 0, "override symlink fixture");
+        refused([&] { EmulatorManagerConfig linked(root, bundle, bundledRules); });
+        require(read(bundle) == newer && read(rules) == validRules &&
+                    std::remove(systems.c_str()) == 0,
+                "symlink refusal preserves destination and rules");
+        put(systems, "<systemList><system><name>test</name><fullname>Test</fullname>"
+                     "<path>%ROMPATH%/test</path><extension>.rom</extension>"
+                     "<command label='Same'>one</command>"
+                     "<command label='Same'>two</command></system></systemList>");
+        const auto ambiguousSystems = read(systems);
+        EmulatorManagerConfig ambiguous {root, bundle, bundledRules};
+        refused([&] {
+            ambiguous.add("test", "New", "org.example/Activity", collisionProfile, ".zip", true);
+        });
+        require(read(systems) == ambiguousSystems && read(rules) == validRules,
+                "ambiguous duplicate command labels leave both files unchanged");
+        put(systems, validSystems);
+        EmulatorManagerConfig intervening {root, bundle, bundledRules};
+        intervening.add("test", "Intervening", "org.example/Activity", collisionProfile, ".ZIP",
+                        true);
+        intervening.setSaveCheckpoint([&](int point) {
+            if (point == 1)
+                put(systems, validSystems + "<!-- edit between replacements -->");
+        });
+        refused([&] { intervening.save(); });
+        require(
+            read(systems) == validSystems + "<!-- edit between replacements -->" &&
+                EmulatorManagerConfig(root, bundle, bundledRules).system("test").commands.size() ==
+                    2,
+            "edit between replacements is preserved without publishing dangling command");
         const auto gamelist = root + "/gamelist.xml";
         put(gamelist,
             "<!-- user gamelist "
