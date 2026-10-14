@@ -19,7 +19,7 @@ def run(harness):
             h.adb('push', fixture.name, path)
 
     def type_path(label, path):
-        h.ui(label, dpad=h.television)
+        h.ui(label, dpad=True)
         current = next(n.get('text', '') for n in h.hierarchy()
                        if n.get('class') == 'android.widget.EditText')
         h.key('KEYCODE_MOVE_END')
