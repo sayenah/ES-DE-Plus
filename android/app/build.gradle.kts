@@ -7,12 +7,12 @@ val appId = providers.gradleProperty("esde.applicationId").get()
 // Full-history builds derive a monotonic code; extracted source rebuilds and
 // in-run update fixtures pass the recorded version explicitly, without secrets.
 val appVersion = providers.gradleProperty("esde.versionCode").orElse(providers.exec {
-    workingDir("../..")
+    workingDir(rootProject.projectDir.parentFile)
     commandLine("git", "rev-list", "--count", "--first-parent", "HEAD")
 }.standardOutput.asText.map { (1000 + it.trim().toLong()).toString() }).get().toInt()
 require(appVersion in 1001..2100000000)
 val appVersionName = providers.gradleProperty("esde.versionName").orElse(providers.exec {
-    workingDir("../..")
+    workingDir(rootProject.projectDir.parentFile)
     commandLine("git", "rev-parse", "--short=9", "HEAD")
 }.standardOutput.asText.map { "test-${it.trim()}" }).get()
 val stagedAssets = layout.buildDirectory.dir("generated/assets/frontend")
