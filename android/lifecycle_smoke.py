@@ -38,19 +38,26 @@ def run(harness):
         if variant == 'debug':
             h.shell('run-as', h.app, 'rm', '-rf', 'files/resources', 'files/themes/linear-es-de',
                     'files/resources-installed')
-        for mode in ['recreate-early', 'recreate-running', 'finish-running']:
+        for mode in ['recreate-early', 'recreate-preconfiguration', 'recreate-running', 'finish-running']:
             name = 'lifecycle-' + variant + '-' + mode
             h.shell('am', 'force-stop', h.app)
             h.shell('rm', '-f', command)
             h.adb('logcat', '-c')
             baseline = h.log()
+            parked_root = h.shared + '.lifecycle-missing'
+            root_parked = mode == 'recreate-preconfiguration'
+            if root_parked:
+                # Actual missing selected storage forces the existing recovery
+                # hold after the first native configuration query. Preserve
+                # every ROM and restore the directory before the next launch.
+                h.shell('mv', h.shared, parked_root)
             output_path = h.evidence / (name + '-instrumentation.txt')
             with output_path.open('w') as output:
                 process = subprocess.Popen(['adb', 'shell', shlex.join([
                     'am', 'instrument', '-w', '-e', 'mode', mode,
                     'org.esdeplus.stub/.LifecycleProbe'])], stdout=output, stderr=subprocess.STDOUT)
                 try:
-                    if mode != 'recreate-early':
+                    if mode not in ['recreate-early', 'recreate-preconfiguration']:
                         h.wait_for(lambda: 'Lifecycle probe ready mode=' + mode in h.adb('logcat', '-d') and
                                    h.log() != baseline and 'Application startup time:' in h.log(),
                                    name + ' actual frontend startup', timeout=60)
@@ -74,7 +81,12 @@ def run(harness):
                     assert 'Destroying SDL activity held=false' in old_lines, 'No destruction callback; see ' + name + '-failure-logcat.txt'
                     startup_exit = ('SDL_QUIT observed before frontend initialization; configuration and '
                                     'resources saved; ending process') in old_lines
-                    if startup_exit:
+                    configuration_exit = 'SDL_QUIT observed during configuration hold; ending process' in old_lines
+                    if mode == 'recreate-preconfiguration':
+                        assert configuration_exit, 'Quit was lost before the recovery hold'
+                        assert 'Lifecycle preconfiguration selection preserved' in old_lines, 'Persisted selection changed'
+                        assert not startup_exit, 'Recovery hold was not exercised'
+                    elif startup_exit:
                         # The handoff permits the held-style bounded startup
                         # exit after state is saved. Require its real checkpoint
                         # and completed resource repair, never infer a main return.
@@ -86,17 +98,22 @@ def run(harness):
                         assert 'SDL activity destroy join returned' in old_lines, 'Native join did not return; see ' + name + '-failure-logcat.txt'
                     assert old_lines.count('Running main function') == 1, 'Second native main; see ' + name + '-failure-logcat.txt'
                     assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs, 'ANR/JNI failure; see ' + name + '-failure-logcat.txt'
-                    if mode == 'recreate-early':
+                    if mode in ['recreate-early', 'recreate-preconfiguration']:
                         assert 'Lifecycle startup barrier released after destruction quit/join' in old_lines, 'Startup barrier did not release'
                         assert old_lines.count(trigger) == 1, 'Early trigger repeated'
                     h.save_logs(name)
+                    if root_parked:
+                        h.shell('mv', parked_root, h.shared)
+                        root_parked = False
                     h.launch()
                     assert h.shell('pidof', h.app).strip() != old
                     h.save_logs(name + '-next-launch')
                     (h.evidence / (name + '-result.txt')).write_text(
                         f'PASS: {mode} via platform Activity API; old PID {old} ended within 5 s '
                         f'(observed {elapsed:.3f}s), ' +
-                        ('native startup quit observed after resources were committed; bounded process exit, '
+                        ('native recovery hold quit observed; persisted storage selection unchanged; bounded process exit, '
+                         if configuration_exit else
+                         'native startup quit observed after resources were committed; bounded process exit, '
                          if startup_exit else 'native main returned, join returned, ') +
                         'one native main in old process; next ordinary launch loaded two games.\n')
                 except Exception as error:
@@ -110,6 +127,8 @@ def run(harness):
                 finally:
                     # Cleanup follows the recorded outcome. The same failed
                     # case is never retried, and every failure remains gating.
+                    if root_parked:
+                        h.shell('mv', parked_root, h.shared)
                     h.shell('am', 'force-stop', h.app)
                     if process.poll() is None:
                         process.wait(timeout=15)
@@ -117,7 +136,7 @@ def run(harness):
     h.adb('install', '-r', str(h.apk))
     (h.evidence / 'lifecycle-summary.txt').write_text(
         '\n'.join(failures) + '\n' if failures else
-        'PASS: debug and minified early recreation, running recreation and running finish; 5 s bound, saved-state startup exit or running native return/join, no second main, next launch.\n')
+        'PASS: debug and minified resource-startup and preconfiguration recreation, running recreation and running finish; 5 s bound, saved-state startup exit or running native return/join, no second main, next launch.\n')
     assert not failures, '\n'.join(failures)
     h.start_entry('HomeEntry', 'android.intent.category.HOME')
     h.configured_system('lifecycle-restored-home')
