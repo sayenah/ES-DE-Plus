@@ -243,6 +243,12 @@ jobs:
           key: ${{ steps.dependency-cache.outputs.key }}
       - name: Restore ABI-neutral generated headers
         run: tools/Android_dependencies_setup.sh
+      - name: Build no-INTERNET APK for real UI positive control (API 34, CI only)
+        if: ${{ matrix.image == 'api34' }}
+        run: |
+          set -o pipefail
+          python3 android/network-control.py 2>&1 | tee android/network-control.log
+          git diff --exit-code -- android/app/src/main/AndroidManifest.xml
       - name: Assemble debug APK with committed wrapper
         id: assemble
         run: |
