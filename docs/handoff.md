@@ -100,13 +100,37 @@ Stage: IMPLEMENTATION. Owner: Sol, fifth clone `~/dev/ES-DE-Plus-sol5` (git meta
 - AC-9 Platforms: real configurator plus existing regression probes on API 29, API 34 and TV API 36; TV covers direct-mode D-pad/typed-path selection and consent; permission denial/revocation, missing picker, changed selection, process death, deleted folders and unavailable removable storage covered; startup assertions use fresh evidence from the selected folder.
 - AC-10 B-1 Linux and Android, B-2, B-4, B-5 at the implementation revision; macOS if shared filesystem/settings C++ changes and the toolchain is available; unavailable evidence reported explicitly.
 
+## Android gap audit — register and batches (D-018)
+
+Source: ultracode workflow run wf_1ae03c98-913 (read-only, 3-skeptic verification); full report with evidence and per-WO acceptance criteria at `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/8a7338b1-9e52-4d9f-b1a9-bb84afde6178/scratchpad/audit/report.md` (copy the relevant WO text into each Sol work order; the register below is the durable summary).
+
+| Gap | Severity | Work order | Astra |
+|---|---|---|---|
+| G-01 touch overlay is a no-op — touch-only devices locked out (+ configurator overlay reset never fires; lockout text says "clear the ES-DE storage") | **BLOCKER** | WO-1 clean-room touch overlay | yes (clean-room) |
+| G-02/G-04/G-19/G-20/G-21 ROM folder: no default `<primary>/ROMs`, typed path must pre-exist, TV picker is a stub, ROM folder must be writable (Android 10 SD cards refused, native `_exit`), Back never re-validates, no all-files screen guidance, non-visible USB volumes | medium | WO-2 ROM onboarding and read-only ROM storage (after PR #15) | yes (storage) |
+| G-03 API 29 not fullscreen: window size from `displayMetrics`, top ~63 px clipped | medium | WO-3 real window size (after PR #11) | no |
+| G-05 return from a game never clears "game launched" (videos/screensaver frozen until first input; game-end event late) — `onNativeFrontendResume` is a no-op | medium | WO-4 resume wake-up (after #15/#16) | yes (bridge) |
+| G-06 configurator not edge-to-edge safe on Android 15+ (+ TV overscan/focus) | medium | WO-5 (fold into PR #15 round 3 if cheap) | no |
+| G-07 Android 16 large screens ignore the orientation lock → reload on rotation | medium | WO-6 | no |
+| G-08 scoped mode silently breaks most launches | medium→low after #15 | WO-7 | no |
+| G-09/G-10 CI never exercises gamepad, real remote, touch, IME; MENU-less TV remotes may lack Start | medium/low | WO-8 input CI legs (after PR #13) | no |
+| G-11/G-12 `%ROMPROVIDER%` refuses ROMs outside the root; every refusal shows "ERROR CODE -1" | low | WO-9 | Kotlin part no; C++ after WO-4 |
+| G-13 imported-app relaunch adds an instance | low | WO-10 (after #16) | no |
+| G-14/G-17/G-18 no non-destructive reconfigure; LAUNCH ON OTHER SCREEN shown but ignored; "ES-DE" strings | low | WO-11 (after #16) | no |
+| G-15 theme downloader in shared storage untested (libgit2 over FUSE) | low, time-sensitive | WO-12 (after #15, PR-G2) | no |
+| G-16 no arm64 / real-GPU / 16 KB-page runtime evidence | low | WO-14 (16 KB CI leg; real device) | no |
+| G-22 Google TV cannot set a third-party HOME; docs promise it | low | Deferred / docs | no |
+| G-23/G-24/G-25 no data-extraction rules; no audio focus; static UI redrawn at full refresh rate | low | WO-13 | no |
+
+Batches: **0** (now, Orchestrator) governance above, Astra challenges for WO-1, WO-2, WO-4; **1** (now) WO-1 core after its Astra challenge, WO-9 Kotlin part; **2** after #11: WO-3; **3** after #15: WO-5, WO-2, WO-7, WO-12, WO-1 reset wiring; **4** after #16: WO-4, WO-10, WO-11, WO-1 lockout string, WO-9 C++; **5** after #13: one CI-matrix PR (WO-8, API 35/36 phone, tablet, 16 KB legs); **6** after #11/#14/#15/#16: WO-13. Rule for every WO: new smoke in a new `android/*_smoke.py`, new strings in a new values file (in-flight PRs hold `smoke.py`, `strings.xml`, `build-android.yml`). Real-device-only checks are listed in report §4.
+
 ## Founder gate (open)
 
 None (G-4 ruled 2026-10-14: Pixel Plus, D-016 am. 1). **Queued after PR-F: D-015 emulator manager** — design and Astra challenge first. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-H icon (second clone, after PR-G) → PR-E → PR-F (amended by D-012 am. 2) → D-015 emulator manager.
 
 ## State (verified 2026-10-12 14:50 CDT; re-verify from the repository)
 
-`main` at the PR #6 merge a3d71cb4b plus governance commits. Merged on top of PR-A/PR-B: PR-B follow-ups (PR #7), PR-C launching and discovery (PR #8), PR-D platform PdfRenderer (PR #9), distribution posture (PR #6). The Android app builds for arm64-v8a and x86_64, configures storage, runs as app/TV/home screen, discovers emulators and launches games, renders PDF manuals with the platform renderer, and is published as a debug APK with a source artefact from every green `main` run that touches the Android path set. Front page: `.github/README.md`. Remaining stubs: Bluetooth/Wi-Fi/cellular/battery status calls return placeholders. No open PR; no Founder gate. Known risk: the API 29 host lifecycle stall (active work order); residual smoke flakes listed in `Next`.
+`main` at the PR #6 merge a3d71cb4b plus governance commits. Merged on top of PR-A/PR-B: PR-B follow-ups (PR #7), PR-C launching and discovery (PR #8), PR-D platform PdfRenderer (PR #9), distribution posture (PR #6). The Android app builds for arm64-v8a and x86_64, configures storage, runs as app/TV/home screen, discovers emulators and launches games, renders PDF manuals with the platform renderer, and is published as a debug APK with a source artefact from every green `main` run that touches the Android path set. Front page: `.github/README.md`. Remaining stubs: Bluetooth/Wi-Fi/cellular/battery status calls return placeholders; **the touch overlay is a no-op (G-01, blocker, WO-1)**. No open PR; no Founder gate. Known risk: the API 29 host lifecycle stall (active work order); residual smoke flakes listed in `Next`.
 
 ## Records
 
