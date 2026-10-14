@@ -145,10 +145,12 @@ elseif(ANDROID)
     list(APPEND ES_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerConfig.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorLaunchProfile.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerTouch.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerRuntime.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiEmulatorManager.cpp)
     list(APPEND ES_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorLaunchProfile.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerTouch.h
         ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerRuntime.h
         ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiEmulatorManager.h)
     list(APPEND ES_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerConfig.h)

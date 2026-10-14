@@ -11,6 +11,9 @@
 #ifndef ES_APP_GUIS_GUI_SETTINGS_H
 #define ES_APP_GUIS_GUI_SETTINGS_H
 
+#if defined(__ANDROID__)
+#include "EmulatorManagerTouch.h"
+#endif
 #include "SystemData.h"
 #include "components/MenuComponent.h"
 #include "views/ViewController.h"
@@ -69,7 +72,22 @@ public:
     bool input(InputConfig* config, Input input) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
+#if defined(__ANDROID__)
+    void update(int deltaTime) override
+    {
+        GuiComponent::update(deltaTime);
+        mManagerTouch.updateTargets(*this, _("ALTERNATIVE EMULATORS"));
+    }
+    bool nativeTouch(int type, int64_t finger, float x, float y) override
+    {
+        return mManagerTouch.handle(*this, type, finger, x, y, _("ALTERNATIVE EMULATORS"));
+    }
+#endif
+
 private:
+#if defined(__ANDROID__)
+    EmulatorManagerTouch mManagerTouch;
+#endif
     Renderer* mRenderer;
     MenuComponent mMenu;
     std::vector<std::function<void()>> mSaveFuncs;

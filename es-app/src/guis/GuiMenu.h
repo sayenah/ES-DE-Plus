@@ -11,6 +11,9 @@
 #define ES_APP_GUIS_GUI_MENU_H
 
 #include "GuiComponent.h"
+#if defined(__ANDROID__)
+#include "EmulatorManagerTouch.h"
+#endif
 #include "components/MenuComponent.h"
 #include "guis/GuiSettings.h"
 #include "views/ViewController.h"
@@ -25,7 +28,22 @@ public:
     void onSizeChanged() override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
+#if defined(__ANDROID__)
+    void update(int deltaTime) override
+    {
+        GuiComponent::update(deltaTime);
+        mManagerTouch.updateTargets(*this, _("OTHER SETTINGS"));
+    }
+    bool nativeTouch(int type, int64_t finger, float x, float y) override
+    {
+        return mManagerTouch.handle(*this, type, finger, x, y, _("OTHER SETTINGS"));
+    }
+#endif
+
 private:
+#if defined(__ANDROID__)
+    EmulatorManagerTouch mManagerTouch;
+#endif
     void close(bool closeAllWindows);
     void addEntry(const std::string& name,
                   unsigned int color,

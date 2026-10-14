@@ -13,7 +13,7 @@ import java.util.zip.ZipOutputStream
 
 object EmulatorManagerSmoke {
     fun fixture(context: Context, mode: String): String {
-        val data = File(StorageModel(context).appData())
+        val data = StorageModel(context).appData()
         val root = RomTransport(context).root()
         val directory = File(root, "ps3")
         val lower = File(directory, "ESDEPlus Manager Test.zip")

@@ -275,7 +275,11 @@ void ViewController::noGamesDialog()
     };
 
 #if defined(__ANDROID__) || defined(__IOS__)
+#if defined(__ANDROID__)
+    mNoGamesMessageBox = new GuiEmulatorManagerEntry(
+#else
     mNoGamesMessageBox = new GuiMsgBox(
+#endif
         mNoGamesErrorMessage + mRomDirectory, _("IMPORT"),
         [this, gameImporterUpdateFunc] {
             mWindow->pushGui(new GuiGameImporter(_("GAME IMPORTER"), gameImporterUpdateFunc));

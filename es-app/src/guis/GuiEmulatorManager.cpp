@@ -56,12 +56,13 @@ void GuiEmulatorManager::row(const std::string& text, const std::function<void()
 
 void GuiEmulatorManager::error(const std::string& message)
 {
-    mWindow->pushGui(new GuiMsgBox(message, _("OK"), nullptr));
+    mWindow->pushGui(new GuiEmulatorManagerMsgBox(message, _("OK"), nullptr));
 }
 
 void GuiEmulatorManager::confirm(const std::string& message, const std::function<void()>& action)
 {
-    mWindow->pushGui(new GuiMsgBox(message, _("CONTINUE"), action, _("CANCEL"), nullptr));
+    mWindow->pushGui(
+        new GuiEmulatorManagerMsgBox(message, _("CONTINUE"), action, _("CANCEL"), nullptr));
 }
 
 void GuiEmulatorManager::invalidateDraft() { mSave.reset(); }
@@ -70,7 +71,7 @@ void GuiEmulatorManager::edit(const std::string& title, std::string& value)
 {
     auto field = &value;
     row(title + ": " + (value.empty() ? _("NONE") : value), [this, title, field] {
-        mWindow->pushGui(new GuiTextEditKeyboardPopup(
+        mWindow->pushGui(new GuiEmulatorManagerKeyboard(
             0.0f, title, *field,
             [this, field](const std::string& text) {
                 *field = Utils::String::trim(text);
@@ -121,6 +122,7 @@ void GuiEmulatorManager::rebuild()
     LOG(LogDebug) << "Emulator manager page: " << pages[static_cast<int>(mPage)]
                   << "; system: " << mSystemName;
     mRebuild = false;
+    mTouch.invalidate();
     if (mMenu)
         removeChild(mMenu.get());
     mMenu = std::make_unique<MenuComponent>(_("EMULATOR MANAGER"));
@@ -217,7 +219,7 @@ void GuiEmulatorManager::rebuild()
                 row(_("ROM IN DATA OR NAMED EXTRA") + ": " +
                         (mRomExtra.empty() ? _("INTENT DATA") : mRomExtra),
                     [this] {
-                        mWindow->pushGui(new GuiTextEditKeyboardPopup(
+                        mWindow->pushGui(new GuiEmulatorManagerKeyboard(
                             0.0f, _("ROM EXTRA NAME (EMPTY FOR INTENT DATA)"), mRomExtra,
                             [this](const std::string& value) {
                                 try {
@@ -375,7 +377,7 @@ void GuiEmulatorManager::rebuild()
             }
             else if (mPage == Page::FILES) {
                 row(_("ENTER TEST FILE PATH"), [this] {
-                    mWindow->pushGui(new GuiTextEditKeyboardPopup(
+                    mWindow->pushGui(new GuiEmulatorManagerKeyboard(
                         0.0f, _("TEST FILE PATH"), mTestPath,
                         [this](const std::string& path) {
                             mTestPath = Utils::String::trim(path);
@@ -579,6 +581,7 @@ void GuiEmulatorManager::back()
 
 bool GuiEmulatorManager::input(InputConfig* config, Input input)
 {
+    mTouch.invalidate();
     if (input.value && config->isMappedTo("b", input)) {
         back();
         return true;
@@ -611,6 +614,7 @@ void GuiEmulatorManager::update(int deltaTime)
         test();
     }
     GuiComponent::update(deltaTime);
+    mTouch.updateTargets(*this);
 }
 
 std::vector<HelpPrompt> GuiEmulatorManager::getHelpPrompts()

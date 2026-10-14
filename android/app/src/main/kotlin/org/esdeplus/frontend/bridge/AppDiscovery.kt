@@ -132,13 +132,26 @@ class AppDiscovery(private val context: Context) {
             val mimes = listOfNotNull(mime, "application/octet-stream",
                 if (extension == "zip") "application/zip" else null,
                 if (extension == "zip") "application/x-zip-compressed" else null).distinct()
-            val uris = listOf(Uri.fromFile(file),
+            val uris = mutableListOf(Uri.fromFile(file),
                 Uri.Builder().scheme("content").authority(context.packageName + ".roms")
                     .appendPath("rom").appendPath("probe").apply {
                         path.trimStart('/').split('/').forEach { appendPath(it) }
-                    }.build(),
-                Uri.Builder().scheme("content").authority("com.android.externalstorage.documents")
-                    .appendPath("document").appendPath("primary:" + path.removePrefix(android.os.Environment.getExternalStorageDirectory().path + "/")).build())
+                    }.build())
+            try {
+                val volume = context.getSystemService(android.os.storage.StorageManager::class.java).getStorageVolume(file)
+                if (volume != null) {
+                    val id = if (volume.isPrimary) "primary" else volume.uuid
+                    if (id != null) {
+                        val volumeRoot = StorageModel(context).volumeRoot(id, readOnly = true)
+                        if (path.startsWith(volumeRoot.path + "/"))
+                            uris.add(android.provider.DocumentsContract.buildDocumentUri(
+                                "com.android.externalstorage.documents", id + ":" + path.removePrefix(volumeRoot.path + "/")))
+                    }
+                }
+            } catch (unavailable: Exception) {
+                // The file and provider probes still describe handlers; a missing
+                // volume never removes manual app selection or claims access.
+            }
             for (uri in uris) {
                 query(Intent(Intent.ACTION_VIEW).setData(uri).addCategory(Intent.CATEGORY_DEFAULT), true)
                 for (type in mimes)

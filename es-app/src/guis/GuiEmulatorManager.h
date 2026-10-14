@@ -12,6 +12,7 @@
 #if defined(__ANDROID__)
 #include "EmulatorLaunchProfile.h"
 #include "EmulatorManagerConfig.h"
+#include "EmulatorManagerTouch.h"
 #include "GuiComponent.h"
 #include "components/MenuComponent.h"
 #include "utils/PlatformUtilAndroid.h"
@@ -25,6 +26,10 @@ class GuiEmulatorManager : public GuiComponent
 public:
     explicit GuiEmulatorManager(const std::string& systemName = "");
     bool input(InputConfig* config, Input input) override;
+    bool nativeTouch(int type, int64_t finger, float x, float y) override
+    {
+        return mTouch.handle(*this, type, finger, x, y);
+    }
     void update(int deltaTime) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
@@ -62,6 +67,7 @@ private:
     void refresh();
     void invalidateDraft();
 
+    EmulatorManagerTouch mTouch;
     std::unique_ptr<MenuComponent> mMenu;
     std::unique_ptr<EmulatorManagerConfig> mConfig;
     std::unique_ptr<EmulatorManagerConfig> mSave;

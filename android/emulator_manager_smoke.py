@@ -36,6 +36,8 @@ def run(mode, harness, minified=False):
         original[name] = h.shell('cat', path, check=False) if h.shell('test', '-f', path, check=False) == '' and h.shell('ls', path, check=False).strip() == path else None
     def read(relative):
         return h.shell('cat', data_root + '/' + relative, check=False)
+    def fragment(value):
+        return ET.fromstring('<document>' + re.sub(r'<\?xml[^>]*\?>', '', value) + '</document>')
     def current():
         return (read('custom_systems/es_systems.xml'), read('custom_systems/es_find_rules.xml'),
                 read('gamelists/ps3/gamelist.xml'))
@@ -65,6 +67,14 @@ def run(mode, harness, minified=False):
         h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER'); page('systems')
         pick(1); page('system')
         pick(0); page('draft')
+    def tap(prefix):
+        pattern = r'Emulator manager touch target: (' + re.escape(prefix) + r'[^\t\r\n]*)\tx:([0-9.]+)\ty:([0-9.]+)'
+        h.wait_for(lambda: re.search(pattern, h.adb('logcat', '-d')) is not None, 'visible touch target ' + prefix, timeout=30)
+        match = list(re.finditer(pattern, h.adb('logcat', '-d')))[-1]
+        h.adb('logcat', '-c')
+        h.shell('input', 'tap', str(round(float(match[2]))), str(round(float(match[3]))))
+        h.time.sleep(0.5)
+
     release_installed = False
     try:
         parsed = h.launch_checks.settings_fragment(original_settings)
@@ -79,6 +89,20 @@ def run(mode, harness, minified=False):
             release_installed = True
         start()
         before = current()
+        if h.api != 36:
+            # Tap a field, type one character on the real virtual keyboard, cancel
+            # the edit and then cancel the complete draft. Neither file is written.
+            tap('EMULATOR LABEL:')
+            tap('x')
+            h.screenshot('emulator-manager-' + mode + '-touch-keyboard')
+            tap('DISCARD CHANGES')
+            page('draft')
+            tap('BACK')
+            tap('CONTINUE')
+            page('system')
+            controls(before, current(), 'touch cancellation preserves configuration')
+            tap('ADD EMULATOR')
+            page('draft')
         pick(0); text('EMUPLUS TEST'); page('draft')
         pick(1); page('apps')
         # Search is UI input, preserving the actual component even with equal labels.
@@ -135,7 +159,7 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: 'Emulator manager saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'manager saved')
         h.wait_for(lambda: 'Total game count: 2' in h.log(), 'both case extensions visible immediately')
         saved = current()
-        root = ET.fromstring('<document>' + saved[0] + '</document>')
+        root = fragment(saved[0])
         controls(True, root.find('loadExclusive') is not None, 'loadExclusive preserved')
         system = root.find('systemList/system')
         controls('keep', root.find('systemList').get('custom'), 'unknown attribute preserved')
@@ -150,9 +174,13 @@ def run(mode, harness, minified=False):
         # Main menu: SEARCH, SCRAPER, UI, SOUND, INPUT, GAME COLLECTION, OTHER.
         for _ in range(6): h.key('KEYCODE_DPAD_DOWN')
         h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); page('systems')
-        pick(1); page('system'); pick(1); page('defaults'); pick(1); page('system')
+        pick(1); page('system')
+        if h.api != 36:
+            tap('SET SYSTEM DEFAULT'); page('defaults'); tap('EMUPLUS TEST'); page('system')
+        else:
+            pick(1); page('defaults'); pick(1); page('system')
         h.wait_for(lambda: 'Emulator manager default saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'ordinary default persisted')
-        controls('EMUPLUS TEST', ET.fromstring('<document>' + current()[2] + '</document>').find('alternativeEmulator/label').text, 'gamelist default')
+        controls('EMUPLUS TEST', fragment(current()[2]).find('alternativeEmulator/label').text, 'gamelist default')
         # Closing and a fresh start prove the unchanged upstream readers consume the files.
         h.shell('am', 'force-stop', h.app); h.adb('logcat', '-c'); h.start_entry()
         h.wait_for(lambda: 'Total game count: 2' in h.log(), 'fresh startup manager configuration')

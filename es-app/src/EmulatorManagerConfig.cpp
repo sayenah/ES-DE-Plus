@@ -193,7 +193,13 @@ namespace
         try {
             struct stat original {
             };
-            if (stat(path.c_str(), &original) == 0 && fchmod(fd, original.st_mode & 0777) != 0)
+            struct stat staged {
+            };
+            if (fstat(fd, &staged) != 0)
+                throw std::runtime_error(_("Cannot inspect staged configuration"));
+            if (stat(path.c_str(), &original) == 0 &&
+                (original.st_mode & 0777) != (staged.st_mode & 0777) &&
+                fchmod(fd, original.st_mode & 0777) != 0)
                 throw std::runtime_error(_("Cannot preserve file permissions"));
             size_t offset {0};
             while (offset < bytes.size()) {

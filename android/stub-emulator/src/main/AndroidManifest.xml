@@ -19,9 +19,9 @@
         <activity-alias android:name=".TelevisionOnly" android:targetActivity=".RecipientActivity" android:exported="true" android:label="TV 🚀">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent-filter>
         </activity-alias>
-        <activity android:name=".PrivateActivity" android:exported="false" />
-        <activity android:name=".ProtectedActivity" android:exported="true" android:permission="android.permission.MANAGE_USERS" />
-        <activity android:name=".DisabledActivity" android:exported="true" android:enabled="false" />
+        <activity android:name=".PrivateActivity" android:exported="false"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".ProtectedActivity" android:exported="true" android:permission="android.permission.MANAGE_USERS"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".DisabledActivity" android:exported="true" android:enabled="false"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
         <activity-alias android:name=".ZipMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
             <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/zip" /></intent-filter>
         </activity-alias>

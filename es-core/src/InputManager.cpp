@@ -445,6 +445,12 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
 #if defined(__ANDROID__) || defined(__IOS__)
         case SDL_FINGERDOWN: {
+#if defined(__ANDROID__)
+            if (mWindow->peekGui() &&
+                mWindow->peekGui()->nativeTouch(event.type, event.tfinger.fingerId, event.tfinger.x,
+                                                event.tfinger.y))
+                return true;
+#endif
             if (!Settings::getInstance()->getBool("InputTouchOverlay"))
                 return false;
 
@@ -460,6 +466,12 @@ bool InputManager::parseEvent(const SDL_Event& event)
             }
         }
         case SDL_FINGERUP: {
+#if defined(__ANDROID__)
+            if (mWindow->peekGui() &&
+                mWindow->peekGui()->nativeTouch(event.type, event.tfinger.fingerId, event.tfinger.x,
+                                                event.tfinger.y))
+                return true;
+#endif
             if (!Settings::getInstance()->getBool("InputTouchOverlay"))
                 return false;
 
@@ -476,6 +488,12 @@ bool InputManager::parseEvent(const SDL_Event& event)
             }
         }
         case SDL_FINGERMOTION: {
+#if defined(__ANDROID__)
+            if (mWindow->peekGui() &&
+                mWindow->peekGui()->nativeTouch(event.type, event.tfinger.fingerId, event.tfinger.x,
+                                                event.tfinger.y))
+                return true;
+#endif
             if (!Settings::getInstance()->getBool("InputTouchOverlay"))
                 return false;
 

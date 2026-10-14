@@ -1,0 +1,164 @@
+//  SPDX-License-Identifier: MIT
+//
+//  ES-DE-Plus
+//  EmulatorManagerTouch.cpp
+//
+//  Written for ES-DE-Plus. Uses upstream component transforms, bounds and input callbacks.
+//
+
+#include "EmulatorManagerTouch.h"
+
+#if defined(__ANDROID__)
+#include "InputManager.h"
+#include "Log.h"
+#include "components/ButtonComponent.h"
+#include "components/ComponentList.h"
+#include "components/TextEditComponent.h"
+#include "renderers/Renderer.h"
+
+#include <cmath>
+
+namespace
+{
+    struct Hit {
+        GuiComponent* component {nullptr};
+        float y {0.0f};
+    };
+
+    Hit hit(GuiComponent& component, const glm::mat4& parent, float x, float y)
+    {
+        if (!component.isVisible() || !component.getEnabled())
+            return {};
+        const auto transform = parent * component.getTransform();
+        const auto local = glm::inverse(transform) * glm::vec4 {x, y, 0.0f, 1.0f};
+        if (dynamic_cast<ComponentList*>(&component)) {
+            if (local.x >= 0 && local.y >= 0 && local.x < component.getSize().x &&
+                local.y < component.getSize().y)
+                return {&component, local.y};
+            return {};
+        }
+        // Hit the child drawn last first. Lists supply their own clipping/scroll coordinates.
+        for (unsigned int i {component.getChildCount()}; i > 0; --i) {
+            auto result = hit(*component.getChild(i - 1), transform, x, y);
+            if (result.component)
+                return result;
+        }
+        if ((dynamic_cast<ButtonComponent*>(&component) ||
+             dynamic_cast<TextEditComponent*>(&component)) &&
+            local.x >= 0 && local.y >= 0 && local.x < component.getSize().x &&
+            local.y < component.getSize().y)
+            return {&component, local.y};
+        return {};
+    }
+} // namespace
+
+bool EmulatorManagerTouch::handle(
+    GuiComponent& gui, int type, int64_t finger, float x, float y, const std::string& entryLabel)
+{
+    mDirty = true;
+    const float screenX = x * Renderer::getScreenWidth();
+    const float screenY = y * Renderer::getScreenHeight();
+    if (type == SDL_FINGERDOWN) {
+        if (mFinger != -1)
+            return true;
+        mFinger = finger;
+        mStartX = screenX;
+        mStartY = mLastY = screenY;
+        mMoved = false;
+        return true;
+    }
+    if (finger != mFinger)
+        return true;
+    auto target = hit(gui, glm::mat4 {1.0f}, screenX, screenY);
+    if (type == SDL_FINGERMOTION) {
+        auto list = dynamic_cast<ComponentList*>(target.component);
+        if (list && std::abs(screenY - mLastY) >= list->getRowHeight()) {
+            list->moveCursor(screenY > mLastY ? -1 : 1);
+            mLastY = screenY;
+            mMoved = true;
+        }
+        if (std::abs(screenY - mStartY) > 12.0f * Renderer::getScreenHeightModifier() ||
+            std::abs(screenX - mStartX) > 12.0f * Renderer::getScreenHeightModifier())
+            mMoved = true;
+        return true;
+    }
+    if (type != SDL_FINGERUP)
+        return false;
+    mFinger = -1;
+    if (mMoved || !target.component)
+        return true;
+    if (auto button = dynamic_cast<ButtonComponent*>(target.component)) {
+        if (!entryLabel.empty() && button->getText() != entryLabel &&
+            button->getText() != _("BACK"))
+            return true;
+        auto action = button->getPressedFunc();
+        if (action)
+            action();
+        return true;
+    }
+    if (auto list = dynamic_cast<ComponentList*>(target.component)) {
+        const int cursor = list->getTouchRow(target.y);
+        if (cursor < 0 || cursor >= list->size())
+            return true;
+        if (!entryLabel.empty()) {
+            const auto& row = list->getTouchRowData(cursor);
+            if (row.elements.empty())
+                return true;
+            auto text = dynamic_cast<TextComponent*>(row.elements.front().component.get());
+            if (!text || text->getValue() != entryLabel)
+                return true;
+        }
+        list->moveCursor(cursor - list->getCursorId());
+        list->onFocusGained();
+        auto config = InputManager::getInstance().getInputConfigByDevice(DEVICE_TOUCH);
+        list->input(config, Input(DEVICE_TOUCH, TYPE_TOUCH, SDL_CONTROLLER_BUTTON_A, 1, false));
+        return true;
+    }
+    if (auto text = dynamic_cast<TextEditComponent*>(target.component))
+        text->startEditing();
+    return true;
+}
+
+void EmulatorManagerTouch::updateTargets(GuiComponent& gui, const std::string& entryLabel)
+{
+    if (!mDirty)
+        return;
+    mDirty = false;
+    if (Log::getReportingLevel() < LogDebug)
+        return;
+    std::function<void(GuiComponent&, const glm::mat4&)> visit;
+    auto report = [](const std::string& label, const glm::mat4& transform, float x, float y) {
+        const auto point = transform * glm::vec4 {x, y, 0.0f, 1.0f};
+        LOG(LogDebug) << "Emulator manager touch target: " << label << "\tx:" << point.x
+                      << "\ty:" << point.y;
+    };
+    visit = [&](GuiComponent& component, const glm::mat4& parent) {
+        if (!component.isVisible() || !component.getEnabled())
+            return;
+        const auto transform = parent * component.getTransform();
+        if (auto list = dynamic_cast<ComponentList*>(&component)) {
+            for (int i {0}; i < list->size(); ++i) {
+                const float y = (i + 0.5f) * list->getRowHeight() - list->getTouchOffset();
+                if (y < 0 || y >= list->getSize().y)
+                    continue;
+                const auto& row = list->getTouchRowData(i);
+                if (row.elements.empty())
+                    continue;
+                auto text = dynamic_cast<TextComponent*>(row.elements.front().component.get());
+                if (text && (entryLabel.empty() || text->getValue() == entryLabel))
+                    report(text->getValue(), transform, list->getSize().x / 2.0f, y);
+            }
+            return;
+        }
+        if (auto button = dynamic_cast<ButtonComponent*>(&component)) {
+            if (entryLabel.empty() || button->getText() == entryLabel ||
+                button->getText() == _("BACK"))
+                report(button->getText(), transform, button->getSize().x / 2.0f,
+                       button->getSize().y / 2.0f);
+        }
+        for (unsigned int i {0}; i < component.getChildCount(); ++i)
+            visit(*component.getChild(i), transform);
+    };
+    visit(gui, glm::mat4 {1.0f});
+}
+#endif

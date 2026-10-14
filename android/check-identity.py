@@ -93,6 +93,7 @@ required_methods = {
     ('checkRACoreInstalled', '(Ljava/lang/String;Ljava/lang/String;)I'),
     ('getBatteryStatus', '()[I'), ('getBluetoothStatus', '()I'), ('getCellularStatus', '()I'),
     ('getCreateSystemDirectories', '()Z'), ('getExternalDirectory', '()Ljava/lang/String;'),
+    ('getEmulatorActivities', '([Ljava/lang/String;)[Ljava/lang/String;'),
     ('getInstalledApps', '(ZZ)[Ljava/lang/String;'), ('getInternalDirectory', '()Ljava/lang/String;'),
     ('getWifiStatus', '()I'), ('getWindowSize', '()[I'), ('getDeviceInfo', '()Ljava/lang/String;'),
     ('getInternalDataDirectory', '()Ljava/lang/String;'), ('getAppDataDirectory', '()Ljava/lang/String;'),
