@@ -6,6 +6,7 @@ import android.app.Instrumentation
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.FileObserver
+import android.system.Os
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.EditText
@@ -114,6 +115,19 @@ internal object AppDataSmoke {
             rejected { storage.disjoint(candidate, File(candidate, "ROMs")) }
             rejected { storage.disjoint(File(candidate, "data"), candidate) }
             storage.disjoint(candidate, File(sandbox, "ROMs"))
+            // A real alias proves that equal filesystem objects can have
+            // different path spellings. Neither root is accepted configuration.
+            val aliases = File(context.cacheDir, "prf-overlap-aliases").apply { check(mkdir()) }
+            val target = File(aliases, "target").apply { check(mkdir()) }
+            val alias = File(aliases, "alias")
+            try {
+                Os.symlink(target.path, alias.path)
+                storage.disjoint(alias, target)  // Positive control for the weaker spelling check.
+                rejected { storage.verifyDisjoint(alias, target) }
+                rejected { storage.verifyDisjoint(File(alias, "child"), target) }
+                rejected { storage.verifyDisjoint(target, File(alias, "child")) }
+                storage.verifyDisjoint(candidate, target)
+            } finally { check(alias.delete()); check(target.delete()); check(aliases.delete()) }
 
             storage.confirmData(candidate.path)
             // Current settings, legacy settings and both upstream XML encodings.

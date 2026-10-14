@@ -160,11 +160,25 @@ class StorageModel(private val context: Context) {
             throw failure(R.string.overlapping_folders)
     }
 
+    // Call only after destination consent. Path spelling alone cannot prove
+    // separation on a case-insensitive volume or through another filesystem alias.
+    fun verifyDisjoint(data: File, roms: File) {
+        disjoint(data, roms)
+        fun identity(directory: File): Pair<Long, Long>? = if (directory.isDirectory)
+            Os.stat(directory.path).let { it.st_dev to it.st_ino } else null
+        val dataIdentity = identity(data)
+        val romIdentity = identity(roms)
+        fun inside(child: File, root: Pair<Long, Long>?): Boolean = root != null &&
+            generateSequence(child) { it.parentFile }.any { identity(it) == root }
+        if (inside(data, romIdentity) || inside(roms, dataIdentity))
+            throw failure(R.string.overlapping_folders)
+    }
+
     // This is the only shared-data provisioning entry point. The configurator
     // invokes it in the positive action of the exact-destination consent dialog.
     fun confirmData(destination: String, roms: String = ""): File {
         val directory = inspectedPath(destination, data = true)
-        if (roms.isNotEmpty()) disjoint(directory, File(roms).canonicalFile)
+        if (roms.isNotEmpty()) verifyDisjoint(directory, File(roms).canonicalFile)
         verifyDirectory(directory, create = true)
         validateDataContents(directory)
         Log.i("ES-DE-Plus", "Application-data destination confirmed: $directory")
@@ -289,7 +303,7 @@ class StorageModel(private val context: Context) {
             }
             else -> throw failure(R.string.storage_mode_required)
         }
-        disjoint(data, roms)
+        verifyDisjoint(data, roms)
         return roms
     }
 

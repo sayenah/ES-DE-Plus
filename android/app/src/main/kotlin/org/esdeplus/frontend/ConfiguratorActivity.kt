@@ -267,7 +267,7 @@ class ConfiguratorActivity : Activity() {
                 val accept = button(R.string.use_path) {
                     guarded {
                         val selected = storage.acceptPath(input.text.toString())
-                        storage.disjoint(java.io.File(dataPath), selected)
+                        storage.verifyDisjoint(java.io.File(dataPath), selected)
                         path = selected.path
                         tree = ""
                         storage.releaseUnselectedGrants()
@@ -464,7 +464,7 @@ class ConfiguratorActivity : Activity() {
                 return@guarded
             }
             val directory = storage.acceptTree(uri, data.flags)
-            storage.disjoint(java.io.File(dataPath), directory)
+            storage.verifyDisjoint(java.io.File(dataPath), directory)
             path = directory.path
             tree = uri.toString()
             pathInput = null
