@@ -176,16 +176,20 @@ def run(harness):
         record(f'PASS: frontend cloned canonical themes-list using bundled CA; rendered {len(entries)} themes.')
         if 'Not running the most current application release' in output:
             h.key('KEYCODE_ENTER')  # Upstream's compatibility warning, captured above.
-        # A small public theme from the actual fetched inventory, no modified list.
-        selected = next(i for i, t in enumerate(entries) if t['reponame'] == 'simplemenu-es-de')
-        assert entries[selected]['url'].startswith('https://') and not entries[selected].get('deprecated')
-        for _ in range(selected):
-            h.key('KEYCODE_DPAD_DOWN')
+        # HOME is upstream's first-row action (InputManager/ComponentList).
+        # Unlike a long sequence of DOWN events, repeating it under emulator
+        # load cannot overshoot into another theme. Use the real fetched row.
+        selected = entries[0]
+        repository = selected['reponame']
+        assert re.fullmatch(r'[A-Za-z0-9_-]+', repository), repository
+        assert selected['url'].startswith('https://') and not selected.get('deprecated')
+        h.key('KEYCODE_MOVE_HOME')
         capture('network-theme-selected')
         before = h.log()
+        downloaded = f'Downloaded theme "{repository}"'
         h.key('KEYCODE_ENTER')
         output = request_result(before,
-            lambda s: 'Downloaded theme "simplemenu-es-de"' in s,
+            lambda s: downloaded in s,
             lambda s: "Couldn't clone repository" in s,
             'frontend theme HTTPS download completed', 300)
         capture('network-theme-downloaded')
@@ -201,29 +205,29 @@ def run(harness):
                 before = h.log()
                 h.key('KEYCODE_ENTER')
                 output = request_result(before,
-                    lambda s: 'Downloaded theme "simplemenu-es-de"' in s,
+                    lambda s: downloaded in s,
                     lambda s: "Couldn't clone repository" in s,
                     'remote-only theme download retry completed', 300)
                 capture(f'network-theme-attempt{attempt}')
-                if 'Downloaded theme "simplemenu-es-de"' in output:
+                if downloaded in output:
                     break
             else:
                 raise RemoteFailure('Theme remote retries exhausted: ' + output)
-        h.shell('test', '-f', theme_path('simplemenu-es-de/theme.xml'))
-        h.shell('test', '-f', theme_path('simplemenu-es-de/.git/HEAD'))
+        h.shell('test', '-f', theme_path(repository + '/theme.xml'))
+        h.shell('test', '-f', theme_path(repository + '/.git/HEAD'))
         h.key('KEYCODE_DEL')  # Closing downloader repopulates the real theme selector.
-        h.wait_for(lambda: re.search(r'Added theme "[^"]+/simplemenu-es-de"', delta(before)),
+        h.wait_for(lambda: re.search(r'Added theme "[^"]+/' + re.escape(repository) + '"', delta(before)),
                    'downloaded theme added to frontend inventory')
         h.key('KEYCODE_DPAD_DOWN')  # Theme selector, below downloader.
-        h.key('KEYCODE_DPAD_RIGHT')  # Linear and the newly downloaded SimpleMenu.
+        h.key('KEYCODE_DPAD_RIGHT')  # Linear and the one newly downloaded theme.
         capture('network-theme-selectable')
         h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
-        h.wait_for(lambda: 'Finished loading theme "simplemenu-es-de"' in delta(before),
+        h.wait_for(lambda: f'Finished loading theme "{repository}"' in delta(before),
                    'downloaded theme selected and loaded through UI')
         saved = h.shell('cat', h.settings)
-        assert h.launch_checks.settings_fragment(saved).find("string[@name='Theme']").get('value') == 'simplemenu-es-de', saved
+        assert h.launch_checks.settings_fragment(saved).find("string[@name='Theme']").get('value') == repository, saved
         capture('network-theme-applied')
-        record('PASS: real downloaded simplemenu-es-de is selectable, saved and loaded through the UI.')
+        record(f'PASS: real downloaded {repository} is selectable, saved and loaded through the UI.')
 
     def scraper(negative):
         permission(not negative)
