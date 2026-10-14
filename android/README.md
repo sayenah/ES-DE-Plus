@@ -51,7 +51,7 @@ separate private draft, restored across Activity recreation/process death.
 Cancelling never accepts the draft. Missing, read-only, revoked or obstructed
 storage opens recoverable configuration; validation never recreates a missing root
 or silently substitutes another one. Changing roots after native startup restarts
-the frontend in a fresh process (the lifecycle fix in PR #11).
+the frontend in a fresh process.
 
 The configurator's ROM selection overrides XML `ROMDirectory` without rewriting
 that setting. An existing `MediaDirectory` override stays authoritative and is

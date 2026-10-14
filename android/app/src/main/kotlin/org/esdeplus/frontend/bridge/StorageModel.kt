@@ -172,19 +172,26 @@ class StorageModel(private val context: Context) {
     }
 
     fun validateDataContents(directory: File, readOnly: Boolean = false): String? {
-        for (name in listOf("settings", "logs", "gamelists", "downloaded_media", "collections", "themes",
-                "custom_systems", "scripts", "screensavers", "controllers")) {
+        for (name in listOf("settings", "logs", "gamelists", "collections", "themes",
+                "custom_systems", "scripts", "screensavers", "screensavers/custom_slideshow", "controllers")) {
             val child = File(directory, name)
             if (child.exists()) verifyDirectory(child, readOnly = readOnly)
         }
-        for (name in listOf("settings/es_settings.xml", "es_settings.xml", "settings/es_input.xml", "es_input.xml")) {
+        for (name in listOf("settings/es_settings.xml", "es_settings.xml", "settings/es_input.xml", "es_input.xml",
+                "logs/es_log.txt", "logs/es_log.txt.bak", "controllers/es_controller_mappings.cfg",
+                "es_controller_mappings.cfg")) {
             val child = File(directory, name)
             if (child.exists() && (!child.isFile || !Os.access(child.path,
                     OsConstants.R_OK or (if (readOnly) 0 else OsConstants.W_OK))))
                 throw failure(R.string.directory_access_failed, child)
         }
         val media = try { AdoptedSettings.mediaDirectory(directory) }
-            catch (error: Exception) { throw failure(R.string.invalid_adopted_settings) } ?: return null
+            catch (error: Exception) { throw failure(R.string.invalid_adopted_settings) }
+        if (media == null) {
+            val defaultMedia = File(directory, "downloaded_media")
+            if (defaultMedia.exists()) verifyDirectory(defaultMedia, readOnly = readOnly)
+            return null
+        }
         try { verifyDirectory(media, readOnly = readOnly) }
         catch (error: Exception) { throw failure(R.string.media_unavailable, media) }
         return media.path

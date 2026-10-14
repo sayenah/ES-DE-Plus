@@ -79,6 +79,15 @@ internal object AppDataSmoke {
             val cancel = dialog.findAccessibilityNodeInfosByText("Cancel").single { it.text?.toString()?.equals("Cancel", true) == true }
             check(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             probe.waitForIdleSync()
+            // Cancelling the warning after changing the destination must not
+            // retain the old folder's consent or permit saving the new draft.
+            probe.runOnMainSync {
+                configurator!!.findViewById<Button>(R.string.continue_frontend).performClick()
+            }
+            probe.waitForIdleSync()
+            val recovery = probe.uiAutomation.rootInActiveWindow ?: error("Configuration error UI missing")
+            check(recovery.findAccessibilityNodeInfosByText(
+                "Choose and confirm the application-data folder").isNotEmpty())
             Thread.sleep(300)
             val beforeHash = events.toList()
             observers.forEach { it.stopWatching() }

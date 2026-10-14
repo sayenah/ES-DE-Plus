@@ -48,7 +48,7 @@ class MainActivity : SDLActivity() {
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
         else bridge.checkStorageOnResume()
     }
-    // PR #11 retires the old native process on framework recreation and restores
+    // Framework recreation retires the old native process and restores
     // the recorded entry. Cached native settings/paths never switch in place.
     internal fun restartAfterStorageSelection(): Boolean {
         if (!bridge.pathsSelected) return false
