@@ -61,7 +61,9 @@ Objective (D-012 am. 2: full file access is the first, recommended choice; order
 
 ## Founder gate (open)
 
-None. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-E → PR-F (amended by D-012 am. 2).
+**G-4 icon choice (D-016):** the Founder picks one of four original icon concepts on the canvas https://claude.ai/artifact/H2bHW4UMaxUw6VzdzoQczH (A Plus Pad, B Cartridge Stack, C Face Buttons, D Pixel Plus), or asks for changes. Parked: the icon PR. On the ruling: record it, write a small Sol work order (adaptive icon layers incl. monochrome, round icon, TV banner, configurator/splash mark from the chosen SVG; B-1, B-5; screenshot evidence on API 34 and TV) and run it after PR-G. Independent work continues (stall fix, PR-G, PR-E, PR-F). **Queued after PR-F: D-015 emulator manager** — design and Astra challenge first.
+
+Otherwise none. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-E → PR-F (amended by D-012 am. 2).
 
 ## State (verified 2026-10-12 14:50 CDT; re-verify from the repository)
 
