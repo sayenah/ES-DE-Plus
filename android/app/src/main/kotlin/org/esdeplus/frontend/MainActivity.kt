@@ -9,24 +9,20 @@ import android.util.Log
 import android.view.KeyEvent
 import android.content.res.Configuration
 import java.lang.ref.WeakReference
-import java.util.concurrent.atomic.AtomicBoolean
 import org.libsdl.app.SDLActivity
 
 open class MainActivity : SDLActivity() {
-    @Volatile private var destroying = false
-    @Volatile private var configured = false
-    @Volatile private var restartRequested = false
-    private val restartPrepared = AtomicBoolean(false)
     private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
+    override fun loadLibraries() {
+        super.loadLibraries()
+        ConfiguratorSession.registerNative()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         live = WeakReference(this)
         Log.i("ES-DE-Plus", "Creating sole SDL activity task=$taskId")
         ConfiguratorSession.recordEntry(intent)
         super.onCreate(savedInstanceState)
-        // SDL's JNI bindings are now ready; prepare cancellation before
-        // onResume can start the native thread and its configuration query.
-        if (!SDLActivity.mBrokenLibraries) ConfiguratorSession.registerNative()
         updateWindowSize()
         window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
     }
@@ -65,25 +61,14 @@ open class MainActivity : SDLActivity() {
         }
     }
     override fun onDestroy() {
-        destroying = true
-        val terminal = !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
-        val destruction = "Destroying SDL activity held=${ConfiguratorSession.configuring} " +
-            "finishing=$isFinishing changingConfigurations=$isChangingConfigurations " +
-            "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId"
-        if (BuildConfig.DEBUG) Log.i("ES-DE-Plus", destruction, Throwable("SDL destruction caller"))
-        else Log.i("ES-DE-Plus", destruction)
-        // Android's non-finishing relaunch must retain a foreground owner
-        // while this process retires. The private Java activity waits for
-        // actual process death; it cannot conceal a native quit/join stall.
-        restartRequested = terminal && isChangingConfigurations && !isFinishing
-        prepareRestart()
+        val terminal = isFinishing && !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
+        Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring}")
         // Task clear can destroy the root before pausing the configurator.
         // Save its scalar snapshot without calling a retained Activity.
         if (ConfiguratorSession.configuring) ConfiguratorSession.persistPendingDraft(applicationContext)
-        // Every destruction retires this native process, including Android's
-        // local relaunch after package/resource updates. SDL and the frontend
-        // cannot initialise a second main over their retained native globals.
-        // Startup/held quit polls may end it before the Java join returns.
+        // SDL first joins/stops its native thread. Only terminal Activity exit
+        // then ends the VM, resetting native globals for the next launch.
+        // During configuration the native quit poll ends the process instead.
         super.onDestroy()
         Log.i("ES-DE-Plus", "SDL activity destroy join returned")
         live = null
@@ -97,19 +82,7 @@ open class MainActivity : SDLActivity() {
         }
     }
     // JNI instance methods; the keep rules preserve their names and exact descriptors.
-    fun checkConfigurationNeeded(): Boolean {
-        val needed = bridge.checkConfigurationNeeded()
-        configured = !needed
-        // Destruction can precede this first query. Valid configuration may
-        // transfer the entry now, before native quit ends the process. A real
-        // recovery hold keeps the existing saved-state/manual-restart policy.
-        prepareRestart()
-        return needed
-    }
-    private fun prepareRestart() {
-        if (restartRequested && configured && restartPrepared.compareAndSet(false, true))
-            FrontendRestartActivity.prepare(applicationContext, ConfiguratorSession.restartEntry())
-    }
+    fun checkConfigurationNeeded() = bridge.checkConfigurationNeeded()
     fun checkEmulatorInstalled(packageName: String, activityName: String) = bridge.checkEmulatorInstalled(packageName, activityName)
     fun checkNeedResourceCopy(buildIdentifier: String) = bridge.checkNeedResourceCopy(buildIdentifier)
     fun checkRACoreInstalled(packageName: String, coreFile: String) = bridge.checkRACoreInstalled(packageName, coreFile)
@@ -140,7 +113,6 @@ open class MainActivity : SDLActivity() {
     companion object {
         private var live: WeakReference<MainActivity>? = null
         fun liveInstance(): MainActivity? = live?.get()?.takeUnless { it.isDestroyed }
-        internal fun destructionRequested(): Boolean = live?.get()?.destroying == true
         @JvmStatic external fun nativeSetHold(hold: Boolean)
         @JvmStatic external fun nativeWaitForConfiguration()
         @JvmStatic external fun nativeSetHomeApp(home: Boolean)
