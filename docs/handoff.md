@@ -100,6 +100,21 @@ Stage: IMPLEMENTATION. Owner: Sol, fifth clone `~/dev/ES-DE-Plus-sol5` (git meta
 - AC-9 Platforms: real configurator plus existing regression probes on API 29, API 34 and TV API 36; TV covers direct-mode D-pad/typed-path selection and consent; permission denial/revocation, missing picker, changed selection, process death, deleted folders and unavailable removable storage covered; startup assertions use fresh evidence from the selected folder.
 - AC-10 B-1 Linux and Android, B-2, B-4, B-5 at the implementation revision; macOS if shared filesystem/settings C++ changes and the toolchain is available; unavailable evidence reported explicitly.
 
+## Parallel workstreams — live roster (es-de-plus-5b, 2026-10-14 ~18:40 CDT)
+
+Every thread was dispatched with `launch.py` (copy in `…/8a7338b1-9e52-4d9f-b1a9-bb84afde6178/scratchpad/launch.py`); scratchpad root below is `…/8a7338b1-9e52-4d9f-b1a9-bb84afde6178/scratchpad/`. Re-check liveness with `ps -p <PID>`; re-arm `wait-run.sh <PID> <jsonl> <out>` on takeover.
+
+| PR | Work | Clone | Sol thread | Last PID / state | Next for the Orchestrator |
+|---|---|---|---|---|---|
+| #11 | lifecycle stall (top `Next`) | `-sol3` | `01a13a3c-8c3b-73c3-9846-913ec692c90f` | 89561 running, round 3 (merge `main`, confirm run); `sol_stall2/prompt_r3.md`, `run_r3.jsonl`, `out_r3.md` | review → Opus verify pass (`-qa`) → merge first |
+| #13 | stable test key + automated pre-releases (D-011, D-013) | `-sol` | `01a13a2b-f68d-7aa1-96cb-4d4285fee1b8` | 36158 ended (round 2 at 8fbf04813); `sol_pre/` | Opus verify pass 2 running in `-qa2` (background agent of es-de-plus-5b; report `.opus-scratch/pre-q2/report.md`); PR run 38632741317 re-run (attempt 2) |
+| #14 | Pixel Plus icon (D-016) | `-sol4` | `01a13a87-71fd-7211-b34e-726aad045488` | 54435 running, round 2 (QA APPROVE fixes); `sol_icon/prompt_r2.md` | review round 2 → merge (no verify pass needed) |
+| #15 | data folder (D-012) | `-sol5` | `01a13a87-71fd-78c1-9f08-f592d758efc9` | 91319 ended (round 2 at 700d667ff: harness fixed, fails only at fresh start after root re-selection, needs #11); `sol_appdata/` | **after #11 merges:** resume the thread to rebase/merge `main` and finish; it must also stop write-probing the ROM folder (D-018 (2), D-018 am. 1 A1) and may fold in WO-5 |
+| #16 | emulator manager (D-015) | `-sol6` | `01a13a8f-b4f3-77d0-bbd6-69162661171e` | 95055 running, round 2 (Unicode alias ruling, final evidence); `sol_emu/prompt_r2.md` | AC-13 touch narrowed (D-018 (3)); integrate after #11/#15 |
+| #17 | network-smoke reliability (PR-G2) | `-sol2` | `01a13be3-9944-7dc3-bb00-5941c85e337a` | 91105 running; `sol_net2/` | review → Opus pass |
+
+Design work: touch-overlay design workflow wf_d017750f-fc7 running (→ Astra challenge for WO-1 → Sol in a new clone); WO-2 and WO-4 adjudicated (D-018 am. 1, am. 2), Sol after #15 (and #16 for WO-4). QA clones: `~/dev/ES-DE-Plus-qa` (free; next: PR #11 verify), `-qa2` (PR #13), `-qa3` (free).
+
 ## Android gap audit — register and batches (D-018)
 
 Source: ultracode workflow run wf_1ae03c98-913 (read-only, 3-skeptic verification); full report with evidence and per-WO acceptance criteria at `/private/tmp/claude-501/-Users-mac0918-dev-ES-DE-Plus/8a7338b1-9e52-4d9f-b1a9-bb84afde6178/scratchpad/audit/report.md` (copy the relevant WO text into each Sol work order; the register below is the durable summary).
@@ -122,7 +137,7 @@ Source: ultracode workflow run wf_1ae03c98-913 (read-only, 3-skeptic verificatio
 | G-22 Google TV cannot set a third-party HOME; docs promise it | low | Deferred / docs | no |
 | G-23/G-24/G-25 no data-extraction rules; no audio focus; static UI redrawn at full refresh rate | low | WO-13 | no |
 
-**Running (es-de-plus-5b, 2026-10-14 evening):** Astra challenge WO-2 (thread `01a13cc4-61f0-79c0…`, PID 42227, `…/scratchpad/astra_wo2/`), Astra challenge WO-4 (thread `01a13cc4-61f0-7b33…`, PID 42229, `…/scratchpad/astra_wo4/`), and ultracode design workflow `touch-overlay-design` (run wf_d017750f-fc7: ground truth → 3 designs → 3 judges → candidate) whose candidate then goes to an Astra challenge for WO-1. Batches: **0** (now, Orchestrator) governance above, Astra challenges for WO-1, WO-2, WO-4; **1** (now) WO-1 core after its Astra challenge, WO-9 Kotlin part; **2** after #11: WO-3; **3** after #15: WO-5, WO-2, WO-7, WO-12, WO-1 reset wiring; **4** after #16: WO-4, WO-10, WO-11, WO-1 lockout string, WO-9 C++; **5** after #13: one CI-matrix PR (WO-8, API 35/36 phone, tablet, 16 KB legs); **6** after #11/#14/#15/#16: WO-13. Rule for every WO: new smoke in a new `android/*_smoke.py`, new strings in a new values file (in-flight PRs hold `smoke.py`, `strings.xml`, `build-android.yml`). Real-device-only checks are listed in report §4.
+**Design status:** WO-2 and WO-4 Astra challenges completed and adjudicated (D-018 am. 1, am. 2; reports `…/scratchpad/astra_wo2/out.md`, `astra_wo4/out.md` — copy their AC wording into the Sol work orders); **running:** ultracode design workflow `touch-overlay-design` (run wf_d017750f-fc7: ground truth → 3 designs → 3 judges → candidate) whose candidate then goes to an Astra challenge for WO-1. Batches: **0** (now, Orchestrator) governance above, Astra challenges for WO-1, WO-2, WO-4; **1** (now) WO-1 core after its Astra challenge, WO-9 Kotlin part; **2** after #11: WO-3; **3** after #15: WO-5, WO-2, WO-7, WO-12, WO-1 reset wiring; **4** after #16: WO-4, WO-10, WO-11, WO-1 lockout string, WO-9 C++; **5** after #13: one CI-matrix PR (WO-8, API 35/36 phone, tablet, 16 KB legs); **6** after #11/#14/#15/#16: WO-13. Rule for every WO: new smoke in a new `android/*_smoke.py`, new strings in a new values file (in-flight PRs hold `smoke.py`, `strings.xml`, `build-android.yml`). Real-device-only checks are listed in report §4.
 
 ## Founder gate (open)
 
