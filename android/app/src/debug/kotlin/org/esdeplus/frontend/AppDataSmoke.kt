@@ -76,16 +76,20 @@ internal object AppDataSmoke {
                 "<string name=\"MediaDirectory\" value=\"\" />\n")
             observe(candidate)
             observe(settings.parentFile!!)
+            // Watch the file itself as well: the shared-storage mount need not
+            // deliver its reads as named child events on the parent directory.
+            observe(settings)
             // Both evidence mechanisms have positive controls using actual reads
             // and writes. Never accept a quiet observer that cannot see access.
             val originalHash = hash(candidate)
             settings.readText()
             drain()
+            val controlEvents = events.toList()
             check(events.any { it.first == candidate && it.third == null && it.second and FileObserver.OPEN != 0 }) {
-                "FileObserver positive control saw no directory enumeration"
+                "FileObserver positive control saw no directory enumeration: $controlEvents"
             }
-            check(events.any { it.first == settings.parentFile && it.third == settings.name && it.second and FileObserver.ACCESS != 0 }) {
-                "FileObserver positive control saw no settings-file reads"
+            check(events.any { it.first == settings && it.third == null && it.second and FileObserver.ACCESS != 0 }) {
+                "FileObserver positive control saw no settings-file reads: $controlEvents"
             }
             settings.appendText("\n")
             check(hash(candidate) != originalHash) { "Tree hash positive control did not detect a write" }

@@ -303,6 +303,7 @@ class RuntimeSmoke : Instrumentation() {
             result.putString("stream", "PASS: descriptors, CheckJNI 10000 calls, Unicode directory/file, sentinels, roots, real font-copy failure, cheap normal start, explicit hash/size repair, unavailable-storage rejection\n")
             finish(-1, result)
         } catch (error: Throwable) {
+            android.util.Log.e("ES-DE-Plus", "Runtime smoke probe failed", error)
             result.putString("stream", "FAIL: ${error.stackTraceToString()}\n")
             finish(0, result)
         }

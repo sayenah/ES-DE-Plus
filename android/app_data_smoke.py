@@ -123,8 +123,11 @@ def run(harness):
 
     # Instrument the actual consent UI and access to a separate authored tree.
     h.shell('am', 'force-stop', h.app)
-    result = h.instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'app-data-probe',
-                                 h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+    # Dismiss any identified stock onboarding before the probe owns UiAutomation.
+    # Concurrent host uiautomator dumps compete with its accessibility connection.
+    h.hierarchy()
+    result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'app-data-probe',
+                     h.app + '/org.esdeplus.frontend.RuntimeSmoke')
     h.evidence.joinpath('app-data-no-access-probe.txt').write_text(result)
     h.smoke_checks.probe_passed(result, 'PASS: real consent cancellation has no FileObserver access')
     h.shell('am', 'force-stop', h.app)
