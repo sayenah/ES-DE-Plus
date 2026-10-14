@@ -228,11 +228,19 @@ def run(harness):
     def scraper(negative):
         permission(not negative)
         before = h.log()
-        menu(1)  # SCRAPER; seven rows, then START button.
-        for _ in range(7):
+        menu(1)  # SCRAPER; choose its real system checkbox before START.
+        h.key('KEYCODE_DPAD_DOWN'); h.key('KEYCODE_DPAD_DOWN')
+        h.key('KEYCODE_ENTER')
+        capture('network-' + ('control' if negative else 'fixed') + '-scraper-systems')
+        h.key('KEYCODE_ENTER')  # The single loaded NES system.
+        capture('network-' + ('control' if negative else 'fixed') + '-scraper-nes-selected')
+        h.key('KEYCODE_DEL')
+        for _ in range(5):  # From systems row, through four submenus to START.
             h.key('KEYCODE_DPAD_DOWN')
         capture('network-' + ('control' if negative else 'fixed') + '-scraper-start')
         h.key('KEYCODE_ENTER')
+        h.wait_for(lambda: 'Scraper::startScraperSearch(): Scraping system "nes"' in delta(before),
+                   'real UI submitted NES scraper search', timeout=10)
         output = request_result(before, scraper_reply,
             lambda s: 'ScraperHttpRequest network error' in s,
             'frontend ScreenScraper HTTPS request completed', 90)
