@@ -9,7 +9,10 @@ import xml.etree.ElementTree as ET
 
 
 class RemoteFailure(Exception):
-    pass
+    def __init__(self, message, retry_list=False):
+        assert remote_error(message), 'Failure is not eligible for remote handling: ' + message
+        super().__init__(message)
+        self.retry_list = retry_list
 
 
 def resolve_error(output):
@@ -47,6 +50,12 @@ def controls():
                   'Frontend ANR', 'Timed out: frontend startup', 'No themes.json file found',
                   'failed to resolve address: Permission denied', 'unexpected HTTP status code: 404']:
         assert not remote_error(value), value
+        try:
+            RemoteFailure(value)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Non-remote failure entered retry/diagnostic handling: ' + value)
     for value in ['failed to resolve address for gitlab.com', 'Failed to connect to server',
                   'unexpected HTTP status code: 503', 'Server returned HTTP error code 429']:
         assert remote_error(value), value
@@ -155,7 +164,7 @@ def run(harness):
             if remote_error(output):
                 h.key('KEYCODE_ENTER')
                 h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
-                raise RemoteFailure(output)
+                raise RemoteFailure(output, retry_list=True)
             raise AssertionError(output)
         raw = h.shell('cat', theme_path('themes-list/themes.json'))
         themes = json.loads(raw)
@@ -199,7 +208,7 @@ def run(harness):
                 if 'Downloaded theme "simplemenu-es-de"' in output:
                     break
             else:
-                raise AssertionError('Theme remote retries exhausted: ' + output)
+                raise RemoteFailure('Theme remote retries exhausted: ' + output)
         h.shell('test', '-f', theme_path('simplemenu-es-de/theme.xml'))
         h.shell('test', '-f', theme_path('simplemenu-es-de/.git/HEAD'))
         h.key('KEYCODE_DEL')  # Closing downloader repopulates the real theme selector.
@@ -233,6 +242,8 @@ def run(harness):
             assert not scraper_reply(output) and resolve_error(output), output
             record('PASS: no-INTERNET APK rejects real scraper HTTPS request with resolve error (one attempt).')
         else:
+            if not scraper_reply(output) and remote_error(output):
+                raise RemoteFailure('Scraper remote request failed (one attempt): ' + output)
             assert scraper_reply(output) and not resolve_error(output), output
             record('PASS: frontend ScreenScraper HTTPS request reached service (result/service-level reply).')
 
@@ -256,6 +267,8 @@ def run(harness):
                 theme_list(False)
                 break
             except RemoteFailure as error:
+                if not error.retry_list:
+                    raise
                 record(f'REMOTE themes attempt {attempt}/3 failed: {error}')
                 if attempt == 3:
                     raise
@@ -264,6 +277,10 @@ def run(harness):
                 h.shell('test', '!', '-e', theme_path('themes-list'))
                 time.sleep(5)
         scraper(False)
+    except RemoteFailure as error:
+        record(f'{"FAIL" if h.api == 34 else "NON-GATING REMOTE DIAGNOSTIC"}: API {h.api}: {error}')
+        if h.api == 34:
+            raise
     finally:
         h.shell('am', 'force-stop', h.app)
         if h.api == 34:
