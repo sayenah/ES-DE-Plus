@@ -17,6 +17,7 @@ import java.security.MessageDigest
 
 class NativeBridge(private val context: Context, private val recoverStartup: Boolean = false) {
     private val storage = StorageModel(context)
+    // Once any root has crossed JNI, the native side may have cached it.
     @Volatile var pathsSelected = false
         private set
     @Volatile var windowSnapshot: IntArray = intArrayOf(0, 0)
@@ -131,7 +132,8 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun getAppDataDirectory(): String = withStorageRecovery {
         val config = storage.load() ?: throw IOException(context.getString(R.string.storage_choice_required))
         storage.validate(config)
-        storage.appData().path
+        pathsSelected = true
+        config.data
     }
     // FileData/createSystemDirectories require the final slash.
     fun getROMDirectory(): String = withStorageRecovery {
