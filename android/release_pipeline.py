@@ -3,7 +3,6 @@
 # ES-DE-Plus — written for ES-DE-Plus. D-011/D-013 immutable test pre-releases.
 import copy
 import hashlib
-import io
 import json
 import os
 import pathlib
@@ -176,7 +175,7 @@ class GitHub:
         return self.request(f'repos/{REPOSITORY}/releases', 'POST', description)
 
     def upload(self, release, path):
-        endpoint = release['upload_url'].split('{')[0] + '?name=' + urllib.parse.quote(path.name)
+        endpoint = f'https://uploads.github.com/repos/{REPOSITORY}/releases/{release["id"]}/assets?name=' + urllib.parse.quote(path.name)
         return self.request(endpoint, 'POST', raw=path)
 
     def assets(self, release):

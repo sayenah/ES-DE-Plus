@@ -14,11 +14,13 @@ import test_signing
 
 def check():
     accepted = []
+    evaluated = 0
     for repository, event, ref, image, rebuild, failure in itertools.product(
             (test_signing.REPOSITORY, 'someone/ES-DE-Plus'),
             ('push', 'workflow_dispatch', 'pull_request', 'pull_request_target'),
             ('refs/heads/main', 'refs/heads/fix/release-pipeline', 'refs/pull/13/merge'),
             ('api29', 'tv36', 'api34'), ('', '123'), ('none', 'android')):
+        evaluated += 1
         result = test_signing.eligible(repository, event, ref, image, rebuild, failure)
         expected = (repository == test_signing.REPOSITORY and event in ('push', 'workflow_dispatch') and
                     ref == 'refs/heads/main' and image == 'api34' and rebuild == '' and failure == 'none')
@@ -26,7 +28,7 @@ def check():
         if result:
             accepted.append((repository, event, ref, image, rebuild, failure))
     assert len(accepted) == 2
-    print('PASS: eligibility truth table, 576 combinations; only:', json.dumps(accepted))
+    print(f'PASS: eligibility truth table, {evaluated} combinations; only:', json.dumps(accepted))
     version = test_signing.public_version()
     assert version == test_signing.public_version(), 'Same SHA changed version on rerun/dispatch'
     previous = test_signing.public_version('HEAD^1')

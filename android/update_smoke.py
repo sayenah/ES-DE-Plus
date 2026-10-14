@@ -3,8 +3,6 @@
 # ES-DE-Plus — written for ES-DE-Plus. D-013 real in-place update with throwaway signing.
 import hashlib
 import json
-import pathlib
-import xml.etree.ElementTree as ET
 
 import pdf_smoke
 
@@ -35,8 +33,6 @@ def run(harness):
     h.user_file('settings/es_settings.xml', pdf_smoke.settings_xml(settings))
     h.private('sh', '-c', "printf 'ES-DE-Plus update continuity sentinel\\n' > files/update-proof")
     sentinel = 'files/update-proof'
-    prefs = h.private('cat', 'shared_prefs/storage.xml')
-    snapshot = h.shell('cat', h.settings)
     data = h.private('cat', sentinel)
     h.launch()
     h.configured_system('update-lower-saved')
