@@ -67,13 +67,22 @@ internal object AppDataSmoke {
             }
             return digest.digest().joinToString("") { "%02x".format(it) }
         }
+        fun noAccess(observed: List<Triple<File, Int, String?>>) {
+            check(observed.isEmpty()) { "Pre-consent access: $observed" }
+        }
+        fun rejectsAccess(observed: List<Triple<File, Int, String?>>) {
+            try { noAccess(observed) }
+            catch (_: IllegalStateException) { return }
+            error("No-access assertion accepted an actual access control")
+        }
         var configurator: ConfiguratorActivity? = null
         try {
             val candidate = File(sandbox, "ES-DE").apply { check(mkdir()) }
             val settings = File(candidate, "settings/es_settings.xml")
             check(settings.parentFile!!.mkdir())
-            settings.writeText("<string name=\"ROMDirectory\" value=\"/conflicting-roms\" />\n" +
-                "<string name=\"MediaDirectory\" value=\"\" />\n")
+            val contents = "<string name=\"ROMDirectory\" value=\"/conflicting-roms\" />\n" +
+                "<string name=\"MediaDirectory\" value=\"\" />\n"
+            settings.writeText(contents)
             observe(candidate)
             observe(settings.parentFile!!)
             // Watch the file itself as well: the shared-storage mount need not
@@ -82,18 +91,31 @@ internal object AppDataSmoke {
             // Both evidence mechanisms have positive controls using actual reads
             // and writes. Never accept a quiet observer that cannot see access.
             val originalHash = hash(candidate)
-            settings.readText()
             drain()
-            val controlEvents = events.toList()
+            events.clear()
+            check(settings.readText() == contents)
+            drain()
+            val readEvents = events.toList()
+            // Some shared-storage mounts report open/close but not ACCESS for
+            // a real file read. Every event remains forbidden during consent;
+            // require its exact-file OPEN, then prove the same no-access
+            // assertion rejects it. Opening alone is already forbidden access;
+            // all events, including ACCESS where delivered, remain monitored.
+            check(readEvents.any { it.first == settings && it.third == null && it.second and FileObserver.OPEN != 0 }) {
+                "FileObserver positive control missed the actual settings read: $readEvents"
+            }
+            rejectsAccess(readEvents)
+            events.clear()
+            check(candidate.list()?.contains("settings") == true)
+            drain()
+            val enumerationEvents = events.toList()
             check(events.any { it.first == candidate && it.third == null && it.second and FileObserver.OPEN != 0 }) {
-                "FileObserver positive control saw no directory enumeration: $controlEvents"
+                "FileObserver positive control saw no directory enumeration: $enumerationEvents"
             }
-            check(events.any { it.first == settings && it.third == null && it.second and FileObserver.ACCESS != 0 }) {
-                "FileObserver positive control saw no settings-file reads: $controlEvents"
-            }
+            rejectsAccess(enumerationEvents)
             settings.appendText("\n")
             check(hash(candidate) != originalHash) { "Tree hash positive control did not detect a write" }
-            settings.writeText(settings.readText().removeSuffix("\n"))
+            settings.writeText(contents)
             val before = hash(candidate)
             drain()
             events.clear()
@@ -122,7 +144,7 @@ internal object AppDataSmoke {
             drain()
             val beforeHash = events.toList()
             observers.forEach { it.stopWatching() }
-            check(beforeHash.isEmpty()) { "Pre-consent access: $beforeHash" }
+            noAccess(beforeHash)
             check(hash(candidate) == before) { "Cancelling changed the destination tree" }
             check(storage.load() == accepted) { "Cancel changed accepted configuration" }
             probe.runOnMainSync { configurator!!.finish() }
@@ -229,7 +251,9 @@ internal object AppDataSmoke {
             return "PASS: real consent cancellation has no FileObserver access and identical tree hash; " +
                 "both positive controls; accepted configuration unchanged; renamed/legacy destinations, " +
                 "flat/wrapped and legacy-root settings, conflicting ROM, media overrides, missing media/root, " +
-                "obstructed themes, unavailable volume and overlap guards.\n"
+                "obstructed themes, unavailable volume and overlap guards.\n" +
+                "Settings read rejected by no-access assertion: $readEvents\n" +
+                "Directory enumeration rejected by no-access assertion: $enumerationEvents\n"
         } finally {
             observers.forEach { it.stopWatching() }
             configurator?.let { probe.runOnMainSync { it.finish() } }
