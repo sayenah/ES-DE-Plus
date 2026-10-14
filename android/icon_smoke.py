@@ -89,61 +89,43 @@ def capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, t
     record('icon-api34-app-info')
     home()
 
-    # Use the stock launcher's actual Wallpaper & style UI. The google_apis
-    # image includes Pixel Launcher; do not assume another launcher's private
-    # preferences or replace a real themed-icon screenshot with a preview.
-    def theme_toggle():
-        candidates = []
-        for parent in hierarchy():
-            children = list(parent.iter('node'))
-            switches = [n for n in children if n.get('checkable') == 'true' and
-                        n.get('class', '').endswith('Switch')]
-            if len(switches) == 1 and any(matches(n, 'Themed icons') for n in children):
-                candidates.append((len(children), switches[0]))
-        return min(candidates, key=lambda item: item[0])[1] if candidates else None
+    # Launcher3's exported GridCustomizationsProvider is the public interface
+    # used by Wallpaper & style for this setting. The emulator's wallpaper app
+    # crashes in its clock carousel; query/update the real launcher mode and
+    # verify the actual HOME rendering through that interface instead.
+    provider = 'content://' + package + '.grid_control/icon_themed'
 
-    def open_theme_settings():
-        home()
-        x, y = width // 4, height // 2
-        shell('input', 'swipe', str(x), str(y), str(x), str(y), '1000')
-        names = ['Wallpaper & style', 'Wallpapers & style']
-        wait_for(lambda: any(target(name) is not None for name in names), 'real Wallpaper & style menu')
-        record('icon-api34-wallpaper-menu')
-        tap(next(target(name) for name in names if target(name) is not None))
-        wait_for(lambda: target('Home screen') is not None or theme_toggle() is not None,
-                 'Wallpaper & style Home screen controls')
-        if target('Home screen') is not None:
-            tap(target('Home screen'))
-        for _ in range(8):
-            toggle = theme_toggle()
-            if toggle is not None:
-                return toggle
-            shell('input', 'swipe', str(width // 2), str(height * 4 // 5),
-                  str(width // 2), str(height // 3), '500')
-        record('icon-api34-missing-themed-toggle')
-        raise AssertionError('The real Wallpaper & style UI has no Themed icons switch')
+    def read_mode():
+        response = shell('content', 'query', '--uri', provider)
+        values = re.findall(r'\bboolean_value=([01])\b', response)
+        assert len(values) == 1, ('Unexpected public themed-icon provider reply', provider, response)
+        return values[0], response
 
-    toggle = open_theme_settings()
-    original = toggle.get('checked')
-    assert original in ('true', 'false'), ('Missing themed-icon switch state', toggle.attrib)
+    def set_mode(value):
+        response = shell('content', 'update', '--uri', provider, '--bind',
+                         'boolean_value:b:' + ('true' if value == '1' else 'false'))
+        wait_for(lambda: read_mode()[0] == value, 'public themed-icon provider state=' + value)
+        return response
+
+    original, before = read_mode()
+    transcript = evidence / 'icon-api34-themed-mode.txt'
+    transcript.write_text('Real launcher public provider: ' + provider + '\nOriginal query: ' + before)
     try:
-        if original != 'true':
-            tap(toggle)
-        wait_for(lambda: theme_toggle() is not None and theme_toggle().get('checked') == 'true',
-                 'real Themed icons switch checked')
-        record('icon-api34-themed-setting')
+        changed = set_mode('1')
+        enabled, after = read_mode()
+        assert enabled == '1'
+        with transcript.open('a') as output:
+            output.write('Enable update: ' + changed + '\nEnabled query: ' + after)
         home()
         wait_for(lambda: target(label) is not None, 'Pixel Plus in themed launcher HOME')
         record('icon-api34-themed-launcher')
         themed = colour_counts(evidence / 'icon-api34-themed-launcher.png')
         assert max(themed) < 5, ('Themed HOME still shows colour layers', themed, bounds)
-        (evidence / 'icon-api34-themed-mode.txt').write_text(
-            f'PASS: real Wallpaper & style Themed icons switch checked=true; actual HOME icon '
-            f'colour samples normal={normal}, themed={themed}; monochrome mode rendered.\n')
+        with transcript.open('a') as output:
+            output.write(f'PASS: actual HOME icon colour samples normal={normal}, themed={themed}; '
+                         'public provider readback=1 and monochrome mode rendered.\n')
     finally:
-        toggle = open_theme_settings()
-        if toggle.get('checked') != original:
-            tap(toggle)
-        wait_for(lambda: theme_toggle() is not None and theme_toggle().get('checked') == original,
-                 'original themed-icon setting restored through UI')
+        restored = set_mode(original)
+        with transcript.open('a') as output:
+            output.write('Restore update: ' + restored + '\nRestored query: ' + read_mode()[1])
         home()
