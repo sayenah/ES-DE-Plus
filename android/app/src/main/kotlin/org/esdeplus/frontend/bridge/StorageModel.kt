@@ -35,7 +35,7 @@ class StorageModel(private val context: Context) {
     }
     fun defaultData(): File = File(volumeRoot("primary"), "ES-DE-Plus")
     private fun dataDirectory(config: Configuration): File = when (config.mode) {
-        "scoped" -> privateData().also {
+        "scoped" -> privateData().canonicalFile.also {
             if (config.data != it.path) throw failure(R.string.data_folder_required)
         }
         "direct" -> {
@@ -242,7 +242,7 @@ class StorageModel(private val context: Context) {
         if (!preferences.contains("mode")) return null
         val mode = preferences.getString("mode", "")!!
         val data = preferences.getString("data", null) ?: if (mode == "scoped") {
-            try { privateData().path } catch (_: IOException) { "" }
+            try { privateData().canonicalPath } catch (_: IOException) { "" }
         } else ""
         return Configuration(mode, preferences.getString("roms", "")!!,
             preferences.getString("tree", "")!!, preferences.getBoolean("createSystems", false), data)

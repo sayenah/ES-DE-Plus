@@ -153,6 +153,18 @@ internal object AppDataSmoke {
                 rejected { storage.verifyDisjoint(File(alias, "child"), target) }
                 rejected { storage.verifyDisjoint(target, File(alias, "child")) }
                 storage.verifyDisjoint(candidate, target)
+                // SDK-owned paths are absolute, but need not be canonical.
+                // Keep the existing scoped layout valid through such an alias.
+                val canonicalRoot = target.canonicalFile
+                val scopedData = File(canonicalRoot, "ES-DE-Plus").apply { check(mkdir()) }
+                val scopedROMs = File(canonicalRoot, "ROMs").apply { check(mkdir()) }
+                try {
+                    val scoped = StorageModel(object : ContextWrapper(context) {
+                        override fun getExternalFilesDir(type: String?): File? = alias
+                    })
+                    check(scoped.validate(StorageModel.Configuration("scoped", scopedROMs.path, "", false,
+                        scopedData.path)) == scopedROMs)
+                } finally { check(scopedData.delete()); check(scopedROMs.delete()) }
             } finally { check(alias.delete()); check(target.delete()); check(aliases.delete()) }
 
             storage.confirmData(candidate.path)
