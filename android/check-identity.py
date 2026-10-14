@@ -220,6 +220,10 @@ def integer_attribute(node, name):
 activities = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity'}
 main = activities['org.esdeplus.frontend.MainActivity']
 configurator = activities['org.esdeplus.frontend.ConfiguratorActivity']
+restart = activities['org.esdeplus.frontend.FrontendRestartActivity']
+assert integer_attribute(restart, 'exported') == 0, 'Lifecycle restart must be private'
+assert string_attribute(restart, 'process') == ':lifecycle', 'Lifecycle restart must survive the SDL process exit'
+assert not restart['children'], 'Lifecycle restart must have no public intent filters'
 assert 'taskAffinity' not in configurator['attributes'], 'Configurator must share the SDL task affinity'
 assert integer_attribute(main, 'launchMode') == 2, 'SDL activity must be singleTask'
 assert integer_attribute(main, 'exported') == 0xffffffff

@@ -9,10 +9,14 @@ import android.util.Log
 import android.view.KeyEvent
 import android.content.res.Configuration
 import java.lang.ref.WeakReference
+import java.util.concurrent.atomic.AtomicBoolean
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
     @Volatile private var destroying = false
+    @Volatile private var configured = false
+    @Volatile private var restartRequested = false
+    private val restartPrepared = AtomicBoolean(false)
     private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +71,11 @@ class MainActivity : SDLActivity() {
             "finishing=$isFinishing changingConfigurations=$isChangingConfigurations " +
             "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId",
             Throwable("SDL destruction caller"))
+        // Android's non-finishing relaunch must retain a foreground owner
+        // while this process retires. The private Java activity waits for
+        // actual process death; it cannot conceal a native quit/join stall.
+        restartRequested = terminal && isChangingConfigurations && !isFinishing
+        prepareRestart()
         // Task clear can destroy the root before pausing the configurator.
         // Save its scalar snapshot without calling a retained Activity.
         if (ConfiguratorSession.configuring) ConfiguratorSession.persistPendingDraft(applicationContext)
@@ -87,7 +96,19 @@ class MainActivity : SDLActivity() {
         }
     }
     // JNI instance methods; the keep rules preserve their names and exact descriptors.
-    fun checkConfigurationNeeded() = bridge.checkConfigurationNeeded()
+    fun checkConfigurationNeeded(): Boolean {
+        val needed = bridge.checkConfigurationNeeded()
+        configured = !needed
+        // Destruction can precede this first query. Valid configuration may
+        // transfer the entry now, before native quit ends the process. A real
+        // recovery hold keeps the existing saved-state/manual-restart policy.
+        prepareRestart()
+        return needed
+    }
+    private fun prepareRestart() {
+        if (restartRequested && configured && restartPrepared.compareAndSet(false, true))
+            FrontendRestartActivity.prepare(applicationContext, ConfiguratorSession.restartEntry())
+    }
     fun checkEmulatorInstalled(packageName: String, activityName: String) = bridge.checkEmulatorInstalled(packageName, activityName)
     fun checkNeedResourceCopy(buildIdentifier: String) = bridge.checkNeedResourceCopy(buildIdentifier)
     fun checkRACoreInstalled(packageName: String, coreFile: String) = bridge.checkRACoreInstalled(packageName, coreFile)
