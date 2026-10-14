@@ -9,6 +9,8 @@ import os
 import pathlib
 import re
 import secrets
+import signal
+import sys
 import subprocess
 import tempfile
 
@@ -138,6 +140,37 @@ def fixture_key(directory, name, password):
     return key, hashlib.sha256(certificate).hexdigest()
 
 
+def terminate_signing(number, frame):
+    # Unwind credential_file on runner cancellation as well as ordinary errors.
+    raise SystemExit(128 + number)
+
+
+def cancellation_control():
+    before = set(pathlib.Path(os.environ['RUNNER_TEMP']).glob('esdeplus-sign-*'))
+    script = """
+import base64, secrets, signal, sys
+sys.path.insert(0, 'android')
+import test_signing
+signal.signal(signal.SIGTERM, test_signing.terminate_signing)
+with test_signing.credential_file(base64.b64encode(b'non-secret fixture').decode(), secrets.token_urlsafe(32)):
+    print('READY', flush=True)
+    signal.pause()
+"""
+    child = subprocess.Popen([sys.executable, '-c', script], env=clean_environment(),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        require(child.stdout.readline() == 'READY\n', 'Cancellation fixture failed to reach credential scope')
+        child.terminate()
+        require(child.wait(timeout=10) == 128 + signal.SIGTERM, 'Cancellation did not unwind signing scope')
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+    require(set(pathlib.Path(os.environ['RUNNER_TEMP']).glob('esdeplus-sign-*')) == before,
+            'Cancellation left signing material behind')
+    print('PASS: actual SIGTERM cancellation removes credential directory; only non-secret result recorded')
+
+
 def fixture_signing():
     UPDATE.mkdir(parents=True, exist_ok=True)
     password = secrets.token_urlsafe(32)
@@ -181,6 +214,7 @@ def fixture_signing():
             require(set(pathlib.Path(os.environ['RUNNER_TEMP']).glob('esdeplus-sign-*')) == before,
                     'Failure left signing material behind')
             print('PASS: failure cleanup, no secret recorded: ' + label)
+    cancellation_control()
     print('PASS: throwaway keys removed; controls cannot upload APKs or call release APIs')
 
 
@@ -203,7 +237,7 @@ def stable_signing():
 
 
 if __name__ == '__main__':
-    import sys
+    signal.signal(signal.SIGTERM, terminate_signing)
     if sys.argv[1] == 'stable':
         stable_signing()
     elif sys.argv[1] == 'fixtures':
