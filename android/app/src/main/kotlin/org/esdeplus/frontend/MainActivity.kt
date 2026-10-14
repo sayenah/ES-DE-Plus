@@ -12,6 +12,7 @@ import java.lang.ref.WeakReference
 import org.libsdl.app.SDLActivity
 
 class MainActivity : SDLActivity() {
+    @Volatile private var destroying = false
     private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,6 +61,7 @@ class MainActivity : SDLActivity() {
         }
     }
     override fun onDestroy() {
+        destroying = true
         val terminal = !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
         Log.i("ES-DE-Plus", "Destroying SDL activity held=${ConfiguratorSession.configuring} " +
             "finishing=$isFinishing changingConfigurations=$isChangingConfigurations " +
@@ -116,6 +118,7 @@ class MainActivity : SDLActivity() {
     companion object {
         private var live: WeakReference<MainActivity>? = null
         fun liveInstance(): MainActivity? = live?.get()?.takeUnless { it.isDestroyed }
+        internal fun destructionRequested(): Boolean = live?.get()?.destroying == true
         @JvmStatic external fun nativeSetHold(hold: Boolean)
         @JvmStatic external fun nativeWaitForConfiguration()
         @JvmStatic external fun nativeSetHomeApp(home: Boolean)

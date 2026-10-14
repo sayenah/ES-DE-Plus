@@ -82,10 +82,17 @@ def run(harness):
                     startup_exit = ('SDL_QUIT observed before frontend initialization; configuration and '
                                     'resources saved; ending process') in old_lines
                     configuration_exit = 'SDL_QUIT observed during configuration hold; ending process' in old_lines
+                    copy_cancelled = 'Resource copy cancelled for destruction; files closed; repair marker absent' in old_lines
                     if mode == 'recreate-preconfiguration':
                         assert configuration_exit, 'Quit was lost before the recovery hold'
                         assert 'Lifecycle preconfiguration selection preserved' in old_lines, 'Persisted selection changed'
                         assert not startup_exit, 'Recovery hold was not exercised'
+                    elif copy_cancelled:
+                        assert mode == 'recreate-early', 'Resource cancellation on a running frontend'
+                        assert not startup_exit and 'Resource installation committed' not in old_lines, 'Cancelled installation was committed'
+                        assert 'Lifecycle resource selection preserved' in old_lines, 'Persisted selection changed'
+                        assert 'Finished main function' in old_lines, 'Cancelled copy did not return main'
+                        assert 'SDL activity destroy join returned' in old_lines, 'Cancelled copy did not join'
                     elif startup_exit:
                         # The handoff permits the held-style bounded startup
                         # exit after state is saved. Require its real checkpoint
@@ -101,18 +108,27 @@ def run(harness):
                     if mode in ['recreate-early', 'recreate-preconfiguration']:
                         assert 'Lifecycle startup barrier released after destruction quit/join' in old_lines, 'Startup barrier did not release'
                         assert old_lines.count(trigger) == 1, 'Early trigger repeated'
+                    if mode == 'recreate-early':
+                        assert 'Lifecycle resource selection preserved' in old_lines, 'Persisted selection changed'
                     h.save_logs(name)
                     if root_parked:
                         h.shell('mv', parked_root, h.shared)
                         root_parked = False
                     h.launch()
-                    assert h.shell('pidof', h.app).strip() != old
+                    new = h.shell('pidof', h.app).strip()
+                    assert new != old
+                    if copy_cancelled:
+                        next_logs = '\n'.join(line for line in h.adb('logcat', '-d', '-v', 'threadtime').splitlines()
+                                              if re.search(r'\s' + new + r'\s', line))
+                        assert 'Resource installation committed' in next_logs, 'Next launch did not complete pending repair'
                     h.save_logs(name + '-next-launch')
                     (h.evidence / (name + '-result.txt')).write_text(
                         f'PASS: {mode} via platform Activity API; old PID {old} ended within 5 s '
                         f'(observed {elapsed:.3f}s), ' +
                         ('native recovery hold quit observed; persisted storage selection unchanged; bounded process exit, '
                          if configuration_exit else
+                         'resource copy cancelled between closed operations; repair marker absent, selection preserved, main returned/joined; next launch committed repair, '
+                         if copy_cancelled else
                          'native startup quit observed after resources were committed; bounded process exit, '
                          if startup_exit else 'native main returned, join returned, ') +
                         'one native main in old process; next ordinary launch loaded two games.\n')

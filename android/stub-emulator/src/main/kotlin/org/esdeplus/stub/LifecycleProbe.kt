@@ -84,6 +84,11 @@ class LifecycleProbe : Instrumentation() {
             })
             return
         }
+        val storage = bridge.javaClass.getDeclaredField("storage").apply { isAccessible = true }.get(bridge)
+        val preferences = storage.javaClass.declaredFields.single {
+            SharedPreferences::class.java.isAssignableFrom(it.type)
+        }.apply { isAccessible = true }.get(storage) as SharedPreferences
+        val saved = preferences.all
         val field = bridge.javaClass.getDeclaredField("context").apply { isAccessible = true }
         val original = field.get(bridge) as Context
         field.set(bridge, object : ContextWrapper(original) {
@@ -92,6 +97,8 @@ class LifecycleProbe : Instrumentation() {
                     Thread.currentThread().stackTrace.any { it.methodName == "setupResources" &&
                         it.className == "org.esdeplus.frontend.NativeBridge" }) {
                     destroyAtBarrier(activity)
+                    check(preferences.all == saved) { "Persisted storage selection changed" }
+                    Log.i("ES-DE-Plus-Probe", "Lifecycle resource selection preserved")
                 }
                 return super.getAssets()
             }
