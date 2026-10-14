@@ -38,7 +38,7 @@ jobs:
 
       - name: Emulator override persistence probe
         run: |
-          c++ -std=c++17 -Wall -Wextra -Werror -Ies-app/src -Ies-core/src es-app/src/EmulatorManagerConfig.cpp android/emulator-manager-probe.cpp -lpugixml -o /tmp/emulator-manager-probe
+          c++ -std=c++17 -Wall -Wextra -Werror -Ies-app/src -Ies-core/src es-app/src/EmulatorManagerConfig.cpp es-app/src/EmulatorLaunchProfile.cpp android/emulator-manager-probe.cpp -lpugixml -o /tmp/emulator-manager-probe
           /tmp/emulator-manager-probe /tmp/emulator-manager-fixtures
 
       - name: Configure

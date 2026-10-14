@@ -169,6 +169,9 @@ protected:
     std::string mSortTypeString = "";
 
 private:
+#if defined(__ANDROID__)
+    friend class EmulatorManagerRuntime;
+#endif
     FileType mType;
     std::string mPath;
     SystemEnvironmentData* mEnvData;

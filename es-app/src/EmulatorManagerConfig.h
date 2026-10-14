@@ -47,6 +47,7 @@ public:
     void reset(const std::string& name);
     void refresh(const std::string& name);
     void save();
+    void verifyCurrent() const;
 
     // Fault injection uses the production transaction, without a fixture-path special case.
     void setSaveCheckpoint(std::function<void(int)> checkpoint) { mCheckpoint = checkpoint; }

@@ -543,6 +543,17 @@ object LaunchSmoke {
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", stub, stub, true), 0, "Authenticated empty reply positive control")
             val missing = RomTransport(object : ContextWrapper(context) { override fun getExternalFilesDir(type: String?): File? = null })
             refused("Unavailable selected storage") { missing.provider(rom.path) }
+            val emulatorRecords = AppDiscovery(context).emulatorActivities(arrayOf("/storage/emulated/0/ROMs/test/example.zip", "/storage/emulated/0/ROMs/test/example.ZIP"))
+            val stubRecords = emulatorRecords.filter { it.packageName == stub }
+            for (activity in listOf("RecipientActivity", "TelevisionOnly", "CollisionOne", "CollisionTwo", "ZipMime", "WildcardMime", "ZipPath"))
+                equal(stubRecords.any { it.activityName == "$stub.$activity" }, true, "Emulator activity $activity")
+            for (activity in listOf("ZipMime", "WildcardMime", "ZipPath"))
+                equal(stubRecords.single { it.activityName == "$stub.$activity" }.declaredHandler, true, "Declared file handler $activity")
+            equal(stubRecords.any { it.activityName == "$stub.NonMatchingMime" }, false, "Unrelated handler")
+            for (activity in listOf("DisabledActivity", "ProtectedActivity", "PrivateActivity"))
+                equal(stubRecords.any { it.activityName == "$stub.$activity" }, false, "Inaccessible emulator activity $activity")
+            equal(stubRecords.filter { it.label == "ZIP handler" }.map { it.activityName }.distinct().size, 2, "Equal labels keep components")
+            evidence.append("PASS: PR-I typed activity records, launcher/Leanback/file-only handlers, MIME/wildcard/path suggestions, equal labels and inaccessible activities\n")
             return "PASS: PR-C launch/discovery/provider/query probes; assertion positive controls rejected\n" + evidence
         } finally {
             context.unregisterReceiver(receiver)

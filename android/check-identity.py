@@ -259,10 +259,16 @@ def discovery_manifest(nodes):
                 if rule.get('type') == 'androidpackage' for entry in rule.findall('entry')}
     assert actual == expected, ('Emulator visibility differs from bundled find rules', expected - actual, actual - expected)
     signatures = {(tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'action'),
-                   tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'category'))
+                   tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'category'),
+                   tuple((string_attribute(c, 'scheme') if 'scheme' in c['attributes'] else None,
+                          string_attribute(c, 'mimeType') if 'mimeType' in c['attributes'] else None)
+                         for c in n['children'] if c['tag'] == 'data'))
                   for n in queries['children'] if n['tag'] == 'intent'}
-    assert signatures == {(("android.intent.action.MAIN",), ("android.intent.category.LAUNCHER",)),
-                          (("android.intent.action.MAIN",), ("android.intent.category.LEANBACK_LAUNCHER",))}, signatures
+    assert signatures == {(("android.intent.action.MAIN",), ("android.intent.category.LAUNCHER",), ()),
+                          (("android.intent.action.MAIN",), ("android.intent.category.LEANBACK_LAUNCHER",), ()),
+                          (("android.intent.action.VIEW",), (), (("*", "*/*"),)),
+                          (("android.intent.action.VIEW",), (), (("file", None),)),
+                          (("android.intent.action.VIEW",), (), (("content", None),))}, signatures
     assert all(not (n['tag'] == 'uses-permission' and
                    string_attribute(n, 'name') == 'android.permission.QUERY_ALL_PACKAGES') for n in nodes)
     provider = next(n for n in nodes if n['tag'] == 'provider' and

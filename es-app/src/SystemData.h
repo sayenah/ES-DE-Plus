@@ -61,6 +61,9 @@ private:
     std::map<std::string, struct CoreRules> mCores;
 
     friend FileData;
+#if defined(__ANDROID__)
+    friend class EmulatorManagerRuntime;
+#endif
 };
 
 class ImportRules

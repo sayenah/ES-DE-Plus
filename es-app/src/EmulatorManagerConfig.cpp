@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -344,9 +345,19 @@ std::string EmulatorManagerConfig::add(const std::string& name,
                                        const std::string& extensions,
                                        bool nameUnlabelled)
 {
+    if (!std::regex_match(
+            component,
+            std::regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+/[A-Za-z_][A-Za-z0-9_.$]*")))
+        throw std::runtime_error(_("Select a valid installed package and receiving activity"));
     if (label.empty() || label.size() > 256 || label.find_first_of("\r\n\t") != std::string::npos)
         throw std::runtime_error(_("Enter a unique emulator label"));
     auto source = effective(name);
+    for (const char* required : {"name", "fullname", "path", "extension"}) {
+        if (!source.child(required) || source.child(required).next_sibling(required) ||
+            std::string(source.child(required).text().get()).empty())
+            throw std::runtime_error(
+                _("The target system has missing or ambiguous required fields"));
+    }
     std::set<std::string> labels;
     size_t count {0};
     for (auto cmd : source.children("command")) {
@@ -493,6 +504,24 @@ void EmulatorManagerConfig::refresh(const std::string& name)
             extensions.push_back(ext);
             extensionValue += " " + ext;
         }
+    if (retained.child("command") && !fresh.child("command").attribute("label")) {
+        if (fresh.child("command").next_sibling("command")) {
+            parent.remove_child(fresh);
+            throw std::runtime_error(
+                _("New bundled commands have ambiguous labels; refresh refused"));
+        }
+        std::string label {_("Original emulator")};
+        bool collision {true};
+        while (collision) {
+            collision = false;
+            for (auto cmd : retained.children("command"))
+                if (label == cmd.attribute("label").value())
+                    collision = true;
+            if (collision)
+                label += _(" (original)");
+        }
+        fresh.child("command").append_attribute("label").set_value(label.c_str());
+    }
     for (auto child : retained.children()) {
         if (std::string(child.name()) == "command") {
             for (auto cmd : fresh.children("command"))
@@ -513,6 +542,14 @@ void EmulatorManagerConfig::refresh(const std::string& name)
                        .c_str());
     fresh.child("extension").text().set(extensionValue.c_str());
     parent.remove_child(node);
+}
+
+void EmulatorManagerConfig::verifyCurrent() const
+{
+    if (read(mDirectory + "/es_systems.xml", true) != mSystemsBytes ||
+        read(mDirectory + "/es_find_rules.xml", true) != mRulesBytes)
+        throw std::runtime_error(
+            _("Configuration changed outside the manager; reopen it before applying"));
 }
 
 void EmulatorManagerConfig::save()

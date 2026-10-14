@@ -6,6 +6,7 @@
 //  Written for ES-DE-Plus. Exercises production XML preservation and save checkpoints.
 //
 
+#include "EmulatorLaunchProfile.h"
 #include "EmulatorManagerConfig.h"
 
 #include <fstream>
@@ -142,6 +143,23 @@ int main(int argc, char** argv)
         edited.save();
         require(!EmulatorManagerConfig(root, bundle, bundledRules).system("test").custom,
                 "reset readback");
+        const std::string profileText {
+            "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
+            "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "
+            "%EXTRABOOL_boot%=true %ACTIVITY_CLEAR_TOP%"};
+        auto profile = EmulatorLaunchProfile::fromCommand(profileText);
+        require(profile.action == "android.intent.action.VIEW" &&
+                    profile.mime == "application/zip" && profile.extras.size() == 4 &&
+                    profile.clearTop,
+                "structured profile parse");
+        auto roundtrip = EmulatorLaunchProfile::fromCommand(profile.command("NEW"));
+        require(roundtrip.command("NEW") == profile.command("NEW"),
+                "structured profile grammar roundtrip");
+        profile.rom("%ROMPROVIDER%", "");
+        refused([&] { profile.rom("%ROMPROVIDER%", "ROM"); });
+        profile.extras.push_back({"EXTRAINTEGER", "overflow", "2147483648"});
+        refused([&] { profile.command("NEW"); });
+        refused([&] { EmulatorLaunchProfile::fromCommand("%EMULATOR_X% %UNKNOWN%=value"); });
         std::cout
             << "PASS: precedence, unlabeled policy, partial failure/retry, preservation, "
                "ownership, external edit, malformed/ambiguous refusal, snapshot/refresh/reset\n";

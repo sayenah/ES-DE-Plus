@@ -22,6 +22,18 @@
         <activity android:name=".PrivateActivity" android:exported="false" />
         <activity android:name=".ProtectedActivity" android:exported="true" android:permission="android.permission.MANAGE_USERS" />
         <activity android:name=".DisabledActivity" android:exported="true" android:enabled="false" />
+        <activity-alias android:name=".ZipMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/zip" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".WildcardMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/*" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".ZipPath" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Path handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:scheme="file" android:host="*" android:pathPattern=".*\\.zip" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".NonMatchingMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Unrelated image handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="image/png" /></intent-filter>
+        </activity-alias>
         <receiver android:name=".CoreReceiver" android:exported="true">
             <intent-filter><action android:name="com.retroarch.QUERY_INSTALLED_CORES" /></intent-filter>
         </receiver>
