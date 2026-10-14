@@ -88,8 +88,19 @@ def run(mode, harness, minified=False):
         pattern = r'Emulator manager touch target: (' + re.escape(prefix) + r'[^\t\r\n]*)\tx:([0-9.]+)\ty:([0-9.]+)'
         h.wait_for(lambda: re.search(pattern, h.adb('logcat', '-d')) is not None, 'visible touch target ' + prefix, timeout=30)
         match = list(re.finditer(pattern, h.adb('logcat', '-d')))[-1]
+        # Targets are renderer coordinates. adb taps use display coordinates;
+        # derive the actual surface origin/scale instead of assuming no system bars.
+        nodes = h.hierarchy()
+        surfaces = [n for n in nodes if n.get('class', '').endswith(('SurfaceView', 'SDLSurface'))]
+        if not surfaces:
+            surfaces = [n for n in nodes if n.get('resource-id') == 'android:id/content']
+        controls(1, len(surfaces), 'one visible SDL content surface')
+        left, top, right, bottom = map(int, re.findall(r'\d+', surfaces[0].get('bounds')))
+        width, height = map(int, re.findall(r'Application resolution: (\d+)x(\d+)', h.log())[-1])
+        display_x = left + float(match[2]) * (right - left) / width
+        display_y = top + float(match[3]) * (bottom - top) / height
         h.adb('logcat', '-c')
-        h.shell('input', 'tap', str(round(float(match[2]))), str(round(float(match[3]))))
+        h.shell('input', 'tap', str(round(display_x)), str(round(display_y)))
         h.time.sleep(0.5)
     def manager():
         h.key('KEYCODE_ESCAPE')
@@ -319,6 +330,12 @@ def run(mode, harness, minified=False):
         h.save_logs('emulator-manager-' + mode)
         h.evidence.joinpath('emulator-manager-' + mode + '-summary.txt').write_text(
             'PASS: native no-games link, effective/loadExclusive system, installed component via UI search, copied structured profile, .zip/.ZIP and matching draft file, exact archive bytes, accepted/refused unsaved test isolation, provider data transport, immediate rescan/rule resolution, default gamelist persistence, fresh upstream readback and equal test/saved Intent. Screenshots capture the real GUI; APK never uploaded.\n')
+    except Exception:
+        h.screenshot('emulator-manager-' + mode + '-failure-before-cleanup')
+        h.save_logs('emulator-manager-' + mode + '-failure-before-cleanup')
+        h.evidence.joinpath('emulator-manager-' + mode + '-failure-hierarchy.xml.txt').write_text(
+            '\n'.join(ET.tostring(n, encoding='unicode') for n in h.hierarchy()))
+        raise
     finally:
         h.shell('am', 'force-stop', h.app)
         if release_installed: h.adb('install', '-r', str(h.apk))

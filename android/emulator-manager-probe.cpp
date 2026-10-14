@@ -245,6 +245,11 @@ int main(int argc, char** argv)
                 "encoded input readback");
         const auto validSystems = read(systems);
         const auto validRules = read(rules);
+        require(chmod(systems.c_str(), 0000) == 0, "unreadable regular override fixture");
+        refused([&] { EmulatorManagerConfig denied(root, bundle, bundledRules); });
+        require(chmod(systems.c_str(), 0600) == 0 && read(systems) == validSystems &&
+                    read(rules) == validRules,
+                "unreadable regular override leaves both files unchanged");
         require(std::remove(systems.c_str()) == 0 && mkdir(systems.c_str(), 0700) == 0,
                 "unreadable override obstacle");
         refused([&] { EmulatorManagerConfig unreadable(root, bundle, bundledRules); });
