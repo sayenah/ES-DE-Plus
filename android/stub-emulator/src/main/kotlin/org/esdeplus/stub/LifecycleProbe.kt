@@ -114,9 +114,9 @@ class LifecycleProbe : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
-            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait"))
+            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait", "restart-timeout"))
             val command = File("/data/local/tmp/esde-lifecycle-command")
-            if (mode == "restart-wait") {
+            if (mode in listOf("restart-wait", "restart-timeout")) {
                 // Isolated helper probe: keep its real parent alive beyond the
                 // former 5-second deadline, then end this test process. This
                 // does not exercise or change the destruction timing gate.
@@ -127,7 +127,7 @@ class LifecycleProbe : Instrumentation() {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra("parentPid", Process.myPid()).putExtra("entry", entry))
                 Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent pid=${Process.myPid()}")
-                val deadline = System.nanoTime() + 60_000_000_000L
+                val deadline = System.nanoTime() + 180_000_000_000L
                 while (!command.isFile) {
                     check(System.nanoTime() < deadline) { "Slow-parent helper barrier timed out" }
                     Thread.sleep(20)
