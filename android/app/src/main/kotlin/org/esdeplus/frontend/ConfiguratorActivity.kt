@@ -20,6 +20,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -157,6 +158,12 @@ class ConfiguratorActivity : Activity() {
             setPadding(32, 20, 32, 20)
         }
         setContentView(ScrollView(this).apply { addView(content) })
+        content.addView(ImageView(this).apply {
+            setImageResource(R.drawable.pixel_plus_mark)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            val size = (48 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size)
+        })
         text(getString(R.string.configure_title, getString(R.string.app_name)))
         message?.let(::text)
         if (resourceError) {

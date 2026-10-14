@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import icon_smoke
 import smoke_support
 import json
 import os
@@ -1098,6 +1099,7 @@ try:
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
     print(adb('install', '-r', str(apk)), flush=True)
+    icon_smoke.capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, television)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     clear_app()
