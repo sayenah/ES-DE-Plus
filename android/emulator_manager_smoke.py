@@ -204,12 +204,12 @@ def run(mode, harness, minified=False):
         h.screenshot('emulator-manager-' + mode + '-test-return')
         h.key('KEYCODE_ENTER')  # Close the accepted-request notice.
         pick(5); page('draft')  # path -> document URI, same named ROM extra
-        pick(5); page('draft')  # provider is invalid in a named extra
+        pick(5)  # provider is invalid in a named extra; the error is modal
         h.wait_for(lambda: 'The ROM provider can only be used as Intent data' in h.adb('logcat', '-d'), 'invalid transport selection gives actionable error')
-        controls(True, 'ROM TRANSPORT: DOCUMENT URI' in h.adb('logcat', '-d'), 'rejected transport keeps displayed document URI choice')
         controls(before, current(), 'invalid transport selection preserves files/defaults')
         h.screenshot('emulator-manager-' + mode + '-transport-selection-error')
-        h.key('KEYCODE_ENTER')
+        h.key('KEYCODE_ENTER'); page('draft')
+        controls(True, 'ROM TRANSPORT: DOCUMENT URI' in h.adb('logcat', '-d'), 'rejected transport keeps displayed document URI choice')
         # Test refusal must also preserve the candidate. App-private SAF is refused.
         if mode.startswith('scoped'):
             pick(16)
