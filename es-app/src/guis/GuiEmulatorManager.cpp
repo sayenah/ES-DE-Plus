@@ -11,6 +11,7 @@
 #if defined(__ANDROID__)
 #include "EmulatorManagerRuntime.h"
 #include "FileData.h"
+#include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
 #include "Window.h"
@@ -27,7 +28,11 @@ GuiEmulatorManager::GuiEmulatorManager(const std::string& systemName)
 {
     if (!systemName.empty())
         mNext = Page::SYSTEM;
-    rebuild();
+    mMenu = std::make_unique<MenuComponent>(_("EMULATOR MANAGER"));
+    addChild(mMenu.get());
+    row(_("LOADING CONFIGURATION"));
+    setSize(mMenu->getSize());
+    setPosition((Renderer::getScreenWidth() - mSize.x) / 2.0f, Renderer::getScreenHeight() * 0.08f);
 }
 
 void GuiEmulatorManager::page(Page next)
@@ -80,6 +85,7 @@ void GuiEmulatorManager::discover()
 {
     auto state = std::make_shared<Discovery>();
     mDiscovery = state;
+    mAppFilter.clear();
     auto definition = mConfig->system(mSystemName);
     auto types =
         Utils::String::delimitedStringToVector(definition.extensions + " " + mExtensions, " ");
@@ -110,6 +116,10 @@ void GuiEmulatorManager::discover()
 void GuiEmulatorManager::rebuild()
 {
     mPage = mNext;
+    const char* pages[] {"systems", "system", "draft", "apps",    "profiles",
+                         "extras",  "extra",  "files", "defaults"};
+    LOG(LogDebug) << "Emulator manager page: " << pages[static_cast<int>(mPage)]
+                  << "; system: " << mSystemName;
     mRebuild = false;
     if (mMenu)
         removeChild(mMenu.get());
@@ -263,6 +273,7 @@ void GuiEmulatorManager::rebuild()
                 });
             }
             else if (mPage == Page::APPS) {
+                edit(_("FIND APP OR ACTIVITY"), mAppFilter);
                 if (!mDiscovery)
                     throw std::runtime_error(
                         _("Discovery was cancelled; select the receiving app again"));
@@ -272,8 +283,14 @@ void GuiEmulatorManager::rebuild()
                 else if (!mDiscovery->success)
                     row(_("APP DISCOVERY FAILED — BACK TO RETRY"));
                 else {
+                    LOG(LogDebug) << "Emulator manager discovery complete: "
+                                  << mDiscovery->activities.size() << " activities";
                     for (const auto& app : mDiscovery->activities) {
                         const auto component = app.packageName + "/" + app.activityName;
+                        if (!mAppFilter.empty() &&
+                            Utils::String::toUpper(app.label + " " + component)
+                                    .find(Utils::String::toUpper(mAppFilter)) == std::string::npos)
+                            continue;
                         row(app.label + " — " + component +
                                 (app.declaredHandler ?
                                      " [" + _("DECLARES IT OPENS THESE FILES") + "]" :
@@ -373,7 +390,7 @@ void GuiEmulatorManager::rebuild()
                 const auto types = Utils::String::delimitedStringToVector(
                     system.extensions + " " + mExtensions, " ");
                 auto files = Utils::FileSystem::getDirContent(mBrowsePath);
-                std::sort(files.begin(), files.end());
+                files.sort();
                 size_t shown {0};
                 for (const auto& file : files) {
                     if (shown >= 200) {
@@ -438,6 +455,7 @@ void GuiEmulatorManager::save()
             mSave = std::move(candidate);
         }
         mSave->save();
+        LOG(LogInfo) << "Emulator manager saved: " << mSystemName << "; label: " << mLabel;
         mApply = true;
     }
     catch (const std::exception& failure) {
@@ -465,6 +483,8 @@ void GuiEmulatorManager::test()
                 _("The receiving activity is unavailable. Select an installed app again"));
         const bool accepted = EmulatorManagerRuntime::test(definition, mTestPath,
                                                            mProfile.command("DRAFT"), mComponent);
+        LOG(LogInfo) << "Emulator manager test: " << (accepted ? "accepted" : "refused")
+                     << "; system: " << mSystemName;
         error(accepted ?
                   _("LAUNCH REQUEST ACCEPTED. Check the receiving app to verify operation. No "
                     "configuration, default or play statistics were saved; your draft is kept.") :

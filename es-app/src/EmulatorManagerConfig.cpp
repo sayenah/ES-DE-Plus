@@ -109,9 +109,10 @@ namespace
             doc.append_child(root);
             return;
         }
-        const auto result = doc.load_buffer(bytes.data(), bytes.size(), pugi::parse_full);
+        const auto result =
+            doc.load_buffer(bytes.data(), bytes.size(), pugi::parse_full | pugi::parse_ws_pcdata);
         if (!result || !doc.child(root))
-            throw std::runtime_error(std::string("Invalid ") + root +
+            throw std::runtime_error(_("Invalid configuration") + ": " + root +
                                      " XML: " + result.description());
         if (doc.child(root).next_sibling(root))
             throw std::runtime_error(_("Ambiguous XML root"));
@@ -307,7 +308,8 @@ EmulatorManagerConfig::System EmulatorManagerConfig::system(const std::string& n
     auto fields = snapshot(node);
     if (!fields.empty()) {
         auto source = named(mBundle.child("systemList"), "system", name);
-        result.stale = !source || fields[0] != fingerprint(mBundledSystems) ||
+        result.stale = !source ||
+                       fields[0] != mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) ||
                        fields[1] != fingerprint(xml(source));
     }
     return result;
@@ -320,9 +322,10 @@ pugi::xml_node EmulatorManagerConfig::editable(const std::string& name)
         return node;
     node = mSystems.child("systemList").append_copy(effective(name));
     const auto extensions = std::string(node.child("extension").text().get());
-    const std::string metadata {snapshotPrefix + fingerprint(mBundledSystems) + " " +
-                                fingerprint(xml(node)) + " " + baseline(node, extensions) + " " +
-                                hex(extensions) + " " + fingerprint(extensions)};
+    const std::string metadata {snapshotPrefix +
+                                mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) +
+                                " " + fingerprint(xml(node)) + " " + baseline(node, extensions) +
+                                " " + hex(extensions) + " " + fingerprint(extensions)};
     node.prepend_child(pugi::node_comment).set_value(metadata.c_str());
     return node;
 }
@@ -536,9 +539,9 @@ void EmulatorManagerConfig::refresh(const std::string& name)
     }
     const std::string originalExtensions {source.child("extension").text().get()};
     fresh.prepend_child(pugi::node_comment)
-        .set_value((snapshotPrefix + fingerprint(mBundledSystems) + " " + fingerprint(xml(source)) +
-                    " " + baseline(fresh, originalExtensions) + " " + hex(originalExtensions) +
-                    " " + fingerprint(extensionValue))
+        .set_value((snapshotPrefix + mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) +
+                    " " + fingerprint(xml(source)) + " " + baseline(fresh, originalExtensions) +
+                    " " + hex(originalExtensions) + " " + fingerprint(extensionValue))
                        .c_str());
     fresh.child("extension").text().set(extensionValue.c_str());
     parent.remove_child(node);

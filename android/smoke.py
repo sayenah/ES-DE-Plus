@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import emulator_manager_smoke
 import smoke_support
 import json
 import os
@@ -1295,6 +1296,7 @@ try:
         configured_system('direct-typed-path-system')
     launch_contract_probes('direct-typed')
     pdf_smoke.run('direct', globals())
+    emulator_manager_smoke.run('direct', globals())
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
@@ -1653,6 +1655,8 @@ try:
     pdf_smoke.run('scoped', globals())
     real_retroarch_flow()
     pdf_smoke.release(globals())
+    emulator_manager_smoke.run('scoped', globals())
+    emulator_manager_smoke.run('scoped-minified', globals(), minified=True)
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())

@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. Drives the actual native GUI, including minified builds.
+import hashlib
+import json
+import re
+import xml.etree.ElementTree as ET
+
+
+def run(mode, harness, minified=False):
+    h = type('Harness', (), harness)
+    original_settings = h.shell('cat', h.settings)
+    # The no-games fixture uses the documented effective custom configuration,
+    # including loadExclusive. No bundled resource or production fixture branch.
+    systems = ('<!-- retained user comment --><loadExclusive/><systemList custom="keep">'
+               '<system><name>ps3</name><fullname>Manager fixture</fullname><path>%ROMPATH%/ps3</path>'
+               '<extension>.ps3</extension><command label="Original">%EMULATOR_FIXTURE% '
+               '%ACTION%=android.intent.action.VIEW %CATEGORY%=android.intent.category.DEFAULT '
+               '%MIMETYPE%=application/zip %EXTRA_ROM%=%ROM% %EXTRAINTEGER_slot%=2 '
+               '%EXTRABOOL_boot%=true %ACTIVITY_CLEAR_TOP%</command>'
+               '<unknown attribute="keep">user data</unknown><platform>ps3</platform><theme>ps3</theme>'
+               '</system></systemList>')
+    rules = ('<ruleList><!-- user rule --><emulator name="FIXTURE"><rule type="androidpackage">'
+             '<entry>org.esdeplus.stub/.TelevisionOnly</entry></rule></emulator></ruleList>')
+    def fixture(action):
+        h.shell('am', 'force-stop', h.app)
+        result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'emulator-manager-' + action,
+                         h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+        h.smoke_checks.probe_passed(result, 'PASS: emulator-manager fixture at selected roots; no extraction')
+        return json.loads(re.search(r'EMULATOR_MANAGER_JSON=(.*)', result)[1])
+    fixture_data = fixture('prepare')
+    data_root = fixture_data['dataRoot']
+    original = {}
+    for name in ['es_systems.xml', 'es_find_rules.xml']:
+        path = data_root + '/custom_systems/' + name
+        original[name] = h.shell('cat', path, check=False) if h.shell('test', '-f', path, check=False) == '' and h.shell('ls', path, check=False).strip() == path else None
+    def read(relative):
+        return h.shell('cat', data_root + '/' + relative, check=False)
+    def current():
+        return (read('custom_systems/es_systems.xml'), read('custom_systems/es_find_rules.xml'),
+                read('gamelists/ps3/gamelist.xml'))
+    def controls(expected, actual, label):
+        h.launch_checks.equal(actual, expected, label)
+    def page(name):
+        marker = 'Emulator manager page: ' + name + ';'
+        h.wait_for(lambda: marker in h.adb('logcat', '-d'), 'manager page ' + name, timeout=30)
+    def pick(index):
+        for _ in range(index): h.key('KEYCODE_DPAD_DOWN')
+        h.adb('logcat', '-c')
+        h.key('KEYCODE_ENTER')
+    def text(value, erase=0):
+        if erase:
+            h.key('KEYCODE_MOVE_END')
+            for _ in range(erase): h.key('KEYCODE_DEL')
+        if value: h.shell('input', 'text', value.replace(' ', '%s'))
+        h.key('KEYCODE_ENTER')
+    def start():
+        h.shell('am', 'force-stop', h.app)
+        h.adb('logcat', '-c')
+        h.start_entry()
+        h.wait_for(lambda: 'Total game count: 0' in h.log(), 'no recognised games from fixture')
+        h.wait_for(lambda: bool(h.hierarchy()), 'no-games native window')
+        if any(n.get('text') == 'Got it' for n in h.hierarchy()): h.ui('Got it')
+        h.screenshot('emulator-manager-' + mode + '-no-games')
+        h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER'); page('systems')
+        pick(1); page('system')
+        pick(0); page('draft')
+    release_installed = False
+    try:
+        parsed = h.launch_checks.settings_fragment(original_settings)
+        debug = parsed.find("bool[@name='DebugMode']")
+        if debug is None: debug = ET.SubElement(parsed, 'bool', name='DebugMode')
+        debug.set('value', 'true')
+        h.user_file('settings/es_settings.xml', '\n'.join(ET.tostring(e, encoding='unicode') for e in parsed))
+        h.user_file('custom_systems/es_systems.xml', systems)
+        h.user_file('custom_systems/es_find_rules.xml', rules)
+        if minified:
+            h.adb('install', '-r', 'android/app/build/outputs/apk/release/app-release-smoke.apk')
+            release_installed = True
+        start()
+        before = current()
+        pick(0); text('EMUPLUS TEST'); page('draft')
+        pick(1); page('apps')
+        # Search is UI input, preserving the actual component even with equal labels.
+        pick(0); text('.RecipientActivity')
+        h.wait_for(lambda: 'Emulator manager discovery complete:' in h.adb('logcat', '-d'), 'discovery completion', timeout=30)
+        # Wait for the asynchronous completion before selecting its first result.
+        h.wait_for(lambda: h.adb('logcat', '-d').count('Emulator manager page: apps;') >= 1, 'app picker rebuilt')
+        pick(1); page('draft')
+        pick(2); page('profiles'); pick(0); page('draft')
+        pick(3); text('.zip .ZIP'); page('draft')
+        pick(14); page('files'); pick(0); text(fixture_data['file']); page('draft')
+        h.screenshot('emulator-manager-' + mode + '-draft')
+        # Exact candidate test, independent of the original/default profile.
+        pick(15)
+        h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved candidate accepted')
+        h.wait_for(lambda: fixture_data['file'] in h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False), 'candidate recipient observed file')
+        observation = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+        controls('org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', observation['component'], 'selected candidate component')
+        if mode.startswith('direct'):
+            controls(fixture_data['sha256'], observation.get('sha256'), 'exact ZIP bytes via path')
+        else:
+            controls(True, bool(observation.get('readError')), 'recipient reports scoped raw-path access refusal')
+        controls('java.lang.Integer', observation['extras']['slot']['type'], 'typed integer')
+        controls('java.lang.Boolean', observation['extras']['boot']['type'], 'typed boolean')
+        controls(before, current(), 'test leaves files/default/statistics unchanged')
+        h.evidence.joinpath('emulator-manager-' + mode + '-test-recipient.json.txt').write_text(json.dumps(observation, indent=2))
+        h.key('KEYCODE_BACK')
+        h.wait_for(lambda: h.app in h.focused_window(), 'test return keeps editable draft')
+        h.screenshot('emulator-manager-' + mode + '-test-return')
+        h.key('KEYCODE_ENTER')  # Close the accepted-request notice.
+        # Test refusal must also preserve the candidate. App-private SAF is refused.
+        if mode.startswith('scoped'):
+            pick(4); page('draft')  # path -> document URI, same named ROM extra
+            pick(15)
+            h.wait_for(lambda: 'Emulator manager test: refused;' in h.adb('logcat', '-d'), 'app-private SAF refusal')
+            controls(before, current(), 'refused test isolation')
+            h.screenshot('emulator-manager-' + mode + '-refused-saf')
+            h.key('KEYCODE_ENTER')
+            # Switch to provider and Intent data explicitly; no transport substitution.
+            pick(5); text('', erase=3); page('draft')
+            pick(4); page('draft')  # document URI -> provider
+        else:
+            pick(5); text('', erase=3); page('draft')
+            pick(4); page('draft'); pick(4); page('draft')
+        pick(15)
+        h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved provider candidate')
+        h.wait_for(lambda: 'content://' + h.app + '.roms/' in h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False), 'provider recipient observation')
+        provider = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+        controls(fixture_data['sha256'], provider.get('sha256'), 'provider exact ZIP bytes')
+        controls(True, provider['data'].startswith('content://' + h.app + '.roms/'), 'provider chosen explicitly')
+        controls(before, current(), 'provider test isolation')
+        h.key('KEYCODE_BACK'); h.wait_for(lambda: h.app in h.focused_window(), 'provider test return'); h.key('KEYCODE_ENTER')
+        pick(16)
+        h.wait_for(lambda: 'Emulator manager saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'manager saved')
+        h.wait_for(lambda: 'Total game count: 2' in h.log(), 'both case extensions visible immediately')
+        saved = current()
+        root = ET.fromstring('<document>' + saved[0] + '</document>')
+        controls(True, root.find('loadExclusive') is not None, 'loadExclusive preserved')
+        system = root.find('systemList/system')
+        controls('keep', root.find('systemList').get('custom'), 'unknown attribute preserved')
+        controls('user data', system.find('unknown').text, 'unknown element preserved')
+        controls(True, 'retained user comment' in saved[0], 'comment preserved')
+        commands = system.findall('command')
+        controls(['Original', 'EMUPLUS TEST'], [e.get('label') for e in commands], 'labels preserved')
+        rule_id = re.search(r'%EMULATOR_([^%]+)%', commands[-1].text)[1]
+        controls(True, ET.fromstring(saved[1]).find("emulator[@name='" + rule_id + "']") is not None, 'new rule read back')
+        # Re-enter through the ordinary menu, set default and launch through normal search.
+        h.key('KEYCODE_ESCAPE')
+        # Main menu: SEARCH, SCRAPER, UI, SOUND, INPUT, GAME COLLECTION, OTHER.
+        for _ in range(6): h.key('KEYCODE_DPAD_DOWN')
+        h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); page('systems')
+        pick(1); page('system'); pick(1); page('defaults'); pick(1); page('system')
+        h.wait_for(lambda: 'Emulator manager default saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'ordinary default persisted')
+        controls('EMUPLUS TEST', ET.fromstring('<document>' + current()[2] + '</document>').find('alternativeEmulator/label').text, 'gamelist default')
+        # Closing and a fresh start prove the unchanged upstream readers consume the files.
+        h.shell('am', 'force-stop', h.app); h.adb('logcat', '-c'); h.start_entry()
+        h.wait_for(lambda: 'Total game count: 2' in h.log(), 'fresh startup manager configuration')
+        h.wait_for(lambda: bool(h.hierarchy()), 'fresh startup native window')
+        h.search_launch('Manager', 'emulator-manager-' + mode + '-saved')
+        h.wait_for(lambda: 'Activity launch accepted:' in h.adb('logcat', '-d'), 'saved command resolves immediately')
+        receipt = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
+        for field in ['component', 'action', 'mime', 'flags', 'categories']:
+            controls(provider[field], receipt[field], 'test/saved Intent ' + field)
+        controls(fixture_data['sha256'], receipt.get('sha256'), 'saved provider exact ZIP bytes')
+        controls(True, receipt['data'].rsplit('/', 1)[-1] in [provider['data'].rsplit('/', 1)[-1], provider['data'].rsplit('/', 1)[-1][:-3] + 'ZIP'], 'same transport expanded for selected case-sensitive archive')
+        h.screenshot('emulator-manager-' + mode + '-saved-recipient')
+        h.save_logs('emulator-manager-' + mode)
+        h.evidence.joinpath('emulator-manager-' + mode + '-summary.txt').write_text(
+            'PASS: native no-games link, effective/loadExclusive system, installed component via UI search, copied structured profile, .zip/.ZIP and matching draft file, exact archive bytes, accepted/refused unsaved test isolation, provider data transport, immediate rescan/rule resolution, default gamelist persistence, fresh upstream readback and equal test/saved Intent. Screenshots capture the real GUI; APK never uploaded.\n')
+    finally:
+        h.shell('am', 'force-stop', h.app)
+        if release_installed: h.adb('install', '-r', str(h.apk))
+        fixture('cleanup')
+        for name, content in original.items(): h.user_file('custom_systems/' + name, content)
+        h.user_file('settings/es_settings.xml', original_settings)

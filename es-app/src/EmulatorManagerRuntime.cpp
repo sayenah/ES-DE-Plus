@@ -11,6 +11,7 @@
 #if defined(__ANDROID__)
 #include "FileData.h"
 #include "GamelistFileParser.h"
+#include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
 #include "Window.h"
@@ -126,6 +127,8 @@ void EmulatorManagerRuntime::setDefault(const EmulatorManagerConfig::System& def
         throw std::runtime_error(_("Could not save the default emulator to gamelist.xml. Check "
                                    "access and the Ignore gamelist setting"));
     }
+    LOG(LogInfo) << "Emulator manager default saved: " << definition.name
+                 << "; label: " << selected;
 }
 
 void EmulatorManagerRuntime::checkSelections(const EmulatorManagerConfig::System& definition,

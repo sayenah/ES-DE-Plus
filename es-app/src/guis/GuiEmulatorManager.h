@@ -74,6 +74,7 @@ private:
     bool mClose {false};
     std::string mSystemName;
     std::string mFilter;
+    std::string mAppFilter;
     std::string mLabel;
     std::string mComponent;
     std::string mExtensions;
