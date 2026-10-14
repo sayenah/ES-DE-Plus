@@ -20,6 +20,14 @@ def home_record(dump, records):
                 re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump))
 
 
+def resolved_home(h):
+    raw = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
+                  '-c', 'android.intent.category.HOME')
+    component = next(line.strip() for line in raw.splitlines() if '/' in line and ' ' not in line.strip())
+    package, name = component.split('/', 1)
+    return raw, package + '/' + (package + name if name.startswith('.') else name)
+
+
 def framework_recreation(harness, variant, failures, home=False, background=False):
     h = type('Harness', (), harness)
     name = 'lifecycle-' + variant + '-framework-recreation' + ('-home' if home else '-background' if background else '')
@@ -27,6 +35,8 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
     original = h.shell('settings', 'get', 'global', setting).strip()
     h.shell('am', 'force-stop', h.app)
     original_home = None
+    default_before = None
+    default_selected = False
     if home:
         resolved = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
                            '-c', 'android.intent.category.HOME')
@@ -36,7 +46,20 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
                                  '-c', 'android.intent.category.HOME')
             original_home = next(line.strip() for line in candidates.splitlines() if '/' in line and
                                  ' ' not in line.strip() and not line.strip().startswith(h.app + '/') and 'ResolverActivity' not in line)
-        assert 'Success' in h.shell('cmd', 'package', 'set-home-activity', h.app + '/org.esdeplus.frontend.HomeEntry')
+        request = h.shell('cmd', 'package', 'set-home-activity', h.app + '/org.esdeplus.frontend.HomeEntry')
+        assert 'Success' in request, request
+        # A successful setter does not guarantee that the device permits a
+        # different global HOME. Measure it before starting or destroying the
+        # frontend; the actual HOME Activity type is required either way.
+        deadline = time.monotonic() + 5
+        while True:
+            resolved, default_before = resolved_home(h)
+            default_selected = default_before == h.app + '/org.esdeplus.frontend.HomeEntry'
+            if default_selected or time.monotonic() >= deadline:
+                break
+            time.sleep(0.25)
+        (h.evidence / (name + '-default-home-request.txt')).write_text(
+            request + '\n' + resolved + f'Frontend selected as global HOME: {default_selected}\n')
     try:
         assert h.shell('settings', 'get', 'global', 'debug_view_attributes').strip() in ['null', '0'], 'Global view debugging unexpectedly enabled'
         if original == h.app:
@@ -114,18 +137,26 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         assert 'ANR in ' + h.app not in logs and 'JNI DETECTED ERROR' not in logs
         if home:
             assert 'HOME=true' in new_lines, 'Restored entry lost HOME semantics'
-            resolved = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
-                               '-c', 'android.intent.category.HOME')
-            assert any(line.strip() in [h.app + '/.HomeEntry', h.app + '/org.esdeplus.frontend.HomeEntry']
-                       for line in resolved.splitlines()), resolved
+            resolved, default_after = resolved_home(h)
+            assert default_after == default_before, (default_before, resolved)
             dump, records = h.activity_records()
             (h.evidence / (name + '-home-activities.txt')).write_text(dump)
             (h.evidence / (name + '-home-resolver.txt')).write_text(resolved)
             assert len(records) == 1 and records[0][0] in ['MainActivity', 'HomeEntry'], dump
             assert home_record(dump, records), dump
-            h.key('KEYCODE_HOME')
+            if default_selected:
+                h.key('KEYCODE_HOME')
+            else:
+                # Some devices retain a protected stock default. Exercise our
+                # real HOME entry without changing or disabling that launcher.
+                h.shell('am', 'start', '-a', 'android.intent.action.MAIN',
+                        '-c', 'android.intent.category.HOME', '-p', h.app)
             h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app),
-                       name + ' next HOME focused', timeout=30)
+                       name + ' next HOME entry focused', timeout=30)
+            (h.evidence / (name + '-default-home-capability.txt')).write_text(
+                f'Frontend selected as global HOME: {default_selected}; before={default_before}; '
+                f'after={default_after}; actual frontend HOME type and next '
+                + ('system HOME key' if default_selected else 'package-scoped HOME entry') + ' verified.\n')
             assert h.shell('pidof', h.app).strip() == new
             h.save_logs(name + '-next-home')
         h.save_logs(name)
@@ -134,7 +165,8 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
             f'within 5 s (observed {elapsed:.3f}s); ' +
             ('next foreground entry restored the frontend after actual STOPPED destruction; ' if background else
              'private product activity restored the entry without a harness relaunch; ') +
-            f'new PID {new} loaded two games with one native main; HOME={home}; background={background}.\n')
+            f'new PID {new} loaded two games with one native main; HOME={home}; background={background}; '
+            f'frontend selected as global HOME={default_selected if home else "not queried"}.\n')
     except Exception as error:
         failures.append(name + ': ' + str(error))
         h.save_logs(name + '-failure')
@@ -148,7 +180,21 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         # failed destruction/start is retried and every failure stays gating.
         h.shell('am', 'force-stop', h.app)
         if original_home:
-            assert 'Success' in h.shell('cmd', 'package', 'set-home-activity', original_home)
+            restored = h.shell('cmd', 'package', 'set-home-activity', original_home)
+            assert 'Success' in restored, restored
+            # Finish the stock launcher's actual return transition and late
+            # onboarding before the next frontend launch is measured. This is
+            # cleanup after the recorded outcome, never a frontend replay.
+            h.shell('am', 'start', '-a', 'android.intent.action.MAIN',
+                    '-c', 'android.intent.category.HOME', '-n', original_home)
+            stock = original_home.split('/', 1)[0]
+            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), stock),
+                       name + ' original HOME returned', timeout=30)
+            h.screenshot(name + '-original-home-return')
+            h.dismiss_stock_onboarding(force=True)
+            h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), stock) and
+                       not h.smoke_checks.stock_onboarding_focused(h.focused_window(), h.stock_package),
+                       name + ' original HOME transition complete', timeout=30)
         if original == 'null':
             h.shell('settings', 'delete', 'global', setting)
         else:
