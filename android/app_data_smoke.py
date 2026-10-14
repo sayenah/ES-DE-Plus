@@ -81,7 +81,7 @@ def run(harness):
 <game><path>./Smoke Alpha.nes</path><name>Retained Alpha</name><favorite>true</favorite></game>
 <game><path>./Smoke Beta.nes</path><name>Retained Beta</name></game></gameList>''')
         write(root + '/collections/custom-retained.cfg', '%ROMPATH%/nes/Smoke Alpha.nes\n')
-        write(root + '/scripts/startup/record.sh', 'printf "authored-script-ran\\n" >> "' + root + '/script-observed.txt"\n')
+        write(root + '/scripts/settings-changed/record.sh', 'printf "authored-script-ran\\n" >> "' + root + '/script-observed.txt"\n')
         write(root + '/retained-marker.txt', 'ES-DE-Plus-authored retained data\n')
 
     def loaded(root, name):

@@ -111,8 +111,9 @@ class StorageModel(private val context: Context) {
                 it.contains('\\') || it.contains('\u0000') })
             throw failure(R.string.tree_root_refused)
         // ROMs never use an official data directory. Data destinations require consent in the UI.
-        if ((!data && segments.any { it.equals("ES-DE", true) || it.equals(".emulationstation", true) }) ||
-            segments.first().equals("Android", true))
+        if (segments.first().equals("Android", true))
+            throw failure(R.string.android_folder_refused)
+        if (!data && segments.any { it.equals("ES-DE", true) || it.equals(".emulationstation", true) })
             throw failure(R.string.official_data_refused)
         val root = volumeRoot(parts[0], readOnly)
         return File(root, relative)
@@ -146,6 +147,9 @@ class StorageModel(private val context: Context) {
     private fun inspectedPath(path: String, data: Boolean = false, readOnly: Boolean = false): File {
         val lexical = structuralPath(path, data, readOnly)
         val canonical = lexical.canonicalFile
+        // In particular, a default-path symlink must never turn plain create/use
+        // consent into adoption of a different existing data directory.
+        if (data && canonical != lexical) throw failure(R.string.folder_mapping_changed)
         if (structuralPath(canonical.path, data, readOnly) != canonical)
             throw failure(R.string.folder_mapping_changed)
         return canonical

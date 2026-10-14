@@ -210,15 +210,18 @@ internal object PdfSmoke {
             File(root, "Manual spaces \uD83D\uDE80.pdf").copyTo(this, overwrite = true)
             check(setReadable(false, false))
         }
-        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
-        val media = File(activity.getAppDataDirectory(), "Manual spaces \uD83D\uDE80")
+        // Provision the authored media fixture before native startup validates
+        // its configured MediaDirectory override; a missing override is now a
+        // recovery error rather than an implicit directory-creation request.
+        val media = File(org.esdeplus.frontend.bridge.StorageModel(context).appData(), "Manual spaces \uD83D\uDE80")
         val manual = File(media, "nes/manuals/Smoke Alpha.pdf")
         manual.parentFile!!.mkdirs()
         val cover = File(media, "nes/covers/Smoke Alpha.png")
         cover.parentFile!!.mkdirs()
         File(root, "cover.png").copyTo(cover, overwrite = true)
         File(root, "Manual spaces \uD83D\uDE80.pdf").copyTo(manual, overwrite = true)
+        instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val command = File(context.cacheDir, "pdf-command")
         val result = File(context.cacheDir, "pdf-result")
         command.delete(); result.writeText("READY: ${media.absolutePath}")

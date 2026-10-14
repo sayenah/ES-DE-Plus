@@ -118,10 +118,27 @@ internal object AppDataSmoke {
                     file.writeText("<?xml version=\"1.0\"?>\n" + if (wrapped) "<settings>$values</settings>" else values)
                     check(storage.validateDataContents(candidate) == media.path)
                     check(file.readText().contains("/conflicting-roms"))
+                    for (encoding in listOf("UTF-8", "UTF-16LE", "UTF-16BE", "UTF-32LE", "UTF-32BE")) {
+                        file.writeBytes(("<?xml version=\"1.0\"?>" + values).toByteArray(java.nio.charset.Charset.forName(encoding)))
+                        check(storage.validateDataContents(candidate) == media.path)
+                    }
                 }
                 file.writeText("<string name=\"MediaDirectory\" value=\"${sandbox.path}/missing-media\"/>")
                 rejected { storage.validateDataContents(candidate) }
                 check(!File(sandbox, "missing-media").exists())
+                file.writeText("<string name=\"MediaDirectory\" value=\"%ESPATH%${media.path}\"/>")
+                check(storage.validateDataContents(candidate) == media.path)
+                val homeMedia = File(candidate, "media").apply { mkdirs() }
+                file.writeText("<string name=\"MediaDirectory\" value=\"~/media\"/>")
+                check(storage.validateDataContents(candidate) == homeMedia.path)
+                val readonly = File(context.cacheDir, "prf-readonly-media").apply { check(mkdir()) }
+                try {
+                    file.writeText("<string name=\"MediaDirectory\" value=\"${readonly.path}\"/>")
+                    check(readonly.setWritable(false, false))
+                    rejected { storage.validateDataContents(candidate) }
+                    check(readonly.setWritable(true, true))
+                    check(storage.validateDataContents(candidate) == readonly.path)
+                } finally { readonly.setWritable(true, true); check(readonly.delete()) }
                 file.writeText("<string name=\"MediaDirectory\" value=\"\"/>")
             }
             val obstruction = File(candidate, "themes")

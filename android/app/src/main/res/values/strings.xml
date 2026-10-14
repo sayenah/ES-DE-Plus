@@ -36,6 +36,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="invalid_tree">Invalid storage tree.</string>
     <string name="tree_root_refused">Choose a folder inside the volume, not its root.</string>
     <string name="official_data_refused">Choose a ROM folder outside Android and official ES-DE application data.</string>
+    <string name="android_folder_refused">Choose a folder outside the volume\'s Android directory.</string>
     <string name="tree_escape_refused">Folder escapes the selected volume.</string>
     <string name="direct_not_granted">Direct filesystem access has not been granted.</string>
     <string name="persistent_access_required">The picker did not grant persistent read/write access.</string>
