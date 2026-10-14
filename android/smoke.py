@@ -305,7 +305,8 @@ def stock_ui_clear():
             not smoke_checks.stock_tutorial_action(nodes, stock_package))
 
 
-def ui(label, dpad=False, exact=False):
+def ui(label, dpad=False, exact=False, focus_only=False):
+    assert not focus_only or dpad, 'Focus-only navigation requires the D-pad'
     matcher = lambda node: smoke_checks.exact_label(node, label) if exact else node_matches(node, label)
     if dpad:
         wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
@@ -314,7 +315,8 @@ def ui(label, dpad=False, exact=False):
         for _ in range(50):
             nodes = hierarchy()
             if any(matcher(n) and n.get('focused') == 'true' for n in nodes):
-                key('KEYCODE_DPAD_CENTER')
+                if not focus_only:
+                    key('KEYCODE_DPAD_CENTER')
                 return
             focused = next((n for n in nodes if n.get('focused') == 'true'), None)
             target = next((n for n in nodes if matcher(n) and n.get('focusable') == 'true'), None)

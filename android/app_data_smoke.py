@@ -48,11 +48,15 @@ def run(harness):
         type_path('Absolute shared ROM folder path', shared_roms)
         h.ui('Use typed folder path', dpad=True)
         h.select_data_root(root)
-        nodes = h.hierarchy()
-        if any(n.get('text') == 'Create system folders' and n.get('checked') == 'true' for n in nodes):
-            h.ui('Create system folders', dpad=True)
+        h.ui('Create system folders', dpad=True, focus_only=True)
+        checkbox = next(n for n in h.hierarchy() if n.get('text') == 'Create system folders')
+        if checkbox.get('checked') == 'true':
+            h.key('KEYCODE_DPAD_CENTER')
+        assert any(n.get('text') == 'Create system folders' and n.get('checked') == 'false'
+                   for n in h.hierarchy()), 'Fixture did not turn off directory creation'
         h.ui('Save and start frontend', dpad=True)
         h.configured_system('app-data-selected-' + root.rsplit('/', 1)[-1])
+        h.smoke_checks.no_generation(h.log())
 
     def fixture(root, legacy):
         # The XML deliberately disagrees with the configurator's ROM path.
