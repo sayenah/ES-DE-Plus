@@ -8,6 +8,18 @@ import subprocess
 import time
 
 
+def home_record(dump, records):
+    if len(records) != 1:
+        return False
+    section = next((part for part in re.split(r'\n\s*\*\s+Hist\s+#\d+:', dump)
+                    if re.match(r'\s*ActivityRecord\{' + re.escape(records[0][2]) + r'\}', part)), '')
+    # Android 10 prints the Activity type in its own TaskRecord section;
+    # newer releases also print the type in the Task header. Tie either
+    # representation to this frontend record/task, never a stock HOME task.
+    return bool(re.search(r'^\s*mActivityType=home\b', section, re.M) or
+                re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump))
+
+
 def framework_recreation(harness, variant, failures, home=False, background=False):
     h = type('Harness', (), harness)
     name = 'lifecycle-' + variant + '-framework-recreation' + ('-home' if home else '-background' if background else '')
@@ -39,7 +51,7 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         if home:
             dump, records = h.activity_records()
             (h.evidence / (name + '-before-home-activities.txt')).write_text(dump)
-            assert len(records) == 1 and re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump), dump
+            assert home_record(dump, records), dump
             assert 'HOME=true' in h.adb('logcat', '-d'), 'Probe did not enter actual HOME mode'
         before = h.log()
         old = h.shell('pidof', h.app).strip()
@@ -109,7 +121,7 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
             (h.evidence / (name + '-home-activities.txt')).write_text(dump)
             (h.evidence / (name + '-home-resolver.txt')).write_text(resolved)
             assert len(records) == 1 and records[0][0] in ['MainActivity', 'HomeEntry'], dump
-            assert re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump), dump
+            assert home_record(dump, records), dump
             h.key('KEYCODE_HOME')
             h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app),
                        name + ' next HOME focused', timeout=30)
@@ -166,7 +178,7 @@ def slow_restart(harness, variant, failures, expire=False):
                 h.wait_for(lambda: 'Frontend restart recovery shown; entry remains available' in h.adb('logcat', '-d'),
                            name + ' actual two-minute recovery screen', timeout=135)
                 assert 'FrontendRestartActivity' in h.focused_window(), 'Recovery screen disappeared'
-                assert any('Retry startup' == node.get('text') for node in h.hierarchy()), 'No visible retry action'
+                assert any(h.smoke_checks.exact_label(node, 'Retry startup') for node in h.hierarchy()), 'No visible retry action'
                 assert old in h.shell('pidof', h.app).split() and 'Running main function' not in h.adb('logcat', '-d')
                 h.screenshot(name + '-visible-recovery')
             if expire:
