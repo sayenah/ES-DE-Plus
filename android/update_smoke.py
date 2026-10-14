@@ -33,11 +33,11 @@ def run(harness):
     assert node is not None, 'Real saved ScreensaverTimer setting absent'
     node.set('value', '123456')
     h.user_file('settings/es_settings.xml', pdf_smoke.settings_xml(settings))
-    h.user_file('collections/update-proof.txt', 'ES-DE-Plus update continuity sentinel\n')
-    sentinel = h.external + '/ES-DE-Plus/collections/update-proof.txt'
+    h.private('sh', '-c', "printf 'ES-DE-Plus update continuity sentinel\\n' > files/update-proof")
+    sentinel = 'files/update-proof'
     prefs = h.private('cat', 'shared_prefs/storage.xml')
     snapshot = h.shell('cat', h.settings)
-    data = h.shell('cat', sentinel)
+    data = h.private('cat', sentinel)
     h.launch()
     h.configured_system('update-lower-saved')
     h.shell('am', 'force-stop', h.app)
@@ -50,7 +50,7 @@ def run(harness):
     result = h.adb('install', '-r', 'android/.deps/update/higher.apk')
     assert 'Success' in result
     assert h.shell('cat', h.settings) == snapshot, 'Update lost saved settings'
-    assert h.shell('cat', sentinel) == data, 'Update lost application data'
+    assert h.private('cat', sentinel) == data, 'Update lost application data'
     assert h.private('cat', 'shared_prefs/storage.xml') == prefs, 'Update lost accepted configuration'
     after = h.shell('dumpsys', 'package', h.app)
     assert 'versionCode=' + str(record['higher']['version_code']) in after
@@ -60,7 +60,7 @@ def run(harness):
     assert not any(r[0] == 'ConfiguratorActivity' for r in h.activity_records()[1]), 'Update requested reconfiguration'
     actual = h.launch_checks.settings_fragment(h.shell('cat', h.settings))
     assert actual.find("int[@name='ScreensaverTimer']").get('value') == '123456'
-    assert h.shell('cat', sentinel) == data
+    assert h.private('cat', sentinel) == data
     h.evidence.joinpath('update-continuity.txt').write_text(
         'PASS: lower -> higher code, same in-run throwaway certificate; adb install -r only.\n'
         'No uninstall, data clear or downgrade flag between installs. Exact settings/preferences/data retained; '
