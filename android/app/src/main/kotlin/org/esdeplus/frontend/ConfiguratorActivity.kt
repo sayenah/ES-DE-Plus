@@ -43,6 +43,7 @@ class ConfiguratorActivity : Activity() {
     private var focusId = 0
     private var pathInput: EditText? = null
     private var completed = false
+    private var restartFrontend = false
     private lateinit var sessionId: String
 
     override fun onCreate(state: Bundle?) {
@@ -295,6 +296,9 @@ class ConfiguratorActivity : Activity() {
                     throw java.io.IOException(getString(R.string.data_folder_required))
                 storage.save(StorageModel.Configuration(mode, path, tree, createSystems, dataPath))
                 ConfiguratorSession.clearDraft(this)
+                // Snapshot before releasing the startup hold: the initial native
+                // thread may select its paths immediately after that release.
+                restartFrontend = MainActivity.liveInstance()?.nativePathsSelected == true
                 completed = true
                 ConfiguratorSession.finishConfiguration()
                 returnToFrontend()
@@ -475,7 +479,7 @@ class ConfiguratorActivity : Activity() {
         // A live SDL caller resumes through its registered static callback.
         // After process death launch the recorded entry; HOME is never inferred
         // from a preference, Leanback, or the configurator's own intent.
-        if (MainActivity.liveInstance()?.restartAfterStorageSelection() == true) {
+        if (restartFrontend && MainActivity.liveInstance()?.restartAfterStorageSelection() == true) {
             finish()
             return
         }

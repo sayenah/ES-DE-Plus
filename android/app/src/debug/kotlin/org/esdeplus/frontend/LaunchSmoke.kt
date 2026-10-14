@@ -541,7 +541,12 @@ object LaunchSmoke {
             equal(bridge.checkRACoreInstalled("org.esdeplus.missing", "test_libretro_android.so"), -2, "Absent package query")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", "wrong", stub, true), -2, "Wrong sender reply")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", stub, stub, true), 0, "Authenticated empty reply positive control")
-            val missing = RomTransport(object : ContextWrapper(context) { override fun getExternalFilesDir(type: String?): File? = null })
+            // Both scoped storage and direct storage's SDK volume verification
+            // must lose their actual mount information in this unavailable case.
+            val missing = RomTransport(object : ContextWrapper(context) {
+                override fun getExternalFilesDir(type: String?): File? = null
+                override fun getExternalFilesDirs(type: String?): Array<File?> = emptyArray()
+            })
             refused("Unavailable selected storage") { missing.provider(rom.path) }
             return "PASS: PR-C launch/discovery/provider/query probes; assertion positive controls rejected\n" + evidence
         } finally {

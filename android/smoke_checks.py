@@ -95,6 +95,16 @@ def held_restored(records, nodes, pid, old_pid, app):
                n.get('text', '').startswith('Configure ') for n in nodes), nodes
 
 
+def focus_direction(current, target):
+    current_x, current_y = current[0] + current[2], current[1] + current[3]
+    target_x, target_y = target[0] + target[2], target[1] + target[3]
+    # Dialog actions can share a horizontal row. Navigate with the same real
+    # D-pad a TV user has, including left/right between those actions.
+    if current_y == target_y and current_x != target_x:
+        return 'KEYCODE_DPAD_LEFT' if target_x < current_x else 'KEYCODE_DPAD_RIGHT'
+    return 'KEYCODE_DPAD_UP' if target_y < current_y else 'KEYCODE_DPAD_DOWN'
+
+
 def positive_controls():
     rejected = []
 
@@ -118,6 +128,10 @@ def positive_controls():
         reject('missing entry diagnostic', lambda: warm_entry(f'HOME={str(home).lower()}', home))
         reject('wrong HOME state', lambda: warm_entry(f'Focused redirect forwarding; HOME={str(not home).lower()}', home))
     grants(1, 1)
+    assert focus_direction([100, 400, 200, 460], [0, 400, 90, 460]) == 'KEYCODE_DPAD_LEFT'
+    assert focus_direction([0, 400, 90, 460], [100, 400, 200, 460]) == 'KEYCODE_DPAD_RIGHT'
+    assert focus_direction([0, 400, 200, 460], [0, 200, 200, 260]) == 'KEYCODE_DPAD_UP'
+    assert focus_direction([0, 200, 200, 260], [0, 400, 200, 460]) == 'KEYCODE_DPAD_DOWN'
     # UIAutomator buttons are XML leaves: Element truthiness is false even
     # when the actual system action was found. Test the real node shape.
     tutorial = ET.fromstring('<node text="Got it" package="android" />')

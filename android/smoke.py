@@ -306,21 +306,22 @@ def stock_ui_clear():
 
 
 def ui(label, dpad=False, exact=False):
+    matcher = lambda node: smoke_checks.exact_label(node, label) if exact else node_matches(node, label)
     if dpad:
         wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
         direction = 'KEYCODE_DPAD_DOWN'
         last_focus = None
         for _ in range(50):
             nodes = hierarchy()
-            if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
+            if any(matcher(n) and n.get('focused') == 'true' for n in nodes):
                 key('KEYCODE_DPAD_CENTER')
                 return
             focused = next((n for n in nodes if n.get('focused') == 'true'), None)
-            target = next((n for n in nodes if node_matches(n, label) and n.get('focusable') == 'true'), None)
+            target = next((n for n in nodes if matcher(n) and n.get('focusable') == 'true'), None)
             if focused is not None and target is not None:
-                current_y = sum(map(int, re.findall(r'\d+', focused.attrib['bounds'])[1::2]))
-                target_y = sum(map(int, re.findall(r'\d+', target.attrib['bounds'])[1::2]))
-                direction = 'KEYCODE_DPAD_UP' if target_y < current_y else 'KEYCODE_DPAD_DOWN'
+                current_bounds = list(map(int, re.findall(r'\d+', focused.attrib['bounds'])))
+                target_bounds = list(map(int, re.findall(r'\d+', target.attrib['bounds'])))
+                direction = smoke_checks.focus_direction(current_bounds, target_bounds)
             elif focused is not None and focused.attrib == last_focus:
                 direction = 'KEYCODE_DPAD_UP' if direction == 'KEYCODE_DPAD_DOWN' else 'KEYCODE_DPAD_DOWN'
             last_focus = focused.attrib.copy() if focused is not None else None
@@ -1292,8 +1293,10 @@ try:
         select_tree('ESDEPlusSmoke')
         ui('Cancel configuration', dpad=True)
         cancelled_grant_retained()
+    initial_configuration_pid = shell('pidof', app).strip()
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
+    assert shell('pidof', app).strip() == initial_configuration_pid, 'First storage save restarted the existing startup host'
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     launch_contract_probes('direct')

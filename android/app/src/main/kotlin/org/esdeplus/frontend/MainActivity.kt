@@ -50,6 +50,7 @@ class MainActivity : SDLActivity() {
     }
     // Framework recreation retires the old native process and restores
     // the recorded entry. Cached native settings/paths never switch in place.
+    internal val nativePathsSelected: Boolean get() = bridge.pathsSelected
     internal fun restartAfterStorageSelection(): Boolean {
         if (!bridge.pathsSelected) return false
         Log.i("ES-DE-Plus", "Storage selection requires a fresh frontend start")
