@@ -1116,13 +1116,6 @@ try:
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
-    clear_app()
-    retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
-                     app + '/org.esdeplus.frontend.RuntimeSmoke')
-    (evidence / 'retained-configurator-probe.txt').write_text(retained)
-    smoke_checks.probe_passed(retained,
-        'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
-    clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
     if api == 29:
         shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
@@ -1135,6 +1128,23 @@ try:
     dummy.write_bytes(b'\x00')
     for name in ['Smoke Alpha.nes', 'Smoke Beta.nes']:
         adb('push', str(dummy), shared + '/nes/' + name)
+    # Exercise the new feature before the long inherited regression sequence.
+    # Its real uninstall/reinstall and shared-root selection are then reset to
+    # the same fresh private app/denied-permission state the regressions expect.
+    app_data_smoke.run(globals())
+    clear_app()
+    if api == 29:
+        shell('pm', 'revoke', app, 'android.permission.READ_EXTERNAL_STORAGE')
+        shell('pm', 'revoke', app, 'android.permission.WRITE_EXTERNAL_STORAGE')
+    else:
+        shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'default')
+    select_data_root(external + '/ES-DE-Plus')
+    retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
+                     app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'retained-configurator-probe.txt').write_text(retained)
+    smoke_checks.probe_passed(retained,
+        'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
+    clear_app()
     start_entry('HomeEntry', 'android.intent.category.HOME')
     ui('Cancel configuration', dpad=True)
     ui('Configuration cancelled')
@@ -1685,7 +1695,6 @@ try:
     pdf_smoke.run('scoped', globals())
     real_retroarch_flow()
     pdf_smoke.release(globals())
-    app_data_smoke.run(globals())
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
