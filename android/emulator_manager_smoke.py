@@ -195,9 +195,15 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'test return keeps editable draft')
         h.screenshot('emulator-manager-' + mode + '-test-return')
         h.key('KEYCODE_ENTER')  # Close the accepted-request notice.
+        pick(5); page('draft')  # path -> document URI, same named ROM extra
+        pick(5); page('draft')  # provider is invalid in a named extra
+        h.wait_for(lambda: 'The ROM provider can only be used as Intent data' in h.adb('logcat', '-d'), 'invalid transport selection gives actionable error')
+        controls(True, 'ROM TRANSPORT: DOCUMENT URI' in h.adb('logcat', '-d'), 'rejected transport keeps displayed document URI choice')
+        controls(before, current(), 'invalid transport selection preserves files/defaults')
+        h.screenshot('emulator-manager-' + mode + '-transport-selection-error')
+        h.key('KEYCODE_ENTER')
         # Test refusal must also preserve the candidate. App-private SAF is refused.
         if mode.startswith('scoped'):
-            pick(5); page('draft')  # path -> document URI, same named ROM extra
             pick(16)
             h.wait_for(lambda: 'Emulator manager test: refused;' in h.adb('logcat', '-d'), 'app-private SAF refusal')
             controls(before, current(), 'refused test isolation')
@@ -208,7 +214,7 @@ def run(mode, harness, minified=False):
             pick(5); page('draft')  # document URI -> provider
         else:
             pick(6); text('', erase=3); page('draft')
-            pick(5); page('draft'); pick(5); page('draft')
+            pick(5); page('draft')  # document URI -> provider, now in Intent data
         if minified:
             h.adb('uninstall', 'org.esdeplus.stub')
             pick(16)

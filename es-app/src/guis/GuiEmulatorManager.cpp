@@ -253,12 +253,15 @@ void GuiEmulatorManager::rebuild()
                          mTransport == "%ROMSAF%" ? _("DOCUMENT URI") :
                                                     _("ES-DE PLUS PROVIDER")),
                     [this] {
-                        mTransport = mTransport == "%ROM%"    ? "%ROMSAF%" :
-                                     mTransport == "%ROMSAF%" ? "%ROMPROVIDER%" :
-                                                                "%ROM%";
-                        invalidateDraft();
+                        const std::string transport {mTransport == "%ROM%"    ? "%ROMSAF%" :
+                                                     mTransport == "%ROMSAF%" ? "%ROMPROVIDER%" :
+                                                                                "%ROM%"};
                         try {
-                            mProfile.rom(mTransport, mRomExtra);
+                            auto profile = mProfile;
+                            profile.rom(transport, mRomExtra);
+                            mProfile = std::move(profile);
+                            mTransport = transport;
+                            invalidateDraft();
                         }
                         catch (const std::exception& failure) {
                             error(failure.what());
