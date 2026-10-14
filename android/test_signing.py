@@ -236,6 +236,11 @@ def sdk_controls():
         UPDATE = root / 'update'
         UPDATE.mkdir()
         version = public_version()
+        values = root / 'res/values'
+        values.mkdir(parents=True)
+        (values / 'strings.xml').write_text('<resources><string name="app_name">ES-DE Plus</string></resources>')
+        resources = root / 'resources.zip'
+        subprocess.run([str(tools() / 'aapt2'), 'compile', '--dir', str(root / 'res'), '-o', str(resources)], check=True)
         for destination, code, debug in [(DEBUG, version['version_code'], True),
                                          (UNSIGNED_RELEASE, version['version_code'], False),
                                          (UPDATE / 'lower-unsigned.apk', version['version_code'] - 1, True)]:
@@ -243,11 +248,11 @@ def sdk_controls():
             manifest.write_text(f"""<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 package="org.esdeplus.frontend" android:versionCode="{code}" android:versionName="{version['version_name']}">
 <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36"/>
-<application android:label="ES-DE Plus" android:debuggable="{str(debug).lower()}"/>
+<application android:label="@string/app_name" android:debuggable="{str(debug).lower()}"/>
 </manifest>""")
             subprocess.run([str(tools() / 'aapt2'), 'link', '--manifest', str(manifest), '-I',
                             str(pathlib.Path(os.environ['ANDROID_HOME']) / 'platforms/android-36/android.jar'),
-                            '-o', str(destination)], check=True)
+                            '-o', str(destination), str(resources)], check=True)
         fixture_signing()
     # No placeholder identity may survive into the real-APK gates/smoke.
     for name in ('test-signer.txt', 'update-identity.txt'):
