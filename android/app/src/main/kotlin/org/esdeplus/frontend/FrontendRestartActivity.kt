@@ -106,7 +106,7 @@ class FrontendRestartActivity : Activity() {
                 setOnClickListener {
                     deadline = SystemClock.elapsedRealtime() + 120_000
                     showWaiting()
-                    handler.post(awaitRetirement)
+                    this@FrontendRestartActivity.handler.post(awaitRetirement)
                 }
                 requestFocus()
             })
