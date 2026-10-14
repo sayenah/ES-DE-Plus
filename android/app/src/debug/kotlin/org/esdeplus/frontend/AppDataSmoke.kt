@@ -6,6 +6,7 @@ import android.app.Instrumentation
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.FileObserver
+import android.os.SystemClock
 import android.system.Os
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
@@ -119,6 +120,20 @@ internal object AppDataSmoke {
             val before = hash(candidate)
             drain()
             events.clear()
+            // Accessibility window publication is asynchronous even after the
+            // app's main queue is idle. Connect before opening the UI, and
+            // require the actual app window/text rather than its first snapshot.
+            val automation = probe.uiAutomation
+            fun windowWithText(text: String): AccessibilityNodeInfo {
+                val deadline = SystemClock.uptimeMillis() + 10_000
+                do {
+                    val root = automation.rootInActiveWindow
+                    if (root?.packageName?.toString() == context.packageName &&
+                        root.findAccessibilityNodeInfosByText(text).isNotEmpty()) return root
+                    SystemClock.sleep(50)
+                } while (SystemClock.uptimeMillis() < deadline)
+                error("Timed out waiting for app accessibility window: $text")
+            }
             configurator = probe.startActivitySync(Intent(context, ConfiguratorActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ConfiguratorActivity
             probe.runOnMainSync {
@@ -127,8 +142,7 @@ internal object AppDataSmoke {
                 configurator!!.findViewById<Button>(R.string.confirm_data_folder).performClick()
             }
             probe.waitForIdleSync()
-            val dialog = probe.uiAutomation.rootInActiveWindow ?: error("Consent dialog missing")
-            check(dialog.findAccessibilityNodeInfosByText("Concurrent use").isNotEmpty())
+            val dialog = windowWithText("Concurrent use")
             val cancel = dialog.findAccessibilityNodeInfosByText("Cancel").single { it.text?.toString()?.equals("Cancel", true) == true }
             check(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             probe.waitForIdleSync()
@@ -138,9 +152,7 @@ internal object AppDataSmoke {
                 configurator!!.findViewById<Button>(R.string.continue_frontend).performClick()
             }
             probe.waitForIdleSync()
-            val recovery = probe.uiAutomation.rootInActiveWindow ?: error("Configuration error UI missing")
-            check(recovery.findAccessibilityNodeInfosByText(
-                "Choose and confirm the application-data folder").isNotEmpty())
+            windowWithText("Choose and confirm the application-data folder")
             drain()
             val beforeHash = events.toList()
             observers.forEach { it.stopWatching() }
