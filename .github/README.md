@@ -74,7 +74,7 @@ Every Android change is built and tested on three emulator images — **Android 
 
 ## 📦 Get it
 
-**Android.** Every successful build of `main` publishes an installable debug APK: open **[Actions → Build Android](https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml?query=branch%3Amain)**, pick the latest green run, and download `es-de-plus-debug-apk-…` from its Artifacts (you need to be signed in to GitHub; APKs are kept for 7 days). The matching `es-de-plus-source-…` bundle holds the exact source it was built from. These are test builds signed with a throwaway key per build, so installing a newer one means uninstalling the old one first — back up first, because uninstalling deletes the app's own data.
+**Android.** Download the latest test APK from **[Releases](https://github.com/sayenah/ES-DE-Plus/releases)**, next to the source bundle it was built from and its licence notices. Newer builds between releases are on **[Actions → Build Android](https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml?query=branch%3Amain)** as `es-de-plus-debug-apk-…` artifacts (signed-in GitHub users only; kept 7 days). These are test builds signed with a throwaway key per build, so installing a newer one means uninstalling the old one first — back up first, because uninstalling deletes the app's own data.
 
 **Desktop.** ES-DE Plus keeps upstream's Linux, macOS and Windows builds (with global search added). Build from source with [INSTALL.md](/INSTALL.md); Linux is built on every change in CI.
 
