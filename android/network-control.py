@@ -19,11 +19,25 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def tracked_digest(root):
-    files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
+def tracked_digest(root, entries=None):
+    if entries is None:
+        entries = subprocess.check_output(['git', 'ls-files', '--stage', '-z'], cwd=root)
     hashed = hashlib.sha256()
-    for name in filter(None, files):
-        hashed.update(name.encode() + b'\0' + (root / name).read_bytes())
+    for entry in filter(None, entries.split(b'\0')):
+        reference, name = entry.split(b'\t', 1)
+        mode, _, stage = reference.split()
+        assert stage == b'0', 'Unmerged tracked entry: ' + os.fsdecode(name)
+        path = root / os.fsdecode(name)
+        # A Gitlink records a commit, not a file; CI leaves inherited upstream
+        # test submodules uninitialised. Symlinks record their target, never an
+        # arbitrary file outside this checkout. Ordinary files hash live bytes.
+        if mode == b'160000':
+            content = reference
+        elif mode == b'120000':
+            content = os.fsencode(os.readlink(path))
+        else:
+            content = path.read_bytes()
+        hashed.update(reference + b'\0' + name + b'\0' + content + b'\0')
     return hashed.hexdigest()
 
 
@@ -114,6 +128,18 @@ def controls():
     parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='kill-test-', dir=parent) as temporary:
         root = pathlib.Path(temporary).resolve()
+        (root / 'gitlink').mkdir()
+        tracked = root / 'tracked.txt'
+        tracked.write_bytes(b'tracked contents')
+        (root / 'tracked-link').symlink_to('tracked.txt')
+        entries = (b'100644 aaaa 0\ttracked.txt\0' +
+                   b'160000 bbbb 0\tgitlink\0' + b'120000 cccc 0\ttracked-link\0')
+        reference_hash = tracked_digest(root, entries)
+        tracked.write_bytes(b'changed contents')
+        assert tracked_digest(root, entries) != reference_hash
+        tracked.write_bytes(b'tracked contents')
+        assert tracked_digest(root, entries.replace(b'bbbb', b'dddd')) != reference_hash
+        assert tracked_digest(root, entries) == reference_hash
         manifest = root / 'android/app/src/main/AndroidManifest.xml'
         manifest.parent.mkdir(parents=True)
         manifest.write_text('<manifest>\n    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>\n')
@@ -155,6 +181,7 @@ def controls():
         assert actual == set(before), actual
         report = ('PASS: SIGKILL during isolated manifest/control build leaves all original fixture files unchanged; '
                   'normal APK and manifest hashes before/after below; no partial control APK published.\n' +
+                  'PASS: tree fingerprint supports files, symlinks and uninitialised Gitlinks; file/reference changes detected.\n' +
                   '\n'.join(f'{name}: before={value} after={after[name]}' for name, value in before.items()) +
                   '\n' + transcript)
         evidence = pathlib.Path('android/evidence/network-control-kill-test.txt')
