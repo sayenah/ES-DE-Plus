@@ -32,9 +32,10 @@ val generateQueries by tasks.registering {
 ${packages.joinToString("\n") { "<package android:name=\"$it\" />" }}
 <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
 <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
-<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="*" android:mimeType="*/*" /></intent>
-<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="file" /></intent>
-<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="content" /></intent>
+<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="file" android:mimeType="*/*" android:host="*" /></intent>
+<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="content" android:mimeType="*/*" android:host="*" /></intent>
+<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="file" android:host="*" /></intent>
+<intent><action android:name="android.intent.action.VIEW" /><data android:scheme="content" android:host="*" /></intent>
 </queries>
 """
         output.writeText(file("src/main/AndroidManifest.xml").readText().replace("<application", queries + "<application"))

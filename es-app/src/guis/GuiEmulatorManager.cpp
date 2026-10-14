@@ -203,7 +203,9 @@ void GuiEmulatorManager::rebuild()
                 if (system.custom)
                     row(_("RESET WHOLE SYSTEM OVERRIDE TO BUNDLED"), [this, system] {
                         confirm(_("Remove the entire custom_systems/es_systems.xml override for "
-                                  "this system, including hand edits and every custom command?") +
+                                  "this system, including hand edits and every custom command? "
+                                  "Under loadExclusive, a fresh bundled snapshot is retained so "
+                                  "the system stays defined.") +
                                     "\n\n" + system.name + " — " + system.fullName,
                                 [this] { reset(); });
                     });

@@ -20,8 +20,9 @@ namespace
 {
     std::string value(const std::string& text)
     {
-        if (text.find_first_of("\r\n\t\"") != std::string::npos ||
-            text.find('\0') != std::string::npos)
+        if (text.find('"') != std::string::npos ||
+            std::any_of(text.begin(), text.end(),
+                        [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
             throw std::runtime_error(_("This field cannot contain quotes or control characters"));
         for (const std::string marker :
              {"%EMULATOR_", "%EXTRA", "%ACTION%", "%CATEGORY%", "%MIMETYPE%", "%DATA%",

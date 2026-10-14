@@ -1100,6 +1100,7 @@ try:
                     (evidence / 'latest-ui.txt').read_text())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
+    print(adb('install', '-r', 'android/handler-stub/build/outputs/apk/debug/handler-stub-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     clear_app()
     retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',

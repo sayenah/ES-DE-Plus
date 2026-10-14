@@ -50,6 +50,10 @@ namespace
 
     std::string xml(pugi::xml_node node)
     {
+        if (node.type() == pugi::node_document)
+            for (auto child : node.children())
+                if (child.type() == pugi::node_declaration && child.attribute("encoding"))
+                    child.attribute("encoding").set_value("UTF-8");
         std::ostringstream stream;
         node.print(stream, "", pugi::format_raw, pugi::encoding_utf8);
         return stream.str();
@@ -366,13 +370,18 @@ pugi::xml_node EmulatorManagerConfig::editable(const std::string& name)
     if (node)
         return node;
     node = mSystems.child("systemList").append_copy(effective(name));
+    markSnapshot(node);
+    return node;
+}
+
+void EmulatorManagerConfig::markSnapshot(pugi::xml_node node)
+{
     const auto extensions = std::string(node.child("extension").text().get());
     const std::string metadata {snapshotPrefix +
                                 mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) +
                                 " " + fingerprint(xml(node)) + " " + baseline(node, extensions) +
                                 " " + hex(extensions) + " " + fingerprint(extensions)};
     node.prepend_child(pugi::node_comment).set_value(metadata.c_str());
-    return node;
 }
 
 std::string EmulatorManagerConfig::replaceEmulator(const std::string& profile,
@@ -397,7 +406,9 @@ std::string EmulatorManagerConfig::add(const std::string& name,
             component,
             std::regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+/[A-Za-z_][A-Za-z0-9_.$]*")))
         throw std::runtime_error(_("Select a valid installed package and receiving activity"));
-    if (label.empty() || label.size() > 256 || label.find_first_of("\r\n\t") != std::string::npos)
+    if (label.empty() || label.size() > 256 ||
+        std::any_of(label.begin(), label.end(),
+                    [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
         throw std::runtime_error(_("Enter a unique emulator label"));
     auto source = effective(name);
     for (const char* required : {"name", "fullname", "path", "extension"}) {
@@ -509,11 +520,15 @@ void EmulatorManagerConfig::reset(const std::string& name)
     auto node = named(mSystems.child("systemList"), "system", name);
     if (!node)
         return;
-    if (mSystems.child("loadExclusive"))
-        throw std::runtime_error(_("Reset would hide this system under loadExclusive; remove that "
-                                   "directive manually first"));
-    if (!named(mBundle.child("systemList"), "system", name))
+    auto source = named(mBundle.child("systemList"), "system", name);
+    if (!source)
         throw std::runtime_error(_("This custom system has no bundled definition"));
+    if (mSystems.child("loadExclusive")) {
+        // Keep the directive and the system's reachability. There is no transparent
+        // inheritance under loadExclusive, so explicit reset retains a fresh snapshot.
+        auto fresh = node.parent().insert_copy_before(source, node);
+        markSnapshot(fresh);
+    }
     mSystems.child("systemList").remove_child(node);
 }
 

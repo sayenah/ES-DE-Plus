@@ -115,9 +115,11 @@ or permission-protected targets produce the existing error popup. Returning
 from an emulator resumes the frontend. Other-screen launching remains deferred.
 
 Build-time package visibility includes every emulator package in the bundled
-Android find rules and both phone and Leanback launcher signatures, without
-`QUERY_ALL_PACKAGES`. Custom emulator packages outside those rules are visible
-only when they match a launcher signature. The Android-apps importer deduplicates
+Android find rules, phone/Leanback launcher signatures and VIEW file/content URI
+signatures with and without MIME types, without `QUERY_ALL_PACKAGES`. The emulator
+manager also offers matching exported file handlers, keeping each actual component;
+"declares it opens these files" does not promise emulation or archive support.
+The Android-apps importer deduplicates
 components and uses sanitised labels as filenames, preserving Unicode. Only
 colliding labels receive a short deterministic component suffix. Icons are
 always staged; its banner/logo option controls additional artwork only.
@@ -148,6 +150,8 @@ non-gating diagnostic, with outcome, live logs and backtrace capability gaps
 in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
 assertion is retried.
+
+The `handler-stub` module reuses the MIT recipient implementation with only file-handler aliases, no launcher or Leanback entry and no package-specific query declaration; it proves generic file-handler visibility. Both fixture APKs stay on the CI runner and never enter the frontend APK or publication.
 
 The `stub-emulator` module is a separate-UID, debug-only CI recipient written
 for ES-DE Plus; it is never included in the frontend APK or a release variant.

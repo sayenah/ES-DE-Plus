@@ -8,3 +8,5 @@ dependencyResolutionManagement {
 rootProject.name = "ES-DE-Plus-Android"
 include(":app")
 include(":stub-emulator")
+
+include(":handler-stub")

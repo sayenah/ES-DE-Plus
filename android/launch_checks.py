@@ -42,7 +42,7 @@ def stub_components(observation, enabled):
     equal(observation['queryMode'], 'restore-launchers' if enabled else 'phone-off', 'Stub component control mode')
     equal(observation['uid'] >= 10000, True, 'Stub changes its components under application UID')
     equal(observation['componentStates'], {name: 0 if enabled else 2 for name in
-          ['RecipientActivity', 'CollisionOne', 'CollisionTwo']}, 'Actual stub component states')
+          ['RecipientActivity', 'CollisionOne', 'CollisionTwo', 'PrivateActivity', 'ProtectedActivity', 'DisabledActivity']}, 'Actual stub component states')
 
 
 def imported_app_name(name):
@@ -132,7 +132,7 @@ def positive_controls():
     reject('stale Settings switch without app-op', lambda: all_files_granted('No operations.\nDefault mode: default'))
     for enabled in (False, True):
         control = {'queryMode': 'restore-launchers' if enabled else 'phone-off', 'uid': 10002,
-                   'componentStates': {name: 0 if enabled else 2 for name in ['RecipientActivity', 'CollisionOne', 'CollisionTwo']}}
+                   'componentStates': {name: 0 if enabled else 2 for name in ['RecipientActivity', 'CollisionOne', 'CollisionTwo', 'PrivateActivity', 'ProtectedActivity', 'DisabledActivity']}}
         stub_components(control, enabled)
         for field, value in [('queryMode', 'other'), ('uid', 2000), ('componentStates', {})]:
             reject('wrong stub component ' + field, lambda field=field, value=value, control=control, enabled=enabled:

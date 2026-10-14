@@ -60,6 +60,7 @@ public:
 private:
     pugi::xml_node effective(const std::string& name) const;
     pugi::xml_node editable(const std::string& name);
+    void markSnapshot(pugi::xml_node node);
     std::string mDirectory;
     std::string mBundledSystems;
     std::string mSystemsBytes;

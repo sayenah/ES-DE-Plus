@@ -103,7 +103,12 @@ int main(int argc, char** argv)
         require(EmulatorManagerConfig(root, bundle, bundledRules).system("test").commands.size() ==
                     1,
                 "remove only addition");
-        refused([&] { after.reset("test"); });
+        after.reset("test");
+        after.save();
+        require(EmulatorManagerConfig(root, bundle, bundledRules).system("test").fullName ==
+                        "Test" &&
+                    read(systems).find("loadExclusive") != std::string::npos,
+                "exclusive reset retains bundled snapshot and directive");
         // External edits are detected with exact bytes, before either replacement.
         EmulatorManagerConfig concurrent {root, bundle, bundledRules};
         const auto previousRules = read(rules);
@@ -192,6 +197,25 @@ int main(int argc, char** argv)
         EmulatorManagerConfig ownedEdit {root, bundle, bundledRules};
         refused([&] { ownedEdit.remove("test", collisionId); });
         require(read(systems) == editedCommand, "later hand-edited addition preserved");
+        // Standard XML encodings are read, then emitted with a truthful UTF-8 declaration.
+        pugi::xml_document unicode;
+        require(unicode.load_string(source.c_str()), "UTF-16 source preparation");
+        unicode.prepend_child(pugi::node_declaration).append_attribute("encoding") = "UTF-16";
+        require(unicode.save_file(systems.c_str(), "    ", pugi::format_default,
+                                  pugi::encoding_utf16_le),
+                "UTF-16 fixture write");
+        EmulatorManagerConfig encoded {root, bundle, bundledRules};
+        refused([&] {
+            encoded.add("test", std::string("Bad\0Label", 9), "org.example/Activity",
+                        collisionProfile, ".zip", true);
+        });
+        encoded.add("test", "Encoded", "org.example/Activity", collisionProfile, ".zip", true);
+        encoded.save();
+        require(read(systems).find("encoding=\"UTF-8\"") != std::string::npos,
+                "truthful UTF-8 output declaration");
+        require(EmulatorManagerConfig(root, bundle, bundledRules).system("test").commands.size() ==
+                    2,
+                "encoded input readback");
         const auto gamelist = root + "/gamelist.xml";
         put(gamelist,
             "<!-- user gamelist "

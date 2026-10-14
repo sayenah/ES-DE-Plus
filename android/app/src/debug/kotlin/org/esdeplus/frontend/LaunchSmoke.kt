@@ -553,6 +553,12 @@ object LaunchSmoke {
             for (activity in listOf("DisabledActivity", "ProtectedActivity", "PrivateActivity"))
                 equal(stubRecords.any { it.activityName == "$stub.$activity" }, false, "Inaccessible emulator activity $activity")
             equal(stubRecords.filter { it.label == "ZIP handler" }.map { it.activityName }.distinct().size, 2, "Equal labels keep components")
+            val handlersOnly = emulatorRecords.filter { it.packageName == "org.esdeplus.handlerstub" }
+            for (activity in listOf("ZipMime", "WildcardMime", "ZipPath"))
+                equal(handlersOnly.single { it.activityName == "$stub.$activity" }.declaredHandler, true, "No-launcher package discovered: $activity")
+            equal(handlersOnly.any { it.activityName == "$stub.NonMatchingMime" }, false, "No-launcher nonmatching handler")
+            equal(context.packageManager.getLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no launcher")
+            equal(context.packageManager.getLeanbackLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no Leanback entry")
             evidence.append("PASS: PR-I typed activity records, launcher/Leanback/file-only handlers, MIME/wildcard/path suggestions, equal labels and inaccessible activities\n")
             return "PASS: PR-C launch/discovery/provider/query probes; assertion positive controls rejected\n" + evidence
         } finally {
