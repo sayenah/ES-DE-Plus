@@ -91,6 +91,14 @@ def run(harness):
         assert granted == expected, 'Installed INTERNET permission differs from probe: ' + dump
         h.evidence.joinpath('network-' + ('fixed' if expected else 'control') + '-package.txt').write_text(dump)
 
+    def theme_path(relative):
+        # The upstream getter is named getInternalAppDataDirectory, but the
+        # accepted bridge maps it to the configured application-data directory.
+        # Use fresh frontend evidence, not the internal bundled-resource path.
+        matches = re.findall(r'Android external directory: (.+)', h.log())
+        assert len(matches) == 1 and matches[0].startswith('/'), matches
+        return matches[0] + '/themes/' + relative
+
     def delta(before):
         output = h.log()
         assert output.startswith(before), 'Frontend log reset during a network operation'
@@ -125,7 +133,7 @@ def run(harness):
 
     def theme_list(negative):
         permission(not negative)
-        h.private('test', '!', '-e', 'files/themes/themes-list')
+        h.shell('test', '!', '-e', theme_path('themes-list'))
         before = h.log()
         downloader()
         capture('network-' + ('control' if negative else 'fixed') + '-first-use')
@@ -149,13 +157,13 @@ def run(harness):
                 h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
                 raise RemoteFailure(output)
             raise AssertionError(output)
-        raw = h.private('cat', 'files/themes/themes-list/themes.json')
+        raw = h.shell('cat', theme_path('themes-list/themes.json'))
         themes = json.loads(raw)
         entries = sorted(themes['themes'] + themes.get('themesAndroid', []), key=lambda t: t['name'].upper())
-        assert entries and h.private('cat', 'files/themes/themes-list/.git/HEAD').strip()
+        assert entries and h.shell('cat', theme_path('themes-list/.git/HEAD')).strip()
         h.evidence.joinpath('network-themes-list-head.txt').write_text(
-            h.private('cat', 'files/themes/themes-list/.git/HEAD') +
-            h.private('cat', 'files/themes/themes-list/.git/config'))
+            h.shell('cat', theme_path('themes-list/.git/HEAD')) +
+            h.shell('cat', theme_path('themes-list/.git/config')))
         record(f'PASS: frontend cloned canonical themes-list using bundled CA; rendered {len(entries)} themes.')
         if 'Not running the most current application release' in output:
             h.key('KEYCODE_ENTER')  # Upstream's compatibility warning, captured above.
@@ -192,8 +200,8 @@ def run(harness):
                     break
             else:
                 raise AssertionError('Theme remote retries exhausted: ' + output)
-        h.private('test', '-f', 'files/themes/simplemenu-es-de/theme.xml')
-        h.private('test', '-f', 'files/themes/simplemenu-es-de/.git/HEAD')
+        h.shell('test', '-f', theme_path('simplemenu-es-de/theme.xml'))
+        h.shell('test', '-f', theme_path('simplemenu-es-de/.git/HEAD'))
         h.key('KEYCODE_DEL')  # Closing downloader repopulates the real theme selector.
         h.wait_for(lambda: re.search(r'Added theme "[^"]+/simplemenu-es-de"', delta(before)),
                    'downloaded theme added to frontend inventory')
@@ -239,8 +247,8 @@ def run(harness):
             scraper(True)
             h.shell('am', 'force-stop', h.app)
             h.adb('install', '-r', str(h.apk))
-            # Only a failed clone's CI-owned directory is removed, under app UID.
-            h.private('rm', '-rf', 'files/themes/themes-list')
+            # libgit2 cleans its failed clone; never delete user data to pass.
+            h.shell('test', '!', '-e', theme_path('themes-list'))
         permission(True)
         h.launch()
         for attempt in range(1, 4):
@@ -253,7 +261,7 @@ def run(harness):
                     raise
                 # libgit2 normally cleans an unsuccessful clone; do not remove a
                 # successful list or reset the frontend to make a probe pass.
-                h.private('test', '!', '-e', 'files/themes/themes-list')
+                h.shell('test', '!', '-e', theme_path('themes-list'))
                 time.sleep(5)
         scraper(False)
     finally:
