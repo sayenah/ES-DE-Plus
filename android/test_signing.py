@@ -96,7 +96,10 @@ def sign(apk, destination, key, alias, password, additional=None):
     env['ESDEPLUS_SIGN_PASSWORD'] = password
     args = [str(tools() / 'apksigner'), 'sign', '--v4-signing-enabled', 'false', *signer_arguments(key, alias)]
     if additional:
-        args += ['--v3-signing-enabled', 'false', '--next-signer', *signer_arguments(additional, alias)]
+        # Both throwaway stores use the same alias. A v2-only control avoids
+        # colliding JAR signer filenames and v3's single-signer restriction.
+        args += ['--v1-signing-enabled', 'false', '--v3-signing-enabled', 'false',
+                 '--next-signer', *signer_arguments(additional, alias)]
     quiet([*args, '--out', str(destination), str(apk)], env)
 
 
