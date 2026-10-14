@@ -45,7 +45,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="unknown_volume">Unknown storage volume.</string>
     <string name="unknown_volume_id">Unknown storage volume identifier.</string>
     <string name="folder_inside_volume">Choose a folder inside the volume.</string>
-    <string name="folder_mapping_changed">Folder mapping changed.</string>
+    <string name="folder_mapping_changed">Folder mapping changed. Choose the actual destination path and confirm again.</string>
     <string name="owned_location_changed">App-owned storage location changed. Review the configuration.</string>
     <string name="direct_access_revoked">Direct filesystem access was revoked.</string>
     <string name="selected_folder_changed">The selected volume or folder changed.</string>

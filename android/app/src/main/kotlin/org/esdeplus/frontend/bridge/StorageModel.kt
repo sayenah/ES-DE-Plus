@@ -219,10 +219,12 @@ class StorageModel(private val context: Context) {
 
     fun load(): Configuration? {
         if (!preferences.contains("mode")) return null
-        return Configuration(preferences.getString("mode", "")!!,
-            preferences.getString("roms", "")!!, preferences.getString("tree", "")!!,
-            preferences.getBoolean("createSystems", false), preferences.getString("data",
-                if (preferences.getString("mode", "") == "scoped") privateData().path else "")!!)
+        val mode = preferences.getString("mode", "")!!
+        val data = preferences.getString("data", null) ?: if (mode == "scoped") {
+            try { privateData().path } catch (_: IOException) { "" }
+        } else ""
+        return Configuration(mode, preferences.getString("roms", "")!!,
+            preferences.getString("tree", "")!!, preferences.getBoolean("createSystems", false), data)
     }
 
     // Consume durably before the native caller creates folders. Later starts

@@ -215,7 +215,8 @@ class ConfiguratorActivity : Activity() {
             if (!storage.broadAccess()) {
                 button(R.string.grant_access) { requestAccess() }
             } else if (step == "data" || dataConsent.isEmpty()) {
-                renderDataSelection()
+                try { renderDataSelection() }
+                catch (error: Exception) { text(error.message ?: getString(R.string.storage_validation_failed)) }
             } else {
                 text(getString(R.string.data_selected, dataPath))
                 button(R.string.change_data_folder) {
