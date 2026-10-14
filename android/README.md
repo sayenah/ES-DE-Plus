@@ -149,6 +149,43 @@ in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
 assertion is retried.
 
+The network smoke opens the real theme downloader, clones the canonical HTTPS
+themes list with the bundled CA bundle, downloads and selects one live theme,
+and submits a real ScreenScraper HTTPS search without an account. A result or
+service-level reply proves scraper reachability. API 34 gates these checks;
+API 29 and TV record exhausted remote failures as non-gating diagnostics.
+Each remote operation has at most three attempts with 5 seconds between attempts:
+300 seconds per clone and 90 seconds per scraper request, plus UI, health-check
+and evidence-capture time. During a request the same process must remain alive,
+focused and free of frontend ANRs. Permission, TLS, UI, startup and frontend
+failures always fail the leg and are never retried. The INTERNET grant is checked
+before each attempt: a resolve diagnostic alone cannot distinguish a missing grant.
+
+The downloader cannot cancel an active clone through its UI. On a healthy remote
+deadline the harness captures evidence, rechecks health, stops that healthy
+process and removes only the incomplete clone whose destination it verified
+absent before the attempt. It then starts the frontend once and issues the next
+request through the UI. Successful lists/downloads are preserved. A failed
+startup during recovery fails the leg, including the known API 29 lifecycle stall.
+The scraper uses the same retry policy; the independent scraper probe still runs
+after an exhausted non-gating theme failure.
+
+For a local API 34 smoke, first build the normal debug APK for both ABIs, then run
+`python3 android/network-control.py` from the repository root before invoking
+`python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk`.
+The control command requires the same SDK/JDK/Gradle setup as the normal build
+and `ANDROID_HOME` with build-tools 36.0.0. It assembles a no-INTERNET control in
+an isolated temporary copy using the built native inputs; the original manifest
+and normal APK are never edited. The control must fail each real network check
+with one resolve error, without retries or a non-gating exemption. It remains
+runner-local and is never uploaded. CI runs this build before the API 34 smoke.
+`python3 android/network_smoke.py` exercises deadline/classification controls
+with a virtual clock; `python3 android/network-control.py --self-test` kills a
+fixture build with SIGKILL and checks original-file hashes. The smoke runs both
+controls and writes their results alongside network logs/screenshots in
+`android/evidence/`, including normal manifest/APK hashes before and after the
+real control build.
+
 The `stub-emulator` module is a separate-UID, debug-only CI recipient written
 for ES-DE Plus; it is never included in the frontend APK or a release variant.
 Its observations verify transport reads and failures, not real game emulation.

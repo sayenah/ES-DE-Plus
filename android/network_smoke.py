@@ -4,15 +4,57 @@
 import json
 import pathlib
 import re
+import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 
 
 class RemoteFailure(Exception):
-    def __init__(self, message, retry_list=False):
+    def __init__(self, message):
         assert remote_error(message), 'Failure is not eligible for remote handling: ' + message
         super().__init__(message)
-        self.retry_list = retry_list
+
+
+class RemoteStall(RemoteFailure):
+    def __init__(self, description, timeout):
+        # Constructed only by the deadline path after the final health check.
+        Exception.__init__(self, f'{description}: healthy frontend, remote deadline {timeout}s expired')
+
+
+def wait_request(read, healthy, success, failure, description, timeout,
+                 clock=time.monotonic, pause=time.sleep):
+    deadline = clock() + timeout
+    while True:
+        output = read()
+        healthy()  # Includes the completing poll and the deadline poll.
+        if success(output) or failure(output):
+            return output
+        # Never turn a TLS/permission diagnostic into a stall just because the
+        # expected completion line is absent.
+        assert not any(value in output.lower() for value in
+                       ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']), output
+        if clock() >= deadline:
+            raise RemoteStall(description, timeout)
+        pause(min(2, max(0, deadline - clock())))
+
+
+def remote_attempts(action, recover, record, name, pause=time.sleep):
+    for attempt in range(1, 4):
+        try:
+            return action()
+        except RemoteFailure as error:
+            record(f'REMOTE {name} attempt {attempt}/3 failed: {error}')
+            if attempt == 3:
+                raise
+            recover(error)
+            pause(5)
+
+
+def remote_outcome(api, error, record):
+    record(f'{"FAIL" if api == 34 else "NON-GATING REMOTE DIAGNOSTIC"}: API {api}: {error}')
+    if api == 34:
+        raise error
 
 
 def resolve_error(output):
@@ -21,8 +63,9 @@ def resolve_error(output):
 
 
 def remote_error(output):
-    # Only a completed request with a specific remote/transport diagnostic
-    # qualifies. Permissions, TLS verification, UI, process and wait failures do not.
+    # A missing INTERNET grant can also produce a plain resolve diagnostic.
+    # The per-attempt grant assertion, not this text classifier, excludes it.
+    # TLS, explicit permission errors and frontend failures never qualify.
     lowered = output.lower()
     if any(value in lowered for value in ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']):
         return False
@@ -65,12 +108,60 @@ def controls():
                   'ScraperHttpRequest network error - Could not resolve hostname',
                   'SSL peer certificate cannot be authenticated']:
         assert not scraper_reply(value), value
-    return 'PASS: retry classification excludes permission/TLS/frontend failures; only an HTTPS service reply satisfies scraper reachability.\n'
+    reports = []
+    for api in (29, 34, 36):
+        ticks = [0]
+        attempts = []
+        recoveries = []
+        def pause(seconds):
+            ticks[0] += seconds
+        def stalled():
+            attempts.append(ticks[0])
+            return wait_request(lambda: '', lambda: None, bool, bool, 'fixture stalled remote', 10,
+                                clock=lambda: ticks[0], pause=pause)
+        try:
+            remote_attempts(stalled, lambda error: recoveries.append(str(error)), reports.append,
+                            'fixture', pause=pause)
+        except RemoteStall as error:
+            assert attempts == [0, 15, 30] and ticks[0] == 40 and len(recoveries) == 2
+            try:
+                remote_outcome(api, error, reports.append)
+            except RemoteStall:
+                assert api == 34
+            else:
+                assert api != 34
+        else:
+            raise AssertionError('Stalled-remote control escaped')
+    for problem in ['Frontend process died', 'Frontend ANR', 'Frontend lost focus',
+                    'INTERNET permission differs', 'TLS certificate verification failed']:
+        attempts = []
+        ticks = [0]
+        def unhealthy():
+            if ticks[0] >= 2:
+                raise AssertionError(problem)
+        def failed_frontend():
+            attempts.append(1)
+            return wait_request(lambda: '', unhealthy, bool, bool, 'fixture', 10,
+                                clock=lambda: ticks[0], pause=lambda seconds: ticks.__setitem__(0, ticks[0] + seconds))
+        try:
+            remote_attempts(failed_frontend, lambda error: reports.append('BAD RECOVERY'),
+                            reports.append, 'fixture')
+        except AssertionError as error:
+            assert str(error) == problem and len(attempts) == 1
+        else:
+            raise AssertionError('Frontend/permission/TLS control escaped')
+    reports.append('PASS: three bounded stalled-remote attempts (40 virtual seconds including backoff); '
+                   'API 29/TV diagnostic, API 34 hard failure; frontend death/ANR/focus, permission and TLS never retried.')
+    reports.append('PASS: a bare no-INTERNET resolve error is textually remote; the per-attempt grant check prevents masking. '
+                   'Negative permission probes bypass retries and must receive their one resolve error.')
+    reports.append('PASS: only an HTTPS service reply satisfies scraper reachability.')
+    return '\n'.join(reports) + '\n'
 
 
 def run(harness):
     h = type('Harness', (), harness)
     h.evidence.joinpath('network-assertion-positive-controls.txt').write_text(controls())
+    subprocess.run([sys.executable, 'android/network-control.py', '--self-test'], check=True)
     original = h.shell('cat', h.settings)
     document = h.launch_checks.settings_fragment(original)
     # Ordinary upstream user settings, written through the existing SDK-context
@@ -127,18 +218,48 @@ def run(harness):
         h.screenshot(name)
         h.save_logs(name)
 
-    def request_result(before, success, failure, description, timeout):
-        output = ''
-        def complete():
-            nonlocal output
-            output = delta(before)
-            return success(output) or failure(output)
-        h.wait_for(complete, description, timeout=timeout)
-        # The poll waits for a request to complete; it never resends an action.
-        time.sleep(1)  # Let the GUI's promise/future completion dismiss the busy overlay.
-        assert h.shell('pidof', h.app, check=False).strip(), 'Frontend process died'
+    def healthy(pid):
+        assert pid, 'Frontend process died'
+        h.dismiss_stock_onboarding()
+        h.hierarchy()  # The shared handler raises on a frontend ANR.
+        assert h.shell('pidof', h.app, check=False).strip() == pid, 'Frontend process died or restarted'
         assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'Frontend lost focus'
+        assert 'ANR in ' + h.app not in h.adb('logcat', '-d'), 'Frontend ANR'
+
+    def request_result(before, success, failure, description, timeout, negative=False):
+        pid = h.shell('pidof', h.app, check=False).strip()
+        assert pid, 'Frontend process died'
+        print('WAIT: ' + description, flush=True)
+        try:
+            output = wait_request(lambda: delta(before), lambda: healthy(pid), success, failure,
+                                  description, timeout)
+        except RemoteStall:
+            capture('network-stalled-request')
+            healthy(pid)
+            output = delta(before)
+            if success(output) or failure(output):
+                return output  # Completion during evidence capture wins over the deadline.
+            assert not any(value in output.lower() for value in
+                           ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']), output
+            # A no-INTERNET control must produce its resolve error, never a
+            # diagnostic exemption or retry on an otherwise healthy deadline.
+            assert not negative, 'No-INTERNET control did not produce its resolve error'
+            raise
+        time.sleep(1)  # Let the GUI dismiss its busy overlay.
+        healthy(pid)
         return output
+
+    def restart_remote(error, relative=None):
+        # Upstream ignores all downloader input while fetching. Only a proven
+        # healthy remote stall may be cancelled this way, never a frontend failure.
+        # The caller asserted the target absent immediately before the request;
+        # remove only that probe-created incomplete clone, preserving the list
+        # and every successful download. No product state or permission is reset.
+        healthy(h.shell('pidof', h.app, check=False).strip())
+        h.shell('am', 'force-stop', h.app)
+        if isinstance(error, RemoteStall) and relative:
+            h.shell('rm', '-rf', theme_path(relative))
+        h.launch()  # Ordinary startup stays a hard, single-attempt assertion.
 
     def theme_list(negative):
         permission(not negative)
@@ -150,7 +271,7 @@ def run(harness):
         output = request_result(before,
             lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
             lambda s: "Couldn't clone repository" in s,
-            'frontend themes-list HTTPS clone completed', 300)
+            'frontend themes-list HTTPS clone completed', 300, negative)
         capture('network-' + ('control' if negative else 'fixed') + '-theme-list')
         if negative:
             assert '"themes-list"' in output and resolve_error(output), output
@@ -164,7 +285,7 @@ def run(harness):
             if remote_error(output):
                 h.key('KEYCODE_ENTER')
                 h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
-                raise RemoteFailure(output, retry_list=True)
+                raise RemoteFailure(output)
             raise AssertionError(output)
         raw = h.shell('cat', theme_path('themes-list/themes.json'))
         themes = json.loads(raw)
@@ -176,43 +297,48 @@ def run(harness):
         record(f'PASS: frontend cloned canonical themes-list using bundled CA; rendered {len(entries)} themes.')
         if 'Not running the most current application release' in output:
             h.key('KEYCODE_ENTER')  # Upstream's compatibility warning, captured above.
-        # HOME is upstream's first-row action (InputManager/ComponentList).
-        # Unlike a long sequence of DOWN events, repeating it under emulator
-        # load cannot overshoot into another theme. Use the real fetched row.
+        return entries
+
+    def download_theme(entries):
+        # HOME is upstream's first-row action. Use the real fetched row.
         selected = entries[0]
         repository = selected['reponame']
         assert re.fullmatch(r'[A-Za-z0-9_-]+', repository), repository
         assert selected['url'].startswith('https://') and not selected.get('deprecated')
-        h.key('KEYCODE_MOVE_HOME')
-        capture('network-theme-selected')
-        before = h.log()
         downloaded = f'Downloaded theme "{repository}"'
-        h.key('KEYCODE_ENTER')
-        output = request_result(before,
-            lambda s: downloaded in s,
-            lambda s: "Couldn't clone repository" in s,
-            'frontend theme HTTPS download completed', 300)
-        capture('network-theme-downloaded')
-        if "Couldn't clone repository" in output:
-            # Only retry this remote clone, never the successful list/UI/startup.
-            for attempt in range(2, 4):
-                if not remote_error(output):
-                    raise AssertionError(output)
-                record(f'REMOTE theme attempt {attempt - 1}/3 failed: {output.strip()}')
-                h.key('KEYCODE_ENTER')  # Error OK; selection is retained.
-                time.sleep(5)
+        before = ''
+        def attempt():
+            nonlocal before
+            permission(True)
+            h.shell('test', '!', '-e', theme_path(repository))
+            h.key('KEYCODE_MOVE_HOME')
+            capture('network-theme-selected')
+            before = h.log()
+            h.key('KEYCODE_ENTER')
+            output = request_result(before, lambda s: downloaded in s,
+                lambda s: "Couldn't clone repository" in s,
+                'frontend theme HTTPS download completed', 300)
+            capture('network-theme-downloaded')
+            if "Couldn't clone repository" in output:
+                raise RemoteFailure(output)
+            return output
+        def recover(error):
+            if isinstance(error, RemoteStall):
+                restart_remote(error, repository)
                 permission(True)
-                before = h.log()
-                h.key('KEYCODE_ENTER')
-                output = request_result(before,
-                    lambda s: downloaded in s,
-                    lambda s: "Couldn't clone repository" in s,
-                    'remote-only theme download retry completed', 300)
-                capture(f'network-theme-attempt{attempt}')
-                if downloaded in output:
-                    break
+                before_list = h.log()
+                downloader()  # Existing list opens without first-use PROCEED.
+                output = request_result(before_list,
+                    lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
+                    lambda s: "Couldn't fetch" in s or "Couldn't clone" in s,
+                    'existing themes-list ready after remote cancellation', 300)
+                # Recovery is never another retry budget for the list.
+                assert 'parseThemesList(): Parsed ' in output, output
+                if 'Not running the most current application release' in output:
+                    h.key('KEYCODE_ENTER')
             else:
-                raise RemoteFailure('Theme remote retries exhausted: ' + output)
+                h.key('KEYCODE_ENTER')  # Completed remote error OK; selection retained.
+        remote_attempts(attempt, recover, record, 'theme')
         h.shell('test', '-f', theme_path(repository + '/theme.xml'))
         h.shell('test', '-f', theme_path(repository + '/.git/HEAD'))
         h.key('KEYCODE_DEL')  # Closing downloader repopulates the real theme selector.
@@ -247,7 +373,7 @@ def run(harness):
                    'real UI submitted NES scraper search', timeout=10)
         output = request_result(before, scraper_reply,
             lambda s: 'ScraperHttpRequest network error' in s,
-            'frontend ScreenScraper HTTPS request completed', 90)
+            'frontend ScreenScraper HTTPS request completed', 90, negative)
         capture('network-' + ('control' if negative else 'fixed') + '-scraper-reply')
         assert 'Scraper::startScraperSearch(): Scraping system "nes"' in output, output
         if negative:
@@ -255,12 +381,12 @@ def run(harness):
             record('PASS: no-INTERNET APK rejects real scraper HTTPS request with resolve error (one attempt).')
         else:
             if not scraper_reply(output) and remote_error(output):
-                raise RemoteFailure('Scraper remote request failed (one attempt): ' + output)
+                raise RemoteFailure('Scraper remote request failed: ' + output)
             assert scraper_reply(output) and not resolve_error(output), output
             record('PASS: frontend ScreenScraper HTTPS request reached service (result/service-level reply).')
 
     try:
-        record(f'Network UI probes: API {h.api}; TV={h.television}; maximum three remote theme attempts; no frontend/permission retries.')
+        record(f'Network UI probes: API {h.api}; TV={h.television}; maximum three attempts per remote operation (clone 300s, scraper 90s, backoff 5s); no frontend/permission/TLS retries.')
         if h.api == 34:
             assert control.is_file(), 'Missing built no-INTERNET APK'
             h.adb('install', '-r', str(control))
@@ -274,25 +400,22 @@ def run(harness):
             h.shell('test', '!', '-e', theme_path('themes-list'))
         permission(True)
         h.launch()
-        for attempt in range(1, 4):
-            try:
-                theme_list(False)
-                break
-            except RemoteFailure as error:
-                if not error.retry_list:
-                    raise
-                record(f'REMOTE themes attempt {attempt}/3 failed: {error}')
-                if attempt == 3:
-                    raise
-                # libgit2 normally cleans an unsuccessful clone; do not remove a
-                # successful list or reset the frontend to make a probe pass.
-                h.shell('test', '!', '-e', theme_path('themes-list'))
-                time.sleep(5)
-        scraper(False)
-    except RemoteFailure as error:
-        record(f'{"FAIL" if h.api == 34 else "NON-GATING REMOTE DIAGNOSTIC"}: API {h.api}: {error}')
-        if h.api == 34:
-            raise
+        def recover_list(error):
+            if isinstance(error, RemoteStall):
+                restart_remote(error, 'themes-list')
+            h.shell('test', '!', '-e', theme_path('themes-list'))
+        try:
+            entries = remote_attempts(lambda: theme_list(False), recover_list, record, 'themes-list')
+            download_theme(entries)
+        except RemoteFailure as error:
+            remote_outcome(h.api, error, record)
+            # Finish/cancel only the failed network operation before the independent
+            # scraper probe; its startup, permission and UI assertions stay hard.
+            restart_remote(error)
+        try:
+            remote_attempts(lambda: scraper(False), restart_remote, record, 'scraper')
+        except RemoteFailure as error:
+            remote_outcome(h.api, error, record)
     finally:
         h.shell('am', 'force-stop', h.app)
         if h.api == 34:
