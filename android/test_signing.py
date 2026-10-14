@@ -20,6 +20,7 @@ DEBUG = pathlib.Path('android/app/build/outputs/apk/debug/app-debug.apk')
 RELEASE = pathlib.Path('android/app/build/outputs/apk/release/app-release-smoke.apk')
 UNSIGNED_RELEASE = RELEASE.with_name('app-release-unsigned.apk')
 UPDATE = pathlib.Path('android/.deps/update')
+NETWORK_CONTROL = pathlib.Path('android/.deps/network/no-internet.apk')
 
 
 def require(condition, message):
@@ -103,6 +104,16 @@ def sign(apk, destination, key, alias, password, additional=None):
         args += ['--v1-signing-enabled', 'false', '--v3-signing-enabled', 'false',
                  '--next-signer', *signer_arguments(additional, alias)]
     quiet([*args, '--out', str(destination), str(apk)], env)
+
+
+def sign_network_control(key, alias, password, certificate):
+    # The manifest-only control installs over the frontend without clearing
+    # its configuration. It must share the active signer, including on main.
+    sign(NETWORK_CONTROL, NETWORK_CONTROL, key, alias, password)
+    record = inspect_apk(NETWORK_CONTROL, certificate)
+    require({k: record[k] for k in public_version()} == public_version(),
+            'Network control version differs from the frontend')
+    print('PASS: no-INTERNET control shares the frontend signer and version; runner only')
 
 
 @contextlib.contextmanager
@@ -202,6 +213,8 @@ def fixture_signing():
         if not stable_run():
             sign(DEBUG, DEBUG, key, 'fixture', password)
             sign(UNSIGNED_RELEASE, RELEASE, key, 'fixture', password)
+            if NETWORK_CONTROL.is_file():
+                sign_network_control(key, 'fixture', password, cert)
             pathlib.Path('android/evidence/test-signer.txt').write_text(cert + '\n')
         # Real signed APKs, not mocked verifier output.
         reject('ephemeral signer at the production pin', lambda: inspect_apk(UPDATE / 'higher.apk', TEST_CERT_SHA256), 'exactly one signer')
@@ -234,13 +247,14 @@ def fixture_signing():
 def sdk_controls():
     # Fast format/tool controls before native assembly. The real frontend APKs
     # still repeat every control after building; these payloads never upload.
-    global DEBUG, RELEASE, UNSIGNED_RELEASE, UPDATE
+    global DEBUG, RELEASE, UNSIGNED_RELEASE, UPDATE, NETWORK_CONTROL
     os.environ['IMAGE'] = 'sdk-controls'
     with tempfile.TemporaryDirectory(prefix='esdeplus-sdk-controls-', dir=os.environ['RUNNER_TEMP']) as temporary:
         root = pathlib.Path(temporary)
         DEBUG = root / 'debug.apk'
         RELEASE = root / 'release-smoke.apk'
         UNSIGNED_RELEASE = root / 'release-unsigned.apk'
+        NETWORK_CONTROL = root / 'network-control.apk'
         UPDATE = root / 'update'
         UPDATE.mkdir()
         version = public_version()
@@ -250,6 +264,7 @@ def sdk_controls():
         resources = root / 'resources.zip'
         subprocess.run([str(tools() / 'aapt2'), 'compile', '--dir', str(root / 'res'), '-o', str(resources)], check=True)
         for destination, code, debug in [(DEBUG, version['version_code'], True),
+                                         (NETWORK_CONTROL, version['version_code'], True),
                                          (UNSIGNED_RELEASE, version['version_code'], False),
                                          (UPDATE / 'lower-unsigned.apk', version['version_code'] - 1, True)]:
             manifest = root / 'AndroidManifest.xml'
@@ -278,6 +293,8 @@ def stable_signing():
     with credential_file(encoded, password) as key:
         sign(DEBUG, DEBUG, key, alias, password)
         sign(UNSIGNED_RELEASE, RELEASE, key, alias, password)
+        require(NETWORK_CONTROL.is_file(), 'Missing required no-INTERNET control')
+        sign_network_control(key, alias, password, TEST_CERT_SHA256)
     # Only public metadata remains when audits/runtime begin.
     for apk, debug in [(DEBUG, True), (RELEASE, False)]:
         record = inspect_apk(apk, TEST_CERT_SHA256, debug)

@@ -13,6 +13,7 @@ import smoke_checks
 import launch_checks
 import pdf_smoke
 import smoke_support
+import network_smoke
 import json
 import os
 import tempfile
@@ -1275,6 +1276,7 @@ try:
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
+    network_smoke.run(globals())
     launch_contract_probes('direct')
     shell('am', 'force-stop', app)
     revoked_tree = shell('am', 'instrument', '-w', '-e', 'mode', 'revoke-tree',

@@ -297,6 +297,12 @@ jobs:
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} -Pesde.versionCode=$((ESDE_VERSION_CODE - 1)) :app:assembleDebug 2>&1 | tee assemble-update.log
           cp app/build/outputs/apk/debug/app-debug.apk .deps/update/lower-unsigned.apk
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:assembleDebug 2>&1 | tee assemble-restore.log
+      - name: Package no-INTERNET control with the exact built native code (API 34, CI only)
+        if: ${{ success() && matrix.image == 'api34' }}
+        run: |
+          set -o pipefail
+          python3 android/network-control.py 2>&1 | tee android/network-control.log
+          git diff --exit-code -- android/app/src/main/AndroidManifest.xml
       - name: Throwaway signing, update pair and real signature rejection/cleanup controls
         run: |
           set -o pipefail
