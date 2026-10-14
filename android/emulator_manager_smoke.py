@@ -141,7 +141,7 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: 'Emulator manager discovery complete:' in h.adb('logcat', '-d'), 'discovery completion', timeout=30)
         # Wait for the asynchronous completion before selecting its first result.
         h.wait_for(lambda: h.adb('logcat', '-d').count('Emulator manager page: apps;') >= 1, 'app picker rebuilt')
-        pick(1); page('draft')
+        pick(1); h.screenshot('emulator-manager-' + mode + '-receiving-component'); h.key('KEYCODE_ENTER'); page('draft')
         pick(3); page('profiles'); pick(0)
         # Decline the source TelevisionOnly receiver; keep the manually chosen activity.
         if h.api != 36: tap('CANCEL')

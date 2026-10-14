@@ -342,16 +342,26 @@ void GuiEmulatorManager::rebuild()
                             Utils::String::toUpper(app.label + " " + component)
                                     .find(Utils::String::toUpper(mAppFilter)) == std::string::npos)
                             continue;
-                        row(app.label + " — " + component +
+                        const auto shortActivity =
+                            app.activityName.substr(app.activityName.find_last_of('.') + 1);
+                        row(shortActivity + " — " + app.packageName + " — " + app.label +
                                 (app.declaredHandler ?
                                      " [" + _("DECLARES IT OPENS THESE FILES") + "]" :
                                      ""),
                             [this, app, component] {
-                                mComponent = component;
-                                if (mLabel.empty())
-                                    mLabel = app.label;
-                                invalidateDraft();
-                                page(Page::DRAFT);
+                                confirm(_("Use this receiving activity?") + "\n\n" + app.label +
+                                            "\n" + component +
+                                            (app.declaredHandler ?
+                                                 "\n\n" + _("Declares it opens these files. Game "
+                                                            "compatibility is not verified.") :
+                                                 ""),
+                                        [this, app, component] {
+                                            mComponent = component;
+                                            if (mLabel.empty())
+                                                mLabel = app.label;
+                                            invalidateDraft();
+                                            page(Page::DRAFT);
+                                        });
                             });
                     }
                     if (mDiscovery->activities.empty())
