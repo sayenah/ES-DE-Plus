@@ -72,7 +72,7 @@ def run(harness):
                     started = time.monotonic()
                     # The action is issued exactly once. A timeout stays a
                     # failure even though later diagnostic cleanup ends it.
-                    h.wait_for(lambda: h.shell('pidof', h.app, check=False).strip() != old,
+                    h.wait_for(lambda: old not in h.shell('pidof', h.app, check=False).split(),
                                name + ' old host process exits', timeout=5)
                     elapsed = time.monotonic() - started
                     logs = h.adb('logcat', '-d', '-v', 'threadtime')
