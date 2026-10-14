@@ -61,7 +61,9 @@ def inspect_apk(apk, expected, debug=True):
     match = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging, re.M)
     require(match and match[1] == 'org.esdeplus.frontend' and
             "application-label:'ES-DE Plus'" in badging and
-            ('application-debuggable' in badging) == debug, 'Unexpected APK identity')
+            ('application-debuggable' in badging) == debug, 'Unexpected APK identity: ' + repr({
+                'package_version': match.groups() if match else None,
+                'label': re.findall(r"^application[^\n]*", badging, re.M), 'debug_expected': debug}))
     with pathlib.Path(apk).open('rb') as stream:
         apk_hash = hashlib.file_digest(stream, 'sha256').hexdigest()
     return {'sha256': apk_hash,
