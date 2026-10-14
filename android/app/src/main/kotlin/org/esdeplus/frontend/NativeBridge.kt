@@ -21,10 +21,6 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     private var earlyCopyFailed = false
     private val tag = "ES-DE-Plus"
     private val marker get() = File(context.filesDir, "resources-installed")
-    private class CopyCancelled : Exception()
-    private fun checkResourceCancellation() {
-        if (MainActivity.destructionRequested()) throw CopyCancelled()
-    }
     private data class Resource(val hash: String, val size: Long, val path: String)
     private val manifest by lazy {
         context.assets.open("resource-manifest.tsv").bufferedReader().use { it.readText() }
@@ -56,8 +52,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         }
         return md.digest().joinToString("") { "%02x".format(it) }
     }
-    private fun installed(verifyHashes: Boolean = false, cancelOnDestroy: Boolean = false): Boolean = entries.all { (hash, size, path) ->
-        if (cancelOnDestroy) checkResourceCancellation()
+    private fun installed(verifyHashes: Boolean = false): Boolean = entries.all { (hash, size, path) ->
         val file = destination(path)
         file.isFile && file.length() == size && (!verifyHashes || digest(file) == hash)
     }
@@ -74,11 +69,8 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         try { write(stream); atomic.finishWrite(stream) }
         catch (error: Throwable) { atomic.failWrite(stream); throw error }
     }
-    private fun copyMatching(verifyHashes: Boolean, cancelOnDestroy: Boolean = false, select: (String) -> Boolean) {
+    private fun copyMatching(verifyHashes: Boolean, select: (String) -> Boolean) {
         entries.filter { select(it.path) }.forEach { (hash, size, path) ->
-            // Observe destruction only between complete AtomicFile operations;
-            // never abandon an open stream or partially commit a resource.
-            if (cancelOnDestroy) checkResourceCancellation()
             val output = destination(path)
             if (!output.isFile || output.length() != size || (verifyHashes && digest(output) != hash)) {
                 writeAtomic(output) { stream -> context.assets.open(path).use { it.copyTo(stream) } }
@@ -110,22 +102,12 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         if (earlyCopyFailed) return true
         while (true) {
             try {
-                copyMatching(true, cancelOnDestroy = true) { true }
-                if (!installed(true, cancelOnDestroy = true)) throw IOException(context.getString(R.string.resource_installation_incomplete))
-                checkResourceCancellation()
+                copyMatching(true) { true }
+                if (!installed(true)) throw IOException(context.getString(R.string.resource_installation_incomplete))
                 writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
                 Log.i(tag, "Resource installation committed build=$buildIdentifier")
                 if (recoverStartup && !ConfiguratorSession.configuring) ConfiguratorSession.clearDraft(context)
                 return false
-            } catch (cancelled: CopyCancelled) {
-                // Every per-file stream is closed before this checkpoint.
-                // Absence of the existing marker persists repair for the next
-                // ordinary start. True retains the C++ copy-failure contract;
-                // upstream returns main and the destroying host joins/exits.
-                AtomicFile(marker).delete()
-                if (marker.exists()) Log.e(tag, "Cannot invalidate resource marker during destruction")
-                else Log.i(tag, "Resource copy cancelled for destruction; files closed; repair marker absent")
-                return true
             } catch (error: Exception) {
                 Log.e(tag, "Resource installation failed", error)
                 if (!recoverStartup) return true
