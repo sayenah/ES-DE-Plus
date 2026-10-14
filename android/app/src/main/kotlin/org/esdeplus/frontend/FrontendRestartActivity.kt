@@ -14,7 +14,9 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
-import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 
 // A Java-only foreground owner for Android's non-finishing recreation. The
 // manifest places it in a separate private process: native globals are never
@@ -27,22 +29,29 @@ class FrontendRestartActivity : Activity() {
     private var focused = false
     private var resumed = false
     private var started = false
+    private var waiting = true
     private val awaitRetirement = object : Runnable {
         override fun run() {
-            if (isFinishing || isDestroyed || started || !resumed) return
+            if (isFinishing || isDestroyed || started || !resumed || !waiting) return
             val alive = try { Os.kill(parentPid, 0); true }
                 catch (error: ErrnoException) { error.errno != OsConstants.ESRCH }
             if (!alive && focused) {
                 started = true
                 Log.i("ES-DE-Plus", "SDL process $parentPid retired; restarting entry ${entry.component}")
-                startActivity(Intent(entry).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-                finish()
+                try {
+                    startActivity(Intent(entry).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                    finish()
+                } catch (error: RuntimeException) {
+                    started = false
+                    Log.e("ES-DE-Plus", "Cannot open frontend entry", error)
+                    showRecovery()
+                }
             } else if (SystemClock.elapsedRealtime() >= deadline) {
                 // Never kill the parent or replay destruction. A stalled
                 // native thread remains a real, gating failure.
                 Log.e("ES-DE-Plus", "Cannot restart frontend: old SDL process still alive or restart window unfocused")
-                finish()
-            } else handler.postDelayed(this, 20)
+                showRecovery()
+            } else handler.postDelayed(this, 100)
         }
     }
 
@@ -62,14 +71,44 @@ class FrontendRestartActivity : Activity() {
             return
         }
         entry = Intent(requested).replaceExtras(null as Bundle?)
-        setContentView(View(this))
+        // Large libraries can take much longer than the CI fixture to load
+        // or free on slow storage. Allow two minutes before offering recovery;
+        // expiry leaves a retry screen, never kills or overlaps the parent.
+        deadline = SystemClock.elapsedRealtime() + 120_000
+        showWaiting()
+    }
+
+    private fun showWaiting() {
+        waiting = true
+        setContentView(TextView(this).apply {
+            setText(R.string.frontend_restart_waiting)
+            setPadding(32, 32, 32, 32)
+        })
+    }
+
+    private fun showRecovery() {
+        waiting = false
+        Log.i("ES-DE-Plus", "Frontend restart recovery shown; entry remains available")
+        setContentView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 32, 32, 32)
+            addView(TextView(this@FrontendRestartActivity).apply { setText(R.string.frontend_restart_recovery) })
+            addView(Button(this@FrontendRestartActivity).apply {
+                setText(R.string.retry)
+                setOnClickListener {
+                    deadline = SystemClock.elapsedRealtime() + 120_000
+                    showWaiting()
+                    handler.post(awaitRetirement)
+                }
+                requestFocus()
+            })
+        })
     }
 
     override fun onResume() {
         super.onResume()
         resumed = true
         if (::entry.isInitialized) {
-            deadline = SystemClock.elapsedRealtime() + 5_000
             handler.post(awaitRetirement)
         }
     }
