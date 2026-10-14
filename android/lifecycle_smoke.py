@@ -23,7 +23,7 @@ def framework_recreation(harness, variant, failures, home=False):
             candidates = h.shell('cmd', 'package', 'query-activities', '--brief', '-a', 'android.intent.action.MAIN',
                                  '-c', 'android.intent.category.HOME')
             original_home = next(line.strip() for line in candidates.splitlines() if '/' in line and
-                                 ' ' not in line.strip() and not line.startswith(h.app + '/') and 'ResolverActivity' not in line)
+                                 ' ' not in line.strip() and not line.strip().startswith(h.app + '/') and 'ResolverActivity' not in line)
         assert 'Success' in h.shell('cmd', 'package', 'set-home-activity', h.app + '/org.esdeplus.frontend.HomeEntry')
     try:
         assert h.shell('settings', 'get', 'global', 'debug_view_attributes').strip() in ['null', '0'], 'Global view debugging unexpectedly enabled'
@@ -78,7 +78,8 @@ def framework_recreation(harness, variant, failures, home=False):
             assert 'HOME=true' in new_lines, 'Restored entry lost HOME semantics'
             resolved = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
                                '-c', 'android.intent.category.HOME')
-            assert h.app + '/org.esdeplus.frontend.HomeEntry' in resolved, resolved
+            assert any(line.strip() in [h.app + '/.HomeEntry', h.app + '/org.esdeplus.frontend.HomeEntry']
+                       for line in resolved.splitlines()), resolved
             dump, records = h.activity_records()
             assert len(records) == 1 and records[0][0] in ['MainActivity', 'HomeEntry'], dump
             assert re.search(r'Task\{[^}\n]+ #' + records[0][1] + r'\b[^}\n]*type=home', dump), dump

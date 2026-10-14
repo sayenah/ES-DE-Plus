@@ -72,7 +72,7 @@ class FrontendRestartActivity : Activity() {
         }
         entry = Intent(requested).replaceExtras(null as Bundle?)
         // Large libraries can take much longer than the CI fixture to load
-        // or free on slow storage. Allow two minutes of foreground waiting;
+        // or free on slow storage. Allow two minutes before offering recovery;
         // expiry leaves a retry screen, never kills or overlaps the parent.
         deadline = SystemClock.elapsedRealtime() + 120_000
         showWaiting()
