@@ -28,6 +28,14 @@ Stage: IMPLEMENTATION. Owner: Sol (second clone `~/dev/ES-DE-Plus-sol2`, git met
 - AC-4 Positive control: the same AC-2/AC-3 checks fail with the resolve error against the APK built without the permission (record the run).
 - AC-5 No regression of PR-A…PR-D, PR #10 behaviour; D-009 unchanged; no APK from branch or PR runs; B-1 Linux and Android, B-4, B-5; no dependency.
 
+## PR-H new icon — queued work order (D-016, D-016 am. 1)
+
+Runs in the second Sol clone after PR-G. Branch `feature/pixel-plus-icon`, title "Pixel Plus app icon". Replace the placeholder identity art (`res/drawable/placeholder_icon.xml`, `tv_banner.xml`, any splash/configurator mark) with the Pixel Plus icon as vector drawables: adaptive launcher icon (`mipmap-anydpi` `adaptive-icon` with background, foreground and **monochrome** layers), round icon, TV banner (320×180 dp: icon plus the "ES-DE Plus" name), configurator/splash mark; manifest `icon`/`roundIcon`/`banner` updated; nothing else in the manifest. Geometry on the 108-unit grid (all within the 66-unit safe circle except the accents): background layer `#170B38` with accent squares (18,20) 4×4 `#7B2FF7`, (84,80) 4×4 `#7B2FF7`, (82,22) 3×3 `#00D1FF` at 70 % — accents may be dropped if they read as noise at 48 dp; foreground layer: drop blocks 16×16 rx 3 black at 45 % at (49,31) (31,49) (49,49) (67,49) (49,67), then blocks 16×16 rx 3 at (46,28) `#00D1FF`, (28,46) `#FF2D78`, (46,46) `#FFFFFF`, (64,46) `#FFC23D`, (46,64) `#22D68C`; monochrome layer: the five blocks as one silhouette. Reference rendering: the canvas in D-016 am. 1 (concept D).
+
+- AC-1 APK badging shows the new `icon`, `roundIcon` and `banner`; no placeholder identity art remains referenced; no ES-DE logo, name or trademark (B-5).
+- AC-2 Screenshots on API 34 (launcher, app info, themed-icon mode on) and TV API 36 (home row banner) attached; the icon is legible at 48 dp.
+- AC-3 B-1 Android and Linux; no other behaviour change; D-009 unchanged; no dependency.
+
 ## PR-E release pipeline — queued work order (D-011, D-013, D-013 am. 1)
 
 Objective: every published test APK is signed with the stable test key so updates install in place, and every successful `main` publication also appears as a GitHub pre-release `android-test-<sha>` (four assets as on the manual `android-test-65e8bea29`: `es-de-plus-<sha>-debug.apk`, `…-licenses.zip`, `…-source.tar`, `SHA256SUMS.txt`; notes as there). Branch `fix/release-pipeline`, title "Stable test signing and automated test pre-releases". Design is D-013 am. 1 (binding); key bootstrap is done (environment `test-signing`, branch policy `main` only; secrets `ESDEPLUS_TEST_KEYSTORE_B64`, `ESDEPLUS_TEST_KEYSTORE_PASSWORD`; variables `ESDEPLUS_TEST_KEY_ALIAS`, `ESDEPLUS_TEST_CERT_SHA256` = `6bd277aa…0ff0`). Touches `.github/workflows/build-android.yml`, `android/app/build.gradle.kts` (version only; no signing credentials in Gradle), `android/distribution.py`, notes template, `android/README.md`, `.github/README.md` "Get it". D-009 guarantees unchanged. Non-goals: release signing, store distribution, pruning.
@@ -61,9 +69,7 @@ Objective (D-012 am. 2: full file access is the first, recommended choice; order
 
 ## Founder gate (open)
 
-**G-4 icon choice (D-016):** the Founder picks one of four original icon concepts on the canvas https://claude.ai/artifact/H2bHW4UMaxUw6VzdzoQczH (A Plus Pad, B Cartridge Stack, C Face Buttons, D Pixel Plus), or asks for changes. Parked: the icon PR. On the ruling: record it, write a small Sol work order (adaptive icon layers incl. monochrome, round icon, TV banner, configurator/splash mark from the chosen SVG; B-1, B-5; screenshot evidence on API 34 and TV) and run it after PR-G. Independent work continues (stall fix, PR-G, PR-E, PR-F). **Queued after PR-F: D-015 emulator manager** — design and Astra challenge first.
-
-Otherwise none. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-E → PR-F (amended by D-012 am. 2).
+None (G-4 ruled 2026-10-14: Pixel Plus, D-016 am. 1). **Queued after PR-F: D-015 emulator manager** — design and Astra challenge first. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-H icon (second clone, after PR-G) → PR-E → PR-F (amended by D-012 am. 2) → D-015 emulator manager.
 
 ## State (verified 2026-10-12 14:50 CDT; re-verify from the repository)
 
