@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -56,11 +57,32 @@ namespace
     }
 } // namespace
 
+std::vector<std::string> EmulatorLaunchProfile::receivers(const std::string& source,
+                                                          const std::string& package)
+{
+    const auto slash = source.find('/');
+    if (slash == std::string::npos)
+        return {};
+    const auto sourcePackage = source.substr(0, slash);
+    auto original = source.substr(slash + 1);
+    if (original.empty())
+        return {};
+    if (original.front() == '.')
+        original = sourcePackage + original;
+    std::vector<std::string> result;
+    if (original.find(sourcePackage + ".") == 0)
+        result.push_back(package + original.substr(sourcePackage.size()));
+    if (std::find(result.begin(), result.end(), original) == result.end())
+        result.push_back(original);
+    return result;
+}
+
 EmulatorLaunchProfile EmulatorLaunchProfile::fromCommand(const std::string& command)
 {
     EmulatorLaunchProfile profile;
     profile.data.clear();
     bool found {false};
+    std::set<std::string> fields;
     for (const auto& token : tokens(command)) {
         if (token.find("%EMULATOR_") == 0 && token.back() == '%') {
             if (found)
@@ -85,6 +107,9 @@ EmulatorLaunchProfile EmulatorLaunchProfile::fromCommand(const std::string& comm
             throw std::runtime_error(_("This profile uses unsupported controls; choose another "
                                        "profile or configure structured fields"));
         auto key = token.substr(0, equal);
+        if (!fields.insert(key).second)
+            throw std::runtime_error(_("Repeated launch-profile fields are ambiguous; configure "
+                                       "structured fields instead"));
         auto val = token.substr(equal + 1);
         if (val.size() >= 2 && val.front() == '"' && val.back() == '"')
             val = val.substr(1, val.size() - 2);
@@ -137,6 +162,8 @@ std::string EmulatorLaunchProfile::command(const std::string& rule) const
             throw std::runtime_error(_("Extra names must be unique across types"));
         keys.push_back(extra.name);
         if (extra.type == "EXTRAINTEGER") {
+            if (!std::regex_match(extra.value, std::regex("[+-]?[0-9]+")))
+                throw std::runtime_error(_("Invalid integer extra"));
             size_t used {0};
             try {
                 std::stoi(extra.value, &used);

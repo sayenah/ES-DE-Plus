@@ -35,11 +35,11 @@ open class RecipientActivity : Activity() {
             if (control == "phone-off" || control == "restore-launchers") {
                 val state = if (control == "phone-off") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                     else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
-                for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo"))
+                for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo", "PrivateActivity", "ProtectedActivity", "DisabledActivity"))
                     packageManager.setComponentEnabledSetting(android.content.ComponentName(packageName, "$packageName.$name"),
                         state, android.content.pm.PackageManager.DONT_KILL_APP)
                 val states = JSONObject()
-                for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo"))
+                for (name in listOf("RecipientActivity", "CollisionOne", "CollisionTwo", "PrivateActivity", "ProtectedActivity", "DisabledActivity"))
                     states.put(name, packageManager.getComponentEnabledSetting(android.content.ComponentName(packageName, "$packageName.$name")))
                 result.put("componentStates", states)
             }

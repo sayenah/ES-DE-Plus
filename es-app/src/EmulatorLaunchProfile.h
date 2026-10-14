@@ -27,6 +27,8 @@ struct EmulatorLaunchProfile {
     bool clearTop {false};
     bool noHistory {false};
 
+    static std::vector<std::string> receivers(const std::string& source,
+                                              const std::string& package);
     static EmulatorLaunchProfile fromCommand(const std::string& command);
     std::string command(const std::string& rule) const;
     void rom(const std::string& token, const std::string& extraName);

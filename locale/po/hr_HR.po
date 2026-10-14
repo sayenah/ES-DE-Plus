@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-09-01 14:56+0200\n"
+"POT-Creation-Date: 2026-10-14 09:56-0500\n"
 "PO-Revision-Date: 2026-09-04 12:33+0200\n"
 "Last-Translator: SecularSteve <info@es-de.org>\n"
 "Language-Team: Croatian (Croatia) <info@es-de.org>\n"
@@ -134,6 +134,209 @@ msgstr "'%s' je filtrirano pa bi moglo biti dostupno više igara"
 #, c-format
 msgid "DELETED COLLECTION '%s'"
 msgstr "IZBRISANA KOLEKCIJA '%s'"
+
+msgid "This field cannot contain quotes or control characters"
+msgstr ""
+
+msgid "A field value cannot contain launch controls or file injection"
+msgstr ""
+
+msgid "Unclosed quote in launch profile"
+msgstr ""
+
+msgid "Multiple emulator rules in launch profile"
+msgstr ""
+
+msgid ""
+"This profile uses unsupported controls; choose another profile or configure "
+"structured fields"
+msgstr ""
+
+msgid ""
+"Repeated launch-profile fields are ambiguous; configure structured fields "
+"instead"
+msgstr ""
+
+msgid "Unsupported launch-profile field"
+msgstr ""
+
+msgid ""
+"This entry has no emulator find rule; configure structured fields instead"
+msgstr ""
+
+msgid "Extras need a valid name and a nonempty value"
+msgstr ""
+
+msgid "Extra names must be unique across types"
+msgstr ""
+
+msgid "Invalid integer extra"
+msgstr ""
+
+msgid "Integer extras must fit a signed 32-bit integer"
+msgstr ""
+
+msgid "Boolean extras must be true, false, 1 or 0"
+msgstr ""
+
+msgid "Unsupported extra type"
+msgstr ""
+
+msgid "String arrays cannot carry a ROM transport"
+msgstr ""
+
+msgid "The ROM provider can only be used as Intent data"
+msgstr ""
+
+msgid "The provider must be the complete Intent data value"
+msgstr ""
+
+msgid "Cannot inspect "
+msgstr ""
+
+msgid "Not a regular file: "
+msgstr ""
+
+msgid "Cannot read "
+msgstr ""
+
+msgid "Cannot finish reading "
+msgstr ""
+
+msgid "Invalid snapshot metadata"
+msgstr ""
+
+msgid "Ambiguous duplicate entry: "
+msgstr ""
+
+msgid "Invalid configuration"
+msgstr ""
+
+msgid "Ambiguous XML root"
+msgstr ""
+
+msgid "DTD configuration is not supported by the manager"
+msgstr ""
+
+msgid "Unexpected top-level XML element"
+msgstr ""
+
+msgid "Missing or duplicate entry name"
+msgstr ""
+
+msgid "Ambiguous manager metadata"
+msgstr ""
+
+msgid "Cannot sync configuration directory"
+msgstr ""
+
+msgid "Cannot stage "
+msgstr ""
+
+msgid "Cannot inspect staged configuration"
+msgstr ""
+
+msgid "Cannot preserve file permissions"
+msgstr ""
+
+msgid "Cannot stage complete configuration"
+msgstr ""
+
+msgid "Cannot sync configuration"
+msgstr ""
+
+msgid "Cannot close configuration"
+msgstr ""
+
+msgid "Cannot replace "
+msgstr ""
+
+msgid "System no longer exists in effective configuration"
+msgstr ""
+
+msgid "Invalid addition metadata"
+msgstr ""
+
+msgid "Profile must contain exactly one emulator find rule"
+msgstr ""
+
+msgid "Select a valid installed package and receiving activity"
+msgstr ""
+
+msgid "Enter a unique emulator label"
+msgstr ""
+
+msgid "The target system has missing or ambiguous required fields"
+msgstr ""
+
+msgid "That emulator label already exists"
+msgstr ""
+
+msgid "Original emulator"
+msgstr ""
+
+msgid " (original)"
+msgstr ""
+
+msgid ""
+"This addition has been edited or is no longer manager-owned; preserve it and "
+"repair manually"
+msgstr ""
+
+msgid ""
+"Reset would hide this system under loadExclusive; remove that directive "
+"manually first"
+msgstr ""
+
+msgid "This custom system has no bundled definition"
+msgstr ""
+
+msgid ""
+"Hand-edited snapshot: refresh refused; preserve it or explicitly reset the "
+"whole override"
+msgstr ""
+
+msgid "Bundled system no longer exists"
+msgstr ""
+
+msgid "Hand-edited addition: refresh refused"
+msgstr ""
+
+msgid "New bundled commands have ambiguous labels; refresh refused"
+msgstr ""
+
+msgid "New bundled command collides with a retained label"
+msgstr ""
+
+msgid "Cannot inspect emulator selections in gamelist.xml"
+msgstr ""
+
+msgid "gamelist.xml changed during selection repair; retry"
+msgstr ""
+
+msgid "Configuration changed outside the manager; reopen it before applying"
+msgstr ""
+
+msgid "Select a readable game file for the draft test"
+msgstr ""
+
+msgid "The selected emulator no longer exists"
+msgstr ""
+
+msgid ""
+"Could not save the default emulator to gamelist.xml. Check access and the "
+"Ignore gamelist setting"
+msgstr ""
+
+msgid ""
+"The configuration change would invalidate a system or game emulator selection"
+msgstr ""
+
+msgid "BACK"
+msgstr "NAZAD"
+
+msgid "EMULATORS"
+msgstr ""
 
 msgctxt "theme"
 msgid "unknown"
@@ -342,11 +545,11 @@ msgstr "sustav, silazni"
 msgid "ALTERNATIVE EMULATORS"
 msgstr "ALTERNATIVNI EMULATORI"
 
-msgid "BACK"
-msgstr "NAZAD"
-
 msgid "back"
 msgstr "natrag"
+
+msgid "EMULATOR MANAGER"
+msgstr ""
 
 msgid "INVALID ENTRY"
 msgstr "NEVAŽEĆI UNOS"
@@ -557,6 +760,237 @@ msgstr "SORTIRAJTE OMILJENE NA VRHU ZA PRILAGOĐENE KOLEKCIJE"
 msgid "DISPLAY STAR MARKINGS FOR CUSTOM COLLECTIONS"
 msgstr "PRIKAŽITE ZVJEZDNE OZNAKE ZA PRILAGOĐENE KOLEKCIJE"
 
+msgid "STRING"
+msgstr ""
+
+msgid "STRING ARRAY"
+msgstr ""
+
+msgid "INTEGER"
+msgstr ""
+
+msgid "BOOLEAN"
+msgstr ""
+
+msgid "LOADING CONFIGURATION"
+msgstr ""
+
+msgid "CONTINUE"
+msgstr ""
+
+msgid "NONE"
+msgstr "NIJEDAN"
+
+msgid "FIND SYSTEM"
+msgstr ""
+
+msgid "ADD EMULATOR"
+msgstr ""
+
+msgid "SET SYSTEM DEFAULT"
+msgstr ""
+
+msgid "UNLABELLED ORIGINAL EMULATOR"
+msgstr ""
+
+msgid "MANAGER ADDITION"
+msgstr ""
+
+msgid ""
+"Remove this manager addition? Its accepted file types and find rule are "
+"retained. Hand-edited commands are preserved."
+msgstr ""
+
+msgid ""
+"Existing and hand-edited emulators are preserved. Add a new emulator using "
+"this entry's launch settings."
+msgstr ""
+
+msgid "SNAPSHOT DIFFERS FROM CURRENT BUNDLE"
+msgstr ""
+
+msgid ""
+"Refresh this system's snapshot from the current bundled definition? Manager "
+"additions and accepted file types are kept. Other hand edits cause refresh "
+"to be refused."
+msgstr ""
+
+msgid "RESET WHOLE SYSTEM OVERRIDE TO BUNDLED"
+msgstr ""
+
+msgid ""
+"Remove the entire custom_systems/es_systems.xml override for this system, "
+"including hand edits and every custom command?"
+msgstr ""
+
+msgid "EMULATOR LABEL"
+msgstr ""
+
+msgid "RECEIVING APP AND ACTIVITY"
+msgstr ""
+
+msgid "RECEIVING ACTIVITY"
+msgstr ""
+
+msgid "SELECT APP FIRST"
+msgstr ""
+
+msgid "Select an installed app first"
+msgstr ""
+
+msgid "RECEIVING ACTIVITY: RELATIVE OR FULL CLASS NAME"
+msgstr ""
+
+msgid "That activity is unavailable, private, disabled or permission-protected"
+msgstr ""
+
+msgid "USE AN EXISTING EMULATOR'S LAUNCH SETTINGS"
+msgstr ""
+
+msgid "ADDITIONAL FILE TYPES (E.G. .zip .ZIP)"
+msgstr ""
+
+msgid "ROM TRANSPORT"
+msgstr ""
+
+msgid "FILE PATH"
+msgstr ""
+
+msgid "DOCUMENT URI"
+msgstr ""
+
+msgid "ES-DE PLUS PROVIDER"
+msgstr ""
+
+msgid "ROM IN DATA OR NAMED EXTRA"
+msgstr ""
+
+msgid "INTENT DATA"
+msgstr ""
+
+msgid "ROM EXTRA NAME (EMPTY FOR INTENT DATA)"
+msgstr ""
+
+msgid "ACTION"
+msgstr ""
+
+msgid "CATEGORY"
+msgstr ""
+
+msgid "MIME TYPE (EMPTY USES UPSTREAM DEFAULT)"
+msgstr ""
+
+msgid "TYPED EXTRAS"
+msgstr ""
+
+msgid "CLEAR TASK"
+msgstr ""
+
+msgid "CLEAR TOP"
+msgstr ""
+
+msgid "NO HISTORY"
+msgstr ""
+
+msgid "SELECT DRAFT TEST FILE"
+msgstr ""
+
+msgid "TEST UNSAVED LAUNCH"
+msgstr ""
+
+msgid "SAVE AND APPLY"
+msgstr ""
+
+msgid ""
+"The original unlabelled command must receive a unique label to keep it "
+"selectable alongside alternatives. Continue?"
+msgstr ""
+
+msgid "FIND APP OR ACTIVITY"
+msgstr ""
+
+msgid "Discovery was cancelled; select the receiving app again"
+msgstr ""
+
+msgid "DISCOVERING APPS: BACK TO CANCEL"
+msgstr ""
+
+msgid "APP DISCOVERY FAILED: BACK TO RETRY"
+msgstr ""
+
+msgid "DECLARES IT OPENS THESE FILES"
+msgstr ""
+
+msgid "NO ACCESSIBLE APPS FOUND"
+msgstr ""
+
+msgid "ORIGINAL EMULATOR"
+msgstr ""
+
+msgid ""
+"Use this profile's receiving activity with the selected app? It is installed "
+"and accessible; game compatibility is not verified."
+msgstr ""
+
+msgid "ADD EXTRA"
+msgstr ""
+
+msgid "TYPE"
+msgstr ""
+
+msgid "EXTRA NAME"
+msgstr ""
+
+msgid "EXTRA VALUE"
+msgstr ""
+
+msgid "REMOVE EXTRA"
+msgstr ""
+
+msgid "ENTER TEST FILE PATH"
+msgstr ""
+
+msgid "TEST FILE PATH"
+msgstr ""
+
+msgid "PARENT DIRECTORY"
+msgstr ""
+
+msgid "MORE FILES: ENTER THE TEST FILE PATH"
+msgstr ""
+
+msgid "CONFIGURATION CANNOT BE EDITED"
+msgstr ""
+
+msgid "The receiving activity is unavailable. Select an installed app again"
+msgstr ""
+
+msgid "NOT APPLIED. The draft is kept; retry or reopen after an external edit."
+msgstr ""
+
+msgid "Select a test file matching the draft's accepted file types"
+msgstr ""
+
+msgid ""
+"LAUNCH REQUEST ACCEPTED. Check the receiving app to verify operation. No "
+"configuration, default or play statistics were saved; your draft is kept."
+msgstr ""
+
+msgid ""
+"LAUNCH REQUEST REFUSED. Check the ROM transport, file access and receiving "
+"activity. No configuration, default or play statistics were saved; your "
+"draft is kept."
+msgstr ""
+
+msgid ""
+"Clear only system and game emulator selections using the entries below, so "
+"they inherit the default? Other games' choices are preserved. The selections "
+"are saved before the configuration change."
+msgstr ""
+
+msgid "Discard this unsaved emulator draft?"
+msgstr ""
+
 msgid "IMPORT TO SYSTEM"
 msgstr "UVEZI U SUSTAV"
 
@@ -723,6 +1157,24 @@ msgstr "zatvori (primijeni)"
 msgid "close (cancel)"
 msgstr "zatvori (otkazati)"
 
+msgid "SEARCH RESULTS"
+msgstr ""
+
+msgid "SEARCH:"
+msgstr ""
+
+msgid "NO GAMES FOUND"
+msgstr "NISU PRONAĐENE IGRE"
+
+msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
+msgstr ""
+
+msgid "choose"
+msgstr "odabrati"
+
+msgid "launch"
+msgstr ""
+
 msgid "LAUNCHING GAME"
 msgstr "POKRETANJE IGRE"
 
@@ -759,6 +1211,9 @@ msgstr "PRIKAZ LINIJA SKENIRANJA ZA SNIMKE ZASLONOVA I NASLOVE"
 msgid "MAIN MENU"
 msgstr "GLAVNI IZBORNIK"
 
+msgid "SEARCH"
+msgstr "TRAŽI"
+
 msgid "SCRAPER"
 msgstr "STRUGAČ"
 
@@ -782,6 +1237,12 @@ msgstr "KOMUNALNE USLUGE"
 
 msgid "QUIT ES-DE"
 msgstr "IZLAZ IZ ES-DE"
+
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
 
 msgid "THEME"
 msgstr "TEMA"
@@ -900,9 +1361,6 @@ msgstr "ANIMACIJA OTVARANJA IZBORNIKA"
 
 msgid "SCALE-UP"
 msgstr "PROŠIRENJE"
-
-msgid "NONE"
-msgstr "NIJEDAN"
 
 msgid "LAUNCH SCREEN DURATION"
 msgstr "TRAJANJE POKRETNOG ZASLONKA"
@@ -1348,9 +1806,6 @@ msgstr "POSTAVKE ČUVARA ZASLON"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "OMOGUĆI POKRETANJE NA DRUGOM ZASLONU"
-
-msgid "choose"
-msgstr "odabrati"
 
 msgid "close menu"
 msgstr "zatvori izbornik"
@@ -2048,9 +2503,6 @@ msgstr "ŽANR:"
 msgid "PLAYERS:"
 msgstr "IGRAČI:"
 
-msgid "NO GAMES FOUND"
-msgstr "NISU PRONAĐENE IGRE"
-
 msgid "API CALLS:"
 msgstr "API POZIVI:"
 
@@ -2066,9 +2518,6 @@ msgstr "POKUŠAJ PONOVNO"
 
 msgid "Error downloading thumbnail:"
 msgstr "Greška pri preuzimanju minijature:"
-
-msgid "SEARCH"
-msgstr "TRAŽI"
 
 msgid "SEARCH USING REFINED NAME?"
 msgstr "TRAŽI POMOĆU PRECIZIRANOG NAZIVA?"
@@ -2597,6 +3046,9 @@ msgstr "Pogreška pri učitavanju slike fizičkog medija, oštećena datoteka?"
 #, c-format
 msgid "PAGE %s OF %s"
 msgstr "STRANICA %s OD %s"
+
+msgid "ERROR: COULDN'T RENDER PDF FILE"
+msgstr "POGREŠKA: NIJE MOGUĆE PRIKAZATI PDF DATOTEKU"
 
 msgid "pan"
 msgstr "proširi"
@@ -3215,6 +3667,3 @@ msgstr "Kopiranje resursa..."
 
 msgid "Creating system directories..."
 msgstr "Izrada sistemskih direktorija..."
-
-msgid "ERROR: COULDN'T RENDER PDF FILE"
-msgstr "POGREŠKA: NIJE MOGUĆE PRIKAZATI PDF DATOTEKU"

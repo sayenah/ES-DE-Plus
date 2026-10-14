@@ -182,9 +182,21 @@ namespace
         return fields;
     }
 
+    void syncDirectory(const std::string& path)
+    {
+        int directory = open(path.c_str(), O_RDONLY | O_DIRECTORY);
+        if (directory < 0)
+            throw std::runtime_error(_("Cannot sync configuration directory"));
+        int synced = fsync(directory);
+        close(directory);
+        if (synced != 0)
+            throw std::runtime_error(_("Cannot sync configuration directory"));
+    }
+
     void replaceFile(const std::string& path,
                      const std::string& bytes,
-                     const std::function<void()>& beforeRename)
+                     const std::function<void()>& beforeRename,
+                     const std::function<void()>& replaced)
     {
         std::string temporary {path + ".emulator-manager-XXXXXX"};
         int fd {mkstemp(temporary.data())};
@@ -219,14 +231,8 @@ namespace
             beforeRename();
             if (rename(temporary.c_str(), path.c_str()) != 0)
                 throw std::runtime_error(_("Cannot replace ") + path);
-            const auto slash = path.find_last_of('/');
-            int directory = open(path.substr(0, slash).c_str(), O_RDONLY | O_DIRECTORY);
-            if (directory < 0)
-                throw std::runtime_error(_("Cannot sync configuration directory"));
-            int synced = fsync(directory);
-            close(directory);
-            if (synced != 0)
-                throw std::runtime_error(_("Cannot sync configuration directory"));
+            replaced();
+            syncDirectory(path.substr(0, path.find_last_of('/')));
         }
         catch (...) {
             if (fd >= 0)
@@ -249,6 +255,19 @@ EmulatorManagerConfig::EmulatorManagerConfig(const std::string& directory,
     load(mRules, mRulesBytes, "ruleList");
     load(mBundle, read(bundledSystems), "systemList");
     load(mBundleRules, read(bundledRules), "ruleList");
+}
+
+EmulatorManagerConfig::EmulatorManagerConfig(const EmulatorManagerConfig& other)
+    : mDirectory {other.mDirectory}
+    , mBundledSystems {other.mBundledSystems}
+    , mSystemsBytes {other.mSystemsBytes}
+    , mRulesBytes {other.mRulesBytes}
+    , mCheckpoint {other.mCheckpoint}
+{
+    mSystems.reset(other.mSystems);
+    mRules.reset(other.mRules);
+    mBundle.reset(other.mBundle);
+    mBundleRules.reset(other.mBundleRules);
 }
 
 std::string EmulatorManagerConfig::fingerprint(const std::string& bytes)
@@ -318,6 +337,26 @@ EmulatorManagerConfig::System EmulatorManagerConfig::system(const std::string& n
                        fields[0] != mBundledSystems.substr(mBundledSystems.find_last_of('/') + 1) ||
                        fields[1] != fingerprint(xml(source));
     }
+    return result;
+}
+
+std::vector<std::string> EmulatorManagerConfig::profileTargets(const std::string& command) const
+{
+    auto begin = command.find("%EMULATOR_");
+    if (begin == std::string::npos)
+        return {};
+    auto end = command.find('%', begin + 1);
+    if (end == std::string::npos)
+        return {};
+    auto name = command.substr(begin + 10, end - begin - 10);
+    auto emulator = named(mRules.child("ruleList"), "emulator", name, true);
+    if (!emulator)
+        emulator = named(mBundleRules.child("ruleList"), "emulator", name, true);
+    std::vector<std::string> result;
+    for (auto rule : emulator.children("rule"))
+        if (std::string(rule.attribute("type").value()) == "androidpackage")
+            for (auto entry : rule.children("entry"))
+                result.push_back(entry.text().get());
     return result;
 }
 
@@ -553,6 +592,48 @@ void EmulatorManagerConfig::refresh(const std::string& name)
     parent.remove_child(node);
 }
 
+void EmulatorManagerConfig::clearSelections(const std::string& path,
+                                            const std::vector<std::string>& labels)
+{
+    if (path.empty())
+        return;
+    const auto original = read(path, true);
+    if (original.empty())
+        return;
+    pugi::xml_document doc;
+    if (!doc.load_buffer(original.data(), original.size(),
+                         pugi::parse_full | pugi::parse_ws_pcdata) ||
+        !doc.child("gameList") || doc.child("gameList").next_sibling("gameList"))
+        throw std::runtime_error(_("Cannot inspect emulator selections in gamelist.xml"));
+    auto matching = [&](const std::string& value) {
+        return !value.empty() && std::find(labels.begin(), labels.end(), value) != labels.end();
+    };
+    bool changed {false};
+    auto alternative = doc.child("alternativeEmulator") ?
+                           doc.child("alternativeEmulator") :
+                           doc.child("gameList").child("alternativeEmulator");
+    if (matching(alternative.child("label").text().get())) {
+        alternative.child("label").text().set("");
+        changed = true;
+    }
+    for (auto game : doc.child("gameList").children("game"))
+        if (matching(game.child("altemulator").text().get())) {
+            game.child("altemulator").text().set("");
+            changed = true;
+        }
+    if (changed)
+        replaceFile(
+            path, xml(doc),
+            [&] {
+                if (read(path) != original)
+                    throw std::runtime_error(
+                        _("gamelist.xml changed during selection repair; retry"));
+            },
+            [] {});
+    else
+        syncDirectory(path.substr(0, path.find_last_of('/')));
+}
+
 void EmulatorManagerConfig::verifyCurrent() const
 {
     if (read(mDirectory + "/es_systems.xml", true) != mSystemsBytes ||
@@ -573,19 +654,20 @@ void EmulatorManagerConfig::save()
     const auto systemsBytes = xml(mSystems);
     const auto rulesBytes = xml(mRules);
     unchanged();
+    // Also retry a directory sync if the previous attempt renamed a file but
+    // could not confirm its durability. Never publish commands before that succeeds.
+    syncDirectory(mDirectory);
     if (mCheckpoint)
         mCheckpoint(0);
     if (rulesBytes != mRulesBytes) {
-        replaceFile(rulesPath, rulesBytes, unchanged);
-        mRulesBytes = rulesBytes;
+        replaceFile(rulesPath, rulesBytes, unchanged, [&] { mRulesBytes = rulesBytes; });
     }
     if (mCheckpoint)
         mCheckpoint(1);
     // Rules are durable before any command can reference them. A partial save
     // leaves harmless unused rules, and this same draft can retry without duplication.
     if (systemsBytes != mSystemsBytes) {
-        replaceFile(systemsPath, systemsBytes, unchanged);
-        mSystemsBytes = systemsBytes;
+        replaceFile(systemsPath, systemsBytes, unchanged, [&] { mSystemsBytes = systemsBytes; });
     }
     if (mCheckpoint)
         mCheckpoint(2);

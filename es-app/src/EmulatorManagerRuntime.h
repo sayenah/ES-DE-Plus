@@ -11,10 +11,21 @@
 
 #if defined(__ANDROID__)
 #include "EmulatorManagerConfig.h"
+#include <stdexcept>
 
 class EmulatorManagerRuntime
 {
 public:
+    struct SelectionConflict : public std::runtime_error {
+        SelectionConflict(const std::string& message, const std::vector<std::string>& values)
+            : std::runtime_error {message}
+            , labels {values}
+        {
+        }
+        std::vector<std::string> labels;
+    };
+    static void clearSelections(const EmulatorManagerConfig::System& system,
+                                const std::vector<std::string>& labels);
     static EmulatorManagerConfig configuration();
     static std::string path(const EmulatorManagerConfig::System& system);
     static bool test(const EmulatorManagerConfig::System& system,

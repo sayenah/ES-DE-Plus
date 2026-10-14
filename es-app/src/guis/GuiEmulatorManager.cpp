@@ -23,6 +23,20 @@
 
 #include <thread>
 
+namespace
+{
+    std::string extraTypeName(const std::string& type)
+    {
+        if (type == "EXTRA")
+            return _("STRING");
+        if (type == "EXTRAARRAY")
+            return _("STRING ARRAY");
+        if (type == "EXTRAINTEGER")
+            return _("INTEGER");
+        return _("BOOLEAN");
+    }
+} // namespace
+
 GuiEmulatorManager::GuiEmulatorManager(const std::string& systemName)
     : mSystemName {systemName}
 {
@@ -56,6 +70,7 @@ void GuiEmulatorManager::row(const std::string& text, const std::function<void()
 
 void GuiEmulatorManager::error(const std::string& message)
 {
+    LOG(LogWarning) << "Emulator manager notice: " << message;
     mWindow->pushGui(new GuiEmulatorManagerMsgBox(message, _("OK"), nullptr));
 }
 
@@ -196,6 +211,38 @@ void GuiEmulatorManager::rebuild()
             else if (mPage == Page::DRAFT) {
                 edit(_("EMULATOR LABEL"), mLabel);
                 row(_("RECEIVING APP AND ACTIVITY") + ": " + mComponent, [this] { discover(); });
+                row(_("RECEIVING ACTIVITY") + ": " +
+                        (mComponent.find('/') == std::string::npos ?
+                             _("SELECT APP FIRST") :
+                             mComponent.substr(mComponent.find('/') + 1)),
+                    [this] {
+                        const auto slash = mComponent.find('/');
+                        if (slash == std::string::npos) {
+                            error(_("Select an installed app first"));
+                            return;
+                        }
+                        const auto package = mComponent.substr(0, slash);
+                        mWindow->pushGui(new GuiEmulatorManagerKeyboard(
+                            0.0f, _("RECEIVING ACTIVITY: RELATIVE OR FULL CLASS NAME"),
+                            mComponent.substr(slash + 1),
+                            [this, package](const std::string& value) {
+                                auto activity = Utils::String::trim(value);
+                                if (!activity.empty() && activity.front() == '.')
+                                    activity = package + activity;
+                                else if (activity.find('.') == std::string::npos)
+                                    activity = package + "." + activity;
+                                if (!Utils::Platform::Android::checkEmulatorInstalled(package,
+                                                                                      activity)) {
+                                    error(_("That activity is unavailable, private, disabled or "
+                                            "permission-protected"));
+                                    return;
+                                }
+                                mComponent = package + "/" + activity;
+                                invalidateDraft();
+                                page(Page::DRAFT);
+                            },
+                            false));
+                    });
                 row(_("USE AN EXISTING EMULATOR'S LAUNCH SETTINGS"),
                     [this] { page(Page::PROFILES); });
                 edit(_("ADDITIONAL FILE TYPES (E.G. .zip .ZIP)"), mExtensions);
@@ -281,9 +328,9 @@ void GuiEmulatorManager::rebuild()
                         _("Discovery was cancelled; select the receiving app again"));
                 std::lock_guard<std::mutex> lock {mDiscovery->mutex};
                 if (!mDiscovery->done)
-                    row(_("DISCOVERING APPS — BACK TO CANCEL"));
+                    row(_("DISCOVERING APPS: BACK TO CANCEL"));
                 else if (!mDiscovery->success)
-                    row(_("APP DISCOVERY FAILED — BACK TO RETRY"));
+                    row(_("APP DISCOVERY FAILED: BACK TO RETRY"));
                 else {
                     LOG(LogDebug) << "Emulator manager discovery complete: "
                                   << mDiscovery->activities.size() << " activities";
@@ -319,6 +366,38 @@ void GuiEmulatorManager::rebuild()
                                     auto profile =
                                         EmulatorLaunchProfile::fromCommand(command.value);
                                     mProfile = profile;
+                                    const auto slash = mComponent.find('/');
+                                    if (slash != std::string::npos) {
+                                        const auto package = mComponent.substr(0, slash);
+                                        bool offered {false};
+                                        for (const auto& source :
+                                             mConfig->profileTargets(command.value)) {
+                                            for (const auto& activity :
+                                                 EmulatorLaunchProfile::receivers(source,
+                                                                                  package)) {
+                                                if (Utils::Platform::Android::
+                                                        checkEmulatorInstalled(package, activity)) {
+                                                    const auto receiver = package + "/" + activity;
+                                                    if (receiver != mComponent)
+                                                        confirm(
+                                                            _("Use this profile's receiving "
+                                                              "activity with the selected app? It "
+                                                              "is installed and accessible; game "
+                                                              "compatibility is not verified.") +
+                                                                "\n\n" + receiver,
+                                                            [this, receiver] {
+                                                                mComponent = receiver;
+                                                                invalidateDraft();
+                                                                page(Page::DRAFT);
+                                                            });
+                                                    offered = true;
+                                                    break;
+                                                }
+                                            }
+                                            if (offered)
+                                                break;
+                                        }
+                                    }
                                     // Controls reflect the copied profile; no conversion happens
                                     // until requested.
                                     mRomExtra.clear();
@@ -351,14 +430,15 @@ void GuiEmulatorManager::rebuild()
                     page(Page::EXTRA);
                 });
                 for (size_t i {0}; i < mProfile.extras.size(); ++i)
-                    row(mProfile.extras[i].type + " — " + mProfile.extras[i].name, [this, i] {
-                        mExtra = i;
-                        page(Page::EXTRA);
-                    });
+                    row(extraTypeName(mProfile.extras[i].type) + " — " + mProfile.extras[i].name,
+                        [this, i] {
+                            mExtra = i;
+                            page(Page::EXTRA);
+                        });
             }
             else if (mPage == Page::EXTRA) {
                 auto& extra = mProfile.extras.at(mExtra);
-                row(_("TYPE") + ": " + extra.type, [this] {
+                row(_("TYPE") + ": " + extraTypeName(extra.type), [this] {
                     auto& extra = mProfile.extras.at(mExtra);
                     extra.type = extra.type == "EXTRA"        ? "EXTRAARRAY" :
                                  extra.type == "EXTRAARRAY"   ? "EXTRAINTEGER" :
@@ -421,6 +501,7 @@ void GuiEmulatorManager::rebuild()
                     row(command.label.empty() ? _("ORIGINAL EMULATOR") : command.label,
                         [this, system, command] {
                             try {
+                                mConfig->verifyCurrent();
                                 EmulatorManagerRuntime::setDefault(system, command.label);
                                 page(Page::SYSTEM);
                             }
@@ -450,8 +531,7 @@ void GuiEmulatorManager::save()
                 _("The receiving activity is unavailable. Select an installed app again"));
         if (!mSave) {
             mConfig->verifyCurrent();
-            auto candidate =
-                std::make_unique<EmulatorManagerConfig>(EmulatorManagerRuntime::configuration());
+            auto candidate = std::make_unique<EmulatorManagerConfig>(*mConfig);
             candidate->add(mSystemName, mLabel, mComponent, mProfile.command("DRAFT"), mExtensions,
                            true);
             mSave = std::move(candidate);
@@ -503,7 +583,7 @@ void GuiEmulatorManager::remove(const EmulatorManagerConfig::Command& command)
 {
     try {
         mConfig->verifyCurrent();
-        auto config = EmulatorManagerRuntime::configuration();
+        auto config = *mConfig;
         const auto system = config.system(mSystemName);
         std::vector<std::string> retained;
         for (const auto& candidate : system.commands)
@@ -514,6 +594,9 @@ void GuiEmulatorManager::remove(const EmulatorManagerConfig::Command& command)
         config.save();
         mApply = true;
     }
+    catch (const EmulatorManagerRuntime::SelectionConflict& conflict) {
+        repair(conflict.labels, [this, command] { remove(command); });
+    }
     catch (const std::exception& failure) {
         error(failure.what());
     }
@@ -523,7 +606,7 @@ void GuiEmulatorManager::reset()
 {
     try {
         mConfig->verifyCurrent();
-        auto config = EmulatorManagerRuntime::configuration();
+        auto config = *mConfig;
         const auto previous = config.system(mSystemName);
         config.reset(mSystemName);
         std::vector<std::string> retained;
@@ -532,6 +615,9 @@ void GuiEmulatorManager::reset()
         EmulatorManagerRuntime::checkSelections(previous, retained);
         config.save();
         mApply = true;
+    }
+    catch (const EmulatorManagerRuntime::SelectionConflict& conflict) {
+        repair(conflict.labels, [this] { reset(); });
     }
     catch (const std::exception& failure) {
         error(failure.what());
@@ -542,7 +628,7 @@ void GuiEmulatorManager::refresh()
 {
     try {
         mConfig->verifyCurrent();
-        auto config = EmulatorManagerRuntime::configuration();
+        auto config = *mConfig;
         const auto previous = config.system(mSystemName);
         config.refresh(mSystemName);
         std::vector<std::string> retained;
@@ -552,9 +638,34 @@ void GuiEmulatorManager::refresh()
         config.save();
         mApply = true;
     }
+    catch (const EmulatorManagerRuntime::SelectionConflict& conflict) {
+        repair(conflict.labels, [this] { refresh(); });
+    }
     catch (const std::exception& failure) {
         error(failure.what());
     }
+}
+
+void GuiEmulatorManager::repair(const std::vector<std::string>& labels,
+                                const std::function<void()>& retry)
+{
+    std::string affected;
+    for (const auto& label : labels)
+        affected += "\n" + label;
+    confirm(_("Clear only system and game emulator selections using the entries below, so they "
+              "inherit the default? Other games' choices are preserved. The selections are saved "
+              "before the configuration change.") +
+                affected,
+            [this, labels, retry] {
+                try {
+                    mConfig->verifyCurrent();
+                    EmulatorManagerRuntime::clearSelections(mConfig->system(mSystemName), labels);
+                    retry();
+                }
+                catch (const std::exception& failure) {
+                    error(failure.what());
+                }
+            });
 }
 
 void GuiEmulatorManager::back()

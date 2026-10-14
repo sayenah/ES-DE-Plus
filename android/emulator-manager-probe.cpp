@@ -143,6 +143,92 @@ int main(int argc, char** argv)
         edited.save();
         require(!EmulatorManagerConfig(root, bundle, bundledRules).system("test").custom,
                 "reset readback");
+        const std::string collisionProfile {"%EMULATOR_X% %DATA%=%ROM%"};
+        const auto colliding =
+            "ESDEPLUS_" + EmulatorManagerConfig::fingerprint(
+                              "test\nCollision\norg.example/Activity\n" + collisionProfile);
+        auto collisionRules = read(rules);
+        collisionRules.insert(
+            collisionRules.find("</ruleList>"),
+            "<emulator name='" + colliding +
+                "'><rule type='androidpackage'><entry>org.other/Keep</entry></rule></emulator>");
+        put(rules, collisionRules);
+        EmulatorManagerConfig collision {root, bundle, bundledRules};
+        auto collisionId = collision.add("test", "Collision", "org.example/Activity",
+                                         collisionProfile, ".zip", true);
+        require(collisionId != colliding, "rule collision gets independent ID");
+        collision.setSaveCheckpoint([](int point) {
+            if (point == 0)
+                throw std::runtime_error("injected before replacement");
+        });
+        const auto collisionBefore = read(systems);
+        refused([&] { collision.save(); });
+        require(read(systems) == collisionBefore && read(rules) == collisionRules,
+                "before-save failure leaves both files unchanged");
+        collision.setSaveCheckpoint({});
+        collision.save();
+        require(read(rules).find("org.other/Keep") != std::string::npos,
+                "colliding pre-existing rule preserved");
+        const auto collisionSystem = read(systems);
+        EmulatorManagerConfig duplicate {root, bundle, bundledRules};
+        refused([&] {
+            duplicate.add("test", "Collision", "org.example/Activity", collisionProfile, ".ZIP",
+                          true);
+        });
+        require(read(systems) == collisionSystem &&
+                    read(rules).find("org.other/Keep") != std::string::npos,
+                "duplicate label refusal preserves files");
+        // A cloned draft retains its opening snapshot, rather than adopting an external edit.
+        EmulatorManagerConfig opening {root, bundle, bundledRules};
+        put(systems, collisionSystem + "<!-- external -->");
+        auto copiedDraft = opening;
+        refused([&] { copiedDraft.save(); });
+        put(systems, collisionSystem);
+        // A later edit to a tracked command is preserved and not removed by ownership guessing.
+        auto editedCommand = collisionSystem;
+        auto commandPosition = editedCommand.find("%EMULATOR_" + collisionId + "%");
+        editedCommand.insert(commandPosition, "hand-edited ");
+        put(systems, editedCommand);
+        EmulatorManagerConfig ownedEdit {root, bundle, bundledRules};
+        refused([&] { ownedEdit.remove("test", collisionId); });
+        require(read(systems) == editedCommand, "later hand-edited addition preserved");
+        const auto gamelist = root + "/gamelist.xml";
+        put(gamelist,
+            "<!-- user gamelist "
+            "--><alternativeEmulator><label>Removed</label></alternativeEmulator><gameList "
+            "extra='preserve'><game><path>./one.zip</path><altemulator>Removed</"
+            "altemulator><playcount>7</playcount></game><game><path>./two.zip</"
+            "path><altemulator>Unrelated</altemulator></game></gameList>");
+        EmulatorManagerConfig::clearSelections(gamelist, {"Removed"});
+        pugi::xml_document selectionDoc;
+        require(selectionDoc.load_file(gamelist.c_str()), "repaired selections parseable");
+        require(std::string(selectionDoc.child("alternativeEmulator").child("label").text().get())
+                    .empty(),
+                "affected system selection repaired");
+        require(std::string(
+                    selectionDoc.child("gameList").child("game").child("altemulator").text().get())
+                    .empty(),
+                "affected game repaired");
+        require(std::string(selectionDoc.child("gameList")
+                                .child("game")
+                                .next_sibling("game")
+                                .child("altemulator")
+                                .text()
+                                .get()) == "Unrelated",
+                "unrelated game selection preserved");
+        require(read(gamelist).find("user gamelist") != std::string::npos &&
+                    read(gamelist).find("<playcount>7</playcount>") != std::string::npos &&
+                    read(gamelist).find("extra=\"preserve\"") != std::string::npos,
+                "selection repair preserves metadata/comments/attributes");
+        const auto once = read(gamelist);
+        EmulatorManagerConfig::clearSelections(gamelist, {"Removed"});
+        require(read(gamelist) == once, "repair retry idempotent");
+        require(EmulatorLaunchProfile::receivers("org.original/.Game", "org.fork") ==
+                    std::vector<std::string>({"org.fork.Game", "org.original.Game"}),
+                "fork package and preserved namespace receiver candidates");
+        require(EmulatorLaunchProfile::receivers("org.original/com.shared.Game", "org.fork") ==
+                    std::vector<std::string>({"com.shared.Game"}),
+                "independent activity namespace preserved");
         const std::string profileText {
             "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
             "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "

@@ -35,8 +35,10 @@ public:
     EmulatorManagerConfig(const std::string& directory,
                           const std::string& bundledSystems,
                           const std::string& bundledRules);
+    EmulatorManagerConfig(const EmulatorManagerConfig& other);
     std::vector<System> systems() const;
     System system(const std::string& name) const;
+    std::vector<std::string> profileTargets(const std::string& command) const;
     std::string add(const std::string& name,
                     const std::string& label,
                     const std::string& component,
@@ -51,6 +53,7 @@ public:
 
     // Fault injection uses the production transaction, without a fixture-path special case.
     void setSaveCheckpoint(std::function<void(int)> checkpoint) { mCheckpoint = checkpoint; }
+    static void clearSelections(const std::string& path, const std::vector<std::string>& labels);
     static std::string fingerprint(const std::string& bytes);
     static std::string replaceEmulator(const std::string& profile, const std::string& rule);
 

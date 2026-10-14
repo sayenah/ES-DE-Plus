@@ -47,6 +47,7 @@ def run(mode, harness, minified=False):
         marker = 'Emulator manager page: ' + name + ';'
         h.wait_for(lambda: marker in h.adb('logcat', '-d'), 'manager page ' + name, timeout=30)
     def pick(index):
+        h.key('KEYCODE_MOVE_HOME')
         for _ in range(index): h.key('KEYCODE_DPAD_DOWN')
         h.adb('logcat', '-c')
         h.key('KEYCODE_ENTER')
@@ -64,7 +65,11 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: bool(h.hierarchy()), 'no-games native window')
         if any(n.get('text') == 'Got it' for n in h.hierarchy()): h.ui('Got it')
         h.screenshot('emulator-manager-' + mode + '-no-games')
-        h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER'); page('systems')
+        if h.api != 36:
+            tap('EMULATORS')
+        else:
+            h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
+        page('systems')
         pick(1); page('system')
         pick(0); page('draft')
     def tap(prefix):
@@ -95,8 +100,7 @@ def run(mode, harness, minified=False):
             tap('EMULATOR LABEL:')
             tap('x')
             h.screenshot('emulator-manager-' + mode + '-touch-keyboard')
-            tap('DISCARD CHANGES')
-            page('draft')
+            tap('CANCEL')
             tap('BACK')
             tap('CONTINUE')
             page('system')
@@ -111,17 +115,21 @@ def run(mode, harness, minified=False):
         # Wait for the asynchronous completion before selecting its first result.
         h.wait_for(lambda: h.adb('logcat', '-d').count('Emulator manager page: apps;') >= 1, 'app picker rebuilt')
         pick(1); page('draft')
-        pick(2); page('profiles'); pick(0); page('draft')
-        pick(3); text('.zip .ZIP'); page('draft')
-        pick(14); page('files'); pick(0); text(fixture_data['file']); page('draft')
+        pick(3); page('profiles'); pick(0)
+        # Decline the source TelevisionOnly receiver; keep the manually chosen activity.
+        if h.api != 36: tap('CANCEL')
+        else: h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
+        page('draft')
+        pick(4); text('.zip .ZIP'); page('draft')
+        pick(15); page('files'); pick(0); text(fixture_data['file']); page('draft')
         h.screenshot('emulator-manager-' + mode + '-draft')
         # Exact candidate test, independent of the original/default profile.
-        pick(15)
+        pick(16)
         h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved candidate accepted')
         h.wait_for(lambda: fixture_data['file'] in h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False), 'candidate recipient observed file')
         observation = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         controls('org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', observation['component'], 'selected candidate component')
-        if mode.startswith('direct'):
+        if h.api == 29 or mode.startswith('direct'):
             controls(fixture_data['sha256'], observation.get('sha256'), 'exact ZIP bytes via path')
         else:
             controls(True, bool(observation.get('readError')), 'recipient reports scoped raw-path access refusal')
@@ -135,19 +143,27 @@ def run(mode, harness, minified=False):
         h.key('KEYCODE_ENTER')  # Close the accepted-request notice.
         # Test refusal must also preserve the candidate. App-private SAF is refused.
         if mode.startswith('scoped'):
-            pick(4); page('draft')  # path -> document URI, same named ROM extra
-            pick(15)
+            pick(5); page('draft')  # path -> document URI, same named ROM extra
+            pick(16)
             h.wait_for(lambda: 'Emulator manager test: refused;' in h.adb('logcat', '-d'), 'app-private SAF refusal')
             controls(before, current(), 'refused test isolation')
             h.screenshot('emulator-manager-' + mode + '-refused-saf')
             h.key('KEYCODE_ENTER')
             # Switch to provider and Intent data explicitly; no transport substitution.
-            pick(5); text('', erase=3); page('draft')
-            pick(4); page('draft')  # document URI -> provider
+            pick(6); text('', erase=3); page('draft')
+            pick(5); page('draft')  # document URI -> provider
         else:
-            pick(5); text('', erase=3); page('draft')
-            pick(4); page('draft'); pick(4); page('draft')
-        pick(15)
+            pick(6); text('', erase=3); page('draft')
+            pick(5); page('draft'); pick(5); page('draft')
+        if minified:
+            h.adb('uninstall', 'org.esdeplus.stub')
+            pick(16)
+            h.wait_for(lambda: 'The receiving activity is unavailable' in h.adb('logcat', '-d'), 'removed package gives actionable error')
+            controls(before, current(), 'package-removal refusal preserves draft files')
+            h.screenshot('emulator-manager-' + mode + '-package-removed')
+            h.key('KEYCODE_ENTER')
+            h.adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
+        pick(16)
         h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved provider candidate')
         h.wait_for(lambda: 'content://' + h.app + '.roms/' in h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False), 'provider recipient observation')
         provider = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
@@ -155,7 +171,7 @@ def run(mode, harness, minified=False):
         controls(True, provider['data'].startswith('content://' + h.app + '.roms/'), 'provider chosen explicitly')
         controls(before, current(), 'provider test isolation')
         h.key('KEYCODE_BACK'); h.wait_for(lambda: h.app in h.focused_window(), 'provider test return'); h.key('KEYCODE_ENTER')
-        pick(16)
+        pick(17)
         h.wait_for(lambda: 'Emulator manager saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'manager saved')
         h.wait_for(lambda: 'Total game count: 2' in h.log(), 'both case extensions visible immediately')
         saved = current()
@@ -188,10 +204,9 @@ def run(mode, harness, minified=False):
         h.search_launch('Manager', 'emulator-manager-' + mode + '-saved')
         h.wait_for(lambda: 'Activity launch accepted:' in h.adb('logcat', '-d'), 'saved command resolves immediately')
         receipt = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
-        for field in ['component', 'action', 'mime', 'flags', 'categories']:
+        for field in ['component', 'action', 'mime', 'data', 'flags', 'categories']:
             controls(provider[field], receipt[field], 'test/saved Intent ' + field)
         controls(fixture_data['sha256'], receipt.get('sha256'), 'saved provider exact ZIP bytes')
-        controls(True, receipt['data'].rsplit('/', 1)[-1] in [provider['data'].rsplit('/', 1)[-1], provider['data'].rsplit('/', 1)[-1][:-3] + 'ZIP'], 'same transport expanded for selected case-sensitive archive')
         h.screenshot('emulator-manager-' + mode + '-saved-recipient')
         h.save_logs('emulator-manager-' + mode)
         h.evidence.joinpath('emulator-manager-' + mode + '-summary.txt').write_text(

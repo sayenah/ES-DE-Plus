@@ -74,6 +74,7 @@ bool EmulatorManagerRuntime::test(const EmulatorManagerConfig::System& system,
         SystemData::sFindRules = std::make_unique<FindRules>();
     auto& rules = SystemData::sFindRules->mEmulators;
     const auto previous = rules;
+    const auto previousCores = SystemData::sFindRules->mCores;
     std::string rule {"ESDEPLUS_TRANSIENT_TEST"};
     while (rules.count(rule))
         rule += "_";
@@ -90,11 +91,13 @@ bool EmulatorManagerRuntime::test(const EmulatorManagerConfig::System& system,
     }
     catch (...) {
         rules = previous;
+        SystemData::sFindRules->mCores = previousCores;
         testing = false;
         testCommand.clear();
         throw;
     }
     rules = previous;
+    SystemData::sFindRules->mCores = previousCores;
     testing = false;
     testCommand.clear();
     return testResult == 0;
@@ -134,36 +137,61 @@ void EmulatorManagerRuntime::setDefault(const EmulatorManagerConfig::System& def
 void EmulatorManagerRuntime::checkSelections(const EmulatorManagerConfig::System& definition,
                                              const std::vector<std::string>& retainedLabels)
 {
-    auto retained = [&](const std::string& label) {
-        return label.empty() || std::find(retainedLabels.begin(), retainedLabels.end(), label) !=
-                                    retainedLabels.end();
+    std::vector<std::string> removed;
+    for (const auto& command : definition.commands)
+        if (!command.label.empty() && std::find(retainedLabels.begin(), retainedLabels.end(),
+                                                command.label) == retainedLabels.end())
+            removed.push_back(command.label);
+    auto affected = [&](std::string label) {
+        if (label.find("<INVALID>") == 0)
+            label = label.substr(9);
+        return !label.empty() && std::find(removed.begin(), removed.end(), label) != removed.end();
     };
-    auto temporary = shell(definition);
-    temporary->getRootFolder()->mPath = path(definition);
+    bool conflict {false};
     auto loaded = SystemData::getSystemByName(definition.name);
     if (loaded) {
-        if (!retained(loaded->getAlternativeEmulator()))
-            throw std::runtime_error(
-                _("Choose a replacement system default before removing this emulator"));
+        conflict = affected(loaded->getAlternativeEmulator());
         for (auto game : loaded->getRootFolder()->getChildrenRecursive())
-            if (!retained(game->metadata.get("altemulator")))
-                throw std::runtime_error(
-                    _("This emulator is selected for a game. Choose its replacement in the game's "
-                      "metadata editor before removing it"));
+            if (game->getType() == GAME && affected(game->metadata.get("altemulator")))
+                conflict = true;
     }
+    auto temporary = shell(definition);
+    temporary->getRootFolder()->mPath = path(definition);
     const auto file = temporary->getGamelistPath(false);
-    if (!Utils::FileSystem::exists(file))
+    if (!file.empty() && Utils::FileSystem::exists(file)) {
+        pugi::xml_document doc;
+        if (!doc.load_file(file.c_str()) || !doc.child("gameList"))
+            throw std::runtime_error(_("Cannot inspect emulator selections in gamelist.xml"));
+        conflict |= affected(alternative(doc).child("label").text().get());
+        for (auto game : doc.child("gameList").children("game"))
+            conflict |= affected(game.child("altemulator").text().get());
+    }
+    if (conflict)
+        throw SelectionConflict(
+            _("The configuration change would invalidate a system or game emulator selection"),
+            removed);
+}
+
+void EmulatorManagerRuntime::clearSelections(const EmulatorManagerConfig::System& definition,
+                                             const std::vector<std::string>& labels)
+{
+    auto temporary = shell(definition);
+    temporary->getRootFolder()->mPath = path(definition);
+    EmulatorManagerConfig::clearSelections(temporary->getGamelistPath(false), labels);
+    auto system = SystemData::getSystemByName(definition.name);
+    if (!system)
         return;
-    pugi::xml_document doc;
-    if (!doc.load_file(file.c_str()))
-        throw std::runtime_error(_("Cannot inspect emulator selections in gamelist.xml"));
-    if (!retained(alternative(doc).child("label").text().get()))
-        throw std::runtime_error(
-            _("Choose a replacement system default before removing this emulator"));
-    for (auto game : doc.child("gameList").children("game"))
-        if (!retained(game.child("altemulator").text().get()))
-            throw std::runtime_error(_("This emulator is selected in gamelist.xml. Repair the "
-                                       "affected game's alternative emulator before removing it"));
+    auto matching = [&](std::string label) {
+        if (label.find("<INVALID>") == 0)
+            label = label.substr(9);
+        return std::find(labels.begin(), labels.end(), label) != labels.end();
+    };
+    if (matching(system->getAlternativeEmulator()))
+        system->setAlternativeEmulator("");
+    for (auto game : system->getRootFolder()->getChildrenRecursive())
+        if (game->getType() == GAME && matching(game->metadata.get("altemulator")))
+            game->metadata.set("altemulator", "");
+    system->onMetaDataSavePoint();
 }
 
 void EmulatorManagerRuntime::apply(const std::string& systemName)

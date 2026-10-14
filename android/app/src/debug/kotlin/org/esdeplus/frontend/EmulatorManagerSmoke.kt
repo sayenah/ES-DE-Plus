@@ -17,7 +17,7 @@ object EmulatorManagerSmoke {
         val root = RomTransport(context).root()
         val directory = File(root, "ps3")
         val lower = File(directory, "ESDEPlus Manager Test.zip")
-        val upper = File(directory, "ESDEPlus Manager Test.ZIP")
+        val upper = File(directory, "ESDEPlus Upper Test.ZIP")
         val gamelist = File(data, "gamelists/ps3/gamelist.xml")
         when (mode) {
             "emulator-manager-prepare" -> {

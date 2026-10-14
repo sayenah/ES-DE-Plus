@@ -66,6 +66,7 @@ private:
     void reset();
     void refresh();
     void invalidateDraft();
+    void repair(const std::vector<std::string>& labels, const std::function<void()>& retry);
 
     EmulatorManagerTouch mTouch;
     std::unique_ptr<MenuComponent> mMenu;

@@ -28,7 +28,7 @@ if warnings:
     print('FAIL: native warnings in ES-DE-Plus files\n' + '\n'.join(warnings))
     sys.exit(1)
 def compilation(files, abi):
-    assert files == {'GuiComponent', 'PdfSmoke', 'SystemData', 'EmulatorManagerConfig', 'InputOverlay', 'GuiAlternativeEmulators', 'InputManager', 'PDFViewer', 'EmulatorManagerTouch', 'GuiEmulatorManager', 'GuiSettings', 'PlatformUtilAndroid', 'GuiMenu', 'ComponentList', 'EmulatorManagerRuntime', 'ViewController', 'EmulatorLaunchProfile', 'ConvertPDF', 'FileData'}, ('Missing per-ABI compilation evidence', abi, files)
+    assert files == {'ComponentList', 'ConvertPDF', 'EmulatorLaunchProfile', 'EmulatorManagerConfig', 'EmulatorManagerRuntime', 'EmulatorManagerTouch', 'FileData', 'GuiAlternativeEmulators', 'GuiComponent', 'GuiEmulatorManager', 'GuiMenu', 'GuiSettings', 'InputManager', 'InputOverlay', 'PDFViewer', 'PdfSmoke', 'PlatformUtilAndroid', 'SystemData', 'ViewController'}, ('Missing per-ABI compilation evidence', abi, files)
 
 for abi, files in compiled.items():
     compilation(files, abi)
