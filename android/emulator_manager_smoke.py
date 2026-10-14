@@ -9,6 +9,11 @@ import xml.etree.ElementTree as ET
 
 def run(mode, harness, minified=False):
     h = type('Harness', (), harness)
+    if h.api == 29:
+        h.shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
+    elif mode.startswith('direct'):
+        h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity', '--es', 'queryMode', 'storage-permission')
+        h.grant_from_settings('ES-DE Plus recipient', recipient=True)
     original_settings = h.shell('cat', h.settings)
     # The no-games fixture uses the documented effective custom configuration,
     # including loadExclusive. No bundled resource or production fixture branch.
@@ -36,6 +41,11 @@ def run(mode, harness, minified=False):
         original[name] = h.shell('cat', path, check=False) if h.shell('test', '-f', path, check=False) == '' and h.shell('ls', path, check=False).strip() == path else None
     def read(relative):
         return h.shell('cat', data_root + '/' + relative, check=False)
+    def receipt_ready(predicate):
+        try:
+            return predicate(json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False)))
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return False
     def fragment(value):
         return ET.fromstring('<document>' + re.sub(r'<\?xml[^>]*\?>', '', value) + '</document>')
     def current():
@@ -126,7 +136,7 @@ def run(mode, harness, minified=False):
         # Exact candidate test, independent of the original/default profile.
         pick(16)
         h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved candidate accepted')
-        h.wait_for(lambda: fixture_data['file'] in h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False), 'candidate recipient observed file')
+        h.wait_for(lambda: receipt_ready(lambda r: r.get('extras', {}).get('ROM', {}).get('value') == fixture_data['file']), 'candidate recipient observed file')
         observation = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         controls('org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', observation['component'], 'selected candidate component')
         if h.api == 29 or mode.startswith('direct'):
@@ -165,7 +175,7 @@ def run(mode, harness, minified=False):
             h.adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
         pick(16)
         h.wait_for(lambda: 'Emulator manager test: accepted;' in h.adb('logcat', '-d'), 'unsaved provider candidate')
-        h.wait_for(lambda: 'content://' + h.app + '.roms/' in h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json', check=False), 'provider recipient observation')
+        h.wait_for(lambda: receipt_ready(lambda r: r.get('data', '').startswith('content://' + h.app + '.roms/')), 'provider recipient observation')
         provider = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         controls(fixture_data['sha256'], provider.get('sha256'), 'provider exact ZIP bytes')
         controls(True, provider['data'].startswith('content://' + h.app + '.roms/'), 'provider chosen explicitly')
