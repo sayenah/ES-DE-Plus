@@ -380,13 +380,12 @@ def grant_from_settings(app_label=None, recipient=False):
     if permission_toggle(app_label) is None:
         ui(app_label or label)
     wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
-    def recipient_granted():
-        return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b',
-                    shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE')))
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and recipient_granted():
-        screenshot('recipient-all-files-already-granted')
-        key('KEYCODE_BACK')
-        return
+    target_package = 'org.esdeplus.stub' if recipient else app
+    def actual_grant():
+        state = shell('appops', 'get', '--uid', target_package, 'MANAGE_EXTERNAL_STORAGE')
+        with (evidence / 'all-files-permission-events.txt').open('a') as output:
+            output.write(target_package + ': ' + state + '\n')
+        return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b', state))
     def toggle_switch():
         if television:
             key('KEYCODE_DPAD_CENTER')
@@ -394,25 +393,30 @@ def grant_from_settings(app_label=None, recipient=False):
             toggle = permission_toggle(app_label)
             x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-    if television:
-        for _ in range(40):
-            row = permission_row(app_label)
-            focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
-            if focused:
-                screenshot('tv-all-files-switch-focused')
-                break
-            key('KEYCODE_DPAD_DOWN')
-        else:
-            raise AssertionError('TV D-pad cannot reach our all-files switch')
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and not recipient_granted():
-        # Settings can retain a checked preference across recipient reinstall,
-        # while the actual app-op is reset. Resynchronize through the real UI.
+    already_granted = permission_toggle(app_label).get('checked') == 'true' and actual_grant()
+    if not already_granted:
+        if television:
+            for _ in range(40):
+                row = permission_row(app_label)
+                focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
+                if focused:
+                    screenshot('tv-all-files-switch-focused')
+                    break
+                key('KEYCODE_DPAD_DOWN')
+            else:
+                raise AssertionError('TV D-pad cannot reach our all-files switch')
+        if permission_toggle(app_label).get('checked') == 'true' and not actual_grant():
+            # Settings can retain its checked preference across pm clear or an
+            # uninstall/reinstall while the kernel app-op has been reset. Use
+            # the real user actions to turn the stale preference off, then on.
+            toggle_switch()
+            wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale app switch reset')
         toggle_switch()
-        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale recipient switch reset')
-    toggle_switch()
-    wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
-             'real app all-files grant')
-    screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
+        wait_for(lambda: permission_toggle(app_label) is not None and
+                 permission_toggle(app_label).get('checked') == 'true' and actual_grant(),
+                 'real app all-files grant')
+    screenshot(('recipient-' if recipient else '') +
+               ('all-files-already-granted' if already_granted else 'all-files-granted'))
     key('KEYCODE_BACK')
     if recipient:
         launch_checks.all_files_granted(shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE'))

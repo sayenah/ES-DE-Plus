@@ -36,11 +36,15 @@ internal object AdoptedSettings {
         var nested: String? = null
         var flat: String? = null
         var inSettings = false
+        var sawSettings = false
         while (parser.nextToken() != XmlPullParser.END_DOCUMENT) {
             if (parser.eventType == XmlPullParser.DOCDECL)
                 throw IOException("Settings must not contain a document type declaration")
             if (parser.depth == 2 && parser.name == "settings") {
-                if (parser.eventType == XmlPullParser.START_TAG) inSettings = true
+                if (parser.eventType == XmlPullParser.START_TAG) {
+                    inSettings = !sawSettings
+                    sawSettings = true
+                }
                 if (parser.eventType == XmlPullParser.END_TAG) inSettings = false
             }
             if (parser.eventType == XmlPullParser.START_TAG && parser.name == "string" &&

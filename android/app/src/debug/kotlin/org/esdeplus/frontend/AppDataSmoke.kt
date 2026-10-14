@@ -202,6 +202,14 @@ internal object AppDataSmoke {
                 } finally { readonly.setWritable(true, true); check(readonly.delete()) }
                 file.writeText("<string name=\"MediaDirectory\" value=\"\"/>")
             }
+            val selectedSettings = File(candidate, "es_settings.xml")
+            selectedSettings.writeText("<settings><string name=\"MediaDirectory\" value=\"${media.path}\"/></settings>" +
+                "<settings><string name=\"MediaDirectory\" value=\"${sandbox.path}/ignored\"/></settings>")
+            check(storage.validateDataContents(candidate) == media.path)
+            selectedSettings.writeText("<string name=\"MediaDirectory\" value=\"${media.path}\"/>" +
+                "<settings><string name=\"MediaDirectory\" value=\"${sandbox.path}/ignored\"/></settings>")
+            check(storage.validateDataContents(candidate) == media.path)
+            selectedSettings.writeText("<string name=\"MediaDirectory\" value=\"\"/>")
             val obstruction = File(candidate, "themes")
             obstruction.writeText("obstructed required directory")
             rejected { storage.validateDataContents(candidate) }
