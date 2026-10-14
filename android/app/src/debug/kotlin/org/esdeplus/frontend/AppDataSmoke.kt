@@ -15,6 +15,9 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 internal object AppDataSmoke {
     private fun rejected(action: () -> Unit) {
@@ -30,12 +33,31 @@ internal object AppDataSmoke {
         val sandbox = File(storage.defaultData().parentFile, "ESDEPlusAppDataProbes")
         check(!sandbox.exists()) { "Probe directory already exists; refusing to overwrite it" }
         check(sandbox.mkdir())
-        val events = CopyOnWriteArrayList<String>()
+        val events = CopyOnWriteArrayList<Triple<File, Int, String?>>()
         val observers = mutableListOf<FileObserver>()
+        val barrierDirectory = File(context.cacheDir, "prf-consent-event-barrier").apply { check(mkdir()) }
+        val barrierName = "event-barrier"
+        val barrier = AtomicReference<CountDownLatch>()
         fun observe(file: File) {
             observers += object : FileObserver(file, FileObserver.ALL_EVENTS) {
-                override fun onEvent(event: Int, path: String?) { events.add("${file.name}:$event:$path") }
+                override fun onEvent(event: Int, path: String?) { events.add(Triple(file, event, path)) }
             }.also { it.startWatching() }
+        }
+        // Android dispatches this process's FileObservers from one inotify
+        // queue/thread. A private-directory barrier drains earlier candidate
+        // events without adding any control writes inside the candidate.
+        observers += object : FileObserver(barrierDirectory, FileObserver.DELETE) {
+            override fun onEvent(event: Int, path: String?) {
+                if (path == barrierName && event and FileObserver.DELETE != 0) barrier.get()?.countDown()
+            }
+        }.also { it.startWatching() }
+        fun drain() {
+            val pending = CountDownLatch(1)
+            barrier.set(pending)
+            val marker = File(barrierDirectory, barrierName)
+            marker.writeBytes(byteArrayOf(0))
+            check(marker.delete())
+            check(pending.await(10, TimeUnit.SECONDS)) { "Consent observer event barrier timed out" }
         }
         fun hash(root: File): String {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -54,18 +76,22 @@ internal object AppDataSmoke {
                 "<string name=\"MediaDirectory\" value=\"\" />\n")
             observe(candidate)
             observe(settings.parentFile!!)
-            observe(settings)
             // Both evidence mechanisms have positive controls using actual reads
             // and writes. Never accept a quiet observer that cannot see access.
             val originalHash = hash(candidate)
             settings.readText()
-            Thread.sleep(300)
-            check(events.isNotEmpty()) { "FileObserver positive control saw no real reads" }
+            drain()
+            check(events.any { it.first == candidate && it.third == null && it.second and FileObserver.OPEN != 0 }) {
+                "FileObserver positive control saw no directory enumeration"
+            }
+            check(events.any { it.first == settings.parentFile && it.third == settings.name && it.second and FileObserver.ACCESS != 0 }) {
+                "FileObserver positive control saw no settings-file reads"
+            }
             settings.appendText("\n")
             check(hash(candidate) != originalHash) { "Tree hash positive control did not detect a write" }
             settings.writeText(settings.readText().removeSuffix("\n"))
             val before = hash(candidate)
-            Thread.sleep(300)
+            drain()
             events.clear()
             configurator = probe.startActivitySync(Intent(context, ConfiguratorActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ConfiguratorActivity
@@ -89,7 +115,7 @@ internal object AppDataSmoke {
             val recovery = probe.uiAutomation.rootInActiveWindow ?: error("Configuration error UI missing")
             check(recovery.findAccessibilityNodeInfosByText(
                 "Choose and confirm the application-data folder").isNotEmpty())
-            Thread.sleep(300)
+            drain()
             val beforeHash = events.toList()
             observers.forEach { it.stopWatching() }
             check(beforeHash.isEmpty()) { "Pre-consent access: $beforeHash" }
@@ -184,6 +210,7 @@ internal object AppDataSmoke {
             observers.forEach { it.stopWatching() }
             configurator?.let { probe.runOnMainSync { it.finish() } }
             check(sandbox.deleteRecursively())
+            check(barrierDirectory.delete())
         }
     }
 }
