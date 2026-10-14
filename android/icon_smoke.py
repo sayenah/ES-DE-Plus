@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Pixel Plus evidence from the real system UI.
 import re
-import xml.etree.ElementTree as ET
 import pdf_smoke
 
 
@@ -90,48 +89,61 @@ def capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, t
     record('icon-api34-app-info')
     home()
 
-    # The google_apis image ships AOSP Launcher3, whose themed_icons preference
-    # has no Wallpaper & Style switch. Enable its real mode on the userdebug
-    # emulator, using the preference documented by AOSP Themes/LauncherPrefs.
-    # Only the stock launcher's preference changes; restore it in finally.
-    assert package == 'com.android.launcher3', ('Unsupported themed-icon launcher', stock)
-    print(adb('root'), flush=True)
-    adb('wait-for-device')
-    preference = '/data/user/0/' + package + '/shared_prefs/com.android.launcher3.prefs.xml'
-    shell('am', 'force-stop', package)
-    original = shell('cat', preference)
-    owner = shell('stat', '-c', '%u:%g', preference).strip()
-    document = ET.fromstring(original)
-    for node in list(document):
-        if node.get('name') == 'themed_icons':
-            document.remove(node)
-    ET.SubElement(document, 'boolean', name='themed_icons', value='true')
-    temporary = evidence / 'icon-launcher-preference.xml'
+    # Use the stock launcher's actual Wallpaper & style UI. The google_apis
+    # image includes Pixel Launcher; do not assume another launcher's private
+    # preferences or replace a real themed-icon screenshot with a preview.
+    def theme_toggle():
+        candidates = []
+        for parent in hierarchy():
+            children = list(parent.iter('node'))
+            switches = [n for n in children if n.get('checkable') == 'true' and
+                        n.get('class', '').endswith('Switch')]
+            if len(switches) == 1 and any(matches(n, 'Themed icons') for n in children):
+                candidates.append((len(children), switches[0]))
+        return min(candidates, key=lambda item: item[0])[1] if candidates else None
 
-    def write_preference(value):
-        temporary.write_text(value)
-        adb('push', str(temporary), preference)
-        shell('chown', owner, preference)
-        shell('chmod', '660', preference)
-        shell('restorecon', preference)
+    def open_theme_settings():
+        home()
+        x, y = width // 4, height // 2
+        shell('input', 'swipe', str(x), str(y), str(x), str(y), '1000')
+        names = ['Wallpaper & style', 'Wallpapers & style']
+        wait_for(lambda: any(target(name) is not None for name in names), 'real Wallpaper & style menu')
+        record('icon-api34-wallpaper-menu')
+        tap(next(target(name) for name in names if target(name) is not None))
+        wait_for(lambda: target('Home screen') is not None or theme_toggle() is not None,
+                 'Wallpaper & style Home screen controls')
+        if target('Home screen') is not None:
+            tap(target('Home screen'))
+        for _ in range(8):
+            toggle = theme_toggle()
+            if toggle is not None:
+                return toggle
+            shell('input', 'swipe', str(width // 2), str(height * 4 // 5),
+                  str(width // 2), str(height // 3), '500')
+        record('icon-api34-missing-themed-toggle')
+        raise AssertionError('The real Wallpaper & style UI has no Themed icons switch')
 
+    toggle = open_theme_settings()
+    original = toggle.get('checked')
+    assert original in ('true', 'false'), ('Missing themed-icon switch state', toggle.attrib)
     try:
-        write_preference(ET.tostring(document, encoding='unicode'))
-        enabled = shell('cat', preference)
-        assert ET.fromstring(enabled).find("boolean[@name='themed_icons']").get('value') == 'true'
-        (evidence / 'icon-api34-themed-mode.txt').write_text(
-            'Real AOSP Launcher3 themed_icons=true, read back before launcher restart.\n' + enabled)
+        if original != 'true':
+            tap(toggle)
+        wait_for(lambda: theme_toggle() is not None and theme_toggle().get('checked') == 'true',
+                 'real Themed icons switch checked')
+        record('icon-api34-themed-setting')
         home()
         wait_for(lambda: target(label) is not None, 'Pixel Plus in themed launcher HOME')
         record('icon-api34-themed-launcher')
         themed = colour_counts(evidence / 'icon-api34-themed-launcher.png')
         assert max(themed) < 5, ('Themed HOME still shows colour layers', themed, bounds)
-        with (evidence / 'icon-api34-themed-mode.txt').open('a') as output:
-            output.write(f'PASS: actual HOME icon colour samples normal={normal}, themed={themed}; monochrome mode rendered.\n')
+        (evidence / 'icon-api34-themed-mode.txt').write_text(
+            f'PASS: real Wallpaper & style Themed icons switch checked=true; actual HOME icon '
+            f'colour samples normal={normal}, themed={themed}; monochrome mode rendered.\n')
     finally:
-        shell('am', 'force-stop', package)
-        write_preference(original)
-        temporary.unlink(missing_ok=True)
+        toggle = open_theme_settings()
+        if toggle.get('checked') != original:
+            tap(toggle)
+        wait_for(lambda: theme_toggle() is not None and theme_toggle().get('checked') == original,
+                 'original themed-icon setting restored through UI')
         home()
-        print(adb('unroot'), flush=True)
-        adb('wait-for-device')
