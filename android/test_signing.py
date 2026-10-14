@@ -123,11 +123,13 @@ def credential_file(encoded, password):
     require(not pathlib.Path(temporary).exists(), 'Signing material cleanup failed')
 
 
-def reject(label, action):
+def reject(label, action, expected_message=None):
     try:
         action()
-    except (ValueError, FileNotFoundError):
-        print('PASS: rejected ' + label)
+    except (ValueError, FileNotFoundError) as error:
+        if expected_message:
+            require(expected_message in str(error), 'Control failed for the wrong reason: ' + label)
+        print('PASS: rejected ' + label + ': ' + str(error))
     else:
         raise ValueError('Rejection control escaped: ' + label)
 
@@ -196,18 +198,18 @@ def fixture_signing():
             sign(UNSIGNED_RELEASE, RELEASE, key, 'fixture', password)
             pathlib.Path('android/evidence/test-signer.txt').write_text(cert + '\n')
         # Real signed APKs, not mocked verifier output.
-        reject('ephemeral signer at the production pin', lambda: inspect_apk(UPDATE / 'higher.apk', TEST_CERT_SHA256))
+        reject('ephemeral signer at the production pin', lambda: inspect_apk(UPDATE / 'higher.apk', TEST_CERT_SHA256), 'exactly one signer')
         extra = directory / 'extra.apk'
         sign(DEBUG, extra, key, 'fixture', password, additional=other)
-        reject('additional signer', lambda: inspect_apk(extra, cert))
+        reject('additional signer', lambda: inspect_apk(extra, cert), 'exactly one signer')
         wrong = directory / 'wrong.apk'
         sign(DEBUG, wrong, other, 'fixture', password)
-        reject('different single signer', lambda: inspect_apk(wrong, cert))
+        reject('different single signer', lambda: inspect_apk(wrong, cert), 'exactly one signer')
         tampered = directory / 'tampered.apk'
         data = bytearray((UPDATE / 'higher.apk').read_bytes())
         data[100] ^= 1
         tampered.write_bytes(data)
-        reject('tampered APK', lambda: inspect_apk(tampered, cert))
+        reject('tampered APK', lambda: inspect_apk(tampered, cert), 'signature verification failed')
         # Drive cleanup on actual signing failure, recording no tool output.
         for label, encoded, secret in [('missing credentials', '', ''), ('corrupt credentials', '!', password),
                                         ('failed signer', base64.b64encode(b'not a keystore').decode(), password)]:
