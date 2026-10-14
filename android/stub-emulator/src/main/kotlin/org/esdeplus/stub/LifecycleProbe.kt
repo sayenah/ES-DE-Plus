@@ -53,9 +53,31 @@ class LifecycleProbe : Instrumentation() {
         check(released.await(20, TimeUnit.SECONDS)) { "Startup barrier did not release" }
     }
 
+    override fun newActivity(loader: ClassLoader, className: String, intent: Intent): Activity {
+        if (mode == "recreate-startup" && className == "org.esdeplus.frontend.MainActivity") {
+            val type = loader.loadClass("org.esdeplus.frontend.StartupProbeActivity")
+            type.getField("beforeDeviceInfo").set(null, java.util.function.Consumer<Activity> { activity ->
+                if (!earlyTriggered) {
+                    val bridge = activity.javaClass.superclass!!.getDeclaredMethod("getBridge")
+                        .apply { isAccessible = true }.invoke(activity)
+                    val storage = bridge.javaClass.getDeclaredField("storage").apply { isAccessible = true }.get(bridge)
+                    val preferences = storage.javaClass.declaredFields.single {
+                        SharedPreferences::class.java.isAssignableFrom(it.type)
+                    }.apply { isAccessible = true }.get(storage) as SharedPreferences
+                    val saved = preferences.all
+                    destroyAtBarrier(activity)
+                    check(preferences.all == saved) { "Persisted storage selection changed" }
+                    Log.i("ES-DE-Plus-Probe", "Lifecycle installed-resource selection preserved")
+                }
+            })
+            return type.getDeclaredConstructor().newInstance() as Activity
+        }
+        return super.newActivity(loader, className, intent)
+    }
+
     override fun callActivityOnCreate(activity: Activity, state: Bundle?) {
         super.callActivityOnCreate(activity, state)
-        if (mode !in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup") ||
+        if (mode !in listOf("recreate-early", "recreate-preconfiguration") ||
             activity.javaClass.name != "org.esdeplus.frontend.MainActivity") return
         if (earlyTriggered) return
         // Forward every real SDK result. Delay one resource or configuration
@@ -94,7 +116,7 @@ class LifecycleProbe : Instrumentation() {
         field.set(bridge, object : ContextWrapper(original) {
             override fun getAssets(): AssetManager {
                 if (!earlyTriggered && Thread.currentThread().name == "SDLThread" &&
-                    Thread.currentThread().stackTrace.any { it.methodName == (if (mode == "recreate-startup") "checkNeedResourceCopy" else "setupResources") &&
+                    Thread.currentThread().stackTrace.any { it.methodName == "setupResources" &&
                         it.className == "org.esdeplus.frontend.NativeBridge" }) {
                     destroyAtBarrier(activity)
                     check(preferences.all == saved) { "Persisted storage selection changed" }
@@ -118,8 +140,8 @@ class LifecycleProbe : Instrumentation() {
             val command = File("/data/local/tmp/esde-lifecycle-command")
             if (mode in listOf("restart-wait", "restart-timeout")) {
                 // Isolated helper probe: keep its real parent alive beyond the
-                // former 5-second deadline, then end this test process. This
-                // does not exercise or change the destruction timing gate.
+                // former 5-second deadline. This does not exercise or change
+                // the native destruction timing gate.
                 val entry = Intent(Intent.ACTION_MAIN).setClassName(targetContext.packageName,
                     "org.esdeplus.frontend.MainActivity").addCategory(Intent.CATEGORY_LAUNCHER)
                 targetContext.startActivity(Intent().setClassName(targetContext.packageName,
@@ -127,14 +149,12 @@ class LifecycleProbe : Instrumentation() {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra("parentPid", Process.myPid()).putExtra("entry", entry))
                 Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent pid=${Process.myPid()}")
-                val deadline = System.nanoTime() + 180_000_000_000L
-                while (!command.isFile) {
-                    check(System.nanoTime() < deadline) { "Slow-parent helper barrier timed out" }
-                    Thread.sleep(20)
-                }
-                Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent exiting")
-                Process.killProcess(Process.myPid())
-                return
+                // Instrumentation death makes ActivityManager remove every
+                // activity of the target package, including the helper. Keep
+                // this isolated, Java-only parent alive for the visibility
+                // checks; ordinary framework cases verify actual restoration.
+                Thread.sleep(180_000)
+                error("Isolated helper visibility control did not complete")
             }
             if (mode == "recreate-early") {
                 // Generated packaged content, not user data. Its real repair
@@ -145,7 +165,8 @@ class LifecycleProbe : Instrumentation() {
             val activity = startActivitySync(Intent(Intent.ACTION_MAIN)
                 .setClassName(targetContext.packageName, "org.esdeplus.frontend.MainActivity")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            check(activity.javaClass.name == "org.esdeplus.frontend.MainActivity")
+            check(activity.javaClass.name == if (mode == "recreate-startup")
+                "org.esdeplus.frontend.StartupProbeActivity" else "org.esdeplus.frontend.MainActivity")
             Log.i("ES-DE-Plus-Probe", "Lifecycle probe ready mode=$mode pid=${Process.myPid()}")
             val deadline = System.nanoTime() + 60_000_000_000L
             if (mode !in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup")) {

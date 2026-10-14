@@ -12,7 +12,7 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 import org.libsdl.app.SDLActivity
 
-class MainActivity : SDLActivity() {
+open class MainActivity : SDLActivity() {
     @Volatile private var destroying = false
     @Volatile private var configured = false
     @Volatile private var restartRequested = false
@@ -122,7 +122,7 @@ class MainActivity : SDLActivity() {
     fun getInternalDirectory() = bridge.getInternalDirectory()
     fun getWifiStatus() = bridge.getWifiStatus()
     fun getWindowSize() = bridge.getWindowSize()
-    fun getDeviceInfo() = bridge.getDeviceInfo()
+    open fun getDeviceInfo() = bridge.getDeviceInfo()
     fun getInternalDataDirectory() = bridge.getInternalDataDirectory()
     fun getAppDataDirectory() = bridge.getAppDataDirectory()
     fun getROMDirectory() = bridge.getROMDirectory()

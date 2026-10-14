@@ -86,6 +86,7 @@ for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
+assert ('Lorg/esdeplus/frontend/StartupProbeActivity;' in classes) != release
 required_methods = {
     ('checkConfigurationNeeded', '()Z'),
     ('checkEmulatorInstalled', '(Ljava/lang/String;Ljava/lang/String;)Z'),
