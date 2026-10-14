@@ -90,7 +90,11 @@ def build(root):
 
 
 def assemble(copied, copied_apk):
-    exclusions = []
+    # Relocating the project changes AGP's CMake model hash. Keep the copied
+    # normal build's merged/stripped JNI outputs as well as its compiled code;
+    # otherwise a fresh merge drops the native targets whose tasks are excluded.
+    exclusions = ['--exclude-task', ':app:mergeDebugNativeLibs',
+                  '--exclude-task', ':app:stripDebugDebugSymbols']
     # Only this manifest-only control reuses the native code already compiled by
     # normal assembleDebug on both ABIs. The ordinary debug/release builds and
     # every audit/smoke gate still run. Re-running native CMake here can link the
@@ -109,8 +113,10 @@ def validate(apk, control):
                    re.fullmatch(r'classes\d*\.dex|resources\.arsc', p)}
         assert payload and any(p.startswith('lib/arm64-v8a/') for p in payload)
         assert any(p.startswith('lib/x86_64/') for p in payload)
-        assert payload == {p for p in after.namelist() if p.startswith(('lib/', 'assets/', 'res/')) or
-                           re.fullmatch(r'classes\d*\.dex|resources\.arsc', p)}
+        actual = {p for p in after.namelist() if p.startswith(('lib/', 'assets/', 'res/')) or
+                  re.fullmatch(r'classes\d*\.dex|resources\.arsc', p)}
+        assert payload == actual, ('Control payload entries differ: '
+                                   f'missing={sorted(payload - actual)}, extra={sorted(actual - payload)}')
         assert all(before.read(p) == after.read(p) for p in payload), 'Control changed executable/assets payload'
     aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt'
     badging = subprocess.check_output([str(aapt), 'dump', 'badging', str(control)], text=True)
