@@ -192,7 +192,7 @@ def run(mode, harness, minified=False):
         controls(before, current(), 'test leaves files/default/statistics unchanged')
         h.evidence.joinpath('emulator-manager-' + mode + '-test-recipient.json.txt').write_text(json.dumps(observation, indent=2))
         h.key('KEYCODE_BACK')
-        h.wait_for(lambda: h.app in h.focused_window(), 'test return keeps editable draft')
+        h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'test return keeps editable draft')
         h.screenshot('emulator-manager-' + mode + '-test-return')
         h.key('KEYCODE_ENTER')  # Close the accepted-request notice.
         # Test refusal must also preserve the candidate. App-private SAF is refused.
@@ -225,7 +225,10 @@ def run(mode, harness, minified=False):
         controls(fixture_data['sha256'], provider.get('sha256'), 'provider exact ZIP bytes')
         controls(True, provider['data'].startswith('content://' + h.app + '.roms/'), 'provider chosen explicitly')
         controls(before, current(), 'provider test isolation')
-        h.key('KEYCODE_BACK'); h.wait_for(lambda: h.app in h.focused_window(), 'provider test return'); h.key('KEYCODE_ENTER')
+        h.key('KEYCODE_BACK')
+        h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'provider test return')
+        h.screenshot('emulator-manager-' + mode + '-provider-test-return')
+        h.key('KEYCODE_ENTER')
         pick(17)
         h.wait_for(lambda: 'Emulator manager saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'manager saved')
         h.wait_for(lambda: 'Total game count: 2' in h.log(), 'both case extensions visible immediately')
