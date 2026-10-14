@@ -154,6 +154,8 @@ print(badging)
 # Follow the resource table, including release-shortened ZIP paths. Validate
 # every compiled adaptive layer and mark selected by the packaged resources.
 resource_table = subprocess.check_output([str(aapt), 'dump', '--values', 'resources', str(apk)], text=True)
+pathlib.Path('android/evidence').mkdir(exist_ok=True)
+pathlib.Path('android/evidence/identity-resources' + ('-release' if release else '-debug') + '.txt').write_text(resource_table)
 resources = {}
 resource_names = {}
 current = None
@@ -172,7 +174,9 @@ def resource_reference(value):
     return resource_names[int(match[1], 16)]
 
 def compiled_art(name):
-    source = pathlib.Path('android/app/src/main/res') / (name + '.xml')
+    kind, basename = name.split('/')
+    directory = 'mipmap-anydpi' if kind == 'mipmap' else kind
+    source = pathlib.Path('android/app/src/main/res') / directory / (basename + '.xml')
     expected_nodes = list(ET.parse(source).getroot().iter())
     assert resources.get(name), ('Missing packaged art', name)
     for path in sorted(resources[name]):
