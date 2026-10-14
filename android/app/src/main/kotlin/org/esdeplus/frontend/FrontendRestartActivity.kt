@@ -39,7 +39,15 @@ class FrontendRestartActivity : Activity() {
                 started = true
                 Log.i("ES-DE-Plus", "SDL process $parentPid retired; restarting entry ${entry.component}")
                 try {
-                    startActivity(Intent(entry).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                    // Android assigns the real HOME type to an implicit HOME
+                    // intent. Explicit app-originated launches are standard
+                    // activities on newer Android; restrict resolution to our
+                    // own package so no other launcher or chooser can open.
+                    val restart = if (entry.hasCategory(Intent.CATEGORY_HOME) &&
+                        entry.component?.className?.endsWith(".HomeEntry") == true)
+                        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(packageName)
+                    else Intent(entry)
+                    startActivity(restart.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
                     finish()
                 } catch (error: RuntimeException) {
                     started = false

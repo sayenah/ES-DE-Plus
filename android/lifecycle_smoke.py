@@ -44,7 +44,8 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         h.adb('logcat', '-c')
         if home:
             harness['startup_baseline'] = h.log()
-            h.start_entry('HomeEntry', 'android.intent.category.HOME')
+            h.shell('am', 'start', '-a', 'android.intent.action.MAIN',
+                    '-c', 'android.intent.category.HOME', '-p', h.app)
         else:
             h.launch()
         h.configured_system(name + '-before')
@@ -391,7 +392,7 @@ def run(harness):
     h.adb('install', '-r', str(h.apk))
     (h.evidence / 'lifecycle-summary.txt').write_text(
         '\n'.join(failures) + '\n' if failures else
-        'PASS: debug and minified helper wait/timeout recovery, framework/HOME recreation with automatic product restoration, resource-startup, installed-resource startup and preconfiguration recreation, running/background recreation and running finish; 5 s bound, saved-state startup exit or running native return/join, no second main, next launch.\n')
+        'PASS: debug/minified helper wait and timeout recovery, ordinary framework/HOME/STOPPED relaunch and resource/preconfiguration/running/finish probes; debug-only installed-resource startup checkpoint; 5 s destruction bound, saved-state exit or native return/join, no second main, clean next entry.\n')
     assert not failures, '\n'.join(failures)
     h.start_entry('HomeEntry', 'android.intent.category.HOME')
     h.configured_system('lifecycle-restored-home')
