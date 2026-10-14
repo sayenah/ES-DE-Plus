@@ -378,7 +378,12 @@ def run(mode, harness, minified=False):
         fixture('cleanup')
         for name, content in original.items(): h.user_file('custom_systems/' + name, content)
         h.user_file('settings/es_settings.xml', original_settings)
-    # Cleanup deliberately stops the fixture frontend. Restore the caller's
-    # original library and a fully started native activity before its warm-entry
-    # checks; this is a new launch, not a retry of a failed lifecycle operation.
-    h.launch()
+    # Match the PDF/launch-probe helper contract: the inherited warm-alias
+    # assertions require a live HOME task, not a drawer task. Restore that
+    # precondition after fixture cleanup without retrying any failed operation.
+    h.wait_for(lambda: not h.shell('pidof', h.app, check=False).strip(),
+               'manager frontend stopped before restoring HOME')
+    h.adb('logcat', '-c')
+    h.start_entry('HomeEntry', 'android.intent.category.HOME')
+    h.configured_system('emulator-manager-' + mode + '-restored-home')
+    controls(True, 'HOME=true' in h.adb('logcat', '-d'), 'HOME precondition after manager smoke')
