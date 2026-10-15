@@ -139,12 +139,32 @@ def fatal_lines(logcat, pid, app):
             and re.search(r'FORTIFY|Fatal signal|tombstone|>>>.*' + re.escape(app), line, re.I)]
 
 
+def after_marker(logcat, marker):
+    lines = logcat.splitlines()
+    boundary = [index for index, line in enumerate(lines)
+                if re.search(r'\bI\s+ESDEPlusAudio\s*:\s*' + re.escape(marker) + r'$', line)]
+    assert len(boundary) == 1, 'Audio action log boundary missing or ambiguous'
+    return '\n'.join(lines[boundary[0] + 1:])
+
+
 def controls():
     assert fatal_lines('10-14 00:00:00.000 123 124 F libc: Fatal signal 6', '123', 'app')
     assert not fatal_lines('10-14 00:00:00.000 555 556 F libc: Fatal signal 6', '123', 'app')
     assert fatal_lines('10-14 00:00:00.000 123 124 F libc: FORTIFY: destroyed mutex', '123', 'app')
     assert not fatal_lines('10-14 00:00:00.000 123 124 I AudioTrack: start', '123', 'app')
-    return 'PASS: app crash detector rejects unrelated PIDs and ordinary audio startup.\n'
+    old_fatal = '10-14 00:00:00.000 123 124 F libc: Fatal signal 6'
+    marker = '10-14 00:00:01.000 555 556 I ESDEPlusAudio: boundary-test'
+    new_fatal = '10-14 00:00:02.000 123 124 F libc: FORTIFY: destroyed mutex'
+    assert not fatal_lines(after_marker(old_fatal + '\n' + marker, 'boundary-test'), '123', 'app')
+    assert fatal_lines(after_marker(marker + '\n' + new_fatal, 'boundary-test'), '123', 'app')
+    for invalid in (old_fatal, marker + '\n' + marker):
+        try:
+            after_marker(invalid, 'boundary-test')
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Invalid audio log boundary accepted')
+    return 'PASS: app crash detector and verified per-action log boundary controls.\n'
 
 
 def image_distance(first, second):
@@ -180,12 +200,21 @@ def cycle(h, name, count, allow_crash=False):
                 before = h.log()
                 reloads = before.count('Window size has changed from ')
                 setups = before.count('Setting up AudioManager...')
-                h.adb('logcat', '-c')
+                # Bound this action without clearing device logs. Logcat's
+                # buffer-clear control can fail independently of log reads.
+                marker = f'{name}-{index + 1}-{size}-{time.monotonic_ns()}'
+                h.shell('log', '-p', 'i', '-t', 'ESDEPlusAudio', marker)
+                def action_logs():
+                    return after_marker(h.adb('logcat', '-d', '-b', 'main,system,crash',
+                                              '-v', 'threadtime'), marker)
+                h.wait_for(lambda: marker in h.adb('logcat', '-d', '-b', 'main,system,crash',
+                                                  '-v', 'threadtime'), 'audio action log boundary')
+                action_logs()  # Verify the boundary before the product action.
                 h.shell('wm', 'size', size)
                 deadline = time.monotonic() + 60
                 while time.monotonic() < deadline:
                     current_pid = h.shell('pidof', h.app, check=False).strip()
-                    logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                    logs = action_logs()
                     fatal = fatal_lines(logs, pid, h.app)
                     if fatal or current_pid != pid:
                         # A lifecycle stall without a native fatal is never a control hit.
@@ -200,7 +229,7 @@ def cycle(h, name, count, allow_crash=False):
                     if new_reloads > 0 and new_setups == new_reloads:
                         time.sleep(2)
                         assert h.shell('pidof', h.app).strip() == pid
-                        assert not fatal_lines(h.adb('logcat', '-d', '-v', 'threadtime'), pid, h.app)
+                        assert not fatal_lines(action_logs(), pid, h.app)
                         assert h.smoke_checks.package_window_focused(h.focused_window(), h.app)
                         current = h.log()
                         assert current.count('Setting up AudioManager...') - setups == current.count(
@@ -237,6 +266,7 @@ def cycle(h, name, count, allow_crash=False):
                         stacks = f'Native backtrace unavailable: {error}\n'
                     (h.evidence / (name + '-reload-timeout-stacks.txt')).write_text(stacks)
                     raise AssertionError(f'{name}: reload failed to complete: cycle={index + 1}, size={size}')
+                row['log_marker'] = marker
                 rows.append(row)
                 (h.evidence / (name + '-cycles.txt')).write_text(json.dumps(rows, indent=2) + '\n')
                 h.save_logs(f'{name}-{index + 1}-{size}')
