@@ -214,10 +214,14 @@ unmapped F12 key must then produce a fresh `Window::logInput` acknowledgement
 within 10 seconds. Missing start/liveness proof is a hard failure. Stall evidence
 includes app-owned SIGQUIT all-thread traces (including native frames), app
 file-descriptor socket inodes and shell TCP/UDP tables, collected before
-cancellation. `adb bugreport` retrieves the traces even on production images;
+cancellation. A fast `debuggerd` snapshot is preferred when `adb root` is
+available, with privilege dropped afterward. Otherwise `adb bugreport` retrieves
+the app-owned SIGQUIT traces even on production images;
 only the matching app/PID trace text is retained, and the temporary raw report
 is deleted. No root or extra package is required. Diagnostic collection has a
 two-minute budget within the whole-network budget.
+Cleanup preserves live logs/window/fds without starting another whole-device
+bugreport after an earlier diagnostic failure.
 Each operation/attempt has separate evidence names, such as
 `network-fixed-theme-download-attempt2-stalled-request-stacks.txt`. Failures are
 captured while the process is still live, before cleanup force-stops it.

@@ -362,7 +362,8 @@ def run_checks(harness):
             return ''
         # The debug APK owns its SIGQUIT request and fd snapshot. The shell
         # reads the shared network tables (apps cannot read /proc/net on API 29+).
-        # Bugreport retrieves ART's all-thread traces on production images too;
+        # Prefer the fast native dump where supported; bugreport retrieves
+        # ART's all-thread traces on production images too;
         # only this PID/app's trace text is retained, never the raw archive.
         sockets = h.shell('run-as', h.app, 'sh', '-c',
             f'exec 2>&1; cat /proc/{pid}/status; echo "FD LINKS"; ls -l /proc/{pid}/fd', check=False)
@@ -370,26 +371,43 @@ def run_checks(harness):
                            'do echo "TABLE $table"; cat /proc/net/$table; done', check=False)
         h.evidence.joinpath(stem + '-sockets.txt').write_text(sockets)
         stack_file = h.evidence.joinpath(stem + '-stacks.txt')
-        stack_file.write_text(f'Collecting app-owned SIGQUIT traces for PID {pid}\n')
-        before_dump = h.adb('logcat', '-d', '--pid=' + pid)
-        h.shell('run-as', h.app, 'kill', '-3', pid)
-        def dump_finished():
-            output = h.adb('logcat', '-d', '--pid=' + pid)
-            assert output.startswith(before_dump), 'App diagnostic log reset during SIGQUIT'
-            return 'Wrote stack traces to tombstoned' in output[len(before_dump):]
-        h.wait_for(dump_finished, 'fresh app-owned thread dump completed', timeout=20)
-        h.evidence.joinpath(stem + '-dump-logcat.txt').write_text(h.adb('logcat', '-d', '--pid=' + pid))
-        parent = pathlib.Path('android/.deps/network')
-        parent.mkdir(parents=True, exist_ok=True)
+        stack_file.write_text(f'Collecting frontend thread stacks for PID {pid}\n')
         stacks = ''
-        with tempfile.TemporaryDirectory(prefix='traces-', dir=parent) as temporary:
-            report = pathlib.Path(temporary) / 'report.zip'
-            h.adb('bugreport', str(report))
-            with zipfile.ZipFile(report) as archive:
-                for entry in archive.namelist():
-                    if entry.startswith('FS/data/anr/') or (entry.startswith('bugreport-') and entry.endswith('.txt')):
-                        stacks += process_stacks(archive.read(entry).decode(errors='replace'), pid, h.app)
-        stack_file.write_text(stacks or 'No matching app/PID trace found in bugreport\n')
+        root = h.adb('root', check=False)
+        if 'cannot run as root' not in root:
+            try:
+                h.adb('wait-for-device')
+                h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '0',
+                           'native diagnostic shell', timeout=10)
+                stacks = h.shell('sh', '-c', f'debuggerd -b {pid} 2>&1', check=False)
+            finally:
+                h.adb('unroot', check=False)
+                h.adb('wait-for-device')
+                h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '2000',
+                           'ordinary shell after frontend diagnostics', timeout=10)
+        # Production images reject root. Required stall/control snapshots use
+        # the app-owned dump below. Cleanup retains live logs/fds without
+        # starting a second whole-device report after an earlier failure.
+        if not re.search(r'#00\s+pc\s', stacks) and required:
+            before_dump = h.adb('logcat', '-d', '--pid=' + pid)
+            h.shell('run-as', h.app, 'kill', '-3', pid)
+            def dump_finished():
+                output = h.adb('logcat', '-d', '--pid=' + pid)
+                assert output.startswith(before_dump), 'App diagnostic log reset during SIGQUIT'
+                return 'Wrote stack traces to tombstoned' in output[len(before_dump):]
+            h.wait_for(dump_finished, 'fresh app-owned thread dump completed', timeout=20)
+            h.evidence.joinpath(stem + '-dump-logcat.txt').write_text(h.adb('logcat', '-d', '--pid=' + pid))
+            parent = pathlib.Path('android/.deps/network')
+            parent.mkdir(parents=True, exist_ok=True)
+            stacks = ''
+            with tempfile.TemporaryDirectory(prefix='traces-', dir=parent) as temporary:
+                report = pathlib.Path(temporary) / 'report.zip'
+                h.adb('bugreport', str(report))
+                with zipfile.ZipFile(report) as archive:
+                    for entry in archive.namelist():
+                        if entry.startswith('FS/data/anr/') or (entry.startswith('bugreport-') and entry.endswith('.txt')):
+                            stacks += process_stacks(archive.read(entry).decode(errors='replace'), pid, h.app)
+        stack_file.write_text(stacks or 'No native trace captured; live process/window/socket evidence retained\n')
         if required:
             assert re.search(r'#00\s+pc\s', stacks), 'No frontend thread backtrace captured'
             assert 'Uid:' in sockets and 'FD LINKS' in sockets and 'local_address' in sockets and \
