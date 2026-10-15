@@ -282,6 +282,9 @@ jobs:
           (destination / 'native-outputs.txt').write_text(text)
           print(text)
           PYCODE
+      - name: Build isolated unfixed audio control (runner only)
+        if: ${{ matrix.image != 'api34' }}
+        run: python3 android/audio_smoke.py build-control
       - name: Assemble unsigned minified release APK
         id: release
         run: |
@@ -452,6 +455,7 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/audio_smoke.py control
             python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}

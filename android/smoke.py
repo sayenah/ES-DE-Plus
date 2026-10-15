@@ -14,6 +14,7 @@ import launch_checks
 import pdf_smoke
 import smoke_support
 import network_smoke
+import audio_smoke
 import json
 import os
 import tempfile
@@ -1098,7 +1099,7 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
-    if device_api in (29, 34):
+    if device_api in (29, 34) and '--audio-control' not in sys.argv:
         import update_smoke
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
@@ -1276,6 +1277,9 @@ try:
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
+    if '--audio-control' in sys.argv:
+        audio_smoke.run_control(globals())
+    audio_smoke.run(globals())
     network_smoke.run(globals())
     launch_contract_probes('direct')
     shell('am', 'force-stop', app)
@@ -1661,6 +1665,8 @@ try:
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
+except audio_smoke.ControlComplete:
+    pass
 except BaseException:
     save_logs('failure')
     screenshot('failure')
