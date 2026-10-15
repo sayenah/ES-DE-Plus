@@ -330,6 +330,8 @@ static void layouts()
                                         std::abs(-std::sin(angle) - actions[i].y) < 0.001f,
                                     "native Left arrow points in action direction in every layout");
                         }
+                        else
+                            require(b.rotation == 0, "face and pill glyphs stay upright");
                         require(b.hit.w + 0.01f >= 48 * m.density() &&
                                     b.hit.h + 0.01f >= 48 * m.density(),
                                 "48 logical dp target floor");

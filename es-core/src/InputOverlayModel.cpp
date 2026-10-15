@@ -278,8 +278,8 @@ namespace TouchOverlay
                        i < 8  ? mDiameter :
                        i < 10 ? mDiameter * 38 / 52 :
                                 mDiameter * 30 / 78;
-            // Rotate the native Left arrow into the action's direction.
-            b.rotation = i == 0 ? 90 : i == 1 ? -90 : i == 2 ? 0 : 180;
+            // Rotate only D-pad art; other compact controls keep upright glyphs.
+            b.rotation = i == 0 ? 90 : i == 1 ? -90 : i == 3 ? 180 : 0;
             b.hit = {b.centre.x - cell / 2, b.centre.y - cell / 2, cell, cell};
         }
     }

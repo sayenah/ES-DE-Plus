@@ -224,14 +224,15 @@ class TouchSmoke : Instrumentation() {
                 if (actionName == "inventory") {
                     check(menu == "importer")
                     val by = SystemClock.elapsedRealtime() + 20_000
-                    while (SystemClock.elapsedRealtime() < by &&
-                        !log.readText().substring(injectionOffset).contains("InputOverlay: importer cancellation boundary"))
-                        SystemClock.sleep(5)
-                    val observed = log.readText().substring(injectionOffset)
-                    check(observed.contains("InputOverlay: importer cancellation boundary")) {
-                        "Real importer did not reach its first blocking render: $observed"
+                    var observed = ""
+                    var cancelled = false
+                    while (!cancelled && SystemClock.elapsedRealtime() < by) {
+                        observed = log.readText().substring(injectionOffset)
+                        cancelled = observed.contains("InputOverlay: importer cancellation boundary") &&
+                            heldControls(observed).isEmpty()
+                        if (!cancelled) SystemClock.sleep(5)
                     }
-                    check(heldControls(observed).isEmpty()) { "Importer retained accepted holds" }
+                    check(cancelled) { "Real importer did not cancel accepted holds: $observed" }
                     snapshot("importer-cancelled")
                     record.append("INVENTORY: cancellation boundary observed; physical pointers remain down\n")
                     continue
