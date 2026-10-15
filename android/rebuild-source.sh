@@ -16,7 +16,14 @@ export JOBS=${JOBS:-2}
 tools/Android_dependencies_build.sh arm64-v8a
 tools/Android_dependencies_build.sh x86_64
 tools/Android_dependencies_setup.sh
-(cd android; ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease :app:auditRuntimeLicences)
+# git archive has no .git; use the exact public version recorded in the bundle.
+read -r rebuild_code rebuild_name < <(python3 - "$bundle/manifest.json" <<'PYCODE'
+import json, sys
+record = json.load(open(sys.argv[1]))['apk']
+print(record['version_code'], record['version_name'])
+PYCODE
+)
+(cd android; ./gradlew --no-daemon -Pesde.versionCode="$rebuild_code" -Pesde.versionName="$rebuild_name" :app:assembleDebug :app:assembleRelease :app:auditRuntimeLicences)
 python3 android/license-inputs.py audit android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/release/app-release-unsigned.apk "$ANDROID_NDK_HOME"
 python3 android/check-elf.py android/app/build/outputs/apk/debug/app-debug.apk
 python3 android/check-identity.py android/app/build/outputs/apk/debug/app-debug.apk
