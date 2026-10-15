@@ -439,14 +439,16 @@ jobs:
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
-      - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+      - name: Collect unfixed audio controls in an isolated AVD
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && matrix.image != 'api34' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
           arch: x86_64
           target: ${{ matrix.target }}
           profile: ${{ matrix.profile }}
+          avd-name: audio-unfixed-control
+          force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           sdcard-path-or-size: 512M
           disable-animations: true
@@ -456,8 +458,28 @@ jobs:
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/audio_smoke.py control
+      - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: frontend-fixed
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
-            python3 android/audio_smoke.py control-status
+      - name: Require unfixed audio control success
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && matrix.image != 'api34' }}
+        run: python3 android/audio_smoke.py control-status
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/

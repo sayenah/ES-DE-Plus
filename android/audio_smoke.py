@@ -84,6 +84,9 @@ def control_launch():
         result = subprocess.run([sys.executable, 'android/smoke.py', str(CONTROL / 'unfixed.apk'),
                                  '--audio-control'], cwd=ROOT)
         (ROOT / 'android/evidence/audio-control-result.txt').write_text(str(result.returncode) + '\n')
+        if result.returncode:
+            for failure in (ROOT / 'android/evidence').glob('failure*'):
+                shutil.copyfile(failure, failure.with_name('audio-control-' + failure.name))
     finally:
         # Controls use the normal SDK debug signer, preceding the full gating
         # smoke's independently signed APK. Never transfer data across signers.
