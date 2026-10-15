@@ -18,8 +18,10 @@
 
 namespace
 {
-    std::atomic<unsigned> audibleMixes {0};
+    std::atomic<unsigned> navigationMixes {0};
+    std::atomic<unsigned> videoMixes {0};
     std::atomic<unsigned> streamReads {0};
+    thread_local bool nextMixIsVideo {false};
 
     template <typename Function> Function real(const char* name)
     {
@@ -34,6 +36,10 @@ extern "C" int SDLCALL SDL_AudioStreamGet(SDL_AudioStream* stream, void* buffer,
 {
     static auto forward {real<decltype(&SDL_AudioStreamGet)>("SDL_AudioStreamGet")};
     const int result {forward(stream, buffer, length)};
+    // AudioManager mixes navigation first, then gets and mixes video PCM.
+    // Sound's loading/conversion calls run on the main thread, so they must
+    // not mark a subsequent mix on the audio callback thread as video.
+    nextMixIsVideo = result > 0;
     if (result > 0)
         ++streamReads;
     return result;
@@ -44,12 +50,17 @@ SDL_MixAudioFormat(Uint8* dst, const Uint8* src, SDL_AudioFormat format, Uint32 
 {
     static auto forward {real<decltype(&SDL_MixAudioFormat)>("SDL_MixAudioFormat")};
     forward(dst, src, format, length, volume);
+    const bool video {nextMixIsVideo};
+    nextMixIsVideo = false;
     if (volume && format == AUDIO_F32) {
         for (Uint32 offset {0}; offset + sizeof(float) <= length; offset += sizeof(float)) {
             float sample;
-            std::memcpy(&sample, dst + offset, sizeof(sample));
+            std::memcpy(&sample, src + offset, sizeof(sample));
             if (sample != 0.0f) {
-                ++audibleMixes;
+                if (video)
+                    ++videoMixes;
+                else
+                    ++navigationMixes;
                 break;
             }
         }
@@ -78,8 +89,8 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
     if (sequence > last) {
         last = sequence;
         {
-            std::ofstream(directory + "/ack.new")
-                << sequence << " " << audibleMixes << " " << streamReads << "\n";
+            std::ofstream(directory + "/ack.new") << sequence << " " << navigationMixes << " "
+                                                  << videoMixes << " " << streamReads << "\n";
         }
         std::rename((directory + "/ack.new").c_str(), (directory + "/ack").c_str());
         SDL_zero(*event);

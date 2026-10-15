@@ -98,15 +98,15 @@ def run(binary, probe, destination):
         assert after[0] > before[0], 'No nonzero navigation PCM after DEINIT_ON_LAUNCH return'
         time.sleep(4)
         video = command('status')
-        assert video[0] > after[0] and video[1] > after[1], 'No decoded video audio after return'
+        assert video[1] > after[1] and video[2] > after[2], 'No decoded video audio after return'
         command('quit')
         assert process.wait(timeout=30) == 0
         assert 'cleanly shutting down' in log()
         assert 'Error:' not in log(), log()
         (destination / 'summary.txt').write_text(
             f'PASS: real dummy-ROM game command; audio setup twice; nonzero navigation mixes '
-            f'after return {before[0]} -> {after[0]}; decoded-video reads {after[1]} -> {video[1]}, '
-            f'nonzero mixes {after[0]} -> {video[0]}; SDL quit/desktop exit status 0.\n')
+            f'after return {before[0]} -> {after[0]}; decoded-video reads {after[2]} -> {video[2]}, '
+            f'nonzero video mixes {after[1]} -> {video[1]}; SDL quit/desktop exit status 0.\n')
         print((destination / 'summary.txt').read_text(), flush=True)
     finally:
         if process.poll() is None:
