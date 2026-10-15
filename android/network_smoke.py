@@ -585,6 +585,7 @@ def run_checks(harness):
                '(clone 300s, scraper 90s, backoff 5s); total work budget 90 minutes, failure evidence 1 minute, '
                'cleanup 5 minutes; no frontend/permission/TLS retries.')
         if h.api == 34:
+            begin('control-startup')
             assert control.is_file(), 'Missing built no-INTERNET APK'
             h.adb('install', '-r', str(control))
             permission(False)
@@ -595,6 +596,7 @@ def run_checks(harness):
             h.adb('install', '-r', str(h.apk))
             # libgit2 cleans its failed clone; never delete user data to pass.
             h.shell('test', '!', '-e', theme_path('themes-list'))
+        begin('fixed-startup')
         permission(True)
         h.launch()
         begin('liveness-control')
