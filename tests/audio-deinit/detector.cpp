@@ -139,6 +139,7 @@ int main(int argc, char* argv[])
     SDL_GetVersion(&version);
     std::printf("SDL %u.%u.%u; mode=%s; cycles=%i\n", version.major, version.minor, version.patch,
                 argv[1], cycles);
+    std::fflush(stdout); // The positive control exits from the callback with _Exit.
     auto& manager = AudioManager::getInstance();
     for (int cycle {0}; cycle < cycles; ++cycle) {
         if (cycle)
@@ -177,6 +178,10 @@ int main(int argc, char* argv[])
         armed = widenWindows;
         manager.deinit();
         armed = false;
+        if (widenWindows) {
+            std::lock_guard<std::mutex> lock {freedMutex};
+            require(!freed.empty(), "armed teardown recorded the released conversion stream");
+        }
         require(AudioManager::sAudioDevice == 0, "device id cleared");
         manager.deinit(); // Idempotent early return.
         // Real main-thread callers during Window::deinit, before the next init.
