@@ -24,19 +24,23 @@ This is basically the onboarding process, and ES-DE should now start up. Just be
 
 Also note that ES-DE does not install any emulators, you need to install those separately. There is more information about that topic later in this document.
 
-If you need to re-run the configurator for some reason then the easiest way is to go into the Android Apps setting screen and revoke the storage access permissions under _Special app access_. This will make the configurator run automatically next time you start ES-DE. Another way to force it to start is to clear the app's storage under _Storage & cache_ but this is normally not recommended as it also deletes all themes you have downloaded using the theme downloader. A third option would be to rename either the ES-DE or ROMs directory as this will also trigger the configurator on next app startup.
+For ES-DE Plus, revoking direct-filesystem storage access opens storage configuration on the next start. Clearing Android app storage deletes private application data and app-owned ROMs; it is not an overlay recovery route. Back up your application-data folder before changing storage configuration.
 
 ## Touch input overlay
 
 By default the touch input overlay will be enabled which makes it possible to use ES-DE without a controller or physical keyboard by overlaying virtual buttons on top of the ES-DE interface. If you are using a device which has a built-in controller you may however want to disable this feature. That is done via the _Enable touch overlay_ option in the _Input device settings_ menu on the main menu. Just be aware that disabling this option on a device where you have no other input method than touch will lock you out of the application.
 
-If you accidentally disable the touch overlay you can force the configurator to run as explained in the previous section above, this will reset the touch overlay setting as long as you have at least pressed the _Begin setup_ button. Another option would of course be to temporarily plug in a controller or keyboard to enable the setting via its menu entry. A third option would be to manually edit the es_settings.xml file in the ES-DE application data directory. The setting you are after is named _InputTouchOverlay_ which should be changed from _false_ to _true_.
+If you accidentally disable the ES-DE Plus touch overlay, temporarily connect a controller or keyboard and enable it via its menu entry, or change _InputTouchOverlay_ from _false_ to _true_ in _settings/es_settings.xml_ in the selected application-data folder while the app is closed. Configurator-based reset is not yet available in ES-DE Plus.
 
 Apart from this there are numerous options for the touch overlay, like the ability to change its size, opacity and fade-out time. Setting the fade-out to zero will make it permanently visible. See the [User guide](USERGUIDE.md) for a complete reference of all app settings and features.
 
+ES-DE Plus provides fourteen controls with fixed A/B/X/Y glyphs; changing the controller type does not change these glyphs. Button swapping changes their actions. Thumbstick clicks and analog sticks are not provided. A fully faded overlay consumes the entire first touch gesture to wake; use a second, non-launch control to dismiss a screensaver. On Android TV automatic startup/resume wakes stay hidden unless fade-out is zero; explicit touch or menu changes show the controls.
+
+Controls use SDL's Android logical density and the visible renderer viewport, with a compact grid when the normal deck cannot fit. The supported visible viewport is at least 288 dp on each dimension; smaller panes have no overlay. Every supported hit target is at least 48 dp. Conservative fixed margins are not window-inset data: cutouts, rounded corners and gesture-navigation edges still need device validation in both orientations. No inset-safety guarantee is made by this implementation.
+
 ## Retention of files and data
 
-Almost all files saved and used by ES-DE are kept in the shared storage on either the device's built-in storage or on the SD card. This means that uninstalling the ES-DE app will not remove any of that data. The only thing that will be deleted are themes that have been downloaded using the built-in theme downloader, as it's not possible to store these in the ES-DE application data directory for technical reasons.
+ES-DE Plus stores downloaded themes under the selected application-data folder alongside settings and media. Android app-private storage, including the scoped-mode ROM folder, is deleted on uninstall or when app storage is cleared. Only folders explicitly selected in shared storage survive uninstall; keep backups.
 
 ## Emulation on Android in general
 

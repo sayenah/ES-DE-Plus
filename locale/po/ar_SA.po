@@ -2995,6 +2995,14 @@ msgstr "اضغط باستمرار على أحد الأزرار الموجودة 
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "اضغط باستمرار على أحد الأزرار الموجودة على لوحة المفاتيح لتكوينه"
 
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
+
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr "(أو اختصار الخروج للخروج في أي وقت) اضغط على ESC لتخطي"
 

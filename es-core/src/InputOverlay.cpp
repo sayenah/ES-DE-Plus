@@ -148,7 +148,13 @@ int InputOverlay::getButtonId(int type, int finger, float x, float y, bool* rele
     // processEvent; legacy callers must supply the flag to accept a motion release.
     if (type == SDL_FINGERMOTION && !released)
         return TouchOverlay::NO_BUTTON;
-    const auto result {processEvent(type, finger, x, y)};
+    if (type != SDL_FINGERDOWN && type != SDL_FINGERUP && type != SDL_FINGERMOTION)
+        return TouchOverlay::NO_BUTTON;
+    refreshGeometry();
+    const auto result {mModel.input(type == SDL_FINGERDOWN ? TouchOverlay::Event::DOWN :
+                                    type == SDL_FINGERUP   ? TouchOverlay::Event::UP :
+                                                             TouchOverlay::Event::MOTION,
+                                    finger, {x, y}, true)};
     if (!result.count)
         return TouchOverlay::NO_BUTTON;
     if (released && type == SDL_FINGERMOTION)
@@ -192,7 +198,7 @@ void InputOverlay::buildTextures()
                 texture->getSize().y > 0) {
                 auto image {std::make_unique<ImageComponent>(true, true)};
                 image->setResize(b.width, b.height);
-                image->setImage(texture, false);
+                image->setImage(texture);
                 image->setOrigin(0.5f, 0.5f);
                 image->setPosition(b.centre.x, b.centre.y);
                 image->setRotationDegrees(b.rotation);

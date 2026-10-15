@@ -3,4 +3,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <instrumentation android:name="org.esdeplus.frontend.RuntimeSmoke"
         android:targetPackage="${applicationId}" />
+    <instrumentation android:name="org.esdeplus.frontend.TouchSmoke"
+        android:targetPackage="${applicationId}" />
 </manifest>

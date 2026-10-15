@@ -75,8 +75,9 @@ GuiDetectDevice::GuiDetectDevice(bool firstRun,
     mGrid.setEntry(mMsg1, glm::ivec2 {0, 2}, false, true);
 
 #if defined(__ANDROID__)
-    const std::string msg2str {firstRun ? _("PRESS ESC OR TOUCH B TO SKIP") :
-                                          _("PRESS ESC OR TOUCH B TO CANCEL")};
+    const std::string msg2str {Utils::String::format(
+        firstRun ? _("PRESS ESC OR TOUCH %s TO SKIP") : _("PRESS ESC OR TOUCH %s TO CANCEL"),
+        Settings::getInstance()->getBool("InputSwapButtons") ? "A" : "B")};
 #else
     const std::string msg2str {
         firstRun ? _("PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)") :

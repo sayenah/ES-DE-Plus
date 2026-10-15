@@ -153,7 +153,9 @@ namespace TouchOverlay
         if (!geometry.valid() || !std::isfinite(mDensity) || mDensity <= 0)
             return result;
         // Conservative margins only: these are NOT Android window insets. Supported
-        // normal/compact layouts require at least 224 dp on both visible dimensions.
+        // normal/compact layouts require at least 288 dp on both visible dimensions.
+        if (v.w < 288 * mDensity || v.h < 288 * mDensity)
+            return result;
         const bool landscape {v.w >= v.h};
         const float side {
             std::max((landscape ? 32.0f : 24.0f) * mDensity, (landscape ? 0.03f : 0.04f) * v.w)};
@@ -174,7 +176,7 @@ namespace TouchOverlay
             layout(std::min(requested, limit));
             mSupported = fits();
         }
-        if (!mSupported && v.w >= 224 * mDensity && v.h >= 224 * mDensity) {
+        if (!mSupported) {
             mCompact = true;
             compactLayout(requested);
             mSupported = fits();
@@ -194,9 +196,9 @@ namespace TouchOverlay
         const float pillH {std::max(0.66f * d * 1.15f, 48 * mDensity)};
         const float shoulderH {std::max(0.5f * d * 1.15f, 48 * mDensity)};
         const float shoulderW {std::max(1.3f * d * 1.15f, 48 * mDensity)};
-        const float left {mSafe.x + radius};
-        const float right {mSafe.x + mSafe.w - radius};
-        const float y {mSafe.y + mSafe.h - radius};
+        const float left {mSafe.x + 1.15f * radius};
+        const float right {mSafe.x + mSafe.w - 1.15f * radius};
+        const float y {mSafe.y + mSafe.h - 1.15f * radius};
         const std::array<Point, 4> directions {{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
         for (int i {0}; i < 14; ++i) {
             Button& b {mButtons[i]};
@@ -289,7 +291,7 @@ namespace TouchOverlay
         // Sector capture regions, not just the arm circles, must remain disjoint.
         if (!mCompact) {
             const float r {1.05f * mDiameter + mButtons[0].hit.w / 2};
-            if (mButtons[4].centre.x - mButtons[0].centre.x < 2 * r + 0.15f * mDiameter)
+            if (mButtons[4].centre.x - mButtons[0].centre.x < 2.3f * r + 0.15f * mDiameter)
                 return false;
         }
         return true;
@@ -297,6 +299,8 @@ namespace TouchOverlay
 
     int Model::capture(Point p) const
     {
+        if (!mSafe.contains(p))
+            return -1;
         if (!mCompact) {
             const float radius {1.05f * mDiameter + mButtons[0].hit.w / 2};
             const Point pad {mButtons[0].centre.x, mButtons[2].centre.y};
@@ -314,7 +318,7 @@ namespace TouchOverlay
 
     int Model::select(int cluster, Point p, int held) const
     {
-        if (cluster < 0)
+        if (cluster < 0 || !mSafe.contains(p))
             return -1;
         if (mCompact || cluster >= 2) {
             const int i {mCompact ? cluster : cluster + 6};
@@ -371,7 +375,7 @@ namespace TouchOverlay
             result.add(IDS[index], 1);
     }
 
-    Transitions Model::input(Event event, int id, Point normalized)
+    Transitions Model::input(Event event, int id, Point normalized, bool legacySingle)
     {
         Transitions result;
         if (!mSupported || id < 1)
@@ -388,6 +392,8 @@ namespace TouchOverlay
             // Fault recovery consumes the duplicate gesture, releases any stale hold,
             // and never treats a missed UP as a second press.
             if (finger) {
+                if (legacySingle)
+                    return result;
                 release(*finger, result);
                 finger->cluster = -1;
                 return result;
@@ -418,6 +424,8 @@ namespace TouchOverlay
                 mGeometry.toLogical(normalized, p) ? select(finger->cluster, p, finger->held) : -1};
             if (desired != finger->held) {
                 release(*finger, result);
+                if (legacySingle && result.count)
+                    return result;
                 hold(*finger, desired, result);
             }
         }

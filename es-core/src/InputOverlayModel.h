@@ -107,7 +107,7 @@ namespace TouchOverlay
         Transitions rebuild(const Geometry& geometry, const Options& options, float logicalDpi);
         Transitions cancel();
         Transitions clear();
-        Transitions input(Event event, int fingerId, Point normalized);
+        Transitions input(Event event, int fingerId, Point normalized, bool legacySingle = false);
         void suppress();
         void wake(bool explicitWake);
         void setFadeSeconds(int seconds);
