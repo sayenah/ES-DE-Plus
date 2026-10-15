@@ -251,8 +251,25 @@ def surface_changed(logcat, pid, size):
     own = '\n'.join(line for line in logcat.splitlines() if re.match(
         r'^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+\s+' + re.escape(pid) +
         r'\s+\d+\s+V\s+SDL\s*:', line))
-    return re.search(r'surfaceChanged\(\)\n(?:.*\n)*?.*Window size: ' +
-                     re.escape(size) + r'\s*(?:\n|$)', own) is not None
+    target = tuple(map(int, size.split('x')))
+    window = None
+    callback = False
+    for line in own.splitlines():
+        if 'surfaceChanged()' in line:
+            callback, window = True, None
+        match = re.search(r'Window size: (\d+)x(\d+)\s*$', line)
+        if callback and match:
+            window = tuple(map(int, match.groups()))
+        match = re.search(r'Device size: (\d+)x(\d+)\s*$', line)
+        if callback and match:
+            device = tuple(map(int, match.groups()))
+            # SDL reports the surface and the real display separately. System
+            # bars reduce the surface; display rotation swaps the WM axes.
+            if (device in (target, target[::-1]) and window is not None
+                    and all(0 < value <= bound for value, bound in zip(window, device))):
+                return True
+            callback = False
+    return False
 
 
 def active_tracks(dump, pid):
@@ -427,11 +444,19 @@ def controls():
     assert not gl_transport_stall(healthy)
     assert not gl_transport_stall(healthy, healthy, 100, 101, 5, True)
     java = ('10-14 00:00:02.000 123 124 V SDL: surfaceChanged()\n'
-            '10-14 00:00:02.001 123 124 V SDL: Window size: 972x1728')
+            '10-14 00:00:02.001 123 124 V SDL: Window size: 972x1539\n'
+            '10-14 00:00:02.002 123 124 V SDL: Device size: 972x1728')
     assert surface_changed(java, '123', '972x1728')
     assert not surface_changed(java, '555', '972x1728')
     assert not surface_changed(java, '123', '1080x1920')
     assert not surface_changed(java.replace('surfaceChanged()', 'other'), '123', '972x1728')
+    assert not surface_changed(java.replace('Window size:', 'other:'), '123', '972x1728')
+    assert not surface_changed(java.replace('Device size:', 'other:'), '123', '972x1728')
+    assert not surface_changed(java.replace('972x1539', '0x1539'), '123', '972x1728')
+    assert not surface_changed(java.replace('Device size:', 'surfaceChanged()\n'
+        '10-14 00:00:02.003 123 124 V SDL: Device size:'), '123', '972x1728')
+    assert surface_changed(java.replace('972x1539', '1539x972').replace(
+        '972x1728', '1728x972'), '123', '972x1728')
     assert startup_relaunch_allowed(True, False, False, True)
     for dismissed, created, used, focused in ((False, False, False, True),
             (True, True, False, True), (True, False, True, True), (True, False, False, False)):
