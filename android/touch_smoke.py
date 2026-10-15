@@ -597,7 +597,8 @@ def run(namespace):
 
         # Fade: one complete waking gesture is inert, including its motion and UP.
         output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2,
-                       ScreensaverTimer=1000, ScreensaverType='dim')
+                       ScreensaverTimer=1000, ScreensaverType='dim', CustomEventScripts=True)
+        assert 'Scripting::fireEvent(): screensaver-start "timer"' in output
         centres = buttons(output)
         s = surface_bounds()
         # TV automatic wakes start Hidden, so startup need not emit "faded".
