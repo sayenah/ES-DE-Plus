@@ -57,9 +57,12 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: not-applicable
+      IMAGE: ${{ matrix.image }}
+      FAILURE: ${{ inputs.failure || 'none' }}
+      REBUILD_RUN: ${{ inputs.rebuild_run }}
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: &android_steps
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Validate dry-run controls and inject Android-leg failure
@@ -68,6 +71,8 @@ jobs:
         run: |
           python3 android/distribution.py inject "$FAILURE"
           python3 android/distribution.py gates
+          python3 android/release_controls.py
+          python3 android/test_signing.py version
           if [[ "$FAILURE" == android ]]; then
             echo 'Injected Android-leg failure; downstream API 34 and APK upload must be skipped'
             exit 1
@@ -85,7 +90,7 @@ jobs:
           git diff --name-only --diff-filter=ACMR "$base"...HEAD -- '*.cpp' '*.h' | while IFS= read -r file; do
             clang-format-18 --dry-run --Werror "$file"
           done
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "17"
@@ -97,7 +102,7 @@ jobs:
       - name: Restore Gradle wrapper and dependencies
         id: gradle-cache
         if: ${{ !inputs.clean_cache && !inputs.clean_gradle_cache }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ${{ env.GRADLE_USER_HOME }}/wrapper
@@ -131,6 +136,10 @@ jobs:
           test -f "$ANDROID_NDK_HOME/source.properties"
           grep -Fx 'Pkg.Revision = 28.2.13676358' "$ANDROID_NDK_HOME/source.properties"
           echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
+      - name: Fast SDK signing/rejection/cleanup controls before native assembly
+        run: |
+          set -o pipefail
+          python3 android/test_signing.py sdk-controls | tee android/evidence/signing-sdk-controls.txt
       - name: Download and verify pinned stable RetroArch (CI only)
         run: |
           curl --fail --location --retry 3 https://buildbot.libretro.com/stable/1.22.2/android/RetroArch.apk -o "$RUNNER_TEMP/RetroArch.apk"
@@ -145,7 +154,7 @@ jobs:
           printf 'Official stable v1.22.2; SHA256 %s; corrupt positive control rejected.\n' "$expected" | tee android/evidence/retroarch-pin.txt
       - name: Restore downloads
         if: ${{ !inputs.clean_cache }}
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: android/.deps/downloads
           key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh', 'android/distribution.py') }}
@@ -191,7 +200,7 @@ jobs:
       - name: Restore per-ABI dependencies
         id: deps
         if: ${{ !inputs.clean_cache }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             android/.deps/install
@@ -202,6 +211,10 @@ jobs:
           set -o pipefail
           cd android
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} help :app:compileDebugKotlin :stub-emulator:assembleDebug 2>&1 | tee gradle-configure.log
+      - name: Verify extracted Gradle versions reject missing and parent history
+        run: |
+          set -o pipefail
+          python3 android/version_controls.py | tee android/evidence/version-controls.txt
       - name: Build both dependency ABIs
         if: steps.deps.outputs.cache-hit != 'true'
         run: |
@@ -235,7 +248,7 @@ jobs:
           PYCODE
       - name: Save completed dependency installs
         if: steps.deps.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             android/.deps/install
@@ -276,6 +289,32 @@ jobs:
           cd android
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} assembleRelease 2>&1 | tee assemble-release.log
           test -s app/build/outputs/mapping/release/mapping.txt
+      - name: Assemble lower-code update fixture, restore normal higher-code build
+        run: |
+          set -o pipefail
+          mkdir -p android/.deps/update
+          cd android
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} -Pesde.versionCode=$((ESDE_VERSION_CODE - 1)) :app:assembleDebug 2>&1 | tee assemble-update.log
+          cp app/build/outputs/apk/debug/app-debug.apk .deps/update/lower-unsigned.apk
+          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:assembleDebug 2>&1 | tee assemble-restore.log
+      - name: Package no-INTERNET control with the exact built native code (API 34, CI only)
+        if: ${{ success() && matrix.image == 'api34' }}
+        run: |
+          set -o pipefail
+          python3 android/network-control.py 2>&1 | tee android/network-control.log
+          git diff --exit-code -- android/app/src/main/AndroidManifest.xml
+      - name: Throwaway signing, update pair and real signature rejection/cleanup controls
+        run: |
+          set -o pipefail
+          python3 android/test_signing.py fixtures | tee android/evidence/signing-controls.txt
+      - name: Sign both smoke variants with the stable test key (eligible API 34 only)
+        if: ${{ success() && matrix.image == 'api34' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
+        env:
+          ESDEPLUS_TEST_KEYSTORE_B64: ${{ secrets.ESDEPLUS_TEST_KEYSTORE_B64 }}
+          ESDEPLUS_TEST_KEYSTORE_PASSWORD: ${{ secrets.ESDEPLUS_TEST_KEYSTORE_PASSWORD }}
+          ESDEPLUS_TEST_KEY_ALIAS: ${{ vars.ESDEPLUS_TEST_KEY_ALIAS }}
+          ESDEPLUS_TEST_CERT_SHA256: ${{ vars.ESDEPLUS_TEST_CERT_SHA256 }}
+        run: python3 android/test_signing.py stable
       - name: Audit actual Android licence input graph and both APK closures
         run: |
           set -o pipefail
@@ -283,23 +322,16 @@ jobs:
           python3 android/license-inputs.py audit android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/release/app-release-unsigned.apk "$ANDROID_NDK_HOME" | tee android/evidence/licence-closure.txt
           cd android
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:auditRuntimeLicences | tee evidence/licence-dex-dependencies.txt
-      - name: Generate PDF fixtures and sign minified APK for CI runtime only
+      - name: Generate PDF fixtures
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         run: |
           python3 android/pdf-fixtures.py android/evidence/pdf-fixtures
-          cd android
-          ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:signPdfSmokeRelease
-      - name: Package no-INTERNET control with the exact built native code (API 34, CI only)
-        if: ${{ success() && matrix.image == 'api34' }}
-        run: |
-          set -o pipefail
-          python3 android/network-control.py 2>&1 | tee android/network-control.log
-          git diff --exit-code -- android/app/src/main/AndroidManifest.xml
+
       # Save only after every Gradle invocation succeeds, before unrelated
       # runtime smoke. Exact hits build offline; no build/assertion is retried.
       - name: Save complete Gradle wrapper and dependency cache
         if: ${{ success() && steps.gradle-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ${{ env.GRADLE_USER_HOME }}/wrapper
@@ -333,7 +365,16 @@ jobs:
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         run: |
           set -o pipefail
-          python3 android/check-identity.py android/app/build/outputs/apk/release/app-release-unsigned.apk --release | tee android/evidence/release-identity.txt
+          python3 android/check-identity.py android/app/build/outputs/apk/release/app-release-smoke.apk --release | tee android/evidence/release-identity.txt
+          python3 - <<'PYCODE' | tee android/evidence/signed-variants.txt
+          import sys
+          sys.path.insert(0, 'android')
+          import test_signing
+          for apk, debug in [(test_signing.DEBUG, True), (test_signing.RELEASE, False)]:
+              record = test_signing.inspect_apk(apk, test_signing.expected_cert(), debug)
+              assert {key: record[key] for key in test_signing.public_version()} == test_signing.public_version()
+          print('PASS: both signed variants match the built commit version')
+          PYCODE
       - name: Audit APK native closure
         run: |
           set -o pipefail
@@ -397,7 +438,7 @@ jobs:
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
       - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
           arch: x86_64
@@ -428,7 +469,7 @@ jobs:
       - name: Upload matching source first (14 days)
         id: source-upload
         if: ${{ success() && matrix.image == 'api34' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.bundle.outputs.source_name }}
           # Exercise the upload action's own failure, without uploading any file.
@@ -438,7 +479,7 @@ jobs:
           retention-days: 14
       - name: Download the uploaded source for independent validation
         if: ${{ success() && matrix.image == 'api34' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ steps.source-upload.outputs.artifact-id }}
           merge-multiple: true
@@ -455,6 +496,13 @@ jobs:
           set -o pipefail
           python3 android/distribution.py uploaded "$FAILURE" | tee android/evidence/distribution-uploaded-source.txt
           python3 android/distribution.py identity android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Exercise release packaging, staging, retry and failure logic without release API calls
+        if: ${{ success() && matrix.image == 'api34' }}
+        env:
+          SOURCE_ID: ${{ steps.source-upload.outputs.artifact-id }}
+        run: |
+          set -o pipefail
+          python3 android/release_pipeline.py dry-run | tee android/evidence/release-dry-run.txt
       - name: Record dry-run or main publication decision
         if: ${{ success() && matrix.image == 'api34' }}
         env:
@@ -468,7 +516,7 @@ jobs:
           fi
       - name: Upload build and smoke evidence (no APK)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-evidence-${{ matrix.image }}-attempt${{ github.run_attempt }}
           path: |
@@ -482,7 +530,7 @@ jobs:
       - name: Publish exact smoked debug APK on main only (7 days)
         id: apk-upload
         if: ${{ success() && matrix.image == 'api34' && env.EARLY_LEGS_RESULT == 'success' && steps.source-validate.outcome == 'success' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.bundle.outputs.apk_name }}
           path: android/.deps/distribution/apk/
@@ -497,39 +545,122 @@ jobs:
           APK_ARTIFACT_ID: ${{ steps.apk-upload.outputs.artifact-id }}
         run: python3 android/distribution.py publication "$FAILURE"
 
+  # Only this job references the protected environment. The branch/PR twin
+  # cannot reach it; both execute the identical steps above.
   api34:
     needs: build
-    if: ${{ !inputs.rebuild_run }}
+    if: ${{ !inputs.rebuild_run && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
+    environment: test-signing
+    outputs:
+      source_id: ${{ steps.source-upload.outputs.artifact-id }}
+      apk_id: ${{ steps.apk-upload.outputs.artifact-id }}
+      origin_attempt: ${{ github.run_attempt }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
-    strategy:
+    strategy: &api34_strategy
       matrix:
         include:
           - image: api34
             api: 34
             target: google_apis
             profile: pixel_2
-    env:
+    env: &api34_env
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: ${{ needs.build.result }}
+      IMAGE: ${{ matrix.image }}
+      FAILURE: ${{ inputs.failure || 'none' }}
+      REBUILD_RUN: ${{ inputs.rebuild_run }}
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: *android_steps
 
+  api34-dry-run:
+    needs: build
+    if: ${{ !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy: *api34_strategy
+    env: *api34_env
+    steps: *android_steps
+
+  release:
+    needs: api34
+    if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE: api34
+      SOURCE_ID: ${{ needs.api34.outputs.source_id }}
+      APK_ID: ${{ needs.api34.outputs.apk_id }}
+      ORIGIN_ATTEMPT: ${{ needs.api34.outputs.origin_attempt }}
+      RELEASE_SOURCE: android/.deps/release-input/source
+      RELEASE_APK: android/.deps/release-input/apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install exact APK inspection tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0"'
+      - name: Require exact originating artefact IDs
+        run: |
+          python3 - <<'PYCODE'
+          import os
+          assert all(os.environ[key].isdecimal() and int(os.environ[key]) > 0 for key in ('SOURCE_ID', 'APK_ID', 'ORIGIN_ATTEMPT'))
+          PYCODE
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.api34.outputs.source_id }}
+          merge-multiple: true
+          path: android/.deps/release-input/source
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.api34.outputs.apk_id }}
+          merge-multiple: true
+          path: android/.deps/release-input/apk
+      - name: Validate provenance, stage all four assets, verify and publish immutable pre-release
+        run: |
+          set -o pipefail
+          mkdir -p android/evidence
+          python3 android/release_pipeline.py publish | tee android/evidence/release-publication.txt
+      - name: Upload release evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-evidence-attempt${{ github.run_attempt }}
+          path: android/evidence/*.txt
+          retention-days: 7
+
   publication-result:
-    needs: [build, api34]
+    needs: [build, api34, api34-dry-run, release]
     if: ${{ always() && !inputs.rebuild_run }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Report suppression when a required Android leg did not succeed
+      - name: Require successful eligible publisher, or completed non-writing dry run
         env:
           EARLY_LEGS: ${{ needs.build.result }}
           FINAL_LEG: ${{ needs.api34.result }}
+          DRY_LEG: ${{ needs.api34-dry-run.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          ELIGIBLE: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
         run: |
-          if [[ "$EARLY_LEGS" != success || "$FINAL_LEG" != success ]]; then
-            echo "Publication suppressed: Android early legs=$EARLY_LEGS, API 34=$FINAL_LEG. No APK upload."
-            exit 1
-          fi
-          echo 'All Android legs succeeded; API 34 recorded the gated main/dry-run decision.'
+          python3 - <<'PYCODE'
+          import os
+          assert os.environ['EARLY_LEGS'] == 'success', 'Required Android early legs failed/skipped'
+          if os.environ['ELIGIBLE'] == 'true':
+              assert os.environ['FINAL_LEG'] == 'success' and os.environ['RELEASE_RESULT'] == 'success', 'Eligible run missed required publication'
+              assert os.environ['DRY_LEG'] == 'skipped'
+          else:
+              assert os.environ['DRY_LEG'] == 'success' and os.environ['FINAL_LEG'] == 'skipped' and os.environ['RELEASE_RESULT'] == 'skipped', 'Dry run failed or accessed publisher'
+          print('PASS: all required build/publication outcomes present')
+          PYCODE
 
   rebuild-source:
     if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.event_name == 'workflow_dispatch' && inputs.rebuild_run != '' }}
