@@ -54,12 +54,17 @@ class FrontendRestartActivity : Activity() {
                     Log.e("ES-DE-Plus", "Cannot open frontend entry", error)
                     showRecovery()
                 }
-            } else if (SystemClock.elapsedRealtime() >= deadline) {
+            } else if (alive && SystemClock.elapsedRealtime() >= deadline) {
                 // Never kill the parent or replay destruction. A stalled
                 // native thread remains a real, gating failure.
-                Log.e("ES-DE-Plus", "Cannot restart frontend: old SDL process still alive or restart window unfocused")
+                Log.e("ES-DE-Plus", "Cannot restart frontend: old SDL process still alive")
                 showRecovery()
-            } else handler.postDelayed(this, 100)
+            } else {
+                // onResume can precede window focus even after the deadline.
+                // A retired parent needs no recovery; wait for focus before
+                // restoring the entry, however long the helper was paused.
+                handler.postDelayed(this, 100)
+            }
         }
     }
 

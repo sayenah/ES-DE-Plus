@@ -20,10 +20,12 @@ import java.util.concurrent.TimeUnit
 
 class LifecycleProbe : Instrumentation() {
     private var mode = ""
+    private var resumeParent = 0
     @Volatile private var earlyTriggered = false
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         mode = arguments?.getString("mode").orEmpty()
+        resumeParent = arguments?.getString("parentPid")?.toIntOrNull() ?: 0
         start()
     }
 
@@ -136,19 +138,32 @@ class LifecycleProbe : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
-            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait", "restart-timeout"))
+            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait", "restart-timeout", "restart-resume"))
             val command = File("/data/local/tmp/esde-lifecycle-command")
-            if (mode in listOf("restart-wait", "restart-timeout")) {
+            if (mode in listOf("restart-wait", "restart-timeout", "restart-resume")) {
                 // Isolated helper probe: keep its real parent alive beyond the
                 // former 5-second deadline. This does not exercise or change
                 // the native destruction timing gate.
                 val entry = Intent(Intent.ACTION_MAIN).setClassName(targetContext.packageName,
                     "org.esdeplus.frontend.MainActivity").addCategory(Intent.CATEGORY_LAUNCHER)
-                targetContext.startActivity(Intent().setClassName(targetContext.packageName,
+                val parent = if (mode == "restart-resume") resumeParent.also { check(it > 0) }
+                    else Process.myPid()
+                val helper = Intent().setClassName(targetContext.packageName,
                     "org.esdeplus.frontend.FrontendRestartActivity")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    .putExtra("parentPid", Process.myPid()).putExtra("entry", entry))
-                Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent pid=${Process.myPid()}")
+                    .putExtra("parentPid", parent).putExtra("entry", entry)
+                targetContext.startActivity(helper)
+                Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent pid=$parent")
+                if (mode == "restart-resume") {
+                    val deadline = System.nanoTime() + 160_000_000_000L
+                    while (!command.isFile) {
+                        check(System.nanoTime() < deadline) { "Helper resume command not reached" }
+                        Thread.sleep(20)
+                    }
+                    // Bring back the existing helper without replacing its
+                    // instance or resetting its real two-minute deadline.
+                    targetContext.startActivity(Intent(helper).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+                }
                 // Instrumentation death makes ActivityManager remove every
                 // activity of the target package, including the helper. Keep
                 // this isolated, Java-only parent alive for the visibility

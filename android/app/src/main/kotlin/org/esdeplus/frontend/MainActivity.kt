@@ -16,6 +16,7 @@ open class MainActivity : SDLActivity() {
     @Volatile private var destroying = false
     @Volatile private var configured = false
     @Volatile private var restartRequested = false
+    private var visibleForRestart = false
     private val restartPrepared = AtomicBoolean(false)
     private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
@@ -51,6 +52,18 @@ open class MainActivity : SDLActivity() {
         // user interaction never expires and HOME is still set only by entry.
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
     }
+    override fun onStart() {
+        super.onStart()
+        visibleForRestart = true
+    }
+    override fun onStop() {
+        // Framework relaunch sets changingConfigurations before stopping a
+        // visible activity. Retain that pre-relaunch visibility, but clear it
+        // on an ordinary stop behind a game; later background relaunch must
+        // leave the game in front until the user enters the frontend again.
+        if (!isChangingConfigurations) visibleForRestart = false
+        super.onStop()
+    }
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (ConfiguratorSession.configuring) {
@@ -69,13 +82,14 @@ open class MainActivity : SDLActivity() {
         val terminal = !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
         val destruction = "Destroying SDL activity held=${ConfiguratorSession.configuring} " +
             "finishing=$isFinishing changingConfigurations=$isChangingConfigurations " +
-            "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId"
+            "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId " +
+            "visibleForRestart=$visibleForRestart"
         if (BuildConfig.DEBUG) Log.i("ES-DE-Plus", destruction, Throwable("SDL destruction caller"))
         else Log.i("ES-DE-Plus", destruction)
-        // Android's non-finishing relaunch must retain a foreground owner
-        // while this process retires. The private Java activity waits for
+        // A visible activity's non-finishing relaunch retains a foreground
+        // owner while this process retires. The private Java activity waits for
         // actual process death; it cannot conceal a native quit/join stall.
-        restartRequested = terminal && isChangingConfigurations && !isFinishing
+        restartRequested = terminal && visibleForRestart && isChangingConfigurations && !isFinishing
         prepareRestart()
         // Task clear can destroy the root before pausing the configurator.
         // Save its scalar snapshot without calling a retained Activity.
