@@ -443,25 +443,9 @@ jobs:
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
-      - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        with:
-          api-level: ${{ matrix.api }}
-          arch: x86_64
-          target: ${{ matrix.target }}
-          profile: ${{ matrix.profile }}
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          sdcard-path-or-size: 512M
-          disable-animations: true
-          cores: 4
-          ram-size: 4096M
-          script: |
-            python3 android/smoke_support.py boot
-            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       # Both sessions run against the same on-runner APK and gate this job.
-      # A distinct forced-new AVD bounds emulator lifetime without dropping tests.
+      # Touch runs first for fast feedback; core then starts in another fresh AVD.
+      # Distinct forced-new AVDs bound emulator lifetime without dropping tests.
       - name: ${{ matrix.image }} fresh-emulator touch smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
@@ -480,6 +464,25 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             python3 android/smoke_session.py touch -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --touch-only
+      - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-core
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/

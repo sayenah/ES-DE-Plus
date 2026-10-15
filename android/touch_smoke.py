@@ -168,6 +168,7 @@ def run_fresh(namespace):
     h.ui('Absolute shared ROM folder path', dpad=namespace['television'])
     h.shell('input', 'text', shared)
     h.key('KEYCODE_BACK')
+    h.ui('Use typed folder path', dpad=True)
     h.ui('Save and start frontend', dpad=True)
     h.configured_system('touch-session-configured')
     run(namespace)

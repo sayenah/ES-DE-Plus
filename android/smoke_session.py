@@ -101,13 +101,14 @@ def main():
     root = Path('android/evidence')
     root.mkdir(parents=True, exist_ok=True)
     identity = boot_identity()
-    if args.phase == 'touch':
-        assert identity != (root / 'core-session-boot-id.txt').read_text().strip(), 'Reused core emulator'
-        app = next(x.split('=', 1)[1] for x in Path('android/gradle.properties').read_text().splitlines()
-                   if x.startswith('esde.applicationId='))
-        installed = subprocess.run(['adb', 'shell', 'pm', 'list', 'packages', app], capture_output=True,
-                                   text=True, timeout=15, check=True)
-        assert 'package:' + app not in installed.stdout.splitlines(), 'Touch session must start with clean emulator app data'
+    previous = root / (('touch' if args.phase == 'core' else 'core') + '-session-boot-id.txt')
+    if previous.exists():
+        assert identity != previous.read_text().strip(), 'Reused emulator across smoke sessions'
+    app = next(x.split('=', 1)[1] for x in Path('android/gradle.properties').read_text().splitlines()
+               if x.startswith('esde.applicationId='))
+    installed = subprocess.run(['adb', 'shell', 'pm', 'list', 'packages', app], capture_output=True,
+                               text=True, timeout=15, check=True)
+    assert 'package:' + app not in installed.stdout.splitlines(), 'Each session must start with clean emulator app data'
     (root / (args.phase + '-session-boot-id.txt')).write_text(identity + '\n')
     env = dict(os.environ)
     env['ESDE_SMOKE_COMMAND_METRICS'] = str(root / (args.phase + '-command-costs.txt'))
