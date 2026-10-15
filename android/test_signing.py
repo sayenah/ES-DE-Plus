@@ -28,15 +28,15 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def eligible(repository, event, ref, image, rebuild='', failure='none'):
-    return (repository == REPOSITORY and event in ('push', 'workflow_dispatch') and
+def eligible(repository, event, ref, image, rebuild='', failure='none', publish=False):
+    return (repository == REPOSITORY and event == 'workflow_dispatch' and publish is True and
             ref == 'refs/heads/main' and image == 'api34' and not rebuild and failure in ('', 'none'))
 
 
 def stable_run():
     return eligible(os.getenv('GITHUB_REPOSITORY'), os.getenv('GITHUB_EVENT_NAME'),
                     os.getenv('GITHUB_REF'), os.getenv('IMAGE'), os.getenv('REBUILD_RUN', ''),
-                    os.getenv('FAILURE', 'none'))
+                    os.getenv('FAILURE', 'none'), os.getenv('PUBLISH') == 'true')
 
 
 def tools():

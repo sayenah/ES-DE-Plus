@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# ES-DE-Plus — written for ES-DE-Plus. CI evidence and debug APK distribution (D-003, D-007 am. 2, D-009 am. 2).
+# ES-DE-Plus — written for ES-DE-Plus. CI evidence and debug APK distribution (D-003, D-007 am. 2, D-009 am. 2, D-020).
 name: Build Android
 on:
   push:
@@ -9,6 +9,10 @@ on:
     paths: *android_paths
   workflow_dispatch:
     inputs:
+      publish:
+        description: Publish the verified test APK and pre-release (Orchestrator; main only)
+        type: boolean
+        default: false
       clean_cache:
         description: Skip downloads and install caches for fully cold evidence
         type: boolean
@@ -30,9 +34,9 @@ on:
         description: Source artefact attempt to rebuild
         type: string
         default: "1"
-# Only publication-capable main pushes/dispatches share a group; no active publication is cancelled.
+# Only explicit main publication dispatches share a group; no active publication is cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') && 'main-publication' || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') && 'main-publication' || github.run_id }}
   cancel-in-progress: false
 permissions:
   contents: read
@@ -60,6 +64,7 @@ jobs:
       IMAGE: ${{ matrix.image }}
       FAILURE: ${{ inputs.failure || 'none' }}
       REBUILD_RUN: ${{ inputs.rebuild_run }}
+      PUBLISH: ${{ inputs.publish || false }}
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: &android_steps
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -312,7 +317,7 @@ jobs:
           set -o pipefail
           python3 android/test_signing.py fixtures | tee android/evidence/signing-controls.txt
       - name: Sign both smoke variants with the stable test key (eligible API 34 only)
-        if: ${{ success() && matrix.image == 'api34' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
+        if: ${{ success() && matrix.image == 'api34' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
         env:
           ESDEPLUS_TEST_KEYSTORE_B64: ${{ secrets.ESDEPLUS_TEST_KEYSTORE_B64 }}
           ESDEPLUS_TEST_KEYSTORE_PASSWORD: ${{ secrets.ESDEPLUS_TEST_KEYSTORE_PASSWORD }}
@@ -532,13 +537,13 @@ jobs:
       - name: Record dry-run or main publication decision
         if: ${{ success() && matrix.image == 'api34' }}
         env:
-          PUBLICATION: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+          PUBLICATION: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
           APK_NAME: ${{ steps.bundle.outputs.apk_name }}
         run: |
           if [[ "$PUBLICATION" == true ]]; then
             echo "All gates passed; main publication eligible: $APK_NAME" | tee android/evidence/distribution-decision.txt
           else
-            echo "DRY RUN: all gates passed; would publish $APK_NAME on main. No APK upload on this event/ref/repository." | tee android/evidence/distribution-decision.txt
+            echo "DRY RUN: all gates passed; would publish $APK_NAME on demand. No APK upload without an eligible main dispatch with publish=true." | tee android/evidence/distribution-decision.txt
           fi
       - name: Upload build and smoke evidence (no APK)
         if: always()
@@ -555,7 +560,7 @@ jobs:
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
       - name: Publish exact smoked debug APK on main only (7 days)
         id: apk-upload
-        if: ${{ success() && matrix.image == 'api34' && env.EARLY_LEGS_RESULT == 'success' && steps.source-validate.outcome == 'success' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
+        if: ${{ success() && matrix.image == 'api34' && env.EARLY_LEGS_RESULT == 'success' && steps.source-validate.outcome == 'success' && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.bundle.outputs.apk_name }}
@@ -571,11 +576,11 @@ jobs:
           APK_ARTIFACT_ID: ${{ steps.apk-upload.outputs.artifact-id }}
         run: python3 android/distribution.py publication "$FAILURE"
 
-  # Only this job references the protected environment. The branch/PR twin
+  # Only this job references the protected environment. The non-publishing twin
   # cannot reach it; both execute the identical steps above.
   api34:
     needs: build
-    if: ${{ !inputs.rebuild_run && github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
+    if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
     environment: test-signing
     outputs:
       source_id: ${{ steps.source-upload.outputs.artifact-id }}
@@ -596,12 +601,13 @@ jobs:
       IMAGE: ${{ matrix.image }}
       FAILURE: ${{ inputs.failure || 'none' }}
       REBUILD_RUN: ${{ inputs.rebuild_run }}
+      PUBLISH: ${{ inputs.publish || false }}
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: *android_steps
 
   api34-dry-run:
     needs: build
-    if: ${{ !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none')) }}
+    if: ${{ !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     strategy: *api34_strategy
@@ -610,59 +616,105 @@ jobs:
 
   release:
     needs: api34
-    if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
+    if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
       actions: read
     env:
-      GH_TOKEN: ${{ github.token }}
       IMAGE: api34
+      REBUILD_RUN: ${{ inputs.rebuild_run }}
+      FAILURE: ${{ inputs.failure || 'none' }}
+      PUBLISH: ${{ inputs.publish || false }}
       SOURCE_ID: ${{ needs.api34.outputs.source_id }}
       APK_ID: ${{ needs.api34.outputs.apk_id }}
       ORIGIN_ATTEMPT: ${{ needs.api34.outputs.origin_attempt }}
       RELEASE_SOURCE: android/.deps/release-input/source
       RELEASE_APK: android/.deps/release-input/apk
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-java@v4
+      - &release_checkout
+        name: Check out publisher inputs without credentials or submodule traversal
+        run: |
+          # actions/checkout's auth cleanup traverses all index gitlinks even
+          # with sparse checkout. This public-repository fetch needs no auth.
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -c credential.helper= fetch --no-tags --no-recurse-submodules --filter=blob:none origin "$GITHUB_SHA"
+          git sparse-checkout set android
+          git -c credential.helper= checkout --no-recurse-submodules --detach "$GITHUB_SHA"
+      - &release_java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install exact APK inspection tools
+      - &release_tools
+        name: Install exact APK inspection tools
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;36.0.0"'
+      - &release_setup_check
+        name: Verify publisher checkout, credentials and runtime inputs
+        run: |
+          python3 - <<'PYCODE'
+          import os, pathlib, subprocess, sys
+          assert 'GH_TOKEN' not in os.environ, 'Release token escaped the publish step'
+          assert not pathlib.Path('external').exists(), 'Publisher checkout includes upstream gitlinks'
+          assert subprocess.check_output(['git', 'rev-parse', '--is-shallow-repository'], text=True).strip() == 'false'
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
+          auth = subprocess.run(['git', 'config', '--local', '--name-only', '--get-regexp',
+                                 r'http\..*\.extraheader|credential\.|core\.sshCommand|includeIf\.'], capture_output=True)
+          assert auth.returncode == 1, 'Checkout persisted authentication configuration'
+          sys.path.insert(0, 'android')
+          import release_pipeline, test_signing
+          release_pipeline.distribution.audit_module()
+          assert pathlib.Path('android/RELEASE-NOTES.md').is_file()
+          assert all((test_signing.tools() / tool).is_file() for tool in ('apksigner', 'aapt2'))
+          print('PASS: sparse publisher checkout; full history; no persisted auth/GH_TOKEN; imports, notes and SDK tools available')
+          print('Commit-derived version:', test_signing.public_version())
+          PYCODE
       - name: Require exact originating artefact IDs
         run: |
           python3 - <<'PYCODE'
           import os
           assert all(os.environ[key].isdecimal() and int(os.environ[key]) > 0 for key in ('SOURCE_ID', 'APK_ID', 'ORIGIN_ATTEMPT'))
           PYCODE
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ needs.api34.outputs.source_id }}
           merge-multiple: true
           path: android/.deps/release-input/source
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ needs.api34.outputs.apk_id }}
           merge-multiple: true
           path: android/.deps/release-input/apk
       - name: Validate provenance, stage all four assets, verify and publish immutable pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
           mkdir -p android/evidence
           python3 android/release_pipeline.py publish | tee android/evidence/release-publication.txt
       - name: Upload release evidence only
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-release-evidence-attempt${{ github.run_attempt }}
           path: android/evidence/*.txt
           retention-days: 7
+
+  # Exercise the real publisher setup on non-main refs without persisted credentials,
+  # artefact downloads, signing, release API access or a writing token.
+  release-setup-dry-run:
+    if: ${{ github.ref != 'refs/heads/main' && !inputs.rebuild_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - *release_checkout
+      - *release_java
+      - *release_tools
+      - *release_setup_check
 
   publication-result:
     needs: [build, api34, api34-dry-run, release]
@@ -675,7 +727,7 @@ jobs:
           FINAL_LEG: ${{ needs.api34.result }}
           DRY_LEG: ${{ needs.api34-dry-run.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
-          ELIGIBLE: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (inputs.failure == '' || inputs.failure == 'none') }}
+          ELIGIBLE: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
         run: |
           python3 - <<'PYCODE'
           import os

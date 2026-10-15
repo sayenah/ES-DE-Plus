@@ -1,18 +1,107 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Real frontend HTTPS smoke and permission control.
+import contextlib
 import json
 import pathlib
 import re
+import shlex
+import signal
+import subprocess
+import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
+import zipfile
+
+
+@contextlib.contextmanager
+def wall_budget(seconds, description, reserve=False):
+    previous = signal.getsignal(signal.SIGALRM)
+    timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+    def expired(*_):
+        raise AssertionError('Total time bound exceeded: ' + description)
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, min(seconds, timer[0]) if timer[0] and not reserve else seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+        if timer[0]:
+            signal.setitimer(signal.ITIMER_REAL, max(0.001, timer[0] - (time.monotonic() - started)), timer[1])
+
+
+def mainloop_input(before, after):
+    assert after.startswith(before), 'Frontend log reset during main-loop proof'
+    assert re.search(r'Window::logInput\(Keyboard\): Key F12, .*value=1\b', after[len(before):]), \
+        'Frontend main loop did not acknowledge the harmless F12 key'
+
+
+def process_stacks(text, pid, app):
+    blocks = re.findall(r'^----- pid ' + re.escape(pid) + r' at [^\n]*\n.*?^----- end ' +
+                        re.escape(pid) + r' -----', text, re.M | re.S)
+    return '\n'.join(block for block in blocks if re.search(r'^Cmd line: ' + re.escape(app) + r'$', block, re.M))
 
 
 class RemoteFailure(Exception):
-    def __init__(self, message, retry_list=False):
+    def __init__(self, message):
         assert remote_error(message), 'Failure is not eligible for remote handling: ' + message
         super().__init__(message)
-        self.retry_list = retry_list
+
+
+class RemoteStall(RemoteFailure):
+    def __init__(self, description, timeout):
+        # Constructed only by the deadline path after the final health check.
+        Exception.__init__(self, f'{description}: healthy frontend, remote deadline {timeout}s expired')
+
+
+def wait_request(read, healthy, success, failure, description, timeout, *, started, responsive,
+                 clock=time.monotonic, pause=time.sleep):
+    deadline = clock() + timeout
+    while True:
+        output = read()
+        healthy()  # Includes the completing poll and the deadline poll.
+        if success(output) or failure(output):
+            return output
+        assert 'Error:' not in output and 'No themes.json file found' not in output, output
+        # Never turn a TLS/permission diagnostic into a stall just because the
+        # expected completion line is absent.
+        assert not any(value in output.lower() for value in
+                       ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']), output
+        if clock() >= deadline:
+            assert started(output), 'Remote request never provably started: ' + description
+            responsive()  # A live/focused process alone cannot prove SDL is responsive.
+            raise RemoteStall(description, timeout)
+        pause(min(2, max(0, deadline - clock())))
+
+
+def remote_attempts(action, recover, record, name, pause=time.sleep):
+    for attempt in range(1, 4):
+        try:
+            return action()
+        except RemoteFailure as error:
+            record(f'REMOTE {name} attempt {attempt}/3 failed: {error}')
+            if attempt == 3:
+                raise
+            recover(error)
+            pause(5)
+
+
+def remote_outcome(api, error, record):
+    record(f'{"FAIL" if api == 34 else "NON-GATING REMOTE DIAGNOSTIC"}: API {api}: {error}')
+    if api == 34:
+        raise error
+
+
+def frontend_process(pid, current, logcat):
+    assert pid and current == pid, 'Frontend process died or restarted'
+    # An SDL destroy join can stall while its process/window still look alive.
+    # Match this process's threadtime PID, excluding earlier fixture processes.
+    assert not re.search(r'^\S+\s+\S+\s+' + re.escape(pid) +
+                         r'\s+\d+\s+\w\s+ES-DE-Plus\s*:\s*Destroying SDL activity\b',
+                         logcat, re.M), 'Frontend entered SDL destruction during network wait'
 
 
 def resolve_error(output):
@@ -21,8 +110,9 @@ def resolve_error(output):
 
 
 def remote_error(output):
-    # Only a completed request with a specific remote/transport diagnostic
-    # qualifies. Permissions, TLS verification, UI, process and wait failures do not.
+    # A missing INTERNET grant can also produce a plain resolve diagnostic.
+    # The per-attempt grant assertion, not this text classifier, excludes it.
+    # TLS, explicit permission errors and frontend failures never qualify.
     lowered = output.lower()
     if any(value in lowered for value in ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']):
         return False
@@ -65,12 +155,131 @@ def controls():
                   'ScraperHttpRequest network error - Could not resolve hostname',
                   'SSL peer certificate cannot be authenticated']:
         assert not scraper_reply(value), value
-    return 'PASS: retry classification excludes permission/TLS/frontend failures; only an HTTPS service reply satisfies scraper reachability.\n'
+    reports = []
+    for api in (29, 34, 36):
+        ticks = [0]
+        attempts = []
+        recoveries = []
+        def pause(seconds):
+            ticks[0] += seconds
+        def stalled():
+            attempts.append(ticks[0])
+            return wait_request(lambda: 'request started', lambda: None, lambda _: False, lambda _: False,
+                                'fixture stalled remote', 10, started=lambda s: s == 'request started',
+                                responsive=lambda: None,
+                                clock=lambda: ticks[0], pause=pause)
+        try:
+            remote_attempts(stalled, lambda error: recoveries.append(str(error)), reports.append,
+                            'fixture', pause=pause)
+        except RemoteStall as error:
+            assert attempts == [0, 15, 30] and ticks[0] == 40 and len(recoveries) == 2
+            try:
+                remote_outcome(api, error, reports.append)
+            except RemoteStall:
+                assert api == 34
+            else:
+                assert api != 34
+        else:
+            raise AssertionError('Stalled-remote control escaped')
+    for problem in ['Frontend process died', 'Frontend ANR', 'Frontend lost focus', 'Frontend SDL destruction',
+                    'INTERNET permission differs', 'TLS certificate verification failed']:
+        attempts = []
+        ticks = [0]
+        def unhealthy():
+            if ticks[0] >= 2:
+                raise AssertionError(problem)
+        def failed_frontend():
+            attempts.append(1)
+            return wait_request(lambda: '', unhealthy, bool, bool, 'fixture', 10,
+                                started=lambda _: True, responsive=lambda: None,
+                                clock=lambda: ticks[0], pause=lambda seconds: ticks.__setitem__(0, ticks[0] + seconds))
+        try:
+            remote_attempts(failed_frontend, lambda error: reports.append('BAD RECOVERY'),
+                            reports.append, 'fixture')
+        except AssertionError as error:
+            assert str(error) == problem and len(attempts) == 1
+        else:
+            raise AssertionError('Frontend/permission/TLS control escaped')
+    reports.append('PASS: three bounded stalled-remote attempts (40 virtual seconds including backoff); '
+                   'API 29/TV diagnostic, API 34 hard failure; frontend death/ANR/focus, permission and TLS never retried.')
+    reports.append('PASS: a bare no-INTERNET resolve error is textually remote; the per-attempt grant check prevents masking. '
+                   'Negative permission probes bypass retries and must receive their one resolve error.')
+    reports.append('PASS: only an HTTPS service reply satisfies scraper reachability.')
+    destruction = '10-14 12:34:56.789  1234  1250 I ES-DE-Plus: Destroying SDL activity held=false'
+    frontend_process('5678', '5678', destruction)
+    try:
+        frontend_process('1234', '1234', destruction)
+    except AssertionError as error:
+        assert 'SDL destruction' in str(error)
+    else:
+        raise AssertionError('Live/focused destruction control escaped')
+    reports.append('PASS: current-PID SDL destruction is hard even before ANR; earlier-PID logs cannot fail a healthy request.')
+    for diagnostic in ['Error: frontend failed to parse theme list', 'No themes.json file found',
+                       'SSL certificate verification failed', 'Permission denied']:
+        attempts = []
+        def invalid_request():
+            attempts.append(1)
+            return wait_request(lambda: diagnostic, lambda: None, lambda _: False, lambda _: False,
+                                'fixture invalid completion', 10, started=lambda _: True, responsive=lambda: None)
+        try:
+            remote_attempts(invalid_request, lambda error: reports.append('BAD RECOVERY'),
+                            reports.append, 'fixture')
+        except AssertionError:
+            assert attempts == [1]
+        else:
+            raise AssertionError('Incomplete frontend/TLS/permission error became a remote stall')
+    reports.append('PASS: incomplete frontend/error, TLS and permission diagnostics stay hard before deadline classification.')
+    for did_start, loop_alive in [(False, True), (True, False)]:
+        attempts = []
+        ticks = [0]
+        def responsive():
+            mainloop_input('', 'Window::logInput(Keyboard): Key F12, isMappedTo=, value=1' if loop_alive else '')
+        def unproven():
+            attempts.append(1)
+            return wait_request(lambda: '', lambda: None, bool, bool, 'unproven fixture', 2,
+                                started=lambda _: did_start, responsive=responsive,
+                                clock=lambda: ticks[0], pause=lambda n: ticks.__setitem__(0, ticks[0] + n))
+        try:
+            remote_attempts(unproven, lambda _: reports.append('BAD RECOVERY'), reports.append, 'unproven')
+        except AssertionError:
+            assert attempts == [1]
+        else:
+            raise AssertionError('Unproven start or frozen main loop became a remote stall')
+    stale = 'Window::logInput(Keyboard): Key F12, isMappedTo=, value=1'
+    try:
+        mainloop_input(stale, stale)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('Earlier F12 log satisfied main-loop proof')
+    trace = ('----- pid 1234 at 2026-10-15 04:00:00 -----\nCmd line: example.app\n'
+             '"SDLThread" native\n  native: #00 pc 0001 libmain.so\n----- end 1234 -----')
+    assert process_stacks(trace, '1234', 'example.app') == trace
+    assert not process_stacks(trace, '5678', 'example.app')
+    assert not process_stacks(trace, '1234', 'other.app')
+    assert not process_stacks('native: #00 pc 0001 libmain.so', '1234', 'example.app')
+    with wall_budget(1, 'timer control'):
+        pass
+    try:
+        with wall_budget(0.01, 'blocked timer control'):
+            time.sleep(1)
+    except AssertionError as error:
+        assert 'Total time bound' in str(error)
+    else:
+        raise AssertionError('Wall-time control escaped')
+    reports.append('PASS: missing request-start proof, frozen main loop and stale key logs stay hard; trace extraction rejects other PID/app data; wall-time budget interrupts blocked work.')
+    return '\n'.join(reports) + '\n'
 
 
 def run(harness):
+    with wall_budget(90 * 60, 'network checks (90 minutes)'):
+        run_checks(harness)
+
+
+def run_checks(harness):
     h = type('Harness', (), harness)
     h.evidence.joinpath('network-assertion-positive-controls.txt').write_text(controls())
+    subprocess.run([sys.executable, 'android/network-control.py', '--self-test'], check=True)
     original = h.shell('cat', h.settings)
     document = h.launch_checks.settings_fragment(original)
     # Ordinary upstream user settings, written through the existing SDK-context
@@ -80,6 +289,7 @@ def run(harness):
               ('bool', 'ScraperInteractive', 'true'), ('bool', 'ScraperSemiautomatic', 'false'),
               ('int', 'ScraperRetryOnErrorCount', '0'), ('int', 'ScraperConnectionTimeout', '30'),
               ('int', 'ScraperTransferTimeout', '60')]
+    values.append(('bool', 'DebugSkipInputLogging', 'false'))
     for kind, name, value in values:
         node = document.find(f"{kind}[@name='{name}']")
         if node is None:
@@ -88,6 +298,12 @@ def run(harness):
     configured = '<?xml version="1.0"?>\n' + ''.join(ET.tostring(n, encoding='unicode') for n in document)
     h.user_file('settings/es_settings.xml', configured)
     control = pathlib.Path('android/.deps/network/no-internet.apk')
+    attempts = {}
+    active = ['network-setup']
+
+    def begin(operation):
+        attempts[operation] = attempts.get(operation, 0) + 1
+        active[0] = f'network-{operation}-attempt{attempts[operation]}'
 
     def record(message):
         print(message, flush=True)
@@ -98,7 +314,7 @@ def run(harness):
         dump = h.shell('dumpsys', 'package', h.app)
         granted = bool(re.search(r'android.permission.INTERNET: granted=true\b', dump))
         assert granted == expected, 'Installed INTERNET permission differs from probe: ' + dump
-        h.evidence.joinpath('network-' + ('fixed' if expected else 'control') + '-package.txt').write_text(dump)
+        h.evidence.joinpath(active[0] + '-package.txt').write_text(dump)
 
     def theme_path(relative):
         # The upstream getter is named getInternalAppDataDirectory, but the
@@ -123,24 +339,152 @@ def run(harness):
         menu(2)  # SEARCH, SCRAPER, UI SETTINGS; first row is THEME DOWNLOADER.
         h.key('KEYCODE_ENTER')
 
-    def capture(name):
-        h.screenshot(name)
-        h.save_logs(name)
+    def clone_target_started(repository):
+        target = shlex.quote(theme_path(repository + '/.git'))
+        observed = h.shell('sh', '-c', 'test -d ' + target + ' && echo started', check=False).strip() == 'started'
+        h.evidence.joinpath(active[0] + '-clone-start.txt').write_text(
+            f'Initially absent destination; new clone target {target}: observed={observed}\n')
+        return observed
 
-    def request_result(before, success, failure, description, timeout):
-        output = ''
-        def complete():
-            nonlocal output
-            output = delta(before)
-            return success(output) or failure(output)
-        h.wait_for(complete, description, timeout=timeout)
-        # The poll waits for a request to complete; it never resends an action.
-        time.sleep(1)  # Let the GUI's promise/future completion dismiss the busy overlay.
-        assert h.shell('pidof', h.app, check=False).strip(), 'Frontend process died'
+    def capture(name):
+        stem = active[0] + '-' + name.removeprefix('network-')
+        h.screenshot(stem)
+        h.save_logs(stem)
+        return stem
+
+    def live_state(name, required=False):
+        stem = capture(name)
+        pid = h.shell('pidof', h.app, check=False).strip()
+        h.evidence.joinpath(stem + '-window.txt').write_text(h.shell('dumpsys', 'window', 'displays', check=False))
+        if not re.fullmatch(r'\d+', pid):
+            h.evidence.joinpath(stem + '-process.txt').write_text('Frontend PID absent: ' + pid)
+            assert not required, 'Frontend died before live diagnostics'
+            return ''
+        # The debug APK owns its SIGQUIT request and fd snapshot. The shell
+        # reads the shared network tables (apps cannot read /proc/net on API 29+).
+        # Prefer the fast native dump where supported; bugreport retrieves
+        # ART's all-thread traces on production images too;
+        # only this PID/app's trace text is retained, never the raw archive.
+        sockets = h.shell('run-as', h.app, 'sh', '-c',
+            f'exec 2>&1; cat /proc/{pid}/status; echo "FD LINKS"; ls -l /proc/{pid}/fd', check=False)
+        sockets += h.shell('sh', '-c', 'exec 2>&1; for table in tcp tcp6 udp udp6; '
+                           'do echo "TABLE $table"; cat /proc/net/$table; done', check=False)
+        h.evidence.joinpath(stem + '-sockets.txt').write_text(sockets)
+        stack_file = h.evidence.joinpath(stem + '-stacks.txt')
+        stack_file.write_text(f'Collecting frontend thread stacks for PID {pid}\n')
+        stacks = ''
+        root = h.adb('root', check=False)
+        if 'cannot run as root' not in root:
+            try:
+                h.adb('wait-for-device')
+                h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '0',
+                           'native diagnostic shell', timeout=10)
+                stacks = h.shell('sh', '-c', f'debuggerd -b {pid} 2>&1', check=False)
+            finally:
+                h.adb('unroot', check=False)
+                h.adb('wait-for-device')
+                h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '2000',
+                           'ordinary shell after frontend diagnostics', timeout=10)
+        # Production images reject root. Required stall/control snapshots use
+        # the app-owned dump below. Cleanup retains live logs/fds without
+        # starting a second whole-device report after an earlier failure.
+        if not re.search(r'#00\s+pc\s', stacks) and required:
+            before_dump = h.adb('logcat', '-d', '--pid=' + pid)
+            h.shell('run-as', h.app, 'kill', '-3', pid)
+            def dump_finished():
+                output = h.adb('logcat', '-d', '--pid=' + pid)
+                assert output.startswith(before_dump), 'App diagnostic log reset during SIGQUIT'
+                return 'Wrote stack traces to tombstoned' in output[len(before_dump):]
+            h.wait_for(dump_finished, 'fresh app-owned thread dump completed', timeout=20)
+            h.evidence.joinpath(stem + '-dump-logcat.txt').write_text(h.adb('logcat', '-d', '--pid=' + pid))
+            parent = pathlib.Path('android/.deps/network')
+            parent.mkdir(parents=True, exist_ok=True)
+            stacks = ''
+            with tempfile.TemporaryDirectory(prefix='traces-', dir=parent) as temporary:
+                report = pathlib.Path(temporary) / 'report.zip'
+                h.adb('bugreport', str(report))
+                with zipfile.ZipFile(report) as archive:
+                    for entry in archive.namelist():
+                        if entry.startswith('FS/data/anr/') or (entry.startswith('bugreport-') and entry.endswith('.txt')):
+                            stacks += process_stacks(archive.read(entry).decode(errors='replace'), pid, h.app)
+        stack_file.write_text(stacks or 'No native trace captured; live process/window/socket evidence retained\n')
+        if required:
+            assert re.search(r'#00\s+pc\s', stacks), 'No frontend thread backtrace captured'
+            assert 'Uid:' in sockets and 'FD LINKS' in sockets and 'local_address' in sockets and \
+                'Permission denied' not in sockets, 'No app socket snapshot captured'
+
+        return stacks
+
+    def responsive(pid):
+        before = h.log()
+        h.key('KEYCODE_F12')  # Unmapped upstream: logs SDL input without changing the GUI.
+        h.wait_for(lambda: bool(re.search(r'Window::logInput\(Keyboard\): Key F12, .*value=1\b', delta(before))),
+                   'frontend main-loop F12 acknowledgement', timeout=10)
+        mainloop_input(before, h.log())
+        healthy(pid)
+        h.evidence.joinpath(active[0] + '-mainloop.txt').write_text(f'PID {pid}; fresh F12 acknowledgement:\n' + delta(before))
+
+    def healthy(pid):
+        assert pid, 'Frontend process died'
+        h.dismiss_stock_onboarding()
+        h.hierarchy()  # The shared handler raises on a frontend ANR.
+        logcat = h.adb('logcat', '-d', '-v', 'threadtime')
+        frontend_process(pid, h.shell('pidof', h.app, check=False).strip(), logcat)
         assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'Frontend lost focus'
+        assert 'ANR in ' + h.app not in logcat, 'Frontend ANR'
+
+    def request_result(before, success, failure, description, timeout, started, negative=False):
+        pid = h.shell('pidof', h.app, check=False).strip()
+        assert pid, 'Frontend process died'
+        print('WAIT: ' + description, flush=True)
+        def confirmed_start(output):
+            observed = started(output)
+            h.evidence.joinpath(active[0] + '-request-start.txt').write_text(
+                f'{description}: started={observed}\n' + output)
+            return observed
+        def deadline_proof():
+            assert not negative, 'No-INTERNET control did not produce its resolve error'
+            responsive(pid)
+            with wall_budget(120, 'stalled-request evidence'):
+                live_state('stalled-request', required=True)
+            healthy(pid)
+        try:
+            output = wait_request(lambda: delta(before), lambda: healthy(pid), success, failure,
+                                  description, timeout, started=confirmed_start, responsive=deadline_proof)
+        except RemoteStall:
+            healthy(pid)
+            output = delta(before)
+            if success(output) or failure(output):
+                return output  # Completion during evidence capture wins over the deadline.
+            assert 'Error:' not in output and 'No themes.json file found' not in output, output
+            assert not any(value in output.lower() for value in
+                           ['permission denied', 'not permitted', 'ssl', 'tls', 'certificate']), output
+            # A no-INTERNET control must produce its resolve error, never a
+            # diagnostic exemption or retry on an otherwise healthy deadline.
+            assert not negative, 'No-INTERNET control did not produce its resolve error'
+            raise
+        time.sleep(1)  # Let the GUI dismiss its busy overlay.
+        healthy(pid)
         return output
 
+    def restart_remote(error, relative=None):
+        # Upstream ignores all downloader input while fetching. Only a proven
+        # healthy remote stall may be cancelled this way, never a frontend failure.
+        # The caller asserted the target absent immediately before the request;
+        # remove only that probe-created incomplete clone, preserving the list
+        # and every successful download. No product state or permission is reset.
+        pid = h.shell('pidof', h.app, check=False).strip()
+        healthy(pid)
+        with wall_budget(120, 'live state before remote cancellation'):
+            live_state('before-remote-restart')
+        healthy(pid)
+        h.shell('am', 'force-stop', h.app)
+        if isinstance(error, RemoteStall) and relative:
+            h.shell('rm', '-rf', theme_path(relative))
+        h.launch()  # Ordinary startup stays a hard, single-attempt assertion.
+
     def theme_list(negative):
+        begin(('control' if negative else 'fixed') + '-theme-list')
         permission(not negative)
         h.shell('test', '!', '-e', theme_path('themes-list'))
         before = h.log()
@@ -150,7 +494,8 @@ def run(harness):
         output = request_result(before,
             lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
             lambda s: "Couldn't clone repository" in s,
-            'frontend themes-list HTTPS clone completed', 300)
+            'frontend themes-list HTTPS clone completed', 300,
+            lambda s: 'GuiThemeDownloader: Creating initial themes list repository clone' in s, negative)
         capture('network-' + ('control' if negative else 'fixed') + '-theme-list')
         if negative:
             assert '"themes-list"' in output and resolve_error(output), output
@@ -164,55 +509,71 @@ def run(harness):
             if remote_error(output):
                 h.key('KEYCODE_ENTER')
                 h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
-                raise RemoteFailure(output, retry_list=True)
+                raise RemoteFailure(output)
             raise AssertionError(output)
         raw = h.shell('cat', theme_path('themes-list/themes.json'))
         themes = json.loads(raw)
         entries = sorted(themes['themes'] + themes.get('themesAndroid', []), key=lambda t: t['name'].upper())
         assert entries and h.shell('cat', theme_path('themes-list/.git/HEAD')).strip()
-        h.evidence.joinpath('network-themes-list-head.txt').write_text(
+        h.evidence.joinpath(active[0] + '-themes-list-head.txt').write_text(
             h.shell('cat', theme_path('themes-list/.git/HEAD')) +
             h.shell('cat', theme_path('themes-list/.git/config')))
         record(f'PASS: frontend cloned canonical themes-list using bundled CA; rendered {len(entries)} themes.')
         if 'Not running the most current application release' in output:
             h.key('KEYCODE_ENTER')  # Upstream's compatibility warning, captured above.
-        # HOME is upstream's first-row action (InputManager/ComponentList).
-        # Unlike a long sequence of DOWN events, repeating it under emulator
-        # load cannot overshoot into another theme. Use the real fetched row.
+        return entries
+
+    def download_theme(entries):
+        # HOME is upstream's first-row action. Use the real fetched row.
         selected = entries[0]
         repository = selected['reponame']
         assert re.fullmatch(r'[A-Za-z0-9_-]+', repository), repository
         assert selected['url'].startswith('https://') and not selected.get('deprecated')
-        h.key('KEYCODE_MOVE_HOME')
-        capture('network-theme-selected')
-        before = h.log()
         downloaded = f'Downloaded theme "{repository}"'
-        h.key('KEYCODE_ENTER')
-        output = request_result(before,
-            lambda s: downloaded in s,
-            lambda s: "Couldn't clone repository" in s,
-            'frontend theme HTTPS download completed', 300)
-        capture('network-theme-downloaded')
-        if "Couldn't clone repository" in output:
-            # Only retry this remote clone, never the successful list/UI/startup.
-            for attempt in range(2, 4):
-                if not remote_error(output):
-                    raise AssertionError(output)
-                record(f'REMOTE theme attempt {attempt - 1}/3 failed: {output.strip()}')
-                h.key('KEYCODE_ENTER')  # Error OK; selection is retained.
-                time.sleep(5)
-                permission(True)
-                before = h.log()
-                h.key('KEYCODE_ENTER')
-                output = request_result(before,
-                    lambda s: downloaded in s,
-                    lambda s: "Couldn't clone repository" in s,
-                    'remote-only theme download retry completed', 300)
-                capture(f'network-theme-attempt{attempt}')
-                if downloaded in output:
-                    break
+        before = ''
+        def attempt():
+            nonlocal before
+            begin('fixed-theme-download')
+            permission(True)
+            h.shell('test', '!', '-e', theme_path(repository))
+            h.key('KEYCODE_MOVE_HOME')
+            capture('network-theme-selected')
+            before = h.log()
+            h.key('KEYCODE_ENTER')
+            output = request_result(before, lambda s: downloaded in s,
+                lambda s: "Couldn't clone repository" in s,
+                'frontend theme HTTPS download completed', 300,
+                lambda _: clone_target_started(repository))
+            capture('network-theme-downloaded')
+            if "Couldn't clone repository" in output:
+                raise RemoteFailure(output)
+            return output
+        def recover(error):
+            if isinstance(error, RemoteStall):
+                restart_remote(error, repository)
+                def reopen():
+                    begin('fixed-list-reopen')
+                    permission(True)
+                    before_list = h.log()
+                    downloader()  # Upstream automatically fetches the existing list.
+                    output = request_result(before_list,
+                        lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
+                        lambda s: "Couldn't fetch" in s or "Couldn't clone" in s,
+                        'existing themes-list ready after remote cancellation', 300,
+                        # This target already existed: only a worker frame can
+                        # prove a fresh fetch when no start log is available.
+                        lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('fetch-start-proof', required=True))))
+                    if 'parseThemesList(): Parsed ' not in output:
+                        raise RemoteFailure(output)
+                    if 'Not running the most current application release' in output:
+                        h.key('KEYCODE_ENTER')
+                # Reopening necessarily issues upstream's refresh. Its remote
+                # failure uses the same bound/classification; the saved list is
+                # never deleted, and startup itself is never retried.
+                remote_attempts(reopen, restart_remote, record, 'themes-list reopen')
             else:
-                raise RemoteFailure('Theme remote retries exhausted: ' + output)
+                h.key('KEYCODE_ENTER')  # Completed remote error OK; selection retained.
+        remote_attempts(attempt, recover, record, 'theme')
         h.shell('test', '-f', theme_path(repository + '/theme.xml'))
         h.shell('test', '-f', theme_path(repository + '/.git/HEAD'))
         h.key('KEYCODE_DEL')  # Closing downloader repopulates the real theme selector.
@@ -230,6 +591,7 @@ def run(harness):
         record(f'PASS: real downloaded {repository} is selectable, saved and loaded through the UI.')
 
     def scraper(negative):
+        begin(('control' if negative else 'fixed') + '-scraper')
         permission(not negative)
         before = h.log()
         menu(1)  # SCRAPER; choose its real system checkbox before START.
@@ -247,7 +609,8 @@ def run(harness):
                    'real UI submitted NES scraper search', timeout=10)
         output = request_result(before, scraper_reply,
             lambda s: 'ScraperHttpRequest network error' in s,
-            'frontend ScreenScraper HTTPS request completed', 90)
+            'frontend ScreenScraper HTTPS request completed', 90,
+            lambda s: 'Scraper::startScraperSearch(): Scraping system "nes"' in s, negative)
         capture('network-' + ('control' if negative else 'fixed') + '-scraper-reply')
         assert 'Scraper::startScraperSearch(): Scraping system "nes"' in output, output
         if negative:
@@ -255,13 +618,16 @@ def run(harness):
             record('PASS: no-INTERNET APK rejects real scraper HTTPS request with resolve error (one attempt).')
         else:
             if not scraper_reply(output) and remote_error(output):
-                raise RemoteFailure('Scraper remote request failed (one attempt): ' + output)
+                raise RemoteFailure('Scraper remote request failed: ' + output)
             assert scraper_reply(output) and not resolve_error(output), output
             record('PASS: frontend ScreenScraper HTTPS request reached service (result/service-level reply).')
 
     try:
-        record(f'Network UI probes: API {h.api}; TV={h.television}; maximum three remote theme attempts; no frontend/permission retries.')
+        record(f'Network UI probes: API {h.api}; TV={h.television}; maximum three attempts per remote operation '
+               '(clone 300s, scraper 90s, backoff 5s); total work budget 90 minutes, failure evidence 1 minute, '
+               'cleanup 5 minutes; no frontend/permission/TLS retries.')
         if h.api == 34:
+            begin('control-startup')
             assert control.is_file(), 'Missing built no-INTERNET APK'
             h.adb('install', '-r', str(control))
             permission(False)
@@ -272,32 +638,43 @@ def run(harness):
             h.adb('install', '-r', str(h.apk))
             # libgit2 cleans its failed clone; never delete user data to pass.
             h.shell('test', '!', '-e', theme_path('themes-list'))
+        begin('fixed-startup')
         permission(True)
         h.launch()
-        for attempt in range(1, 4):
-            try:
-                theme_list(False)
-                break
-            except RemoteFailure as error:
-                if not error.retry_list:
-                    raise
-                record(f'REMOTE themes attempt {attempt}/3 failed: {error}')
-                if attempt == 3:
-                    raise
-                # libgit2 normally cleans an unsuccessful clone; do not remove a
-                # successful list or reset the frontend to make a probe pass.
-                h.shell('test', '!', '-e', theme_path('themes-list'))
-                time.sleep(5)
-        scraper(False)
-    except RemoteFailure as error:
-        record(f'{"FAIL" if h.api == 34 else "NON-GATING REMOTE DIAGNOSTIC"}: API {h.api}: {error}')
-        if h.api == 34:
-            raise
+        begin('liveness-control')
+        responsive(h.shell('pidof', h.app, check=False).strip())
+        with wall_budget(120, 'native diagnostic control'):
+            live_state('healthy-frontend', required=True)
+        record('PASS: real frontend acknowledges harmless F12; thread stacks and app socket snapshot captured.')
+        def recover_list(error):
+            if isinstance(error, RemoteStall):
+                restart_remote(error, 'themes-list')
+            h.shell('test', '!', '-e', theme_path('themes-list'))
+        try:
+            entries = remote_attempts(lambda: theme_list(False), recover_list, record, 'themes-list')
+            download_theme(entries)
+        except RemoteFailure as error:
+            remote_outcome(h.api, error, record)
+            # Finish/cancel only the failed network operation before the independent
+            # scraper probe; its startup, permission and UI assertions stay hard.
+            restart_remote(error)
+        try:
+            remote_attempts(lambda: scraper(False), restart_remote, record, 'scraper')
+        except RemoteFailure as error:
+            remote_outcome(h.api, error, record)
+    except BaseException:
+        try:
+            with wall_budget(60, 'live failure evidence before cleanup', reserve=True):
+                live_state('failure-before-stop')
+        except Exception as error:
+            record('Live failure evidence incomplete: ' + str(error))
+        raise
     finally:
-        h.shell('am', 'force-stop', h.app)
-        if h.api == 34:
-            h.adb('install', '-r', str(h.apk))
-        h.user_file('settings/es_settings.xml', original)
+        with wall_budget(300, 'network cleanup (5 minutes)', reserve=True):
+            h.shell('am', 'force-stop', h.app)
+            if h.api == 34:
+                h.adb('install', '-r', str(h.apk))
+            h.user_file('settings/es_settings.xml', original)
     # Restore the caller's actual HOME entry before inherited lifecycle probes.
     h.start_entry('HomeEntry', 'android.intent.category.HOME')
     h.configured_system('network-restored-home')

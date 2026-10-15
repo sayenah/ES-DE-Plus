@@ -466,7 +466,7 @@ def validate_origin(transport, source, apk_dir):
             manifest['run_attempt'] == os.environ['ORIGIN_ATTEMPT'], 'Wrong originating run/attempt/commit')
     run = transport.request(f'repos/{REPOSITORY}/actions/runs/{manifest["run_id"]}')
     require(run['repository']['full_name'] == REPOSITORY and run['head_sha'] == manifest['commit'] and
-            run['head_branch'] == 'main' and run['event'] in ('push', 'workflow_dispatch'), 'Foreign/ineligible originating run')
+            run['head_branch'] == 'main' and run['event'] == 'workflow_dispatch', 'Foreign/ineligible originating run')
     names = distribution.artifact_names(manifest['commit'], manifest['run_id'], manifest['run_attempt'])
     for identity, name in zip((os.environ['SOURCE_ID'], os.environ['APK_ID']), names):
         require(identity.isdecimal() and int(identity) > 0, 'Missing exact artefact ID')
@@ -476,6 +476,11 @@ def validate_origin(transport, source, apk_dir):
                 metadata['workflow_run']['head_sha'] == manifest['commit'], 'Wrong artefact provenance')
 
 
+def publication_transport():
+    require(test_signing.stable_run(), 'Release API transport forbidden without an eligible publish=true dispatch')
+    return GitHub()
+
+
 if __name__ == '__main__':
     import sys
     mode = sys.argv[1]
@@ -483,8 +488,7 @@ if __name__ == '__main__':
     source = pathlib.Path(os.getenv('RELEASE_SOURCE', 'android/.deps/distribution/downloaded-source'))
     apk_dir = pathlib.Path(os.getenv('RELEASE_APK', 'android/.deps/distribution/apk'))
     if mode == 'publish':
-        require(test_signing.stable_run(), 'Release API transport forbidden on this event/ref/repository/leg')
-        transport = GitHub()
+        transport = publication_transport()
         validate_origin(transport, source, apk_dir)
         cert = test_signing.TEST_CERT_SHA256
     else:
