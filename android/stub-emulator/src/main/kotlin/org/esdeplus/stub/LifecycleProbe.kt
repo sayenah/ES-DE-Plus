@@ -141,9 +141,9 @@ class LifecycleProbe : Instrumentation() {
             check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait", "restart-timeout", "restart-resume"))
             val command = File("/data/local/tmp/esde-lifecycle-command")
             if (mode in listOf("restart-wait", "restart-timeout", "restart-resume")) {
-                // Isolated helper probe: keep its real parent alive beyond the
-                // former 5-second deadline. This does not exercise or change
-                // the native destruction timing gate.
+                // Isolated helper probes use a live parent for timeout/retry
+                // or a retired shell process for late resume. They do not
+                // exercise or change the native destruction timing gate.
                 val entry = Intent(Intent.ACTION_MAIN).setClassName(targetContext.packageName,
                     "org.esdeplus.frontend.MainActivity").addCategory(Intent.CATEGORY_LAUNCHER)
                 val parent = if (mode == "restart-resume") resumeParent.also { check(it > 0) }
