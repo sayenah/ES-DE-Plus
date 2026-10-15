@@ -303,8 +303,11 @@ def dismiss_stock_onboarding(force=False):
         wait_for(stock_ui_clear, 'external TV onboarding dismissal completed')
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
         screenshot('tv-onboarding-dismissed')
-        # No frontend launch, task focus change, process restart or assertion
-        # retry is performed. The original condition still has to pass.
+        # This guard never launches/restarts the frontend or retries assertions.
+        # Sole task-focus exception (Orchestrator ruling 2026-10-15): the touch
+        # injector may recover the existing task once after this dismissal,
+        # only with its pre-gesture startup marker and an unchanged native PID.
+        # The original readiness deadline and condition still have to pass.
     finally:
         dismissing_onboarding = False
 

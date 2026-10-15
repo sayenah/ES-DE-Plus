@@ -255,6 +255,7 @@ def run(namespace):
         # Instrumentation owns a fresh app window. A missing/failed injection is a
         # hard failure, never a silently passing diagnostic.
         h.shell('am', 'force-stop', h.app)
+        h.private('rm', '-f', 'cache/touch-startup-owner')
         arguments = ['am', 'instrument', '-w', '-e', 'steps', json.dumps(steps, separators=(',', ':')),
                      *sum((['-e', k, str(v)] for k, v in options.items()), []),
                      h.app + '/org.esdeplus.frontend.TouchSmoke']
@@ -264,9 +265,31 @@ def run(namespace):
         with tempfile.TemporaryFile(mode='w+t') as output, tempfile.TemporaryFile(mode='w+t') as errors:
             process = subprocess.Popen(['adb', 'shell', shlex.join(arguments)], stdout=output, stderr=errors)
             deadline = time.monotonic() + 90
+            tutorial_events = h.evidence / 'tv-onboarding-events.txt'
+            previous_events = tutorial_events.stat().st_size if tutorial_events.exists() else 0
+            refocused = False
+            def finished():
+                nonlocal refocused
+                if time.monotonic() > deadline:
+                    return False
+                if process.poll() is not None:
+                    return True
+                # The shared guard runs before this predicate. Only a proven
+                # external tutorial dismissal may recover initial task ownership.
+                if not refocused and tutorial_events.exists() and tutorial_events.stat().st_size > previous_events:
+                    owner = h.private('cat', 'cache/touch-startup-owner', check=False).strip()
+                    if re.fullmatch(r'\d+ \d+', owner) and h.smoke_checks.package_window_focused(
+                            h.focused_window(), h.stock_package):
+                        pid, task = owner.split()
+                        assert h.shell('pidof', h.app).strip() == pid, 'Startup owner process changed'
+                        h.shell('am', 'start', '-n', h.activity, '-f', '0x10020000')
+                        assert h.shell('pidof', h.app).strip() == pid, 'Recovery restarted the native process'
+                        refocused = True
+                        with (h.evidence / 'touch-startup-ownership.txt').open('a') as proof:
+                            proof.write(f'{name}: existing pid={pid} task={task}; before stream; external tutorial dismissed\n')
+                return False
             try:
-                h.wait_for(lambda: time.monotonic() <= deadline and process.poll() is not None,
-                           name + ' SDK pointer stream', timeout=90)
+                h.wait_for(finished, name + ' SDK pointer stream', timeout=90)
                 output.seek(0); errors.seek(0)
                 completed = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
                 completed.check_returncode()

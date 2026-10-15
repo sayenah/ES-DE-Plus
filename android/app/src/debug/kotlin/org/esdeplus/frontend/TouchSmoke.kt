@@ -89,6 +89,8 @@ class TouchSmoke : Instrumentation() {
         var active = emptyList<Pointer>()
         var downTime = 0L
         var surface: SDLSurface? = null
+        val startupOwner = File(targetContext.cacheDir, "touch-startup-owner")
+        startupOwner.delete()
         try {
             if (mode == "kid-prepare" || mode == "kid-restore") {
                 val gamelist = File(StorageModel(targetContext).appData(), "gamelists/nes/gamelist.xml")
@@ -133,6 +135,7 @@ class TouchSmoke : Instrumentation() {
             (targetContext.applicationContext as Application).registerActivityLifecycleCallbacks(lifecycle)
             val activity = startActivitySync(Intent(targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+            startupOwner.writeText("${android.os.Process.myPid()} ${activity.taskId}")
             val deadline = SystemClock.elapsedRealtime() + 60_000
             val log = File(activity.getAppDataDirectory(), "logs/es_log.txt")
             while (SystemClock.elapsedRealtime() < deadline) {
@@ -145,6 +148,7 @@ class TouchSmoke : Instrumentation() {
                 log.readText().contains("Application startup time:")) {
                 "Frontend did not become ready for owned-window touch injection"
             }
+            startupOwner.delete() // No ownership recovery once gesture execution can begin.
             fun traceAndroidDelivery() {
                 runOnMainSync {
                     val target = checkNotNull(surface)
@@ -382,6 +386,7 @@ class TouchSmoke : Instrumentation() {
             result.putString("stream", "$record\nFAIL: $error\n${error.stackTraceToString()}")
             finish(0, result)
         } finally {
+            startupOwner.delete()
             (targetContext.applicationContext as Application).unregisterActivityLifecycleCallbacks(lifecycle)
         }
     }
