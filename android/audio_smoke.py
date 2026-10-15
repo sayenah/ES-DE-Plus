@@ -167,7 +167,7 @@ def capture_startup(h, name):
     (h.evidence / (name + '-es_log.txt')).write_text(h.log())
 
 
-def startup(harness, name, baseline):
+def startup(harness, name, baseline, home=False, description='fresh frontend startup/system loading'):
     h = type('Harness', (), harness)
     previous_guard = harness['onboarding_guard']
     dismissals = harness['onboarding_dismissals']
@@ -178,11 +178,16 @@ def startup(harness, name, baseline):
     def logs():
         return after_marker(h.adb('logcat', '-d', '-b', 'main,system,crash',
                                   '-v', 'threadtime', '-T', since), marker)
+    def start():
+        if home:
+            h.start_entry('HomeEntry', 'android.intent.category.HOME')
+        else:
+            h.shell('am', 'start', '-n', h.activity)
     used = False
     try:
         harness['onboarding_guard'] = h.television
         h.dismiss_stock_onboarding(force=True)
-        h.shell('am', 'start', '-n', h.activity)
+        start()
         started = time.monotonic()
         def ready():
             nonlocal used
@@ -201,13 +206,14 @@ def startup(harness, name, baseline):
                     with (h.evidence / 'audio-startup-relaunches.jsonl').open('a') as output:
                         output.write(json.dumps(dict(session=name, relaunch=1, marker=marker,
                             stock_tutorial_dismissed=True, activity_created=False, initial_pid=initial_pid,
+                            entry='HomeEntry' if home else 'MainActivity',
                             pid=h.shell('pidof', h.app, check=False).strip())) + '\n')
                     used = True
                     # D-019 am. 2 only: no force-stop, settings change or deadline
                     # extension; at most one start after proven stock preemption.
-                    h.shell('am', 'start', '-n', h.activity)
+                    start()
             return False
-        h.wait_for(ready, 'fresh frontend startup/system loading')
+        h.wait_for(ready, description)
     except BaseException:
         capture_startup(h, name + '-startup-timeout')
         raise
@@ -752,8 +758,7 @@ def run(harness):
             'Real nonzero navigation and video PCM mixing is asserted separately on Linux.\n')
     finally:
         h.user_file('settings/es_settings.xml', original)
-        h.start_entry('HomeEntry', 'android.intent.category.HOME')
-        h.configured_system('audio-restored-home')
+        h.configured_system('audio-restored-home', audio_relaunch=True)
 
 
 if __name__ == '__main__':

@@ -630,8 +630,14 @@ def clear_app():
     time.sleep(1)
 
 
-def configured_system(name):
-    wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
+def configured_system(name, audio_relaunch=False):
+    global startup_baseline
+    if audio_relaunch:
+        startup_baseline = log()
+        audio_smoke.startup(globals(), name, startup_baseline, home=True,
+                            description='fresh configured system view')
+    else:
+        wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
     def focused():
