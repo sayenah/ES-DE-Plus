@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import zipfile
+import test_signing
 
 ROOT = pathlib.Path.cwd()
 ABIS = ['arm64-v8a', 'x86_64']
@@ -386,7 +387,8 @@ def publication_result(eligible, outcome, artifact_id):
 def verify_publication(injection):
     validate_injection(injection)
     eligible = permitted_publication(os.environ['GITHUB_REPOSITORY'],
-                                     os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'])
+                                     os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
+                                     os.getenv('PUBLISH') == 'true', os.getenv('REBUILD_RUN', ''), injection)
     # Simulate only the eligible-main verdict; the actual upload guard stays main-only.
     if injection == 'apk-upload':
         eligible = True
@@ -469,8 +471,8 @@ def provenance(path, tracked, audit):
     require(False, f'Unmapped input: {path}')
 
 
-def permitted_publication(repository, event, ref):
-    return repository == REPOSITORY and event in {'push', 'workflow_dispatch'} and ref == 'refs/heads/main'
+def permitted_publication(repository, event, ref, publish=False, rebuild='', failure='none'):
+    return test_signing.eligible(repository, event, ref, 'api34', rebuild, failure, publish)
 
 
 def artifact_names(commit, run_id, attempt):
@@ -482,8 +484,9 @@ def artifact_names(commit, run_id, attempt):
 
 def validate_injection(injection):
     require(not injection or injection == 'none' or
-            not permitted_publication(os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_EVENT_NAME'],
-                                      os.environ['GITHUB_REF']), 'Failure injection is forbidden on main')
+            not (os.environ['GITHUB_REPOSITORY'] == REPOSITORY and
+                 os.environ['GITHUB_EVENT_NAME'] in ('push', 'workflow_dispatch') and
+                 os.environ['GITHUB_REF'] == 'refs/heads/main'), 'Failure injection is forbidden on main')
 
 
 def gate(android, linux, source):
@@ -534,21 +537,13 @@ def linux_gate(injection):
 
 
 def identity(apk):
-    tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0'
-    certificate = run(str(tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk))
-    badging = run(str(tools / 'aapt2'), 'dump', 'badging', str(apk))
-    require('CN=Android Debug' in certificate and 'Number of signers: 1' in certificate,
-            'Expected one Android Debug signer')
-    fingerprint = re.search(r'Signer #1 certificate SHA-256 digest: ([a-f0-9]{64})', certificate)
-    require(fingerprint is not None, 'Missing signer fingerprint')
-    require("package: name='org.esdeplus.frontend'" in badging and
-            "application-label:'ES-DE Plus'" in badging and 'application-debuggable' in badging,
-            'Unexpected APK identity')
+    record = test_signing.inspect_apk(apk, test_signing.expected_cert())
+    require({key: record[key] for key in test_signing.public_version()} == test_signing.public_version(),
+            'APK version differs from the built commit')
     with zipfile.ZipFile(apk) as archive:
         abis = sorted({name.split('/')[1] for name in archive.namelist() if name.startswith('lib/')})
         require(abis == ABIS, f'Unexpected ABIs: {abis}')
-    record = {'sha256': digest(apk), 'signer_sha256': fingerprint[1], 'abis': abis,
-              'certificate': certificate, 'badging': badging}
+    record['abis'] = abis
     path = ROOT / 'android/evidence/distribution-apk.txt'
     if path.exists():
         require(json.loads(path.read_text()) == record, 'APK changed after audit/smoke')
@@ -665,7 +660,7 @@ def make_bundle(apk):
     cache = dependency_cache(os.environ['DEPENDENCY_CACHE_KEY'], os.environ['DEPENDENCY_CACHE_HIT'] == 'true')
     require(os.environ.get('GRADLE_CACHE_HIT') in {'true', 'false'}, 'Missing Gradle cache restore result')
     gradle = gradle_cache(os.environ['GRADLE_CACHE_KEY'], os.environ['GRADLE_CACHE_HIT'] == 'true')
-    manifest = {'schema': 4, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
+    manifest = {'schema': 5, 'commit': commit, 'run_id': os.environ['GITHUB_RUN_ID'],
                 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'repository': os.environ['GITHUB_REPOSITORY'],
                 'apk': record, 'archives': archives, 'graphs': graphs, 'inputs': inputs, 'shared': shared,
                 'bundled_codecs': {f'FreeImage/Source/{k}': {'archive': 'freeimage', 'licence': v} for k, v in CODECS.items()},
@@ -736,16 +731,21 @@ def apk_notice_controls(directory):
 
 def validate_bundle(bundle):
     manifest = json.loads((bundle / 'manifest.json').read_text())
-    require(manifest['schema'] in (3, 4) and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
+    require(manifest['schema'] in (3, 4, 5) and re.fullmatch('[a-f0-9]{40}', manifest['commit']), 'Invalid manifest commit')
     # Schema 3 predates Gradle provenance. Its archived validator/rebuild recipe
     # remains usable; every newly produced schema-4 bundle requires this field.
-    if manifest['schema'] == 4:
+    if manifest['schema'] >= 4:
         require(isinstance(manifest.get('gradle_cache'), dict), 'Missing or invalid Gradle cache provenance')
         require(manifest['gradle_cache'] == gradle_cache(
             manifest['gradle_cache'].get('key'), manifest['gradle_cache'].get('hit')), 'Unexpected Gradle cache metadata')
     require(manifest['dependency_cache'] == dependency_cache(
         manifest['dependency_cache']['key'], manifest['dependency_cache']['hit']), 'Unexpected cache metadata')
     require(re.fullmatch('[a-f0-9]{64}', manifest['apk']['sha256']), 'Missing APK hash')
+    if manifest['schema'] == 5:
+        require(type(manifest['apk'].get('version_code')) is int and
+                1001 <= manifest['apk']['version_code'] <= 2100000000 and
+                manifest['apk'].get('version_name') == 'test-' + manifest['commit'][:9], 'Invalid APK version provenance')
+        require(re.fullmatch('[a-f0-9]{64}', manifest['apk'].get('signer_sha256', '')), 'Missing public signer metadata')
     for file, expected in manifest['files'].items():
         require(file == 'repository.tar.gz' or re.fullmatch(r'archives/[\w.-]+\.(archive|zip|jar|deb|dsc|tar\.xz)', file), 'Unsafe bundle path')
         require(digest(bundle / file) == expected, f'Bundle hash mismatch: {file}')
@@ -841,7 +841,7 @@ def bundle_controls(bundle):
     finally:
         archive.unlink(missing_ok=True)
         saved.rename(archive)
-    if manifest['schema'] == 4:
+    if manifest['schema'] >= 4:
         for invalid in [None, {'key': '', 'hit': False},
                         {'key': manifest['gradle_cache']['key'], 'hit': 'true'}]:
             changed = json.loads(original)
@@ -879,8 +879,10 @@ def bundle_controls(bundle):
 
 
 def gate_controls():
-    require(permitted_publication(REPOSITORY, 'push', 'refs/heads/main'), 'Main push rejected')
-    require(permitted_publication(REPOSITORY, 'workflow_dispatch', 'refs/heads/main'), 'Main dispatch rejected')
+    require(not permitted_publication(REPOSITORY, 'push', 'refs/heads/main', True), 'Main push must dry-run')
+    require(not permitted_publication(REPOSITORY, 'workflow_dispatch', 'refs/heads/main'), 'Dispatch defaults to dry-run')
+    require(permitted_publication(REPOSITORY, 'workflow_dispatch', 'refs/heads/main', True),
+            'Explicit main publication dispatch rejected')
     for repository, event, ref in [(REPOSITORY, 'pull_request', 'refs/heads/main'),
                                    (REPOSITORY, 'push', 'refs/heads/feature/distribution-posture'),
                                    ('someone/ES-DE-Plus', 'push', 'refs/heads/main')]:

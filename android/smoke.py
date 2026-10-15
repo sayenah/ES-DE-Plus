@@ -16,6 +16,7 @@ import smoke_support
 import smoke_session
 import network_smoke
 import touch_smoke
+import importer_navigation
 import json
 import os
 import tempfile
@@ -31,6 +32,7 @@ evidence = pathlib.Path(os.environ.get('ESDE_SMOKE_EVIDENCE', 'android/evidence'
 evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
+(evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
@@ -859,11 +861,7 @@ def gamelist_recipient_flow(mode):
         if api == 29:
             shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
         start_custom()
-        key('KEYCODE_ESCAPE')
-        for _ in range(7):
-            key('KEYCODE_DPAD_DOWN')
-        key('KEYCODE_ENTER')  # UTILITIES
-        key('KEYCODE_ENTER')  # GAME IMPORTER
+        importer_navigation.open_importer(globals(), mode)
         screenshot('importer-' + mode)
         key('KEYCODE_INSERT')  # real Y/start importer action
         temp_files = external + '/ES-DE-Plus/importer_temp/files'
@@ -898,6 +896,7 @@ def gamelist_recipient_flow(mode):
         wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focused_window()), 'imported app returns to frontend')
         screenshot('imported-app-return-' + mode)
     except Exception:
+        importer_navigation.capture_failure(type('Harness', (), globals()), mode + '-importer-flow-failure')
         screenshot(mode + '-gamelist-failure')
         save_logs(mode + '-gamelist-failure')
         raise
@@ -1116,6 +1115,9 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
+    if device_api in (29, 34):
+        import update_smoke
+        update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
