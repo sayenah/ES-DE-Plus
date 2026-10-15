@@ -238,7 +238,9 @@ def classify_stall(h, name, pid, logs, reloads, setups):
     # audio setup cannot be reclassified by any renderer stack signature.
     assert h.shell('pidof', h.app, check=False).strip() == pid, 'PID changed during reload stall'
     assert not fatal_lines(logs(), pid, h.app), 'Native fatal during reload stall'
-    assert 'Audio driver:' in current and current.count('Setting up AudioManager...') > 0
+    assert current.count('Setting up AudioManager...') > 0
+    assert current.count('Audio driver:') == current.count('Setting up AudioManager...'), 'Missing audio driver setup'
+    assert not re.search(r"Couldn't initialize SDL audio|Unable to open audio device", current)
     assert (current.count('Setting up AudioManager...') - setups ==
             current.count('Window size has changed from ') - reloads), 'Missing reload audio setup'
     if gl_transport_stall(stacks):
@@ -332,6 +334,7 @@ def cycle(h, name, count, allow_crash=False):
         for index in range(count):
             for size in (reduced, 'reset'):
                 pid = h.shell('pidof', h.app).strip()
+                assert pid == session_pid or allow_crash, 'PID changed between resize actions'
                 before = h.log()
                 reloads = before.count('Window size has changed from ')
                 setups = before.count('Setting up AudioManager...')
