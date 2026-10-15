@@ -406,6 +406,17 @@ def run(namespace):
             [(11, 1), (11, 0), (14, 1), (14, 0)], menu='sound')
         volume = re.search(r'name="SoundVolumeNavigation" value="(\d+)"', h.shell('cat', h.settings))
         assert volume and int(volume[1]) > 1, 'Right did not repeat during the stationary hold'
+        a = pointer(0); b = pointer(1); up = pointer(11)
+        empty = dict(id=0, x=0.5, y=0.15)
+        inject('touch-face-slide-lift-elsewhere', [step('down', [a]),
+            step('move', [b]), step('up', [a])],
+            [(0, 1), (0, 0), (1, 1), (1, 0)], menu='true')
+        inject('touch-leave-cluster', [step('down', [a]), step('move', [empty]),
+            step('up', [empty])], [(0, 1), (0, 0)], menu='true')
+        inject('touch-empty-cannot-slide-in', [step('down', [empty]), step('move', [a]),
+            step('up', [a])], [], menu='true')
+        inject('touch-cannot-cross-clusters', [step('down', [up]), step('move', [a]),
+            step('up', [a])], [(11, 1), (11, 0)], menu='true')
         down = pointer(12, 0); shoulder = pointer(9, 5); face = pointer(3, 11)
         inject('touch-three-clusters-cancel', [step('down', [down]),
             step('pointer-down', [shoulder, down], changed=5),
