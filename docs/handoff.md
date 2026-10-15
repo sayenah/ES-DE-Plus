@@ -168,7 +168,7 @@ Source: ultracode workflow run wf_1ae03c98-913 (read-only, 3-skeptic verificatio
 | G-07 Android 16 large screens ignore the orientation lock → reload on rotation | medium | WO-6 | no |
 | G-08 scoped mode silently breaks most launches | medium→low after #15 | WO-7 | no |
 | G-09/G-10 CI never exercises gamepad, real remote, touch, IME; MENU-less TV remotes may lack Start | medium/low | WO-8 input CI legs (after PR #13) | no |
-| G-11/G-12 `%ROMPROVIDER%` refuses ROMs outside the root; every refusal shows "ERROR CODE -1" | low | WO-9 | Kotlin part no; C++ after WO-4 |
+| G-11/G-12 `%ROMPROVIDER%` refuses ROMs outside the root; every refusal shows "ERROR CODE -1" | low | WO-9 — Astra done, adjudicated D-021; parked on Founder gate G-5 | Kotlin part no; C++ after WO-4 |
 | G-13 imported-app relaunch adds an instance | low | WO-10 (after #16) | no |
 | G-14/G-17/G-18 no non-destructive reconfigure; LAUNCH ON OTHER SCREEN shown but ignored; "ES-DE" strings | low | WO-11 (after #16) | no |
 | G-15 theme downloader in shared storage untested (libgit2 over FUSE) | low, time-sensitive | WO-12 (after #15, PR-G2) | no |
@@ -180,7 +180,7 @@ Source: ultracode workflow run wf_1ae03c98-913 (read-only, 3-skeptic verificatio
 
 ## Founder gate (open)
 
-None (G-4 ruled 2026-10-14: Pixel Plus, D-016 am. 1). **Queued after PR-F: D-015 emulator manager** — design and Astra challenge first. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-H icon (second clone, after PR-G) → PR-E → PR-F (amended by D-012 am. 2) → D-015 emulator manager.
+**G-5 (opened 2026-10-15, D-021) — may a refused game launch tell the user why?** Today every launch the Android host refuses shows upstream's popup "ERROR LAUNCHING GAME '…' (ERROR CODE -1)" and the reason is only in logcat. WO-9 would have the host return a distinct code plus a short, sanitised reason (storage unavailable, ROM outside the ROM folder, emulator app not found or not visible, bad launch rule, Android refused the start …), write it to `es_log.txt`, and show a translated one-line explanation in the popup and in the emulator manager's test launch. **Tradeoffs:** clearer self-service errors on phones and TVs, versus changing the accepted launch bridge contract (§14: new return meanings and a JNI signature change), one small Android-only edit to upstream's `FileData.cpp` popup, and a few new translatable strings. **Alternative:** keep `-1`; WO-9 shrinks to documenting the ROM-folder limit of `%ROMPROVIDER%`. **Parked:** WO-9 (no work; it was already sequenced after #11, #15, #16 and WO-4). **Resume:** on approval, write the WO-9 Sol work order from D-021 when WO-4 merges; on refusal, a docs-only WO-9. Everything else continues. Earlier: G-4 ruled 2026-10-14 (Pixel Plus, D-016 am. 1). **Queued after PR-F: D-015 emulator manager** — design and Astra challenge first. Ruled 2026-10-13: D-011 (APKs on GitHub Releases), D-012 (user-chosen data folder), D-013 (stable test key), D-007 am. 3 (keep the scanline shader). Workstream order: lifecycle stall fix (Sol, in flight) and PR-G network permission (second Sol clone, in parallel, D-014) → PR-H icon (second clone, after PR-G) → PR-E → PR-F (amended by D-012 am. 2) → D-015 emulator manager.
 
 ## State (verified 2026-10-12 14:50 CDT; re-verify from the repository)
 
