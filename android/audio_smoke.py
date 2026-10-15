@@ -130,8 +130,11 @@ def set_setting(document, kind, name, value):
 def fatal_lines(logcat, pid, app):
     # libc/FORTIFY messages carry the crashing PID; crash-buffer records carry
     # the package. Unrelated stock-launcher crashes do not count as this defect.
+    # Read the emitting PID column, not a PID mentioned in a diagnostic message
+    # (debuggerd -b registers a nonfatal tombstoned backtrace intercept for it).
     return [line for line in logcat.splitlines()
-            if (re.search(r'\s' + re.escape(pid) + r'\s', line) or app in line)
+            if (re.match(r'^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+\s+' + re.escape(pid) +
+                         r'\s+\d+\s+[VDIWEFAS]\s+', line) or app in line)
             and re.search(r'FORTIFY|Fatal signal|tombstone|>>>.*' + re.escape(app), line, re.I)]
 
 
@@ -255,6 +258,11 @@ def controls():
     assert not fatal_lines('10-14 00:00:00.000 555 556 F libc: Fatal signal 6', '123', 'app')
     assert fatal_lines('10-14 00:00:00.000 123 124 F libc: FORTIFY: destroyed mutex', '123', 'app')
     assert not fatal_lines('10-14 00:00:00.000 123 124 I AudioTrack: start', '123', 'app')
+    assert not fatal_lines('10-14 00:00:00.000 555 555 I /system/bin/tombstoned: '
+                           'registered intercept for pid 123 and type kDebuggerdNativeBacktrace',
+                           '123', 'app')
+    assert not fatal_lines('10-14 00:00:00.000 555 123 F libc: Fatal signal 6', '123', 'app')
+    assert fatal_lines('10-14 00:00:00.000 555 556 F DEBUG: >>> app <<<', '123', 'app')
     old_fatal = '10-14 00:00:00.000 123 124 F libc: Fatal signal 6'
     marker = '10-14 00:00:01.000 555 556 I ESDEPlusAudio: boundary-test'
     new_fatal = '10-14 00:00:02.000 123 124 F libc: FORTIFY: destroyed mutex'
