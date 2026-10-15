@@ -6,6 +6,9 @@ import json
 import hashlib
 import re
 import struct
+import subprocess
+import tempfile
+import shlex
 import time
 import types
 import xml.etree.ElementTree as ET
@@ -219,9 +222,26 @@ def run(namespace):
         # Instrumentation owns a fresh app window. A missing/failed injection is a
         # hard failure, never a silently passing diagnostic.
         h.shell('am', 'force-stop', h.app)
-        result = h.shell('am', 'instrument', '-w', '-e', 'steps', json.dumps(steps, separators=(',', ':')),
-                         *sum((['-e', k, str(v)] for k, v in options.items()), []),
-                         h.app + '/org.esdeplus.frontend.TouchSmoke')
+        arguments = ['am', 'instrument', '-w', '-e', 'steps', json.dumps(steps, separators=(',', ':')),
+                     *sum((['-e', k, str(v)] for k, v in options.items()), []),
+                     h.app + '/org.esdeplus.frontend.TouchSmoke']
+        # Keep the existing external stock-dialog guard active while the SDK
+        # waits for its owned activity. Preserve the same 90-second deadline;
+        # no frontend action, assertion or instrumentation stream is replayed.
+        with tempfile.TemporaryFile(mode='w+t') as output, tempfile.TemporaryFile(mode='w+t') as errors:
+            process = subprocess.Popen(['adb', 'shell', shlex.join(arguments)], stdout=output, stderr=errors)
+            deadline = time.monotonic() + 90
+            try:
+                h.wait_for(lambda: time.monotonic() <= deadline and process.poll() is not None,
+                           name + ' SDK pointer stream', timeout=90)
+                output.seek(0); errors.seek(0)
+                completed = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
+                completed.check_returncode()
+                result = completed.stdout
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
         (h.evidence / (name + '-injected.txt')).write_text(result)
         assert 'PASS: complete Android multi-pointer stream injected' in result and 'FAIL:' not in result, result
         current = record(name)
@@ -556,9 +576,16 @@ def run(namespace):
         # Fade: one complete waking gesture is inert, including its motion and UP.
         output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2,
                        ScreensaverTimer=1000, ScreensaverType='dim')
-        assert 'InputOverlay: faded' in output  # launch() waits ten seconds.
         centres = buttons(output)
         s = surface_bounds()
+        # TV automatic wakes start Hidden, so startup need not emit "faded".
+        # Explicitly wake on every platform, then observe a fresh timed fade.
+        before = h.log()
+        tap((s[0] + s[2] * 0.5, s[1] + s[3] * 0.1))
+        check_delta(before, [], 'explicit empty-space visibility wake')
+        h.wait_for(lambda: 'InputOverlay: faded' in h.log()[len(before):],
+                   'two-second fade after explicit wake', timeout=15)
+        shot('touch-two-second-faded')
         before = h.log()
         nx, ny = centres[1]['norm']
         p = (s[0] + nx * s[2], s[1] + ny * s[3])
@@ -579,7 +606,12 @@ def run(namespace):
         record('touch-setting-fallbacks')
         output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=99)
         assert 'InputOverlay: fade time clamped to 20' in output
-        h.wait_for(lambda: 'InputOverlay: faded' in h.log(), 'clamped twenty-second fade', timeout=15)
+        s = surface_bounds()
+        before = h.log()
+        tap((s[0] + s[2] * 0.5, s[1] + s[3] * 0.1))
+        check_delta(before, [], 'explicit wake before clamped fade')
+        h.wait_for(lambda: 'InputOverlay: faded' in h.log()[len(before):],
+                   'clamped twenty-second fade after explicit wake', timeout=30)
         record('touch-setting-fade-clamp')
 
         # Automatic TV wakes neither show controls nor persist a setting change.

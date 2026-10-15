@@ -123,8 +123,9 @@ void InputOverlay::unselectAllButtons()
     // residual motion through the same cancellation epoch used at other boundaries.
     if (mModel.tracked() != 0) {
         LOG(LogDebug) << "InputOverlay: importer cancellation boundary";
+        InputManager::getInstance().cancelTouchInput();
     }
-    InputManager::getInstance().cancelTouchInput();
+    // Repeated blocked renders with no gesture must not restart the fade timer.
 }
 void InputOverlay::update(int deltaTime)
 {
