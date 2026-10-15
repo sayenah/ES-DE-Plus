@@ -176,6 +176,10 @@ static void mapping()
     require(!clipped.toLogical({NAN, 0}, p), "NaN rejected");
     clipped.drawableHeight = 0;
     require(!clipped.valid() && !clipped.toLogical({}, p), "zero drawable rejected");
+    auto edge {geometry(324, 600)};
+    edge.viewportX = 13;
+    require(std::abs(edge.visible().w - 311) < 0.01f,
+            "exact viewport edge survives normalized floating-point rounding");
 }
 
 static void boundaries()
@@ -203,6 +207,22 @@ static void boundaries()
     expected(m.input(Event::MOTION, 1, position(m, 3), true), {{11, 0}});
     expected(m.input(Event::MOTION, 1, position(m, 3), true), {{14, 1}});
     expected(m.input(Event::UP, 1, {}, true), {{14, 0}});
+    expected(m.input(Event::DOWN, 1, a), {{0, 1}});
+    const auto faceCentre {m.buttons()[4].centre};
+    expected(m.input(Event::MOTION, 1, g.toNormalized({faceCentre.x + 0.1f * r, faceCentre.y})),
+             {});
+    expected(m.input(Event::MOTION, 1, position(m, 5)), {{0, 0}, {1, 1}});
+    expected(m.input(Event::MOTION, 1, {NAN, 0}), {{1, 0}});
+    expected(m.input(Event::UP, 1, {}), {});
+    const auto pill {m.buttons()[8]};
+    expected(m.input(Event::DOWN, 1, position(m, 8)), {{4, 1}});
+    expected(
+        m.input(Event::MOTION, 1, g.toNormalized({pill.hit.x + pill.hit.w * 1.06f, pill.centre.y})),
+        {});
+    expected(
+        m.input(Event::MOTION, 1, g.toNormalized({pill.hit.x + pill.hit.w * 1.1f, pill.centre.y})),
+        {{4, 0}});
+    expected(m.input(Event::UP, 1, {}), {});
     // Thirty-two stable IDs, not pointer indices; overflow is inert and bounded.
     expected(m.input(Event::DOWN, 99, a), {{0, 1}});
     for (int i {1}; i < 32; ++i)

@@ -18,6 +18,19 @@ namespace TouchOverlay
     {
         constexpr float PI {3.14159265358979323846f};
         float distance(Point a, Point b) { return std::hypot(a.x - b.x, a.y - b.y); }
+        Point inverse(const Geometry& g, float u, float v)
+        {
+            switch (g.rotation) {
+                case 90:
+                    return {v * g.width, (1 - u) * g.height};
+                case 180:
+                    return {(1 - u) * g.width, (1 - v) * g.height};
+                case 270:
+                    return {(1 - v) * g.width, u * g.height};
+                default:
+                    return {u * g.width, v * g.height};
+            }
+        }
     } // namespace
 
     bool Rect::contains(Point p, float expansion) const
@@ -52,20 +65,7 @@ namespace TouchOverlay
         const float v {(std::clamp(p.y, 0.0f, 1.0f) * drawableHeight - top) / viewportHeight};
         if (u < 0 || u > 1 || v < 0 || v > 1)
             return false;
-        switch (rotation) {
-            case 90:
-                logical = {v * width, (1 - u) * height};
-                break;
-            case 180:
-                logical = {(1 - u) * width, (1 - v) * height};
-                break;
-            case 270:
-                logical = {(1 - v) * width, u * height};
-                break;
-            default:
-                logical = {u * width, v * height};
-                break;
-        }
+        logical = inverse(*this, u, v);
         return true;
     }
 
@@ -100,18 +100,17 @@ namespace TouchOverlay
         if (!valid())
             return {};
         const float top {static_cast<float>(drawableHeight - windowHeight + viewportY)};
-        const Point a {std::max(0.0f, static_cast<float>(viewportX)) / drawableWidth,
-                       std::max(0.0f, top) / drawableHeight};
-        const Point b {std::min(static_cast<float>(drawableWidth),
-                                static_cast<float>(viewportX + viewportWidth)) /
-                           drawableWidth,
-                       std::min(static_cast<float>(drawableHeight), top + viewportHeight) /
-                           drawableHeight};
+        const Point a {std::clamp(-static_cast<float>(viewportX) / viewportWidth, 0.0f, 1.0f),
+                       std::clamp(-top / viewportHeight, 0.0f, 1.0f)};
+        const Point b {
+            std::clamp(static_cast<float>(drawableWidth - viewportX) / viewportWidth, 0.0f, 1.0f),
+            std::clamp((drawableHeight - top) / viewportHeight, 0.0f, 1.0f)};
         if (b.x <= a.x || b.y <= a.y)
             return {};
-        Point l, r;
-        if (!toLogical(a, l) || !toLogical(b, r))
-            return {};
+        // Intersect in viewport coordinates directly: a normalized round trip can
+        // round an exact clipped edge just outside the image.
+        const Point l {inverse(*this, a.x, a.y)};
+        const Point r {inverse(*this, b.x, b.y)};
         return {std::min(l.x, r.x), std::min(l.y, r.y), std::abs(r.x - l.x), std::abs(r.y - l.y)};
     }
 

@@ -41,12 +41,15 @@ void InputOverlay::rebuild(bool explicitWake)
                                             settings->getString("InputTouchOverlayOpacity"),
                                             settings->getInt("InputTouchOverlayFadeTime"),
                                             SDL_IsAndroidTV());
-    if (mOptions.invalidSize)
+    if (mOptions.invalidSize) {
         LOG(LogWarning) << "InputOverlay: unknown size; using medium";
-    if (mOptions.invalidOpacity)
+    }
+    if (mOptions.invalidOpacity) {
         LOG(LogWarning) << "InputOverlay: unknown opacity; using normal";
-    if (mOptions.clampedFade)
+    }
+    if (mOptions.clampedFade) {
         LOG(LogWarning) << "InputOverlay: fade time clamped to " << mOptions.fadeSeconds;
+    }
     float dpi {0};
     auto* renderer {Renderer::getInstance()};
     if (SDL_GetDisplayDPI(renderer->getDisplayIndex(), &dpi, nullptr, nullptr) != 0)
@@ -56,10 +59,12 @@ void InputOverlay::rebuild(bool explicitWake)
     mInitialized = true;
     mDirty = true;
     mFullWarning = false;
-    if (mModel.densityFallback())
+    if (mModel.densityFallback()) {
         LOG(LogWarning) << "InputOverlay: logical density unavailable; estimating S/411";
-    if (!mModel.supported())
+    }
+    if (!mModel.supported()) {
         LOG(LogError) << "InputOverlay: unsupported viewport; no invalid hit regions published";
+    }
     logLayout();
     LOG(LogDebug) << "InputOverlay: restored (" << (explicitWake ? "menu" : "rebuild") << ")";
 }
@@ -103,8 +108,9 @@ void InputOverlay::resetFadeTimer()
 {
     const int seconds {Settings::getInstance()->getInt("InputTouchOverlayFadeTime")};
     mOptions.fadeSeconds = std::clamp(seconds, 0, 20);
-    if (seconds != mOptions.fadeSeconds)
+    if (seconds != mOptions.fadeSeconds) {
         LOG(LogWarning) << "InputOverlay: fade time clamped to " << mOptions.fadeSeconds;
+    }
     mModel.setFadeSeconds(seconds);
     mModel.wake(true);
     LOG(LogDebug) << "InputOverlay: restored (menu)";
@@ -115,8 +121,9 @@ void InputOverlay::update(int deltaTime)
     refreshGeometry();
     const auto before {mModel.fade()};
     mModel.update(deltaTime);
-    if (before != TouchOverlay::Fade::HIDDEN && mModel.fade() == TouchOverlay::Fade::HIDDEN)
+    if (before != TouchOverlay::Fade::HIDDEN && mModel.fade() == TouchOverlay::Fade::HIDDEN) {
         LOG(LogDebug) << "InputOverlay: faded";
+    }
 }
 
 TouchOverlay::Transitions InputOverlay::processEvent(int type, int finger, float x, float y)
@@ -129,15 +136,17 @@ TouchOverlay::Transitions InputOverlay::processEvent(int type, int finger, float
                                     type == SDL_FINGERUP   ? TouchOverlay::Event::UP :
                                                              TouchOverlay::Event::MOTION,
                                     finger, {x, y})};
-    if (hidden && type == SDL_FINGERDOWN)
+    if (hidden && type == SDL_FINGERDOWN) {
         LOG(LogDebug) << "InputOverlay: restored (touch)";
+    }
     if (mModel.tableFull() && !mFullWarning) {
         mFullWarning = true;
         LOG(LogWarning) << "InputOverlay: finger table full";
     }
-    for (int i {0}; i < result.count; ++i)
+    for (int i {0}; i < result.count; ++i) {
         LOG(LogDebug) << "InputOverlay: transition epoch=" << epoch()
                       << " id=" << result.entries[i].id << " value=" << result.entries[i].value;
+    }
     return result;
 }
 int InputOverlay::getButtonId(int type, int finger, float x, float y, bool* released)
@@ -212,8 +221,9 @@ void InputOverlay::buildTextures()
                 mImages[i] = std::move(image);
             }
         }
-        if (!mImages[i])
+        if (!mImages[i]) {
             LOG(LogError) << "InputOverlay: unavailable art id=" << b.id << "; primitive fallback";
+        }
     }
     mDirty = false;
     LOG(LogDebug) << "InputOverlay: textures built";
@@ -234,22 +244,28 @@ void InputOverlay::render(const glm::mat4& parentTrans)
         const float h {b.height * (pressed ? 0.94f : 1.0f)};
         auto* image {mImages[i].get()};
         renderer->setMatrix(parentTrans);
-        if (!image || pressed) {
+        if (image) {
+            image->setScale(pressed ? 0.94f * 1.08f : 1.08f);
+            image->setColorShift(0x000000FF);
+            image->setOpacity(0.35f * alpha);
+            image->render(parentTrans);
+        }
+        else {
             const float radius {b.circle ? std::min(w, h) / 2 : std::min(w, h) * 0.2f};
             renderer->drawRect(b.centre.x - w * 0.54f, b.centre.y - h * 0.54f, w * 1.08f, h * 1.08f,
                                0x000000FF, 0x000000FF, false, 0.35f * alpha, 1.0f,
                                Renderer::BlendFactor::SRC_ALPHA,
                                Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, radius);
+        }
+        if (!image || pressed) {
+            renderer->setMatrix(parentTrans);
+            const float radius {b.circle ? std::min(w, h) / 2 : std::min(w, h) * 0.2f};
             renderer->drawRect(b.centre.x - w / 2, b.centre.y - h / 2, w, h, 0xFFFFFFFF, 0xFFFFFFFF,
                                false, pressed ? 0.45f : 0.35f * alpha, 1.0f,
                                Renderer::BlendFactor::SRC_ALPHA,
                                Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, radius);
         }
         if (image) {
-            image->setScale(pressed ? 0.94f * 1.08f : 1.08f);
-            image->setColorShift(0x000000FF);
-            image->setOpacity(0.35f * alpha);
-            image->render(parentTrans);
             image->setScale(pressed ? 0.94f : 1.0f);
             image->setColorShift(0xFFFFFFFF);
             image->setOpacity(pressed ? std::max(alpha, 0.8f) : alpha);

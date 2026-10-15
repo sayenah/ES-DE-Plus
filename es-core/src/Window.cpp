@@ -261,8 +261,9 @@ void Window::setBlockInput(const bool state)
 {
     if (state && !mBlockInput)
         InputManager::getInstance().cancelTouchInput();
-    if (state != mBlockInput)
+    if (state != mBlockInput) {
         LOG(LogDebug) << "InputOverlay: input block=" << state;
+    }
     mBlockInput = state;
 }
 
@@ -271,8 +272,9 @@ void Window::releaseTouchInput(InputConfig* config, Input input)
     if (input.device != DEVICE_TOUCH || input.type != TYPE_TOUCH || input.value != 0)
         return;
     if (Settings::getInstance()->getBool("Debug") &&
-        !Settings::getInstance()->getBool("DebugSkipInputLogging"))
+        !Settings::getInstance()->getBool("DebugSkipInputLogging")) {
         logInput(config, input);
+    }
     // Release only: bypass the foreground block without resetting activity timers,
     // dismissing screensavers or invoking a press action. A menu may have covered the
     // original consumer since DOWN; every still-live consumer must lose its hold.

@@ -3,6 +3,7 @@
 # ES-DE-Plus — written for ES-DE-Plus from open input callers, MIT SVGs and Android SDK docs.
 # B-4 runtime evidence. Provenance review is separate B-5 evidence, never a smoke result.
 import json
+import hashlib
 import re
 import struct
 import time
@@ -13,6 +14,8 @@ import pdf_smoke
 import smoke_support
 
 IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101]
+MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
+                          'leftshoulder', 'rightshoulder', 'lefttrigger', 'righttrigger']))
 TOUCH = re.compile(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=.*?value=([01])')
 BUTTON = re.compile(r'InputOverlay: button id=(\d+) hit=([^ ]+) centre=([^ ]+) norm=([^\s]+)')
 
@@ -22,6 +25,8 @@ def transitions(log):
 
 
 def balanced(log):
+    for button, names in re.findall(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=(.*?)value=', log):
+        assert int(button) in IDS and MAPPINGS[int(button)] in [n.strip() for n in names.split(',')], (button, names)
     held = set()
     for button, value in transitions(log):
         assert button in IDS, ('Unmapped touch ID', button)
@@ -126,7 +131,8 @@ def run(namespace):
     (h.evidence / 'touch-assertion-positive-controls.txt').write_text(assertion_controls())
     original = h.shell('cat', h.settings)
     common = dict(DebugMode=True, InputTouchOverlayFadeTime=0, ScreensaverTimer=0,
-                  InputTouchOverlaySize='medium', InputTouchOverlayOpacity='normal', InputSwapButtons=False)
+                  InputTouchOverlaySize='medium', InputTouchOverlayOpacity='normal',
+                  InputSwapButtons=False, VirtualKeyboard=True)
     logs = []
 
     def record(name):
@@ -148,16 +154,26 @@ def run(namespace):
         return data
 
     def surface_bounds():
-        nodes = [n for n in h.hierarchy() if 'Surface' in n.get('class', '')]
-        assert nodes, 'SDL SurfaceView must have independently observed on-display bounds'
+        hierarchy = h.hierarchy()
+        nodes = [n for n in hierarchy if n.get('package') == h.app and 'Surface' in n.get('class', '')]
+        if not nodes:
+            # SDL exposes its focused surface as android.view.View on some SDKs.
+            # This remains a live accessibility rectangle, independent of Renderer.
+            nodes = [n for n in hierarchy if n.get('package') == h.app and
+                     n.get('class') == 'android.view.View' and n.get('focused') == 'true' and
+                     n.get('focusable') == 'true']
+        assert nodes, 'SDL surface must have independently observed on-display bounds'
         rectangles = [list(map(int, re.findall(r'\d+', n.get('bounds', '')))) for n in nodes]
         rectangles = [r for r in rectangles if len(r) == 4 and r[2] > r[0] and r[3] > r[1]]
         x0, y0, x1, y1 = max(rectangles, key=lambda r: (r[2] - r[0]) * (r[3] - r[1]))
         return x0, y0, x1 - x0, y1 - y0
 
-    def tap(point):
-        h.shell('input', 'tap', str(round(point[0])), str(round(point[1])))
-        time.sleep(0.25)
+    def tap(point, wait=True):
+        before = h.log() if wait else ''
+        h.shell('input', 'touchscreen', 'tap', str(round(point[0])), str(round(point[1])))
+        if wait:
+            h.wait_for(lambda: 'InputOverlay: event type=up ' in h.log()[len(before):],
+                       'native touch UP processed and frame log flushed', timeout=20)
 
     def neutral():
         # Return to the system view using the ordinary configured keyboard Back;
@@ -194,12 +210,12 @@ def run(namespace):
     def step(action, pointers, wait=150, **extra):
         return dict(action=action, pointers=pointers, wait=wait, **extra)
 
-    def touch_control(button, count=1):
+    def touch_control(button, count=1, wait=True):
         for _ in range(count):
             current = buttons(h.log())
             s = surface_bounds_cached
             nx, ny = current[button]['norm']
-            tap((s[0] + nx * s[2], s[1] + ny * s[3]))
+            tap((s[0] + nx * s[2], s[1] + ny * s[3]), wait=wait)
             time.sleep(0.2)
 
     try:
@@ -212,7 +228,7 @@ def run(namespace):
         surface = surface_bounds()
         surface_bounds_cached = surface
         pixels, boxes = rendered_centres(off, on, centres, surface)
-        (h.evidence / 'touch-rendered-centres.json').write_text(json.dumps(dict(surface=surface, boxes=boxes, taps=pixels), indent=2))
+        (h.evidence / 'touch-rendered-centres.txt').write_text(json.dumps(dict(surface=surface, boxes=boxes, taps=pixels), indent=2))
         for button in IDS:
             neutral()
             if button != 6:
@@ -227,6 +243,26 @@ def run(namespace):
         record('touch-rendered-ids')
         assert 'InputOverlay: faded' not in h.log()
         shot('touch-zero-fade-still-visible')
+        neutral()
+        tap(pixels[0])  # System view -> gamelist, no launch.
+        time.sleep(1)
+        before = h.log()
+        x, y = map(lambda value: str(round(value)), pixels[12])
+        h.shell('input', 'touchscreen', 'swipe', x, y, x, y, '2000')
+        time.sleep(0.5)
+        first = shot('touch-held-after-lift-half-second')
+        time.sleep(1)
+        second = shot('touch-held-after-lift-onehalf-second')
+        check_delta(before, [(12, 1), (12, 0)], 'stationary two-second hold')
+        def frame_hash(png):
+            width, height, channels, rows = pdf_smoke.pixels(png)
+            digest = hashlib.sha256()
+            # Gamelist region, excluding Android/status/help widgets and the deck.
+            for row in rows[height // 5:height * 3 // 5]:
+                digest.update(row[width // 10 * channels:width * 7 // 10 * channels])
+            return digest.hexdigest()
+        assert frame_hash(first) == frame_hash(second), 'Gamelist kept moving after release'
+        record('touch-held-no-repeat-after-release')
 
         # Touch-only menu/device-configuration and text-entry journey. No keyboard
         # action is issued between this fresh start and the captured completion.
@@ -313,21 +349,21 @@ def run(namespace):
                 surface_bounds_cached = surface_bounds()
                 touch_control(0)
                 time.sleep(1)
-                touch_control(0)
+                touch_control(0, wait=False)
                 h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()),
                            'touch-only game launch to real recipient')
                 receipt = h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json')
                 assert json.loads(receipt).get('sha256'), receipt
-                (h.evidence / 'touch-only-launch-receipt.json').write_text(receipt)
+                (h.evidence / 'touch-only-launch-receipt.txt').write_text(receipt)
                 recipient = shot('touch-only-recipient')
                 back = [n for n in h.hierarchy() if n.get('package') == 'com.android.systemui' and
                         n.get('content-desc', '').lower() == 'back']
                 if back:
                     x0, y0, x1, y1 = map(int, re.findall(r'\d+', back[0].get('bounds', '')))
-                    tap(((x0 + x1) / 2, (y0 + y1) / 2))
+                    tap(((x0 + x1) / 2, (y0 + y1) / 2), wait=False)
                 else:
                     width, height = struct.unpack('>II', recipient[16:24])
-                    h.shell('input', 'swipe', '1', str(height // 2), str(min(200, width // 3)),
+                    h.shell('input', 'touchscreen', 'swipe', '1', str(height // 2), str(min(200, width // 3)),
                             str(height // 2), '500')
                 h.wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(h.app) + '/', h.focused_window()),
                            'touch-only return from recipient')
@@ -371,12 +407,12 @@ def run(namespace):
                 def accepted_around_block(output):
                     # Classify from the independently logged live Window state,
                     # rather than assuming a 300ms block survives a long absence.
-                    downs = re.findall(r'InputOverlay: event type=1792 finger=1 blocked=([01])', output)
+                    downs = re.findall(r'InputOverlay: event type=down finger=1 blocked=([01])', output)
                     assert len(downs) == 2 and downs[-1] == '0', output
                     return [(12, 1), (12, 0)] + ([(12, 1), (12, 0)] if downs[0] == '0' else []) + [(12, 1), (12, 0)]
                 inject(f'touch-focus-return-{absence}-{lift_delay}', [
                     step('down', [down]), step('background', []),
-                    step('resume', [], wait=absence), step('up', [down], wait=0),
+                    step('resume', [], wait=absence),
                     step('down', [fresh], wait=0), step('up', [fresh], wait=lift_delay),
                     step('down', [fresh], wait=400), step('up', [fresh])],
                     accepted_around_block)
@@ -396,20 +432,63 @@ def run(namespace):
 
         # Geometry matrix uses the same executable getter as rendering. Pure tests
         # additionally cover independent offset/padding/clip fixtures and every ID.
-        for rotation in [90, 180, 270]:
-            output = start(InputTouchOverlay=True, ScreenRotate=rotation)
+        geometries = [(f'rotation-{r}', dict(ScreenRotate=r), IDS if r == 90 else [0, 11, 6, 9])
+                      for r in [90, 180, 270]]
+        geometries += [(f'offset-{sign}', dict(ScreenOffsetX=80 * sign, ScreenOffsetY=40 * sign,
+                                              FullscreenPadding=True), [0, 11, 6, 9])
+                       for sign in [-1, 1]]
+        for name, changes, selected in geometries:
+            start(InputTouchOverlay=False, **changes)
+            reference = shot('touch-' + name + '-off')
+            output = start(InputTouchOverlay=True, **changes)
             rotated = buttons(output)
             s = surface_bounds()
-            for button in [0, 11, 6]:
+            actual, boxes = rendered_centres(reference, shot('touch-' + name + '-on'), rotated, s)
+            (h.evidence / ('touch-' + name + '-rendered.txt')).write_text(json.dumps(boxes, indent=2))
+            for button in selected:
                 neutral()
                 if button != 6:
                     h.key('KEYCODE_ESCAPE')
                 before = h.log()
-                nx, ny = rotated[button]['norm']
-                tap((s[0] + nx * s[2], s[1] + ny * s[3]))
-                check_delta(before, [(button, 1), (button, 0)], f'rotation {rotation} id {button}')
-            shot(f'touch-rotation-{rotation}')
-            record(f'touch-rotation-{rotation}')
+                tap(actual[button])
+                check_delta(before, [(button, 1), (button, 0)], name + ' id ' + str(button))
+            record('touch-' + name)
+
+        # Live drawable invalidation while a pointer is held must cancel it before
+        # the new mapping/layout generation is published. No old transform is reused.
+        output = start(InputTouchOverlay=True)
+        centres = buttons(output)
+        s = surface_bounds()
+        nx, ny = centres[12]['norm']
+        x, y = str(round(s[0] + nx * s[2])), str(round(s[1] + ny * s[3]))
+        before = h.log()
+        h.shell('input', 'touchscreen', 'motionevent', 'DOWN', x, y)
+        dimensions = h.shell('wm', 'size')
+        physical = re.search(r'Physical size:\s*(\d+)x(\d+)', dimensions)
+        assert physical and 'Override size:' not in dimensions, dimensions
+        try:
+            width, height = map(int, physical.groups())
+            h.shell('wm', 'size', f'{width * 9 // 10}x{height * 9 // 10}')
+            h.wait_for(lambda: 'Window size has changed' in h.log()[len(before):], 'overlay resize reload')
+            time.sleep(1)
+            h.shell('input', 'touchscreen', 'motionevent', 'UP', x, y)
+            check_delta(before, [(12, 1), (12, 0)], 'held pointer cancelled on resize')
+            resized = buttons(h.log())
+            bounds = surface_bounds()
+            for button in [0, 11, 6, 9]:
+                neutral()
+                if button != 6:
+                    h.key('KEYCODE_ESCAPE')
+                before_tap = h.log()
+                nx, ny = resized[button]['norm']
+                tap((bounds[0] + nx * bounds[2], bounds[1] + ny * bounds[3]))
+                check_delta(before_tap, [(button, 1), (button, 0)], 'resized control ' + str(button))
+            shot('touch-resized-after-cancel')
+            record('touch-resize-held')
+        finally:
+            reset_before = h.log()
+            h.shell('wm', 'size', 'reset')
+            h.wait_for(lambda: 'Window size has changed' in h.log()[len(reset_before):], 'overlay resize reset')
 
         # Fade: one complete waking gesture is inert, including its motion and UP.
         output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2)
@@ -425,6 +504,17 @@ def run(namespace):
         tap(p)  # Back is a non-launch control.
         check_delta(before, [(1, 1), (1, 0)], 'visible non-launch tap')
         record('touch-fade-wake')
+
+        output = start(InputTouchOverlay=True, InputTouchOverlaySize='bogus',
+                       InputTouchOverlayOpacity='bogus', InputTouchOverlayFadeTime=-5)
+        assert 'InputOverlay: unknown size; using medium' in output
+        assert 'InputOverlay: unknown opacity; using normal' in output
+        assert 'InputOverlay: fade time clamped to 0' in output and 'InputOverlay: faded' not in output
+        record('touch-setting-fallbacks')
+        output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=99)
+        assert 'InputOverlay: fade time clamped to 20' in output
+        h.wait_for(lambda: 'InputOverlay: faded' in h.log(), 'clamped twenty-second fade', timeout=15)
+        record('touch-setting-fade-clamp')
 
         # Automatic TV wakes neither show controls nor persist a setting change.
         if 'android.software.leanback' in h.shell('pm', 'list', 'features'):

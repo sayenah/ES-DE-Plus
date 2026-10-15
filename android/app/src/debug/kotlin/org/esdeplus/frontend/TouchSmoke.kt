@@ -4,6 +4,7 @@ package org.esdeplus.frontend
 
 import android.app.Instrumentation
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.InputDevice
@@ -11,11 +12,10 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.graphics.Bitmap
 import java.io.File
+import org.esdeplus.frontend.bridge.StorageModel
 import org.json.JSONArray
 import org.libsdl.app.SDLSurface
-import org.esdeplus.frontend.bridge.StorageModel
 
 /** Inject complete physical-pointer streams into this app's own SDL window only. */
 class TouchSmoke : Instrumentation() {
@@ -108,6 +108,8 @@ class TouchSmoke : Instrumentation() {
             }
             val steps = JSONArray(script)
             check(steps.length() in 1..256)
+            val injectionOffset = log.readText().length
+            var expectedUps = 0
             for (i in 0 until steps.length()) {
                 val step = steps.getJSONObject(i)
                 SystemClock.sleep(step.optLong("wait", 0).also { check(it in 0..5000) })
@@ -116,13 +118,19 @@ class TouchSmoke : Instrumentation() {
                     targetContext.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     val until = SystemClock.elapsedRealtime() + 5000
+                    var lostFocus = false
                     while (SystemClock.elapsedRealtime() < until) {
                         var focused = true
                         runOnMainSync { focused = activity.hasWindowFocus() }
-                        if (!focused) break
+                        if (!focused) { lostFocus = true; break }
                         SystemClock.sleep(10)
                     }
-                    record.append("LIFECYCLE: background with ${active.size} held pointers\n")
+                    check(lostFocus) { "Settings did not take focus" }
+                    record.append("LIFECYCLE: background cancels ${active.size} held pointers through Android\n")
+                    // Window focus transfer cancels Android's injected stream. Do
+                    // not inject an orphan UP into the newly focused window.
+                    expectedUps += active.size
+                    active = emptyList()
                     continue
                 }
                 if (actionName == "resume") {
@@ -175,6 +183,11 @@ class TouchSmoke : Instrumentation() {
                 runOnMainSync { focused = activity.hasWindowFocus() && !activity.isFinishing }
                 check(focused) { "Pointer injection refused outside the owned frontend window" }
                 send(surface!!, pointers, action, downTime)
+                expectedUps += when (actionName) {
+                    "up", "pointer-up" -> 1
+                    "cancel" -> pointers.size
+                    else -> 0
+                }
                 record.append("INJECT $i $actionName changed=$changed ${pointers.joinToString()}\n")
                 active = when (actionName) {
                     "up", "cancel" -> emptyList()
@@ -183,13 +196,31 @@ class TouchSmoke : Instrumentation() {
                 }
             }
             check(active.isEmpty()) { "Incomplete injection stream" }
-            SystemClock.sleep(500)
-            uiAutomation.takeScreenshot()?.let { bitmap ->
-                File(targetContext.cacheDir, "touch-last.png").outputStream().use {
-                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
-                }
-                bitmap.recycle()
+            // sendPointerSync waits for Android dispatch, not SDL's native poll or
+            // a software-rendered frame. Observe native completion before teardown.
+            val completedBy = SystemClock.elapsedRealtime() + 20_000
+            var observed = ""
+            var complete = false
+            while (!complete && SystemClock.elapsedRealtime() < completedBy) {
+                val current = log.readText()
+                check(current.length >= injectionOffset) { "Native log epoch replaced during injection" }
+                observed = current.substring(injectionOffset)
+                val held = mutableSetOf<Int>()
+                Regex("Window::logInput\\(Touch\\): Button (\\d+), isMappedTo=.*?value=([01])")
+                    .findAll(observed).forEach { match ->
+                        val id = match.groupValues[1].toInt()
+                        if (match.groupValues[2] == "1") check(held.add(id)) { "Duplicate press $id" }
+                        else check(held.remove(id)) { "Orphan release $id" }
+                    }
+                complete = Regex("InputOverlay: event type=up ").findAll(observed).count() >= expectedUps && held.isEmpty()
+                if (!complete) SystemClock.sleep(20)
             }
+            check(complete) { "Native pointer stream did not drain: expected $expectedUps UPs\n${observed.takeLast(8000)}" }
+            val bitmap = checkNotNull(uiAutomation.takeScreenshot()) { "No owned-window screenshot" }
+            File(targetContext.cacheDir, "touch-last.png").outputStream().use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+            bitmap.recycle()
             record.append("PASS: complete Android multi-pointer stream injected\n")
             result.putString("stream", record.toString())
             finish(-1, result)
