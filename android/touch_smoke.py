@@ -166,7 +166,16 @@ def run(namespace):
         rectangles = [list(map(int, re.findall(r'\d+', n.get('bounds', '')))) for n in nodes]
         rectangles = [r for r in rectangles if len(r) == 4 and r[2] > r[0] and r[3] > r[1]]
         x0, y0, x1, y1 = max(rectangles, key=lambda r: (r[2] - r[0]) * (r[3] - r[1]))
-        return x0, y0, x1 - x0, y1 - y0
+        probe = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
+        assert 'PASS: owned surface geometry recorded' in probe, probe
+        live = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat',
+                               'cache/touch-surface-geometry.json'))
+        assert live['width'] == live['bufferWidth'] and live['height'] == live['bufferHeight'], live
+        with (h.evidence / 'touch-surface-observations.txt').open('a') as output:
+            output.write(json.dumps(dict(accessibility=[x0, y0, x1, y1], sdk=live)) + '\n')
+        # SDK View origin/extent is independent of Renderer and remains complete
+        # when accessibility clips a fullscreen child to its parent's bounds.
+        return live['x'], live['y'], live['width'], live['height']
 
     def tap(point, wait=True):
         before = h.log() if wait else ''

@@ -5,6 +5,8 @@ package org.esdeplus.frontend
 import android.app.Activity
 import android.app.Application
 import android.app.Instrumentation
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -18,10 +20,42 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import org.esdeplus.frontend.bridge.StorageModel
 import org.json.JSONArray
+import org.json.JSONObject
+import org.libsdl.app.SDLActivity
 import org.libsdl.app.SDLSurface
+
+private fun findSurface(view: View): SDLSurface? {
+    if (view is SDLSurface) return view
+    if (view is ViewGroup) for (i in 0 until view.childCount) {
+        val found = findSurface(view.getChildAt(i))
+        if (found != null) return found
+    }
+    return null
+}
 
 /** Inject complete physical-pointer streams into this app's own SDL window only. */
 class TouchSmoke : Instrumentation() {
+    // Read the live View without restarting instrumentation/the frontend. An
+    // accessibility rectangle can be clipped by a parent after fullscreen resize.
+    class SurfaceGeometry : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val activity = SDLActivity.getContext() as? MainActivity
+            val surface = activity?.let { findSurface(it.window.decorView) }
+            if (activity == null || surface == null || !activity.hasWindowFocus() ||
+                surface.width <= 0 || surface.height <= 0) {
+                resultData = "FAIL: no owned focused SDL surface"
+                return
+            }
+            val origin = IntArray(2)
+            surface.getLocationOnScreen(origin)
+            val frame = surface.holder.surfaceFrame
+            val geometry = JSONObject().put("x", origin[0]).put("y", origin[1])
+                .put("width", surface.width).put("height", surface.height)
+                .put("bufferWidth", frame.width()).put("bufferHeight", frame.height())
+            File(context.cacheDir, "touch-surface-geometry.json").writeText(geometry.toString())
+            resultData = "PASS: owned surface geometry recorded"
+        }
+    }
     private val resumed = AtomicBoolean(false)
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityResumed(activity: Activity) {
@@ -99,18 +133,10 @@ class TouchSmoke : Instrumentation() {
             (targetContext.applicationContext as Application).registerActivityLifecycleCallbacks(lifecycle)
             val activity = startActivitySync(Intent(targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
-            fun find(view: View): SDLSurface? {
-                if (view is SDLSurface) return view
-                if (view is ViewGroup) for (i in 0 until view.childCount) {
-                    val found = find(view.getChildAt(i))
-                    if (found != null) return found
-                }
-                return null
-            }
             val deadline = SystemClock.elapsedRealtime() + 60_000
             val log = File(activity.getAppDataDirectory(), "logs/es_log.txt")
             while (SystemClock.elapsedRealtime() < deadline) {
-                runOnMainSync { surface = find(activity.window.decorView) }
+                runOnMainSync { surface = findSurface(activity.window.decorView) }
                 if (surface != null && log.isFile && log.readText() != previousLog &&
                     log.readText().contains("Application startup time:")) break
                 SystemClock.sleep(100)
