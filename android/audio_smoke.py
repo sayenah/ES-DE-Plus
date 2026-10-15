@@ -106,19 +106,6 @@ def control_launch():
             (ROOT / 'android/evidence/audio-control-device-restored.txt').write_text(
                 f'PASS: original font-weight setting={previous_setting}; '
                 f'effective weight={previous_weight}; both restored before fixed smoke.\n')
-        if api >= 30:
-            # Settings can cache the old install's checked permission switch
-            # even though uninstall reset the real app-op. Reopen its actual
-            # resolved UI fresh for the fixed smoke; never grant access here.
-            component = shell('cmd', 'package', 'resolve-activity', '--brief', '-a',
-                              'android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION',
-                              '-d', 'package:' + app)
-            packages = re.findall(r'^([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/\S+$', component, re.M)
-            assert len(packages) == 1 and packages[0] != app, component
-            shell('am', 'force-stop', packages[0])
-            (ROOT / 'android/evidence/audio-control-settings-cleanup.txt').write_text(
-                f'Closed resolved permission Settings process {packages[0]} after control uninstall; '
-                'fixed smoke must grant access through fresh real Settings UI.\n')
 
 
 def xml_settings(document):

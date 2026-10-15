@@ -371,10 +371,11 @@ def grant_from_settings(app_label=None, recipient=False):
     if permission_toggle(app_label) is None:
         ui(app_label or label)
     wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
-    def recipient_granted():
+    def access_granted():
+        target = 'org.esdeplus.stub' if recipient else app
         return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b',
-                    shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE')))
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and recipient_granted():
+                    shell('appops', 'get', '--uid', target, 'MANAGE_EXTERNAL_STORAGE')))
+    if recipient and permission_toggle(app_label).get('checked') == 'true' and access_granted():
         screenshot('recipient-all-files-already-granted')
         key('KEYCODE_BACK')
         return
@@ -395,13 +396,14 @@ def grant_from_settings(app_label=None, recipient=False):
             key('KEYCODE_DPAD_DOWN')
         else:
             raise AssertionError('TV D-pad cannot reach our all-files switch')
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and not recipient_granted():
-        # Settings can retain a checked preference across recipient reinstall,
+    if permission_toggle(app_label).get('checked') == 'true' and not access_granted():
+        # Settings can retain a checked preference across reinstall,
         # while the actual app-op is reset. Resynchronize through the real UI.
         toggle_switch()
-        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale recipient switch reset')
+        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale permission switch reset')
     toggle_switch()
-    wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
+    wait_for(lambda: permission_toggle(app_label) is not None and
+             permission_toggle(app_label).get('checked') == 'true' and access_granted(),
              'real app all-files grant')
     screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
     key('KEYCODE_BACK')
