@@ -8,6 +8,7 @@
 
 #include "InputOverlayModel.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -246,6 +247,18 @@ static void boundaries()
     expected(m.input(Event::DOWN, 2, a), {});
     m.rebuild(geometry(288, 480), Options {}, 160);
     require(m.compact(), "narrow supported pane uses compact grid");
+    for (const auto& button : m.buttons()) {
+        // The previous 24 dp side / 32 dp bottom compact corner was only
+        // hypot(24,32)=40 dp away, inside the specified 48 dp corner zone.
+        for (const Point corner :
+             {Point {0, 0}, Point {288, 0}, Point {0, 480}, Point {288, 480}}) {
+            const float dx {corner.x -
+                            std::clamp(corner.x, button.hit.x, button.hit.x + button.hit.w)};
+            const float dy {corner.y -
+                            std::clamp(corner.y, button.hit.y, button.hit.y + button.hit.h)};
+            require(std::hypot(dx, dy) >= 48, "compact targets avoid conservative corner zones");
+        }
+    }
     const auto first {m.buttons()[0]};
     const Point edge {first.hit.x + first.hit.w, first.centre.y};
     require(!first.hit.contains(edge) && m.buttons()[1].hit.contains(edge),

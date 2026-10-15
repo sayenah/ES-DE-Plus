@@ -181,6 +181,12 @@ namespace TouchOverlay
         }
         if (!mSupported) {
             mCompact = true;
+            // A rectangular compact deck also stays outside every conservative
+            // 2*Mt corner zone. At the 288 dp minimum this leaves a 4x4 grid.
+            const float corner {2 * top};
+            const float compactSide {std::max(side, corner)};
+            mSafe = {v.x + compactSide, v.y + corner, v.w - 2 * compactSide,
+                     v.h - corner - std::max(bottom, corner)};
             compactLayout(requested);
             mSupported = fits();
         }
@@ -279,6 +285,12 @@ namespace TouchOverlay
     bool Model::fits() const
     {
         constexpr float epsilon {0.01f};
+        const auto visible {mGeometry.visible()};
+        const float cornerRadius {2 * std::max(24 * mDensity, 0.04f * visible.h)};
+        const std::array<Point, 4> corners {{{visible.x, visible.y},
+                                             {visible.x + visible.w, visible.y},
+                                             {visible.x, visible.y + visible.h},
+                                             {visible.x + visible.w, visible.y + visible.h}}};
         if (mSafe.w <= 0 || mSafe.h <= 0)
             return false;
         for (int i {0}; i < 14; ++i) {
@@ -289,6 +301,15 @@ namespace TouchOverlay
                 b.hit.x + b.hit.w > mSafe.x + mSafe.w + epsilon ||
                 b.hit.y + b.hit.h > mSafe.y + mSafe.h + epsilon)
                 return false;
+            for (const auto corner : corners) {
+                const float clearance {
+                    b.circle ?
+                        distance(corner, b.centre) - b.hit.w / 2 :
+                        distance(corner, {std::clamp(corner.x, b.hit.x, b.hit.x + b.hit.w),
+                                          std::clamp(corner.y, b.hit.y, b.hit.y + b.hit.h)})};
+                if (clearance + epsilon < cornerRadius)
+                    return false;
+            }
             for (int j {0}; j < i; ++j) {
                 const Button& a {mButtons[j]};
                 if (a.circle && b.circle) {
