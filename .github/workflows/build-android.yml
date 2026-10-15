@@ -449,7 +449,7 @@ jobs:
           profile: ${{ matrix.profile }}
           avd-name: audio-unfixed-control
           force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader -noaudio -no-boot-anim -camera-back none
           sdcard-path-or-size: 512M
           disable-animations: true
           cores: 4
@@ -468,7 +468,7 @@ jobs:
           profile: ${{ matrix.profile }}
           avd-name: frontend-fixed
           force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader -noaudio -no-boot-anim -camera-back none
           sdcard-path-or-size: 512M
           disable-animations: true
           cores: 4
