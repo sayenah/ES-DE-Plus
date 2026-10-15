@@ -207,6 +207,20 @@ def cycle(h, name, count, allow_crash=False):
                     # fixed and negative-control sessions may never change PID.
                     h.shell('am', 'force-stop', h.app)
                     h.launch()
+                    nodes = h.hierarchy()
+                    crash_dialog = any(n.get('resource-id') == 'android:id/alertTitle' and
+                                       h.label in n.get('text', '') and
+                                       'keeps stopping' in n.get('text', '') for n in nodes)
+                    if crash_dialog:
+                        # Android can retain the preceding intentional crash's
+                        # dialog over the new process. Close only this exact app
+                        # dialog, then start a fresh positive-control session.
+                        assert any(n.get('resource-id') == 'android:id/aerr_close' and
+                                   n.get('text') == 'Close app' for n in nodes)
+                        h.screenshot(f'{name}-{index + 1}-{size}-recorded-crash-dialog')
+                        h.ui('Close app')
+                        h.shell('am', 'force-stop', h.app)
+                        h.launch()
         if not allow_crash:
             assert h.shell('pidof', h.app).strip() == session_pid
         h.screenshot(name + '-system-restored')
