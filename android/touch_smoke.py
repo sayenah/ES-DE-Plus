@@ -503,12 +503,22 @@ def run(namespace):
             step('inventory', [], wait=0),
             step('move', [moved, start_import], wait=1000),
             step('pointer-up', [start_import, moved], changed=1),
-            step('up', [moved]), step('down', [moved]), step('up', [moved])],
+            step('up', [moved]), step('down', [moved]), step('up', [moved]),
+            step('importer-return', [], wait=500)],
             [(12, 1), (3, 1), (12, 0), (3, 0), (14, 1), (14, 0)], menu='importer')
         assert 'InputOverlay: importer cancellation boundary' in inventory
-        for name in ['importer-cancelled']:
+        for name in ['importer-cancelled', 'importer-return-first', 'importer-return-later']:
             (h.evidence / ('touch-' + name + '.png')).write_bytes(h.adb(
                 'exec-out', 'run-as', h.app, 'cat', 'cache/touch-' + name + '.png', binary=True))
+
+        def retained_menu_hash(name):
+            w, height, channels, rows = pdf_smoke.pixels((h.evidence / ('touch-' + name + '.png')).read_bytes())
+            return hashlib.sha256(b''.join(row[w * 3 // 10 * channels:w * 7 // 10 * channels]
+                for row in rows[height * 15 // 100:height * 45 // 100])).hexdigest()
+        first = retained_menu_hash('importer-return-first')
+        later = retained_menu_hash('importer-return-later')
+        assert first == later, ('Retained importer menu kept scrolling', first, later)
+        (h.evidence / 'touch-importer-retained-menu-stability.txt').write_text(first + '\n' + later + '\n')
 
         # Geometry matrix uses the same executable getter as rendering. Pure tests
         # additionally cover independent offset/padding/clip fixtures and every ID.

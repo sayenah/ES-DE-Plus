@@ -221,6 +221,22 @@ class TouchSmoke : Instrumentation() {
                     snapshot(step.getString("name"))
                     continue
                 }
+                if (actionName == "importer-return") {
+                    check(menu == "importer" && active.isEmpty())
+                    val offset = log.readText().length
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DEL) // Back from selector/message to retained menu.
+                    val by = SystemClock.elapsedRealtime() + 20_000
+                    while (SystemClock.elapsedRealtime() < by &&
+                        !Regex("Window::logInput\\(Keyboard\\): .*value=0").containsMatchIn(log.readText().substring(offset)))
+                        SystemClock.sleep(20)
+                    check(Regex("Window::logInput\\(Keyboard\\): .*value=0").containsMatchIn(log.readText().substring(offset)))
+                    SystemClock.sleep(500)
+                    snapshot("importer-return-first")
+                    SystemClock.sleep(1000)
+                    snapshot("importer-return-later")
+                    record.append("INVENTORY: retained menu observed after pointer lifts and Back\n")
+                    continue
+                }
                 if (actionName == "inventory") {
                     check(menu == "importer")
                     val by = SystemClock.elapsedRealtime() + 20_000
