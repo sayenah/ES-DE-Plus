@@ -288,9 +288,13 @@ jobs:
           print(text)
           PYCODE
       - name: Build isolated unfixed audio control (runner only)
+        id: audio-control-build
         if: ${{ github.event_name == 'workflow_dispatch' && matrix.image != 'api34' }}
         continue-on-error: true
         run: python3 android/audio_smoke.py build-control
+      - name: Record failed non-gating audio control build
+        if: ${{ !cancelled() && steps.audio-control-build.outcome == 'failure' }}
+        run: echo 'NOT RUN — isolated audio control APK build failed; non-gating manual evidence.' > android/evidence/audio-control-result.txt
       - name: Assemble unsigned minified release APK
         id: release
         run: |
@@ -446,7 +450,7 @@ jobs:
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
       - name: Collect unfixed audio controls in an isolated AVD
-        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && steps.assemble.outcome == 'success' && matrix.image != 'api34' }}
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && steps.audio-control-build.outcome == 'success' && matrix.image != 'api34' }}
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:

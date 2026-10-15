@@ -88,10 +88,9 @@ def control_launch():
         result = subprocess.run([sys.executable, 'android/smoke.py', str(CONTROL / 'unfixed.apk'),
                                  '--audio-control'], cwd=ROOT)
         (ROOT / 'android/evidence/audio-control-result.txt').write_text(str(result.returncode) + '\n')
-        if result.returncode:
-            for failure in (ROOT / 'android/evidence').glob('failure*'):
-                shutil.copyfile(failure, failure.with_name('audio-control-' + failure.name))
     finally:
+        for failure in (ROOT / 'android/evidence').glob('failure*'):
+            failure.rename(failure.with_name('audio-control-' + failure.name))
         # Controls use the normal SDK debug signer, preceding the full gating
         # smoke's independently signed APK. Never transfer data across signers.
         subprocess.run(['adb', 'uninstall', app], check=True)
@@ -154,19 +153,106 @@ def marker_time(logcat, marker):
     return matches[0]
 
 
-def gl_transport_stall(stacks):
+def startup_relaunch_allowed(dismissed, created, used, stock_focused):
+    return dismissed and not created and not used and stock_focused
+
+
+def capture_startup(h, name):
+    # Capture the live failure/preemption, before run()'s finally restores HOME.
+    (h.evidence / (name + '.png')).write_bytes(h.adb('exec-out', 'screencap', '-p', binary=True))
+    (h.evidence / (name + '-window.txt')).write_text(h.focused_window())
+    (h.evidence / (name + '-activities.txt')).write_text(h.shell('dumpsys', 'activity', 'activities'))
+    (h.evidence / (name + '-logcat-tail.txt')).write_text(
+        h.adb('logcat', '-d', '-v', 'threadtime', '-t', '300'))
+    (h.evidence / (name + '-es_log.txt')).write_text(h.log())
+
+
+def startup(harness, name, baseline):
+    h = type('Harness', (), harness)
+    previous_guard = harness['onboarding_guard']
+    dismissals = harness['onboarding_dismissals']
+    initial_pid = h.shell('pidof', h.app, check=False).strip()
+    marker = name + '-' + str(time.monotonic_ns())
+    h.shell('log', '-p', 'i', '-t', 'ESDEPlusAudio', marker)
+    since = marker_time(h.adb('logcat', '-d', '-v', 'threadtime', 'ESDEPlusAudio:I', '*:S'), marker)
+    def logs():
+        return after_marker(h.adb('logcat', '-d', '-b', 'main,system,crash',
+                                  '-v', 'threadtime', '-T', since), marker)
+    used = False
+    try:
+        harness['onboarding_guard'] = h.television
+        h.dismiss_stock_onboarding(force=True)
+        h.shell('am', 'start', '-n', h.activity)
+        started = time.monotonic()
+        def ready():
+            nonlocal used
+            current = h.log()
+            if current != baseline and 'Application startup time:' in current:
+                return True
+            if h.television and not used and time.monotonic() - started >= 5:
+                interval = logs()
+                created = (bool(initial_pid) or 'Creating sole SDL activity' in interval or
+                           re.search(r'\bSDL\s*:\s*onCreate\(\)', interval) is not None)
+                dismissed = harness['onboarding_dismissals'] > dismissals
+                stock_focused = h.smoke_checks.package_window_focused(h.focused_window(), h.stock_package)
+                if startup_relaunch_allowed(dismissed, created, used, stock_focused):
+                    capture_startup(h, name + '-onboarding-preempted')
+                    (h.evidence / (name + '-pre-relaunch-logcat.txt')).write_text(interval)
+                    with (h.evidence / 'audio-startup-relaunches.jsonl').open('a') as output:
+                        output.write(json.dumps(dict(session=name, relaunch=1, marker=marker,
+                            stock_tutorial_dismissed=True, activity_created=False, initial_pid=initial_pid,
+                            pid=h.shell('pidof', h.app, check=False).strip())) + '\n')
+                    used = True
+                    # D-019 am. 2 only: no force-stop, settings change or deadline
+                    # extension; at most one start after proven stock preemption.
+                    h.shell('am', 'start', '-n', h.activity)
+            return False
+        h.wait_for(ready, 'fresh frontend startup/system loading')
+    except BaseException:
+        capture_startup(h, name + '-startup-timeout')
+        raise
+    finally:
+        harness['onboarding_guard'] = previous_guard
+
+
+def gl_transport_stall(stacks, later='', cpu=None, later_cpu=None, elapsed=0, surface=False):
     # Require both signatures in their own captured threads, never a match
     # assembled from unrelated frames elsewhere in the process dump.
     threads = re.findall(r'^"([^"\n]+)"[^\n]*\n(.*?)(?=^"|^----- end|\Z)',
                          stacks, re.M | re.S)
     render = [body for name, body in threads if name == 'SDLThread']
     audio = [body for name, body in threads if re.fullmatch(r'SDLAudioP\d+', name)]
-    return (len(render) == 1 and bool(audio)
+    signature = (len(render) == 1 and bool(audio)
             and re.search(r'#00\s+pc\s+.*\b(?:write|read|ioctl)(?:\+|\))', render[0]) is not None
             and re.search(r'(?:QemuPipeStream::|goldfish_pipe_).*\n(?:.*\n)*?.*glGetError_enc',
                           render[0]) is not None
             and all(re.search(r'#0[0-3]\s+pc\s+.*\b(?:sem_wait|SDL_SemWait)(?:\+|\))', body)
                     and 'libSDL2.so' in body and 'AudioStream' not in body for body in audio))
+    if not signature or not later or not surface or elapsed < 5:
+        return False
+    # A healthy debug render loop routinely has this signature. Require the
+    # same native frames and thread identity, plus no CPU progress between the
+    # captures. A single snapshot (including QA's healthy capture) proves nothing.
+    later_threads = re.findall(r'^"([^"\n]+)"[^\n]*\n(.*?)(?=^"|^----- end|\Z)',
+                               later, re.M | re.S)
+    later_render = [body for name, body in later_threads if name == 'SDLThread']
+    later_audio = [body for name, body in later_threads if re.fullmatch(r'SDLAudioP\d+', name)]
+    frames = lambda body: re.findall(r'^\s*(#\d+\s+pc\s+[^\n]+)', body, re.M)
+    tid = lambda dump: re.findall(r'^"SDLThread"[^\n]*\bsysTid=(\d+)\b', dump, re.M)
+    return (len(later_render) == 1 and frames(render[0]) == frames(later_render[0])
+            and bool(later_audio) and all(re.search(
+                r'#0[0-3]\s+pc\s+.*\b(?:sem_wait|SDL_SemWait)(?:\+|\))', body)
+                and 'libSDL2.so' in body and 'AudioStream' not in body for body in later_audio)
+            and len(tid(stacks)) == 1 and tid(stacks) == tid(later)
+            and isinstance(cpu, int) and cpu >= 0 and cpu == later_cpu)
+
+
+def surface_changed(logcat, pid, size):
+    own = '\n'.join(line for line in logcat.splitlines() if re.match(
+        r'^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+\s+' + re.escape(pid) +
+        r'\s+\d+\s+V\s+SDL\s*:', line))
+    return re.search(r'surfaceChanged\(\)\n(?:.*\n)*?.*Window size: ' +
+                     re.escape(size) + r'\s*(?:\n|$)', own) is not None
 
 
 def active_tracks(dump, pid):
@@ -234,8 +320,23 @@ def capture_stacks(h, prefix, pid):
     return stacks
 
 
-def classify_stall(h, name, pid, logs, reloads, setups):
-    stacks = capture_stacks(h, name + '-reload-timeout', pid)
+def classify_stall(h, name, pid, logs, reloads, setups, size):
+    prefix = name + '-reload-timeout'
+    stacks = capture_stacks(h, prefix + '-1', pid)
+    tids = re.findall(r'^"SDLThread"[^\n]*\bsysTid=(\d+)\b', stacks, re.M)
+    def cpu_sample(number):
+        raw = h.private('cat', f'/proc/{pid}/task/{tids[0]}/schedstat', check=False) if len(tids) == 1 else ''
+        (h.evidence / f'{prefix}-cpu-{number}.txt').write_text(raw)
+        fields = raw.split()
+        return int(fields[0]) if len(fields) == 3 and all(n.isdigit() for n in fields) else None
+    cpu = cpu_sample(1)
+    started = time.monotonic()
+    time.sleep(5)
+    later_cpu = cpu_sample(2)
+    elapsed = time.monotonic() - started
+    later = capture_stacks(h, prefix + '-2', pid)
+    interval = logs()
+    (h.evidence / (prefix + '-logcat.txt')).write_text(interval)
     current = h.log()
     # Recheck after stack collection. A fatal, changed PID or an unmatched
     # audio setup cannot be reclassified by any renderer stack signature.
@@ -246,8 +347,13 @@ def classify_stall(h, name, pid, logs, reloads, setups):
     assert not re.search(r"Couldn't initialize SDL audio|Unable to open audio device", current)
     assert (current.count('Setting up AudioManager...') - setups ==
             current.count('Window size has changed from ') - reloads), 'Missing reload audio setup'
-    if gl_transport_stall(stacks):
-        message = f'{name}: emulator GL-transport infrastructure; captured render transport + idle audio'
+    no_reload = current.count('Window size has changed from ') == reloads
+    surface = surface_changed(interval, pid, size)
+    (h.evidence / (prefix + '-progress.json')).write_text(json.dumps(dict(
+        tid=tids, cpu_ns=cpu, later_cpu_ns=later_cpu, elapsed_seconds=elapsed,
+        expected_size=size, java_surface_changed=surface, no_native_reload=no_reload), indent=2) + '\n')
+    if no_reload and gl_transport_stall(stacks, later, cpu, later_cpu, elapsed, surface):
+        message = f'{name}: emulator GL-transport infrastructure; two unchanged render stacks/CPU over {elapsed:.3f}s; Java resized to {size}, no native reload'
         (h.evidence / (name + '-infrastructure.txt')).write_text(message + '\n')
         print(message, flush=True)
         raise GLTransportInfrastructure(message)
@@ -285,7 +391,17 @@ def controls():
             ' #01 pc 0000 /libc.so (__futex_wait_ex+138)\n'
             ' #02 pc 0000 /libc.so (sem_wait+91)\n'
             ' #03 pc 0000 /libSDL2.so (SDL_SemWait+23)\n')
-    assert gl_transport_stall(render + idle)
+    qualifies = lambda stacks: gl_transport_stall(stacks, stacks, 100, 100, 5, True)
+    assert qualifies(render + idle)
+    assert not gl_transport_stall(render + idle)
+    for later, cpu, later_cpu, elapsed, surface in (
+            (render + idle, 100, 101, 5, True),
+            (render + idle, None, None, 5, True),
+            (render + idle, 100, 100, 4.9, True),
+            (render + idle, 100, 100, 5, False),
+            (render.replace('sysTid=1', 'sysTid=3') + idle, 100, 100, 5, True),
+            (render.replace('0000', '0001') + idle, 100, 100, 5, True)):
+        assert not gl_transport_stall(render + idle, later, cpu, later_cpu, elapsed, surface)
     for invalid in (render, idle, render.replace('SDLThread', 'worker') + idle,
                     render.replace('glGetError_enc', 'other_gl') + idle,
                     render.replace('QemuPipeStream::', 'other::') + idle,
@@ -293,7 +409,32 @@ def controls():
                     render + idle.replace('sem_wait', 'busy').replace('SDL_SemWait', 'busy'),
                     render + idle + idle.replace('sysTid=2', 'sysTid=3').replace(
                         'sem_wait', 'busy').replace('SDL_SemWait', 'busy')):
-        assert not gl_transport_stall(invalid), 'Nonmatching stack accepted as GL infrastructure'
+        assert not qualifies(invalid), 'Nonmatching stack accepted as GL infrastructure'
+    # Actual healthy-frontend native excerpt (paths abbreviated): run 38772440030 API 29, artifact
+    # 11999756020, network-liveness-control-attempt1-healthy-frontend-stacks.txt.
+    # QA reproduced the old false positive here. A snapshot alone fails; even
+    # identical repeated frames fail if the render CPU advanced.
+    healthy = ('"SDLThread" sysTid=18196\n'
+        ' #00 pc 00000000000ec817 /apex/com.android.runtime/lib64/bionic/libc.so (read+7)\n'
+        ' #01 pc 000000000000b971 /vendor/lib64/libOpenglSystemCommon.so (QemuPipeStream::commitBufferAndReadFully(unsigned long, void*, unsigned long)+177)\n'
+        ' #02 pc 0000000000049751 /vendor/lib64/libGLESv2_enc.so ((anonymous namespace)::glGetError_enc(void*)+209)\n'
+        '"SDLAudioP2" sysTid=18225\n'
+        ' #00 pc 00000000000943f8 /apex/com.android.runtime/lib64/bionic/libc.so (syscall+24)\n'
+        ' #01 pc 0000000000097e1a /apex/com.android.runtime/lib64/bionic/libc.so (__futex_wait_ex(void volatile*, bool, int, bool, timespec const*)+138)\n'
+        ' #02 pc 00000000000a2f7b /apex/com.android.runtime/lib64/bionic/libc.so (sem_wait+91)\n'
+        ' #03 pc 000000000013f5a7 /base.apk!libSDL2.so (SDL_SemWait+23)\n')
+    assert not gl_transport_stall(healthy)
+    assert not gl_transport_stall(healthy, healthy, 100, 101, 5, True)
+    java = ('10-14 00:00:02.000 123 124 V SDL: surfaceChanged()\n'
+            '10-14 00:00:02.001 123 124 V SDL: Window size: 972x1728')
+    assert surface_changed(java, '123', '972x1728')
+    assert not surface_changed(java, '555', '972x1728')
+    assert not surface_changed(java, '123', '1080x1920')
+    assert not surface_changed(java.replace('surfaceChanged()', 'other'), '123', '972x1728')
+    assert startup_relaunch_allowed(True, False, False, True)
+    for dismissed, created, used, focused in ((False, False, False, True),
+            (True, True, False, True), (True, False, True, True), (True, False, False, False)):
+        assert not startup_relaunch_allowed(dismissed, created, used, focused)
     # Own table samples exercise both documented PID column layouts, reject
     # other clients/inactive tracks and require the actual server-frame field.
     for client in ('Client', 'Client(pid/uid)'):
@@ -309,7 +450,7 @@ def controls():
         assert active_tracks(header + '\n' + row, '123') == {'7': 0x1234}
         assert not active_tracks(header + '\n' + row, '555')
         assert not active_tracks(header + '\n' + row.replace('yes', ' no'), '123')
-    return 'PASS: app crash/log boundary, strict GL thread signatures and app audio-track controls.\n'
+    return 'PASS: app crash/log boundary; GL no-progress proof and healthy negative; bounded onboarding eligibility; app audio-track controls.\n'
 
 
 def image_distance(first, second):
@@ -395,7 +536,8 @@ def cycle(h, name, count, allow_crash=False):
                 else:
                     rows.append(dict(cycle=index + 1, size=size, pid=pid, stall=True,
                                      log_marker=marker, log_since=since))
-                    classify_stall(h, name, pid, action_logs, reloads, setups)
+                    classify_stall(h, name, pid, action_logs, reloads, setups,
+                                   'x'.join(physical.groups()) if size == 'reset' else size)
                     raise AssertionError(f'{name}: reload failed to complete: cycle={index + 1}, size={size}')
                 row['log_marker'] = marker
                 row['log_since'] = since
@@ -441,7 +583,6 @@ def cycle(h, name, count, allow_crash=False):
         returned = (h.evidence / (name + '-system-after-back.png')).read_bytes()
         changed = image_distance(restored, gamelist)
         if changed <= .01 or image_distance(restored, returned) >= changed / 2:
-            classify_stall(h, name, pid, action_logs, reloads, setups)
             raise AssertionError('Enter/Back did not restore the expected system/gamelist views')
         (h.evidence / (name + '-view-oracle.txt')).write_text(
             f'Enter image distance={changed}; Back distance={image_distance(restored, returned)}\n')
@@ -482,7 +623,7 @@ def run_control(harness):
         try:
             set_setting(document, 'bool', 'NavigationSounds', 'false')
             h.user_file('settings/es_settings.xml', xml_settings(document))
-            h.launch()
+            h.launch(audio_relaunch='audio-control-comparison-startup')
             comparison = dict(crashes=cycle(h, 'audio-unfixed-sounds-disabled', 20), actions=40)
         except Exception as error:
             comparison = dict(outcome=type(error).__name__, detail=str(error))
@@ -530,17 +671,20 @@ def video_fixture(path):
 
 
 def fixed_session(h, name, count):
+    completed = True
     try:
         assert cycle(h, name, count) == 0
         outcome = f'PASS: {count} size/reset cycles; same PID; matching reload/audio setup; active app audio output.'
     except GLTransportInfrastructure as error:
+        completed = False
         outcome = str(error) + '; session stopped, no completed-stress claim.'
         # Retire this captured infrastructure session before the independent
         # checks. Do not retry it, count it as passing stress, or recover a
         # lifecycle stall / any unclassified product failure.
         h.shell('am', 'force-stop', h.app)
-        h.launch()
+        h.launch(audio_relaunch=name + '-independent-startup')
     (h.evidence / (name + '-result.txt')).write_text(outcome + '\n')
+    return completed
 
 
 def run(harness):
@@ -561,23 +705,24 @@ def run(harness):
     set_setting(document, 'string', 'ThemeVariant', 'textlistWithVideos')
     try:
         h.user_file('settings/es_settings.xml', xml_settings(document))
-        h.launch()
+        h.launch(audio_relaunch='audio-video-startup')
         h.key('KEYCODE_ENTER')
         h.wait_for(lambda: video_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
                    'original audio-track video visibly plays before reload')
         h.screenshot('audio-video-before-reload')
         h.save_logs('audio-video-before-reload')
-        fixed_session(h, 'audio-fixed-video', 1)
+        reloaded = fixed_session(h, 'audio-fixed-video', 1)
+        phase = 'after-reload' if reloaded else 'independent-session-after-infrastructure'
         h.key('KEYCODE_ENTER')
         h.wait_for(lambda: video_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
-                   'original audio-track video visibly plays after reload')
-        h.screenshot('audio-video-after-reload')
-        h.save_logs('audio-video-after-reload')
-        audio_output(h, 'audio-video-playing-after-reload', h.shell('pidof', h.app).strip())
+                   'original audio-track video visibly plays: ' + phase)
+        h.screenshot('audio-video-' + phase)
+        h.save_logs('audio-video-' + phase)
+        audio_output(h, 'audio-video-playing-' + phase, h.shell('pidof', h.app).strip())
         (h.evidence / 'audio-fixed-summary.txt').write_text(
             'See per-session results: completed stress sessions or stack-qualified GL infrastructure.\n'
             'Every completed reload has matching audio setup and active app AudioFlinger track '
-            'with advancing server frames; original audio-track video visibly plays after reload.\n'
+            f'with advancing server frames; original audio-track video visibly plays: {phase}.\n'
             'Real nonzero navigation and video PCM mixing is asserted separately on Linux.\n')
     finally:
         h.user_file('settings/es_settings.xml', original)

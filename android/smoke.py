@@ -39,6 +39,9 @@ stock_package = 'com.google.android.tvlauncher'
 onboarding_guard = False
 dismissing_onboarding = False
 last_onboarding_check = 0.0
+onboarding_dismissals = 0
+readiness_waits = evidence / ('audio-control-readiness-waits.txt' if '--audio-control' in sys.argv
+                              else 'readiness-waits.txt')
 
 
 def adb(*args, check=True, binary=False):
@@ -120,11 +123,11 @@ def wait_for(condition, description, timeout=90):
         if timeout >= 30:
             dismiss_stock_onboarding()
         if condition():
-            with (evidence / 'readiness-waits.txt').open('a') as output:
+            with readiness_waits.open('a') as output:
                 output.write(f'READY {time.monotonic() - started:.3f}s: {description}\n')
             return
         time.sleep(0.25)
-    with (evidence / 'readiness-waits.txt').open('a') as output:
+    with readiness_waits.open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
     raise AssertionError('Timed out: ' + description)
 
@@ -139,12 +142,15 @@ def screenshot(name):
     (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
 
 
-def launch():
+def launch(audio_relaunch=None):
     # Each stopped-process restart must produce new startup evidence.
     global startup_baseline
     startup_baseline = log()
-    shell('am', 'start', '-n', activity)
-    wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh frontend startup/system loading')
+    if audio_relaunch:
+        audio_smoke.startup(globals(), audio_relaunch, startup_baseline)
+    else:
+        shell('am', 'start', '-n', activity)
+        wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh frontend startup/system loading')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
     # Startup logging precedes the render loop's first frame/texture uploads.
@@ -207,7 +213,7 @@ def node_matches(node, label):
 
 
 def dismiss_stock_onboarding(force=False):
-    global dismissing_onboarding, last_onboarding_check
+    global dismissing_onboarding, last_onboarding_check, onboarding_dismissals
     if not onboarding_guard or dismissing_onboarding:
         return
     if not force and time.monotonic() - last_onboarding_check < 2:
@@ -218,6 +224,7 @@ def dismiss_stock_onboarding(force=False):
     if not smoke_checks.stock_onboarding_focused(window, stock_package):
         return
     dismissing_onboarding = True
+    tutorial_dismissed = False
     try:
         # The stock launcher can present a multi-page Live TV/Shop tutorial.
         # Each page gets its exact negative action once, and must visibly
@@ -266,6 +273,7 @@ def dismiss_stock_onboarding(force=False):
                 return (bool(current_page[1]) and current_page != page and
                         (not page[0] or bool(current_page[0])))
             wait_for(advanced, 'stock tutorial page advanced or closed')
+            tutorial_dismissed = True
         wait_for(lambda: not smoke_checks.stock_onboarding_focused(focused_window(), stock_package),
                  'bounded stock tutorial flow closed')
         nodes = hierarchy()
@@ -285,6 +293,8 @@ def dismiss_stock_onboarding(force=False):
                 key('KEYCODE_DPAD_CENTER')
         wait_for(stock_ui_clear, 'external TV onboarding dismissal completed')
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
+        if tutorial_dismissed:
+            onboarding_dismissals += 1
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion
         # retry is performed. The original condition still has to pass.
