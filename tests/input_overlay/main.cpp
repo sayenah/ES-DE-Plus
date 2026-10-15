@@ -244,6 +244,14 @@ static void boundaries()
     invalid.drawableWidth = 0;
     expected(m.rebuild(invalid, Options {}, 320), {{0, 0}});
     expected(m.input(Event::DOWN, 2, a), {});
+    m.rebuild(geometry(288, 480), Options {}, 160);
+    require(m.compact(), "narrow supported pane uses compact grid");
+    const auto first {m.buttons()[0]};
+    const Point edge {first.hit.x + first.hit.w, first.centre.y};
+    require(!first.hit.contains(edge) && m.buttons()[1].hit.contains(edge),
+            "shared compact edge has exactly one owner");
+    expected(m.input(Event::DOWN, 1, m.geometry().toNormalized(edge)), {{12, 1}});
+    expected(m.input(Event::UP, 1, {}), {{12, 0}});
     for (int rotation : {0, 90, 180, 270}) {
         auto clipped {geometry(1080, 1794, rotation)};
         clipped.viewportX = -37;

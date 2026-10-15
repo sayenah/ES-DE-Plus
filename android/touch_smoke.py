@@ -202,6 +202,10 @@ def run(namespace):
         assert transitions(current) == expected, (name, transitions(current), expected)
         (h.evidence / (name + '.png')).write_bytes(h.adb('exec-out', 'run-as', h.app,
             'cat', 'cache/touch-last.png', binary=True))
+        for step in steps:
+            if step['action'] == 'snapshot':
+                (h.evidence / (name + '-' + step['name'] + '.png')).write_bytes(h.adb(
+                    'exec-out', 'run-as', h.app, 'cat', 'cache/touch-' + step['name'] + '.png', binary=True))
         return current
 
     def pointer(button, finger=0):
@@ -316,6 +320,7 @@ def run(namespace):
         tap(pixels[0])
         check_delta(before, [], 'disabled overlay is inert')
         shot('touch-disabled-through-menu')
+        enable_before = h.log()
         h.key('KEYCODE_DEL')
         h.key('KEYCODE_ESCAPE')
         for _ in range(4):
@@ -326,7 +331,9 @@ def run(namespace):
         h.key('KEYCODE_ENTER')
         h.key('KEYCODE_DEL')
         assert re.search(r'name="InputTouchOverlay" value="true"', h.shell('cat', h.settings))
-        assert 'InputOverlay: restored (menu)' in h.log()
+        h.wait_for(lambda: 'InputOverlay: restored (menu)' in h.log()[len(enable_before):] and
+                   'InputOverlay: textures built' in h.log()[len(enable_before):],
+                   'fresh menu enable rebuild and render')
         shot('touch-reenabled-through-menu')
         record('touch-disable-reenable')
         start(InputTouchOverlay=True)
@@ -392,8 +399,13 @@ def run(namespace):
         inject('touch-shared-button', [step('down', [b0]), step('pointer-down', [b1, b0], changed=3),
             step('pointer-up', [b0, b1], changed=9), step('up', [b1])], [(1, 1), (1, 0)])
         up = pointer(11, 4); slid = pointer(14, 4)
+        h.user_file('settings/es_settings.xml', configure(original, **dict(common,
+            InputTouchOverlay=True, SoundVolumeNavigation=0)))
         inject('touch-slide-and-stationary-hold', [step('down', [up]), step('move', [slid]),
-            step('up', [slid], wait=1000)], [(11, 1), (11, 0), (14, 1), (14, 0)])
+            step('snapshot', [], wait=1000, name='right-held', held=14), step('up', [slid])],
+            [(11, 1), (11, 0), (14, 1), (14, 0)], menu='sound')
+        volume = re.search(r'name="SoundVolumeNavigation" value="(\d+)"', h.shell('cat', h.settings))
+        assert volume and int(volume[1]) > 1, 'Right did not repeat during the stationary hold'
         down = pointer(12, 0); shoulder = pointer(9, 5); face = pointer(3, 11)
         inject('touch-three-clusters-cancel', [step('down', [down]),
             step('pointer-down', [shoulder, down], changed=5),
@@ -487,11 +499,14 @@ def run(namespace):
             record('touch-resize-held')
         finally:
             reset_before = h.log()
+            overridden = 'Override size:' in h.shell('wm', 'size')
             h.shell('wm', 'size', 'reset')
-            h.wait_for(lambda: 'Window size has changed' in h.log()[len(reset_before):], 'overlay resize reset')
+            if overridden:
+                h.wait_for(lambda: 'Window size has changed' in h.log()[len(reset_before):], 'overlay resize reset')
 
         # Fade: one complete waking gesture is inert, including its motion and UP.
-        output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2)
+        output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2,
+                       ScreensaverTimer=1000, ScreensaverType='dim')
         assert 'InputOverlay: faded' in output  # launch() waits ten seconds.
         centres = buttons(output)
         s = surface_bounds()
@@ -500,9 +515,11 @@ def run(namespace):
         p = (s[0] + nx * s[2], s[1] + ny * s[3])
         tap(p)
         check_delta(before, [], 'hidden wake-only gesture')
+        assert 'Scripting::fireEvent(): screensaver-end' not in h.log()[len(before):]
         before = h.log()
         tap(p)  # Back is a non-launch control.
         check_delta(before, [(1, 1), (1, 0)], 'visible non-launch tap')
+        assert 'Scripting::fireEvent(): screensaver-end "cancel"' in h.log()[len(before):]
         record('touch-fade-wake')
 
         output = start(InputTouchOverlay=True, InputTouchOverlaySize='bogus',
@@ -529,10 +546,10 @@ def run(namespace):
         # Real kiosk/kid passkey, including the two Up/two Down prefix. Only
         # fixture preparation restarts the app; unlocking itself uses touch only.
         h.shell('am', 'force-stop', h.app)
-        prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'kid-prepare',
-                           h.app + '/org.esdeplus.frontend.TouchSmoke')
-        assert 'PASS: kid-prepare' in prepared, prepared
         try:
+            prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'kid-prepare',
+                               h.app + '/org.esdeplus.frontend.TouchSmoke')
+            assert 'PASS: kid-prepare' in prepared, prepared
             for mode in ['kiosk', 'kid']:
                 for swapped in [False, True]:
                     start(InputTouchOverlay=True, UIMode=mode, InputSwapButtons=swapped)
@@ -555,10 +572,12 @@ def run(namespace):
         # Orderly native exit is distinct from process death between instrumentation
         # cases. SDL's native completion marker must follow the real Back action.
         start(InputTouchOverlay=True, BackEventAppExit=True)
+        exit_pid = h.shell('pidof', h.app).strip()
         h.adb('logcat', '-c')
         h.key('KEYCODE_BACK')
-        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d'), 'orderly touch-overlay native exit')
-        completion = h.adb('logcat', '-d')
+        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d', '--pid', exit_pid),
+                   'orderly touch-overlay native exit')
+        completion = h.adb('logcat', '-d', '-v', 'threadtime', '--pid', exit_pid)
         assert not re.search(r'Fatal signal|FATAL EXCEPTION|JNI DETECTED ERROR', completion), completion
         (h.evidence / 'touch-orderly-exit-logcat.txt').write_text(completion)
 

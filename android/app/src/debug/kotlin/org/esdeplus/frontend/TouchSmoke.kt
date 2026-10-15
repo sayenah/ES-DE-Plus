@@ -20,13 +20,13 @@ import org.libsdl.app.SDLSurface
 /** Inject complete physical-pointer streams into this app's own SDL window only. */
 class TouchSmoke : Instrumentation() {
     private var script = ""
-    private var menu = false
+    private var menu = ""
     private var asset = ""
     private var mode = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         script = arguments?.getString("steps").orEmpty()
-        menu = arguments?.getString("menu") == "true"
+        menu = arguments?.getString("menu").orEmpty()
         asset = arguments?.getString("asset").orEmpty()
         mode = arguments?.getString("mode").orEmpty()
         start()
@@ -34,7 +34,7 @@ class TouchSmoke : Instrumentation() {
 
     override fun onStart() {
         val result = Bundle()
-        val record = StringBuilder()
+        val record = StringBuffer()
         var active = emptyList<Pointer>()
         var downTime = 0L
         var surface: SDLSurface? = null
@@ -101,19 +101,78 @@ class TouchSmoke : Instrumentation() {
                 log.readText().contains("Application startup time:")) {
                 "Frontend did not become ready for owned-window touch injection"
             }
+            fun traceAndroidDelivery() {
+                runOnMainSync {
+                    val target = checkNotNull(surface)
+                    target.setOnTouchListener { view, event ->
+                        record.append("ANDROID action=${event.actionMasked} source=${event.source} device=${event.deviceId} " +
+                            (0 until event.pointerCount).joinToString { n ->
+                                "id=${event.getPointerId(n)} x=${event.getX(n)} y=${event.getY(n)} pressure=${event.getPressure(n)}"
+                            } + "\n")
+                        target.onTouch(view, event)
+                    }
+                }
+            }
+            traceAndroidDelivery()
             SystemClock.sleep(1200) // Initial gestures are outside foreground blocking.
-            if (menu) {
-                sendKeyDownUpSync(KeyEvent.KEYCODE_ESCAPE)
+            if (menu.isNotEmpty()) {
+                check(menu == "true" || menu == "sound")
+                // Sound settings: start on Video volume. Up selects Navigation
+                // volume; Right must keep advancing it during a stationary hold.
+                val keys = if (menu == "sound") listOf(KeyEvent.KEYCODE_ESCAPE,
+                    KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN,
+                    KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)
+                    else listOf(KeyEvent.KEYCODE_ESCAPE)
+                for (key in keys) {
+                    val offset = log.readText().length
+                    sendKeyDownUpSync(key)
+                    val by = SystemClock.elapsedRealtime() + 20_000
+                    while (SystemClock.elapsedRealtime() < by &&
+                        !Regex("Window::logInput\\(Keyboard\\): .*value=0").containsMatchIn(log.readText().substring(offset)))
+                        SystemClock.sleep(20)
+                    check(Regex("Window::logInput\\(Keyboard\\): .*value=0").containsMatchIn(log.readText().substring(offset)))
+                }
                 SystemClock.sleep(500)
             }
             val steps = JSONArray(script)
             check(steps.length() in 1..256)
             val injectionOffset = log.readText().length
             var expectedUps = 0
+            fun heldControls(text: String): Set<Int> {
+                val held = mutableSetOf<Int>()
+                Regex("Window::logInput\\(Touch\\): Button (\\d+), isMappedTo=.*?value=([01])")
+                    .findAll(text).forEach { match ->
+                        val id = match.groupValues[1].toInt()
+                        if (match.groupValues[2] == "1") check(held.add(id)) { "Duplicate press $id" }
+                        else check(held.remove(id)) { "Orphan release $id" }
+                    }
+                return held
+            }
+            fun snapshot(name: String) {
+                check(name.matches(Regex("[a-z0-9-]{1,32}")))
+                var focused = false
+                runOnMainSync { focused = activity.hasWindowFocus() }
+                check(focused) { "Screenshot requires the owned window" }
+                val bitmap = checkNotNull(uiAutomation.takeScreenshot()) { "No owned-window screenshot" }
+                File(targetContext.cacheDir, "touch-$name.png").outputStream().use {
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+                }
+                bitmap.recycle()
+                record.append("SNAPSHOT $name at ${SystemClock.uptimeMillis()}\n")
+            }
             for (i in 0 until steps.length()) {
                 val step = steps.getJSONObject(i)
                 SystemClock.sleep(step.optLong("wait", 0).also { check(it in 0..5000) })
                 val actionName = step.getString("action")
+                if (actionName == "snapshot") {
+                    val held = step.getInt("held")
+                    val by = SystemClock.elapsedRealtime() + 20_000
+                    while (SystemClock.elapsedRealtime() < by &&
+                        held !in heldControls(log.readText().substring(injectionOffset))) SystemClock.sleep(20)
+                    check(held in heldControls(log.readText().substring(injectionOffset)))
+                    snapshot(step.getString("name"))
+                    continue
+                }
                 if (actionName == "background") {
                     targetContext.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -145,6 +204,7 @@ class TouchSmoke : Instrumentation() {
                         if (!ready) SystemClock.sleep(5)
                     }
                     check(ready) { "No explicit native foreground signal" }
+                    traceAndroidDelivery() // SDL reinstalls its listener on resume.
                     record.append("LIFECYCLE: resumed; next event wait=${step.optLong("wait", 0)}\n")
                     continue
                 }
@@ -205,22 +265,20 @@ class TouchSmoke : Instrumentation() {
                 val current = log.readText()
                 check(current.length >= injectionOffset) { "Native log epoch replaced during injection" }
                 observed = current.substring(injectionOffset)
-                val held = mutableSetOf<Int>()
-                Regex("Window::logInput\\(Touch\\): Button (\\d+), isMappedTo=.*?value=([01])")
-                    .findAll(observed).forEach { match ->
-                        val id = match.groupValues[1].toInt()
-                        if (match.groupValues[2] == "1") check(held.add(id)) { "Duplicate press $id" }
-                        else check(held.remove(id)) { "Orphan release $id" }
-                    }
-                complete = Regex("InputOverlay: event type=up ").findAll(observed).count() >= expectedUps && held.isEmpty()
+                complete = Regex("InputOverlay: event type=up ").findAll(observed).count() >= expectedUps && heldControls(observed).isEmpty()
                 if (!complete) SystemClock.sleep(20)
             }
             check(complete) { "Native pointer stream did not drain: expected $expectedUps UPs\n${observed.takeLast(8000)}" }
-            val bitmap = checkNotNull(uiAutomation.takeScreenshot()) { "No owned-window screenshot" }
-            File(targetContext.cacheDir, "touch-last.png").outputStream().use {
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            if (menu == "sound") {
+                val offset = log.readText().length
+                sendKeyDownUpSync(KeyEvent.KEYCODE_DEL) // Save through GuiSettings.
+                val by = SystemClock.elapsedRealtime() + 20_000
+                while (SystemClock.elapsedRealtime() < by &&
+                    !Regex("Window::logInput\\(Keyboard\\): .*value=0").containsMatchIn(log.readText().substring(offset)))
+                    SystemClock.sleep(20)
+                check(Regex("Window::logInput\\(Keyboard\\): .*value=0").containsMatchIn(log.readText().substring(offset)))
             }
-            bitmap.recycle()
+            snapshot("last")
             record.append("PASS: complete Android multi-pointer stream injected\n")
             result.putString("stream", record.toString())
             finish(-1, result)
@@ -240,12 +298,14 @@ class TouchSmoke : Instrumentation() {
         val origin = IntArray(2)
         var width = 0
         var height = 0
+        var focused = false
         runOnMainSync {
             surface.getLocationOnScreen(origin)
             width = surface.width
             height = surface.height
+            focused = surface.hasWindowFocus()
         }
-        check(width > 0 && height > 0)
+        check(focused && width > 0 && height > 0) { "No owned focused SDL surface" }
         val properties = pointers.map { p -> MotionEvent.PointerProperties().apply {
             id = p.id; toolType = MotionEvent.TOOL_TYPE_FINGER
         } }.toTypedArray()

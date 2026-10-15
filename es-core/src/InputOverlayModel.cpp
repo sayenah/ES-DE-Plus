@@ -35,8 +35,10 @@ namespace TouchOverlay
 
     bool Rect::contains(Point p, float expansion) const
     {
-        return std::abs(p.x - x - w / 2) <= w * expansion / 2 &&
-               std::abs(p.y - y - h / 2) <= h * expansion / 2;
+        const float left {x - w * (expansion - 1) / 2};
+        const float top {y - h * (expansion - 1) / 2};
+        // Half-open rectangles give shared compact-grid edges one unambiguous owner.
+        return p.x >= left && p.x < left + w * expansion && p.y >= top && p.y < top + h * expansion;
     }
 
     bool Geometry::valid() const
@@ -159,7 +161,9 @@ namespace TouchOverlay
         const float side {
             std::max((landscape ? 32.0f : 24.0f) * mDensity, (landscape ? 0.03f : 0.04f) * v.w)};
         const float top {std::max(24 * mDensity, 0.04f * v.h)};
-        const float bottom {std::max(32 * mDensity, (landscape ? 0.064f : 0.04f) * v.h)};
+        const float helpBand {(geometry.width > geometry.height ? 0.064f : 0.04f) *
+                              geometry.height};
+        const float bottom {std::max(32 * mDensity, helpBand)};
         mSafe = {v.x + side, v.y + top, v.w - 2 * side, v.h - top - bottom};
         const float requested {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity) *
                                options.size};

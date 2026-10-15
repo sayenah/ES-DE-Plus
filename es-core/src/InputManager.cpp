@@ -303,7 +303,11 @@ bool InputManager::parseEvent(const SDL_Event& event)
         (event.type == SDL_WINDOWEVENT && (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
                                            event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)))
         cancelTouchInput();
-    if (event.type == SDL_APP_WILLENTERFOREGROUND)
+    // A short focus transfer can return before SDL's multi-window Activity stops,
+    // so it need not produce an application foreground event. Focus gain is also
+    // an explicit return signal, independent of frame-delta normalization.
+    if (event.type == SDL_APP_WILLENTERFOREGROUND ||
+        (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED))
         mInputOverlay.onResume();
     if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP ||
         event.type == SDL_FINGERMOTION) {
