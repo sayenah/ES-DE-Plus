@@ -22,6 +22,19 @@ def read_label(frame):
                           capture_output=True, text=True, timeout=30)
 
 
+def wait_selection(read, previous=None, timeout=15):
+    # Poll rendering only. The action that initiated the transition is never
+    # replayed, and read() enforces frontend health on every observation.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        label = read()
+        assert label != 'QUIT ES-DE', 'Unsafe importer navigation: QUIT ES-DE is focused; A was not sent'
+        if label and label != previous:
+            return label
+        time.sleep(0.25)
+    raise AssertionError(f'Importer menu did not render a verified new selection within {timeout}s; previous={previous!r}; A was not sent')
+
+
 def capture_failure(h, name):
     # Independent captures: one unavailable diagnostic must not prevent the rest
     # or replace the original assertion. Caller has not force-stopped the frontend.
@@ -55,7 +68,6 @@ def open_importer(harness, mode):
         sequence.write(name + '\n')
     trace = h.evidence / (name + '-focus-trace.txt')
     pid = h.shell('pidof', h.app).strip()
-    assert pid, 'Importer navigation requires a running frontend'
     step = 0
 
     def record(message):
@@ -63,24 +75,24 @@ def open_importer(harness, mode):
         with trace.open('a') as output:
             output.write(message + '\n')
 
-    def selected():
+    def read_selection():
         nonlocal step
         assert h.shell('pidof', h.app, check=False).strip() == pid, 'Frontend process changed during importer navigation'
         assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'Frontend lost focus during importer navigation'
-        # Observe the completed menu animation without replaying an input.
-        time.sleep(0.5)
         frame = h.evidence / f'{name}-step{step}.png'
         frame.write_bytes(h.adb('exec-out', 'screencap', '-p', binary=True))
         result = read_label(frame)
         record(f'{step}: {frame.name}: exit={result.returncode} label={result.stdout.strip()!r} {result.stderr.strip()}')
         step += 1
-        assert result.returncode == 0, 'Cannot verify importer menu selection: ' + result.stderr
-        return result.stdout.strip()
+        # An unrecognized frame is pending evidence, never permission to act.
+        # Animated transitions may still show the preceding system/menu frame.
+        return result.stdout.strip() if result.returncode == 0 else None
 
     try:
         record('Open MAIN MENU (Escape); frontend PID=' + pid)
+        assert pid, 'Importer navigation requires a running frontend'
         h.key('KEYCODE_ESCAPE')
-        label = selected()
+        label = wait_selection(read_selection)
         assert label != 'QUIT ES-DE', 'Unsafe importer navigation: QUIT ES-DE is focused; A was not sent'
         assert label == 'SEARCH', 'Fresh main menu did not focus SEARCH: ' + label
         seen = set()
@@ -90,10 +102,10 @@ def open_importer(harness, mode):
             seen.add(label)
             record('Down from ' + label)
             h.key('KEYCODE_DPAD_DOWN')
-            label = selected()
+            label = wait_selection(read_selection, previous=label)
         record('Verified UTILITIES; send A')
         activate(label, 'UTILITIES', h.key)
-        label = selected()
+        label = wait_selection(read_selection, previous='UTILITIES')
         record('Verify GAME IMPORTER before A: ' + label)
         activate(label, 'GAME IMPORTER', h.key)
         record('PASS: verified UTILITIES and GAME IMPORTER before each A')
@@ -104,6 +116,34 @@ def open_importer(harness, mode):
 
 
 def controls():
+    from unittest.mock import patch
+
+    # A delayed render is observed without sending another action. A genuine
+    # frontend assertion is propagated at once, never treated as a pending frame.
+    clock = [0.0]
+    sleeps = []
+    def pause(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+    with patch.object(time, 'monotonic', lambda: clock[0]), patch.object(time, 'sleep', pause):
+        frames = iter([None, None, 'SEARCH'])
+        assert wait_selection(lambda: next(frames)) == 'SEARCH'
+        frames = iter(['SEARCH', 'SEARCH', 'SCRAPER'])
+        assert wait_selection(lambda: next(frames), previous='SEARCH') == 'SCRAPER'
+        for read, previous, message in [
+                (lambda: 'QUIT ES-DE', 'SEARCH', 'QUIT ES-DE is focused'),
+                (lambda: 'SEARCH', 'SEARCH', 'did not render'),
+                (lambda: None, None, 'did not render'),
+                (lambda: (_ for _ in ()).throw(AssertionError('Frontend process changed')), None, 'Frontend process changed')]:
+            before = len(sleeps)
+            try:
+                wait_selection(read, previous=previous, timeout=1)
+            except AssertionError as error:
+                assert message in str(error), error
+                if message != 'did not render':
+                    assert len(sleeps) == before, 'Frontend/QUIT failure entered frame polling'
+            else:
+                raise AssertionError('Render/health control escaped: ' + message)
     actions = []
     activate('UTILITIES', 'UTILITIES', actions.append)
     activate('GAME IMPORTER', 'GAME IMPORTER', actions.append)
@@ -150,7 +190,7 @@ def controls():
                     'control-last-frontend-lines.txt', 'control-window.txt-capture-error.txt', 'control-logcat.txt'}
         assert {p.name for p in Harness.evidence.iterdir()} == expected
         assert (Harness.evidence / 'control-es_log.txt.bak.txt').read_text() == 'previous run\n'
-    return result.stdout + 'PASS: screenshot QUIT/wrong/unknown labels rejected without A; correct labels activate; failure captures survive a diagnostic error.\n'
+    return 'PASS: delayed/stale frames observed without action replay; QUIT and frontend failures stop immediately.\n' + result.stdout + 'PASS: screenshot QUIT/wrong/unknown labels rejected without A; correct labels activate; failure captures survive a diagnostic error.\n'
 
 
 if __name__ == '__main__':
