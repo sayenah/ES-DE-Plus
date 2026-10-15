@@ -13,7 +13,11 @@ place and preserve app data. This is test signing; production/store signing
 requires a separate Founder decision. Missing, lost, corrupt or compromised key
 material stops publication pending a Founder ruling; CI has no fallback key.
 
-Only successful push/dispatch runs on the `main` branch in `sayenah/ES-DE-Plus` publish. Each
+The Orchestrator publishes test builds on demand, after a batch of merged work,
+by dispatching **Build Android** on `main` in `sayenah/ES-DE-Plus` with
+`publish: true` (default `false`; for example,
+`gh workflow run build-android.yml --ref main -F publish=true`). Download them
+from [Releases](https://github.com/sayenah/ES-DE-Plus/releases). Each successful publication
 creates a pre-release `android-test-<short-sha>` on the exact full commit with
 four assets: the exact smoked debug APK, licence-notice ZIP, complete source TAR
 and `SHA256SUMS.txt`. The source TAR includes pinned third-party archives,
@@ -34,13 +38,15 @@ fail instead of overwriting a published set. CI never deletes releases, tags or
 source bundles, and pre-releases are never marked latest.
 
 The same run's Actions source/APK artefacts remain available for 14/7 days.
-Keep the corresponding source beside your APK. PR, fork and branch runs use
-throwaway keys, exercise packaging and the same release decisions through a
-non-writing transport, and never upload an APK or call release APIs. Only the
+Keep the corresponding source beside your APK. All pushes (including `main`),
+dispatches without `publish: true`, PRs, forks and branch runs use throwaway keys,
+exercise packaging and the same release decisions through a non-writing transport,
+and never upload an APK or call release APIs. Only the
 eligible API 34 job accesses the signing environment; credentials reach SDK
 `apksigner` outside Gradle through `env:` password inputs. Its mode-600 temporary
 keystore is removed before audits/smoke and on signing failures, outside caches
-and uploads. Rebuild jobs do not access that environment. See
+and uploads. Rebuilds and failure controls cannot publish or access that
+environment, even with `publish: true`. See
 [the distribution README](DISTRIBUTION-README.md) for source and own-key rebuilding.
 Every third-party action in the environment-bound job is pinned to a full
 commit SHA. Residual trust in Gradle/AGP resolution without dependency
@@ -115,9 +121,11 @@ The host uses the pinned wrapper/toolchain in `gradle.properties` and
 then drives real configurator/permission screens on API 29, API 34 and Android TV
 API 36 x86_64. API 34 runs last on its own runner, after the API 29 and TV legs pass. After
 same-commit Linux success and all Android checks, CI uploads and validates the
-source artefact before the exact smoked debug APK. No intermediary APK is
-uploaded. Dispatch with `rebuild_run` and `rebuild_attempt` rebuilds both ABIs from
-an extracted source artefact without checkout or dependency caches; rebuild APKs
+source artefact on both dry-run and publication paths. Only an eligible
+`publish: true` dispatch then uploads the exact smoked debug APK; every other
+normal run exercises all gates and release packaging without uploading an APK
+or calling release APIs. No intermediary APK is uploaded. Dispatch with
+`rebuild_run` and `rebuild_attempt` rebuilds both ABIs from an extracted source artefact without checkout or dependency caches; rebuild APKs
 remain on that runner. `failure` controls are dry-run only and forbidden on main.
 
 Game launching uses the existing Android find rules and Intent variables in
