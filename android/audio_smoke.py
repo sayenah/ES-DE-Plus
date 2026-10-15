@@ -81,8 +81,9 @@ def control_launch():
         previous_setting = shell('settings', 'get', 'secure', 'font_weight_adjustment')
         previous_weight = font_weight()
     try:
-        subprocess.run([sys.executable, 'android/smoke.py', str(CONTROL / 'unfixed.apk'),
-                        '--audio-control'], cwd=ROOT, check=True)
+        result = subprocess.run([sys.executable, 'android/smoke.py', str(CONTROL / 'unfixed.apk'),
+                                 '--audio-control'], cwd=ROOT)
+        (ROOT / 'android/evidence/audio-control-result.txt').write_text(str(result.returncode) + '\n')
     finally:
         # Controls use the normal SDK debug signer, preceding the full gating
         # smoke's independently signed APK. Never transfer data across signers.
@@ -106,6 +107,14 @@ def control_launch():
             (ROOT / 'android/evidence/audio-control-device-restored.txt').write_text(
                 f'PASS: original font-weight setting={previous_setting}; '
                 f'effective weight={previous_weight}; both restored before fixed smoke.\n')
+
+
+def control_status():
+    if os.environ['IMAGE'] == 'api34':
+        return
+    result = int((ROOT / 'android/evidence/audio-control-result.txt').read_text().strip())
+    assert result == 0, f'Unfixed audio control failed (exit {result}); see retained control evidence'
+    print('PASS: unfixed audio controls completed; final control gate satisfied', flush=True)
 
 
 def xml_settings(document):
@@ -198,6 +207,32 @@ def cycle(h, name, count, allow_crash=False):
                         break
                     time.sleep(.25)
                 else:
+                    (h.evidence / (name + '-reload-timeout-window.txt')).write_text(
+                        h.shell('dumpsys', 'window', 'displays'))
+                    (h.evidence / (name + '-reload-timeout-activities.txt')).write_text(
+                        h.shell('dumpsys', 'activity', 'activities'))
+                    try:
+                        command = 'debuggerd -b ' + shlex.quote(pid) + ' 2>&1'
+                        stacks = h.shell('sh', '-c', command, check=False)
+                        if not re.search(r'#00\s+pc\s', stacks):
+                            root = h.adb('root', check=False)
+                            h.adb('wait-for-device')
+                            if 'cannot run as root' in root:
+                                stacks += '\nCAPABILITY GAP: native backtrace unavailable: ' + root
+                            else:
+                                try:
+                                    h.wait_for(lambda: h.shell('id', '-u').strip() == '0',
+                                               'privileged reload-timeout diagnostic shell')
+                                    stacks += '\nPrivileged backtrace:\n' + h.shell(
+                                        'sh', '-c', command, check=False)
+                                finally:
+                                    h.adb('unroot', check=False)
+                                    h.adb('wait-for-device')
+                                h.wait_for(lambda: h.shell('id', '-u').strip() == '2000',
+                                           'ordinary shell after reload-timeout diagnostics')
+                    except subprocess.SubprocessError as error:
+                        stacks = f'Native backtrace unavailable: {error}\n'
+                    (h.evidence / (name + '-reload-timeout-stacks.txt')).write_text(stacks)
                     raise AssertionError(f'{name}: reload failed to complete: cycle={index + 1}, size={size}')
                 rows.append(row)
                 (h.evidence / (name + '-cycles.txt')).write_text(json.dumps(rows, indent=2) + '\n')
@@ -357,4 +392,5 @@ def run(harness):
 
 
 if __name__ == '__main__':
-    {'build-control': build_control, 'control': control_launch, 'controls': controls}[sys.argv[1]]()
+    {'build-control': build_control, 'control': control_launch, 'control-status': control_status,
+     'controls': controls}[sys.argv[1]]()

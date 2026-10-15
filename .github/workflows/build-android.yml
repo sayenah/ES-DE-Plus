@@ -457,6 +457,7 @@ jobs:
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/audio_smoke.py control
             python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+            python3 android/audio_smoke.py control-status
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/
