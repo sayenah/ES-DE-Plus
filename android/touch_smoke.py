@@ -436,7 +436,8 @@ def run(namespace):
                 inject(f'touch-focus-return-{absence}-{lift_delay}', [
                     step('down', [down]), step('background', []),
                     step('resume', [], wait=absence),
-                    step('down', [fresh], wait=0), step('up', [fresh], wait=lift_delay),
+                    step('up', [down], wait=lift_delay),
+                    step('down', [fresh], wait=0), step('up', [fresh]),
                     step('down', [fresh], wait=400), step('up', [fresh])],
                     accepted_around_block)
 
@@ -600,10 +601,13 @@ def run(namespace):
             'OPEN: hardware ergonomics/multitouch, gesture-navigation/cutout safety; configurator reset after '
             'PR #15; PR #16 ownership and lockout warning. See PR AC evidence for remaining checks.\n')
     finally:
-        if h.shell('pidof', h.app, check=False).strip():
-            record('touch-final')
-        h.user_file('settings/es_settings.xml', original)
-        h.launch()
+        try:
+            if h.shell('pidof', h.app, check=False).strip():
+                record('touch-final')
+        finally:
+            # A deliberately failing balance probe must still restore the seed.
+            h.user_file('settings/es_settings.xml', original)
+            h.launch()
 
 
 if __name__ == '__main__':

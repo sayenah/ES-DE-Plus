@@ -2,6 +2,8 @@
 // ES-DE-Plus — written for ES-DE-Plus. Android SDK multi-pointer injection; no test framework.
 package org.esdeplus.frontend
 
+import android.app.Activity
+import android.app.Application
 import android.app.Instrumentation
 import android.content.Intent
 import android.graphics.Bitmap
@@ -13,12 +15,27 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import org.esdeplus.frontend.bridge.StorageModel
 import org.json.JSONArray
 import org.libsdl.app.SDLSurface
 
 /** Inject complete physical-pointer streams into this app's own SDL window only. */
 class TouchSmoke : Instrumentation() {
+    private val resumed = AtomicBoolean(false)
+    private val lifecycle = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityResumed(activity: Activity) {
+            if (activity is MainActivity) resumed.set(true)
+        }
+        override fun onActivityPaused(activity: Activity) {
+            if (activity is MainActivity) resumed.set(false)
+        }
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+        override fun onActivityStarted(activity: Activity) {}
+        override fun onActivityStopped(activity: Activity) {}
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+        override fun onActivityDestroyed(activity: Activity) {}
+    }
     private var script = ""
     private var menu = ""
     private var asset = ""
@@ -79,6 +96,7 @@ class TouchSmoke : Instrumentation() {
             }
             val previousLog = File(StorageModel(targetContext).appData(), "logs/es_log.txt")
                 .takeIf { it.isFile }?.readText().orEmpty()
+            (targetContext.applicationContext as Application).registerActivityLifecycleCallbacks(lifecycle)
             val activity = startActivitySync(Intent(targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             fun find(view: View): SDLSurface? {
@@ -137,7 +155,8 @@ class TouchSmoke : Instrumentation() {
             val steps = JSONArray(script)
             check(steps.length() in 1..256)
             val injectionOffset = log.readText().length
-            var expectedUps = 0
+            val expectedUps = mutableMapOf<Int, Int>()
+            val cancelledFingers = mutableSetOf<Int>()
             fun heldControls(text: String): Set<Int> {
                 val held = mutableSetOf<Int>()
                 Regex("Window::logInput\\(Touch\\): Button (\\d+), isMappedTo=.*?value=([01])")
@@ -185,11 +204,11 @@ class TouchSmoke : Instrumentation() {
                         SystemClock.sleep(10)
                     }
                     check(lostFocus) { "Settings did not take focus" }
-                    record.append("LIFECYCLE: background cancels ${active.size} held pointers through Android\n")
-                    // Window focus transfer cancels Android's injected stream. Do
-                    // not inject an orphan UP into the newly focused window.
-                    expectedUps += active.size
-                    active = emptyList()
+                    record.append("LIFECYCLE: focus loss cancels consumer holds; ${active.size} physical pointers still down\n")
+                    // Focus loss cancels the consumer, but InputDispatcher may
+                    // retain the physical stream. Lift it in our window after
+                    // returning before beginning any new DOWN.
+                    cancelledFingers += active.map { it.id }
                     continue
                 }
                 if (actionName == "resume") {
@@ -200,7 +219,8 @@ class TouchSmoke : Instrumentation() {
                     var ready = false
                     while (!ready && SystemClock.elapsedRealtime() < until) {
                         runOnMainSync { ready = activity.hasWindowFocus() }
-                        ready = ready && log.readText().split("InputOverlay: restored (resume)").size > before
+                        ready = ready && resumed.get() &&
+                            log.readText().split("InputOverlay: restored (resume)").size > before
                         if (!ready) SystemClock.sleep(5)
                     }
                     check(ready) { "No explicit native foreground signal" }
@@ -243,11 +263,13 @@ class TouchSmoke : Instrumentation() {
                 runOnMainSync { focused = activity.hasWindowFocus() && !activity.isFinishing }
                 check(focused) { "Pointer injection refused outside the owned frontend window" }
                 send(surface!!, pointers, action, downTime)
-                expectedUps += when (actionName) {
-                    "up", "pointer-up" -> 1
-                    "cancel" -> pointers.size
-                    else -> 0
+                val ending = when (actionName) {
+                    "up", "pointer-up" -> listOf(changed)
+                    "cancel" -> pointers.map { it.id }
+                    else -> emptyList()
                 }
+                for (id in ending) if (!cancelledFingers.remove(id))
+                    expectedUps[id] = (expectedUps[id] ?: 0) + 1
                 record.append("INJECT $i $actionName changed=$changed ${pointers.joinToString()}\n")
                 active = when (actionName) {
                     "up", "cancel" -> emptyList()
@@ -265,7 +287,10 @@ class TouchSmoke : Instrumentation() {
                 val current = log.readText()
                 check(current.length >= injectionOffset) { "Native log epoch replaced during injection" }
                 observed = current.substring(injectionOffset)
-                complete = Regex("InputOverlay: event type=up ").findAll(observed).count() >= expectedUps && heldControls(observed).isEmpty()
+                val ups = Regex("InputOverlay: event type=up finger=(\\d+) ").findAll(observed)
+                    .groupingBy { it.groupValues[1].toInt() }.eachCount()
+                complete = expectedUps.all { (id, count) -> (ups[id] ?: 0) >= count } &&
+                    heldControls(observed).isEmpty()
                 if (!complete) SystemClock.sleep(20)
             }
             check(complete) { "Native pointer stream did not drain: expected $expectedUps UPs\n${observed.takeLast(8000)}" }
@@ -289,6 +314,8 @@ class TouchSmoke : Instrumentation() {
             }
             result.putString("stream", "$record\nFAIL: $error\n${error.stackTraceToString()}")
             finish(0, result)
+        } finally {
+            (targetContext.applicationContext as Application).unregisterActivityLifecycleCallbacks(lifecycle)
         }
     }
 
