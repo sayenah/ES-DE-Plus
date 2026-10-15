@@ -19,6 +19,7 @@
 #include "utils/PlatformUtil.h"
 #include "utils/StringUtil.h"
 
+#include <climits>
 #include <iostream>
 #include <pugixml.hpp>
 
@@ -125,6 +126,10 @@ void InputManager::deinit()
 {
     if (!initialized())
         return;
+
+#if defined(__ANDROID__)
+    cancelTouchInput();
+#endif
 
     for (auto it = mControllers.cbegin(); it != mControllers.cend(); ++it)
         SDL_GameControllerClose(it->second);
@@ -269,8 +274,73 @@ InputConfig* InputManager::getInputConfigByDevice(int device)
         return mInputConfigs[device].get();
 }
 
+#if defined(__ANDROID__)
+void InputManager::cancelTouchInput()
+{
+    // Clear model state first, then only the presses actually sent to the consumer.
+    // This also invalidates a release+press batch if its first dispatch re-enters here.
+    mInputOverlay.cancelTouches();
+    const auto accepted {mAcceptedTouch};
+    mAcceptedTouch = {};
+    if (!mTouchInputConfig)
+        return;
+    for (int i {0}; i < 14; ++i) {
+        if (accepted[i]) {
+            LOG(LogDebug) << "InputOverlay: cancelled id=" << TouchOverlay::IDS[i];
+            mWindow->releaseTouchInput(
+                mTouchInputConfig.get(),
+                Input(DEVICE_TOUCH, TYPE_TOUCH, TouchOverlay::IDS[i], 0, false));
+        }
+    }
+}
+#endif
+
 bool InputManager::parseEvent(const SDL_Event& event)
 {
+#if defined(__ANDROID__)
+    if (event.type == SDL_APP_WILLENTERBACKGROUND || event.type == SDL_APP_WILLENTERFOREGROUND ||
+        event.type == SDL_QUIT ||
+        (event.type == SDL_WINDOWEVENT && (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+                                           event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)))
+        cancelTouchInput();
+    if (event.type == SDL_APP_WILLENTERFOREGROUND)
+        mInputOverlay.onResume();
+    if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP ||
+        event.type == SDL_FINGERMOTION) {
+        if (!mTouchInputConfig || mWindow->getBlockInput() ||
+            !Settings::getInstance()->getBool("InputTouchOverlay")) {
+            cancelTouchInput();
+            return false;
+        }
+        // Android pointer IDs are stable IDs, not pointer indices. Validate before
+        // converting SDL's 64-bit value to the existing +1 overlay convention.
+        if (event.tfinger.fingerId < 0 || event.tfinger.fingerId >= INT_MAX)
+            return false;
+        const auto transitions {
+            mInputOverlay.processEvent(event.type, static_cast<int>(event.tfinger.fingerId) + 1,
+                                       event.tfinger.x, event.tfinger.y)};
+        const auto epoch {mInputOverlay.epoch()};
+        for (int n {0}; n < transitions.count; ++n) {
+            if (epoch != mInputOverlay.epoch() || mWindow->getBlockInput())
+                break;
+            const auto t {transitions.entries[n]};
+            for (int i {0}; i < 14; ++i) {
+                if (TouchOverlay::IDS[i] != t.id)
+                    continue;
+                if (mAcceptedTouch[i] == static_cast<bool>(t.value))
+                    break;
+                mAcceptedTouch[i] = t.value != 0;
+                const Input input {DEVICE_TOUCH, TYPE_TOUCH, t.id, t.value, false};
+                if (t.value)
+                    mWindow->input(mTouchInputConfig.get(), input);
+                else
+                    mWindow->releaseTouchInput(mTouchInputConfig.get(), input);
+                break;
+            }
+        }
+        return transitions.count != 0;
+    }
+#endif
     bool causedEvent {false};
     int32_t axisValue {0};
 
@@ -443,7 +513,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
                            Input(DEVICE_KEYBOARD, TYPE_KEY, event.key.keysym.sym, 0, false));
             return true;
         }
-#if defined(__ANDROID__) || defined(__IOS__)
+#if defined(__IOS__)
         case SDL_FINGERDOWN: {
             if (!Settings::getInstance()->getBool("InputTouchOverlay"))
                 return false;

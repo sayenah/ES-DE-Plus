@@ -104,7 +104,13 @@ public:
     void update(int deltaTime);
     void render();
 
+#if defined(__ANDROID__)
+    void setBlockInput(const bool state);
+    bool getBlockInput() const { return mBlockInput; }
+    void releaseTouchInput(InputConfig* config, Input input);
+#else
     void setBlockInput(const bool state) { mBlockInput = state; }
+#endif
     void normalizeNextUpdate() { mNormalizeNextUpdate = true; }
 
     enum class SplashScreenState {

@@ -176,6 +176,8 @@ set(CORE_SOURCES
 
 if(ANDROID)
     set(CORE_HEADERS ${CORE_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/src/InputOverlay.h)
+    set(CORE_HEADERS ${CORE_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/src/InputOverlayModel.h)
+    set(CORE_SOURCES ${CORE_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/src/InputOverlayModel.cpp)
     set(CORE_HEADERS ${CORE_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/PlatformUtilAndroid.h)
     set(CORE_HEADERS ${CORE_HEADERS} ${CMAKE_CURRENT_SOURCE_DIR}/src/InputOverlay.cpp)
     set(CORE_SOURCES ${CORE_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/PlatformUtilAndroid.cpp)

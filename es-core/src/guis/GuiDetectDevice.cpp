@@ -74,9 +74,14 @@ GuiDetectDevice::GuiDetectDevice(bool firstRun,
 
     mGrid.setEntry(mMsg1, glm::ivec2 {0, 2}, false, true);
 
+#if defined(__ANDROID__)
+    const std::string msg2str {firstRun ? _("PRESS ESC OR TOUCH B TO SKIP") :
+                                          _("PRESS ESC OR TOUCH B TO CANCEL")};
+#else
     const std::string msg2str {
         firstRun ? _("PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)") :
                    _("PRESS ESC TO CANCEL")};
+#endif
     mMsg2 = std::make_shared<TextComponent>(msg2str, Font::get(FONT_SIZE_SMALL), mMenuColorPrimary,
                                             ALIGN_CENTER);
     mGrid.setEntry(mMsg2, glm::ivec2 {0, 3}, false, true);
@@ -110,6 +115,15 @@ void GuiDetectDevice::onSizeChanged()
 
 bool GuiDetectDevice::input(InputConfig* config, Input input)
 {
+#if defined(__ANDROID__)
+    if (input.device == DEVICE_TOUCH && input.type == TYPE_TOUCH && input.value &&
+        config->isMappedTo("b", input)) {
+        if (mDoneCallback)
+            mDoneCallback();
+        delete this;
+        return true;
+    }
+#endif
     if (!mFirstRun && input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY && input.value &&
         input.id == SDLK_ESCAPE) {
         if (mDoneCallback)

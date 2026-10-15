@@ -9,6 +9,10 @@
 #ifndef ES_CORE_RENDERER_RENDERER_H
 #define ES_CORE_RENDERER_RENDERER_H
 
+#if defined(__ANDROID__)
+#include "InputOverlayModel.h"
+#endif
+
 #include "Log.h"
 #include "utils/MathUtil.h"
 
@@ -183,6 +187,9 @@ public:
     const glm::mat4& getProjectionMatrix() { return mProjectionMatrix; }
     const glm::mat4& getProjectionMatrixNormal() { return mProjectionMatrixNormal; }
     SDL_Window* getSDLWindow() { return mSDLWindow; }
+#if defined(__ANDROID__)
+    TouchOverlay::Geometry getTouchGeometry() const;
+#endif
     const int getDisplayIndex() { return mDisplayIndex; }
     const int getScreenRotation() { return mScreenRotation; }
     static const bool getIsVerticalOrientation() { return sIsVerticalOrientation; }
