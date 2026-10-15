@@ -360,6 +360,12 @@ static void fading()
     m.cancel();
     m.rebuild(geometry(), Options::parse("medium", "normal", 2, true), 320);
     require(m.fade() == Fade::HIDDEN, "TV automatic wake hidden");
+    for (int i {0}; i < 60; ++i)
+        m.update(500);
+    require(m.fade() == Fade::HIDDEN, "TV automatic wake stays hidden across updates");
+    m.cancel();
+    m.update(16);
+    require(m.fade() == Fade::HIDDEN, "cancellation cannot wake a hidden overlay");
     m.wake(true);
     require(m.fade() == Fade::VISIBLE, "TV explicit wake visible");
     m.wake(false);

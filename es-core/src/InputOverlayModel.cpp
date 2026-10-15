@@ -495,7 +495,8 @@ namespace TouchOverlay
 
     void Model::update(int milliseconds)
     {
-        if (milliseconds < 0 || milliseconds >= 1000 || tracked() || mOptions.fadeSeconds == 0)
+        if (milliseconds < 0 || milliseconds >= 1000 || tracked() || mOptions.fadeSeconds == 0 ||
+            mFade == Fade::HIDDEN)
             return;
         mIdle += milliseconds;
         const float start {mOptions.fadeSeconds * 1000.0f};
