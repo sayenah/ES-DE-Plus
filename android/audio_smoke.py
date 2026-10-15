@@ -252,14 +252,30 @@ def run_control(harness):
     document = h.launch_checks.settings_fragment(original)
     navigation = document.find("bool[@name='NavigationSounds']")
     assert navigation is None or navigation.get('value') == 'true', 'Control requires default sounds'
-    crashes = cycle(h, 'audio-unfixed-default', 20, allow_crash=True)
-    assert crashes > 0, 'No native crash in 20 unfixed cycles; positive control not established'
+    batches = []
+    # The Android race is timing-dependent (unlike the widened Linux detector).
+    # Keep every sample and require a real native crash, with a bounded number
+    # of fresh sessions rather than assuming every 20-cycle sample must hit it.
+    for attempt in range(1, 4):
+        if attempt > 1:
+            h.shell('am', 'force-stop', h.app)
+            h.launch()
+        name = 'audio-unfixed-default' + (f'-batch{attempt}' if attempt > 1 else '')
+        crashes = cycle(h, name, 20, allow_crash=True)
+        batches.append(dict(batch=attempt, cycles=20, actions=40, crashes=crashes))
+        (h.evidence / 'audio-positive-batches.txt').write_text(json.dumps(batches, indent=2) + '\n')
+        print(f'Unfixed audio control batch {attempt}/3: {crashes}/40 native crashes', flush=True)
+        if crashes:
+            break
+    crashes = sum(batch['crashes'] for batch in batches)
+    assert crashes > 0, 'No native crash in three 20-cycle unfixed batches; positive control not established'
     set_setting(document, 'bool', 'NavigationSounds', 'false')
     h.user_file('settings/es_settings.xml', xml_settings(document))
     h.launch()
     negative = cycle(h, 'audio-unfixed-sounds-disabled', 20)
     (h.evidence / 'audio-control-summary.txt').write_text(
-        f'Unfixed source={CONTROL_BASE}; default crashes={crashes}/40 resize actions (20 cycles); '
+        f'Unfixed source={CONTROL_BASE}; default crashes={crashes}/{40 * len(batches)} resize actions '
+        f'({20 * len(batches)} cycles, {len(batches)} batches); '
         f'NavigationSounds=false crashes={negative}/40.\n')
     raise ControlComplete()
 
