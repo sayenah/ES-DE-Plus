@@ -423,7 +423,10 @@ def run(namespace):
                            'touch-only return from recipient')
                 time.sleep(1)
                 assert 'InputOverlay: restored (resume)' in h.log()
-                shot('touch-only-return-no-highlight')
+                returned = shot('touch-only-return-no-highlight')
+                time.sleep(2)
+                later = shot('touch-only-return-stable')
+                assert frame_hash(returned) == frame_hash(later), 'Gamelist moved after game return'
                 touch_control(6)
                 touch_control(1)
                 record('touch-only-launch-return-menu')
