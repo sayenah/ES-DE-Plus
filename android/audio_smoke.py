@@ -147,6 +147,14 @@ def after_marker(logcat, marker):
     return '\n'.join(lines[boundary[0] + 1:])
 
 
+def marker_time(logcat, marker):
+    after_marker(logcat, marker)  # Reject missing/duplicate boundaries first.
+    matches = re.findall(r'^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s+.*'
+                         r'\bI\s+ESDEPlusAudio\s*:\s*' + re.escape(marker) + r'$', logcat, re.M)
+    assert len(matches) == 1, 'Audio action log timestamp unavailable'
+    return matches[0]
+
+
 def controls():
     assert fatal_lines('10-14 00:00:00.000 123 124 F libc: Fatal signal 6', '123', 'app')
     assert not fatal_lines('10-14 00:00:00.000 555 556 F libc: Fatal signal 6', '123', 'app')
@@ -155,6 +163,7 @@ def controls():
     old_fatal = '10-14 00:00:00.000 123 124 F libc: Fatal signal 6'
     marker = '10-14 00:00:01.000 555 556 I ESDEPlusAudio: boundary-test'
     new_fatal = '10-14 00:00:02.000 123 124 F libc: FORTIFY: destroyed mutex'
+    assert marker_time(marker, 'boundary-test') == '10-14 00:00:01.000'
     assert not fatal_lines(after_marker(old_fatal + '\n' + marker, 'boundary-test'), '123', 'app')
     assert fatal_lines(after_marker(marker + '\n' + new_fatal, 'boundary-test'), '123', 'app')
     for invalid in (old_fatal, marker + '\n' + marker):
@@ -204,11 +213,16 @@ def cycle(h, name, count, allow_crash=False):
                 # buffer-clear control can fail independently of log reads.
                 marker = f'{name}-{index + 1}-{size}-{time.monotonic_ns()}'
                 h.shell('log', '-p', 'i', '-t', 'ESDEPlusAudio', marker)
+                def boundary_logs():
+                    return h.adb('logcat', '-d', '-b', 'main', '-v', 'threadtime',
+                                 'ESDEPlusAudio:I', '*:S')
+                h.wait_for(lambda: marker in boundary_logs(), 'audio action log boundary')
+                since = marker_time(boundary_logs(), marker)
                 def action_logs():
+                    # Ask logd for the same interval we validate, rather than
+                    # repeatedly transferring the entire retained history.
                     return after_marker(h.adb('logcat', '-d', '-b', 'main,system,crash',
-                                              '-v', 'threadtime'), marker)
-                h.wait_for(lambda: marker in h.adb('logcat', '-d', '-b', 'main,system,crash',
-                                                  '-v', 'threadtime'), 'audio action log boundary')
+                                              '-v', 'threadtime', '-T', since), marker)
                 action_logs()  # Verify the boundary before the product action.
                 h.shell('wm', 'size', size)
                 deadline = time.monotonic() + 60
@@ -267,9 +281,12 @@ def cycle(h, name, count, allow_crash=False):
                     (h.evidence / (name + '-reload-timeout-stacks.txt')).write_text(stacks)
                     raise AssertionError(f'{name}: reload failed to complete: cycle={index + 1}, size={size}')
                 row['log_marker'] = marker
+                row['log_since'] = since
                 rows.append(row)
                 (h.evidence / (name + '-cycles.txt')).write_text(json.dumps(rows, indent=2) + '\n')
-                h.save_logs(f'{name}-{index + 1}-{size}')
+                prefix = f'{name}-{index + 1}-{size}'
+                (h.evidence / (prefix + '-es_log.txt')).write_text(h.log())
+                (h.evidence / (prefix + '-logcat.txt')).write_text(action_logs())
                 if row['crash']:
                     # Positive controls intentionally restart after each observed fatal;
                     # fixed and negative-control sessions may never change PID.
@@ -291,6 +308,10 @@ def cycle(h, name, count, allow_crash=False):
                         h.launch()
         if not allow_crash:
             assert h.shell('pidof', h.app).strip() == session_pid
+        # A slow default-settings stress run can reach the idle screensaver.
+        # Shift is unmapped in the default keyboard config: it only wakes the
+        # window and cannot navigate a wrong view back to the expected one.
+        h.key('KEYCODE_SHIFT_LEFT')
         h.screenshot(name + '-system-restored')
         # Prove the real system view was restored: Enter exposes the NES game
         # list, and Back returns to system selection, without launching a game.
