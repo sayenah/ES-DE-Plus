@@ -37,6 +37,13 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
     original_home = None
     default_before = None
     default_selected = False
+    def background_focus():
+        if background:
+            window = h.focused_window()
+            with (h.evidence / (name + '-recipient-focus.txt')).open('a') as output:
+                output.write(f'{time.monotonic():.3f}: {window}\n')
+            assert h.smoke_checks.package_window_focused(window, 'org.esdeplus.stub'), \
+                'Background recipient lost focus before next user entry: ' + window
     if home:
         resolved = h.shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
                            '-c', 'android.intent.category.HOME')
@@ -95,12 +102,17 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         # this app's view-attribute flag changes. No target instrumentation,
         # injected quit, Activity retry or harness relaunch is involved.
         h.shell('settings', 'put', 'global', setting, h.app)
-        h.wait_for(lambda: any('Destroying SDL activity' in line and
-                              re.search(r'\s' + old + r'\s', line)
-                              for line in h.adb('logcat', '-d', '-v', 'threadtime').splitlines()),
+        def destroyed():
+            background_focus()
+            return any('Destroying SDL activity' in line and re.search(r'\s' + old + r'\s', line)
+                       for line in h.adb('logcat', '-d', '-v', 'threadtime').splitlines())
+        h.wait_for(destroyed,
                    name + ' framework destruction', timeout=60)
         started = time.monotonic()
-        h.wait_for(lambda: old not in h.shell('pidof', h.app, check=False).split(),
+        def retired():
+            background_focus()
+            return old not in h.shell('pidof', h.app, check=False).split()
+        h.wait_for(retired,
                    name + ' old host exits', timeout=5)
         elapsed = time.monotonic() - started
         logs = h.adb('logcat', '-d', '-v', 'threadtime')
@@ -113,12 +125,20 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         assert 'Finished main function' in old_lines and 'SDL activity destroy join returned' in old_lines
         assert old_lines.count('Running main function') == 1
         if background:
-            # Keep the actual platform decision before any user entry. This
-            # process is not instrumented: instrumentation teardown cannot
-            # remove the helper or supply background-launch privileges.
+            # Observe the real task transition through retirement and five
+            # more seconds, in both variants. No instrumentation can remove
+            # the helper or supply background-launch privileges in this case.
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                background_focus()
+                time.sleep(0.25)
             h.save_logs(name + '-before-next-entry')
             (h.evidence / (name + '-before-next-entry-activities.txt')).write_text(h.activity_records()[0])
             (h.evidence / (name + '-before-next-entry-window.txt')).write_text(h.focused_window())
+            background_focus()
+            logs = h.adb('logcat', '-d')
+            assert f'SDL process {old} retired; restarting entry' not in logs, 'Background helper restored frontend without user entry'
+            assert logs.count('Running main function') == 1, 'Background relaunch started native main before user entry'
             h.start_entry()
         else:
             h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
@@ -163,7 +183,8 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         (h.evidence / (name + '-result.txt')).write_text(
             f'PASS: AOSP CoreSettings local relaunch; old PID {old} returned/joined and ended '
             f'within 5 s (observed {elapsed:.3f}s); ' +
-            ('next foreground entry restored the frontend after actual STOPPED destruction; ' if background else
+            ('recipient kept focus through STOPPED destruction and 5 s after retirement until user entry; '
+             'next foreground entry restored the frontend; ' if background else
              'private product activity restored the entry without a harness relaunch; ') +
             f'new PID {new} loaded two games with one native main; HOME={home}; background={background}; '
             f'frontend selected as global HOME={default_selected if home else "not queried"}.\n')
