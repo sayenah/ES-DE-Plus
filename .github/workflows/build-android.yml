@@ -559,6 +559,8 @@ jobs:
             android/DEPENDENCY-LICENSES.md
             android/evidence/*.txt
             android/evidence/*.png
+            android/evidence/audio-*-progress.json
+            android/evidence/audio-startup-relaunches.jsonl
           retention-days: 7
       # This is the ONLY APK upload. Source upload/download/validation precede it.
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
