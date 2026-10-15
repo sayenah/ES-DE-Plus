@@ -172,7 +172,14 @@ void InputOverlay::logLayout() const
                   << " dpiFallback=" << mModel.densityFallback()
                   << " class=" << (v.w >= v.h ? "landscape" : "portrait")
                   << " size=" << mOptions.size << " opacity=" << mOptions.opacity
-                  << " D=" << mModel.diameter() << " fit=" << (mModel.compact() ? 1 : 0)
+                  << " D=" << mModel.diameter() << " fit="
+                  << (mModel.compact() ? 2 :
+                      mModel.diameter() + 0.01f < std::clamp(0.12f * std::min(v.w, v.h),
+                                                             56 * mModel.density(),
+                                                             84 * mModel.density()) *
+                                                      mOptions.size ?
+                                         1 :
+                                         0)
                   << " supported=" << mModel.supported() << " epoch=" << epoch();
     if (!mModel.supported())
         return;

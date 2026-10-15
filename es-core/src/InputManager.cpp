@@ -307,6 +307,10 @@ bool InputManager::parseEvent(const SDL_Event& event)
         mInputOverlay.onResume();
     if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP ||
         event.type == SDL_FINGERMOTION) {
+        LOG(LogDebug) << "InputOverlay: event type=" << event.type
+                      << " finger=" << event.tfinger.fingerId
+                      << " blocked=" << mWindow->getBlockInput()
+                      << " epoch=" << mInputOverlay.epoch();
         if (!mTouchInputConfig || mWindow->getBlockInput() ||
             !Settings::getInstance()->getBool("InputTouchOverlay")) {
             cancelTouchInput();

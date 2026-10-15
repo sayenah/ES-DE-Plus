@@ -261,6 +261,8 @@ void Window::setBlockInput(const bool state)
 {
     if (state && !mBlockInput)
         InputManager::getInstance().cancelTouchInput();
+    if (state != mBlockInput)
+        LOG(LogDebug) << "InputOverlay: input block=" << state;
     mBlockInput = state;
 }
 

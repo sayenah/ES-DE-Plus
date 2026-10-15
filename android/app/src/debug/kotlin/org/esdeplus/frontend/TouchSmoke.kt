@@ -11,18 +11,24 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.Bitmap
 import java.io.File
 import org.json.JSONArray
 import org.libsdl.app.SDLSurface
+import org.esdeplus.frontend.bridge.StorageModel
 
 /** Inject complete physical-pointer streams into this app's own SDL window only. */
 class TouchSmoke : Instrumentation() {
     private var script = ""
     private var menu = false
+    private var asset = ""
+    private var mode = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         script = arguments?.getString("steps").orEmpty()
         menu = arguments?.getString("menu") == "true"
+        asset = arguments?.getString("asset").orEmpty()
+        mode = arguments?.getString("mode").orEmpty()
         start()
     }
 
@@ -33,6 +39,46 @@ class TouchSmoke : Instrumentation() {
         var downTime = 0L
         var surface: SDLSurface? = null
         try {
+            if (mode == "kid-prepare" || mode == "kid-restore") {
+                val gamelist = File(StorageModel(targetContext).appData(), "gamelists/nes/gamelist.xml")
+                val backup = File(targetContext.cacheDir, "touch-kid-gamelist-backup")
+                val state = targetContext.getSharedPreferences("touch-smoke-fixture", 0)
+                if (mode == "kid-prepare") {
+                    check(!state.contains("path")) { "Unrestored touch fixture" }
+                    if (gamelist.exists()) gamelist.copyTo(backup, overwrite = true)
+                    check(state.edit().putString("path", gamelist.absolutePath)
+                        .putBoolean("existed", gamelist.exists()).commit())
+                    check(gamelist.parentFile!!.mkdirs() || gamelist.parentFile!!.isDirectory)
+                    gamelist.writeText("<gameList><game><path>./Smoke Alpha.nes</path><kidgame>true</kidgame></game>" +
+                        "<game><path>./Smoke Beta.nes</path><kidgame>true</kidgame></game></gameList>")
+                } else if (state.contains("path")) {
+                    check(state.getString("path", "") == gamelist.absolutePath)
+                    if (state.getBoolean("existed", false)) backup.copyTo(gamelist, overwrite = true)
+                    else check(!gamelist.exists() || gamelist.delete())
+                    check(state.edit().clear().commit())
+                    backup.delete()
+                }
+                result.putString("stream", "PASS: $mode controlled gamelist fixture\n")
+                finish(-1, result)
+                return
+            }
+            val fixture = File(StorageModel(targetContext).appData(), "resources/graphics/overlay/button_a.svg")
+            val invalid = "ES-DE-Plus controlled invalid overlay SVG fixture"
+            if (asset.isNotEmpty()) {
+                check(asset == "invalid" || asset == "restore")
+                check(!fixture.exists() || fixture.readText() == invalid) { "Refuse to replace an unfamiliar asset" }
+                if (asset == "restore") {
+                    check(!fixture.exists() || fixture.delete())
+                    result.putString("stream", "PASS: overlay asset fixture restored\n")
+                    finish(-1, result)
+                    return
+                }
+                check(fixture.parentFile!!.mkdirs() || fixture.parentFile!!.isDirectory)
+                fixture.writeText(invalid)
+                record.append("FIXTURE: invalid app-data resource override ${fixture.absolutePath}\n")
+            }
+            val previousLog = File(StorageModel(targetContext).appData(), "logs/es_log.txt")
+                .takeIf { it.isFile }?.readText().orEmpty()
             val activity = startActivitySync(Intent(targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             fun find(view: View): SDLSurface? {
@@ -47,10 +93,12 @@ class TouchSmoke : Instrumentation() {
             val log = File(activity.getAppDataDirectory(), "logs/es_log.txt")
             while (SystemClock.elapsedRealtime() < deadline) {
                 runOnMainSync { surface = find(activity.window.decorView) }
-                if (surface != null && log.isFile && log.readText().contains("Application startup time:")) break
+                if (surface != null && log.isFile && log.readText() != previousLog &&
+                    log.readText().contains("Application startup time:")) break
                 SystemClock.sleep(100)
             }
-            check(surface != null && log.isFile && log.readText().contains("Application startup time:")) {
+            check(surface != null && log.isFile && log.readText() != previousLog &&
+                log.readText().contains("Application startup time:")) {
                 "Frontend did not become ready for owned-window touch injection"
             }
             SystemClock.sleep(1200) // Initial gestures are outside foreground blocking.
@@ -64,6 +112,34 @@ class TouchSmoke : Instrumentation() {
                 val step = steps.getJSONObject(i)
                 SystemClock.sleep(step.optLong("wait", 0).also { check(it in 0..5000) })
                 val actionName = step.getString("action")
+                if (actionName == "background") {
+                    targetContext.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    val until = SystemClock.elapsedRealtime() + 5000
+                    while (SystemClock.elapsedRealtime() < until) {
+                        var focused = true
+                        runOnMainSync { focused = activity.hasWindowFocus() }
+                        if (!focused) break
+                        SystemClock.sleep(10)
+                    }
+                    record.append("LIFECYCLE: background with ${active.size} held pointers\n")
+                    continue
+                }
+                if (actionName == "resume") {
+                    val before = log.readText().split("InputOverlay: restored (resume)").size
+                    targetContext.startActivity(Intent(targetContext, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+                    val until = SystemClock.elapsedRealtime() + 10_000
+                    var ready = false
+                    while (!ready && SystemClock.elapsedRealtime() < until) {
+                        runOnMainSync { ready = activity.hasWindowFocus() }
+                        ready = ready && log.readText().split("InputOverlay: restored (resume)").size > before
+                        if (!ready) SystemClock.sleep(5)
+                    }
+                    check(ready) { "No explicit native foreground signal" }
+                    record.append("LIFECYCLE: resumed; next event wait=${step.optLong("wait", 0)}\n")
+                    continue
+                }
                 val points = step.getJSONArray("pointers")
                 val pointers = (0 until points.length()).map { n ->
                     val p = points.getJSONObject(n)
@@ -108,6 +184,12 @@ class TouchSmoke : Instrumentation() {
             }
             check(active.isEmpty()) { "Incomplete injection stream" }
             SystemClock.sleep(500)
+            uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(targetContext.cacheDir, "touch-last.png").outputStream().use {
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+                }
+                bitmap.recycle()
+            }
             record.append("PASS: complete Android multi-pointer stream injected\n")
             result.putString("stream", record.toString())
             finish(-1, result)

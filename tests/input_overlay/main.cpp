@@ -178,6 +178,69 @@ static void mapping()
     require(!clipped.valid() && !clipped.toLogical({}, p), "zero drawable rejected");
 }
 
+static void boundaries()
+{
+    Model m;
+    m.rebuild(geometry(), Options {}, 320);
+    const Point up {position(m, 0)}, a {position(m, 4)};
+    const auto& g {m.geometry()};
+    const Point pad {m.buttons()[0].centre.x, m.buttons()[2].centre.y};
+    expected(m.input(Event::DOWN, 1, g.toNormalized(pad)), {});
+    expected(m.input(Event::MOTION, 1, up), {{11, 1}});
+    expected(m.input(Event::MOTION, 1, g.toNormalized(pad)), {});
+    expected(m.input(Event::UP, 1, {}), {{11, 0}});
+    expected(m.input(Event::DOWN, 1, up), {{11, 1}});
+    const float r {m.diameter()};
+    // -50 degrees remains Up (five degrees beyond the diagonal); -30 switches Right.
+    const Point nearBoundary {pad.x + r * std::cos(-50 * 3.14159265f / 180),
+                              pad.y + r * std::sin(-50 * 3.14159265f / 180)};
+    expected(m.input(Event::MOTION, 1, g.toNormalized(nearBoundary)), {});
+    const Point crossed {pad.x + r * std::cos(-30 * 3.14159265f / 180),
+                         pad.y + r * std::sin(-30 * 3.14159265f / 180)};
+    expected(m.input(Event::MOTION, 1, g.toNormalized(crossed)), {{11, 0}, {14, 1}});
+    m.cancel();
+    expected(m.input(Event::DOWN, 1, up, true), {{11, 1}});
+    expected(m.input(Event::MOTION, 1, position(m, 3), true), {{11, 0}});
+    expected(m.input(Event::MOTION, 1, position(m, 3), true), {{14, 1}});
+    expected(m.input(Event::UP, 1, {}, true), {{14, 0}});
+    // Thirty-two stable IDs, not pointer indices; overflow is inert and bounded.
+    expected(m.input(Event::DOWN, 99, a), {{0, 1}});
+    for (int i {1}; i < 32; ++i)
+        expected(m.input(Event::DOWN, i * 37 + 99, a), {});
+    expected(m.input(Event::DOWN, 9999, a), {});
+    require(m.tableFull() && m.tracked() == 32 && m.references(4) == 32, "full table bounded");
+    for (int i {0}; i < 31; ++i)
+        expected(m.input(Event::UP, i * 37 + 99, {}), {});
+    expected(m.input(Event::UP, 31 * 37 + 99, {}), {{0, 0}});
+    require(m.tracked() == 0, "all lifted fingers forgotten");
+    expected(m.input(Event::DOWN, 0, a), {});
+    expected(m.input(Event::DOWN, -1, a), {});
+    expected(m.input(Event::DOWN, 1, {NAN, 0}), {});
+    expected(m.input(Event::MOTION, 1, a), {});
+    m.cancel();
+    // Invalid/zero geometry cancels a previous press before rejecting all new input.
+    expected(m.input(Event::DOWN, 1, a), {{0, 1}});
+    Geometry invalid {geometry()};
+    invalid.drawableWidth = 0;
+    expected(m.rebuild(invalid, Options {}, 320), {{0, 0}});
+    expected(m.input(Event::DOWN, 2, a), {});
+    for (int rotation : {0, 90, 180, 270}) {
+        auto clipped {geometry(1080, 1794, rotation)};
+        clipped.viewportX = -37;
+        clipped.viewportY = 25;
+        clipped.drawableHeight = 1731;
+        m.rebuild(clipped, Options {}, 320);
+        require(m.supported(), "clipped viewport supported in every rotation");
+        const auto visible {clipped.visible()};
+        for (const auto& b : m.buttons()) {
+            require(b.hit.x >= visible.x && b.hit.y >= visible.y &&
+                        b.hit.x + b.hit.w <= visible.x + visible.w &&
+                        b.hit.y + b.hit.h <= visible.y + visible.h,
+                    "V-local bounds under clipping");
+        }
+    }
+}
+
 static void layouts()
 {
     int cases {0};
@@ -321,6 +384,7 @@ int main()
 {
     gestures();
     mapping();
+    boundaries();
     layouts();
     fading();
     generated();

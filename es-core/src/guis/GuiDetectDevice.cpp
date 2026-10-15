@@ -119,6 +119,7 @@ bool GuiDetectDevice::input(InputConfig* config, Input input)
 #if defined(__ANDROID__)
     if (input.device == DEVICE_TOUCH && input.type == TYPE_TOUCH && input.value &&
         config->isMappedTo("b", input)) {
+        LOG(LogDebug) << "GuiDetectDevice: touch cancel";
         if (mDoneCallback)
             mDoneCallback();
         delete this;

@@ -4,6 +4,7 @@
 # B-4 runtime evidence. Provenance review is separate B-5 evidence, never a smoke result.
 import json
 import re
+import struct
 import time
 import types
 import xml.etree.ElementTree as ET
@@ -181,7 +182,10 @@ def run(namespace):
         (h.evidence / (name + '-injected.txt')).write_text(result)
         assert 'PASS: complete Android multi-pointer stream injected' in result and 'FAIL:' not in result, result
         current = record(name)
-        assert transitions(current) == wanted, (name, transitions(current), wanted)
+        expected = wanted(current) if callable(wanted) else wanted
+        assert transitions(current) == expected, (name, transitions(current), expected)
+        (h.evidence / (name + '.png')).write_bytes(h.adb('exec-out', 'run-as', h.app,
+            'cat', 'cache/touch-last.png', binary=True))
         return current
 
     def pointer(button, finger=0):
@@ -189,6 +193,14 @@ def run(namespace):
 
     def step(action, pointers, wait=150, **extra):
         return dict(action=action, pointers=pointers, wait=wait, **extra)
+
+    def touch_control(button, count=1):
+        for _ in range(count):
+            current = buttons(h.log())
+            s = surface_bounds_cached
+            nx, ny = current[button]['norm']
+            tap((s[0] + nx * s[2], s[1] + ny * s[3]))
+            time.sleep(0.2)
 
     try:
         disabled = start(InputTouchOverlay=False)
@@ -198,6 +210,7 @@ def run(namespace):
         centres = buttons(output)
         on = shot('touch-startup-fourteen-controls')
         surface = surface_bounds()
+        surface_bounds_cached = surface
         pixels, boxes = rendered_centres(off, on, centres, surface)
         (h.evidence / 'touch-rendered-centres.json').write_text(json.dumps(dict(surface=surface, boxes=boxes, taps=pixels), indent=2))
         for button in IDS:
@@ -212,6 +225,124 @@ def run(namespace):
         tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))
         check_delta(before, [], 'empty space')
         record('touch-rendered-ids')
+        assert 'InputOverlay: faded' not in h.log()
+        shot('touch-zero-fade-still-visible')
+
+        # Touch-only menu/device-configuration and text-entry journey. No keyboard
+        # action is issued between this fresh start and the captured completion.
+        start(InputTouchOverlay=True, VirtualKeyboard=True)
+        touch_control(6)
+        touch_control(12, 4)
+        touch_control(0)
+        touch_control(101)
+        touch_control(0)
+        touch_control(0)
+        shot('touch-only-device-configuration')
+        touch_control(1)
+        assert 'GuiDetectDevice: touch cancel' in h.log(), h.log()
+        touch_control(100)  # First settings row, then size and opacity.
+        touch_control(12)
+        touch_control(14)  # Medium -> large.
+        touch_control(12)
+        touch_control(14, 2)  # Normal -> low -> verylow.
+        touch_control(1)  # Saving rebuilds twice while the Back gesture is held.
+        saved = h.shell('cat', h.settings)
+        assert re.search(r'name="InputTouchOverlaySize" value="large"', saved), saved
+        assert re.search(r'name="InputTouchOverlayOpacity" value="verylow"', saved), saved
+        shot('touch-only-settings-saved')
+        touch_control(1)
+        touch_control(6)
+        touch_control(0)  # Search.
+        shot('touch-only-text-empty')
+        touch_control(12)  # On-screen keyboard, first key.
+        touch_control(0)  # Enter a character using the overlay.
+        shot('touch-only-text-entered')
+        touch_control(1)  # Changed text opens its confirmation.
+        shot('touch-only-text-confirmation')
+        touch_control(0)
+        record('touch-only-menu-device-settings-text')
+        start(InputTouchOverlay=True)
+        touch_control(6)
+        touch_control(12, 4)
+        touch_control(0)
+        touch_control(12)
+        touch_control(14)  # One save changes size, opacity and enable together.
+        touch_control(12)
+        touch_control(14, 2)
+        touch_control(12, 2)
+        touch_control(0)
+        touch_control(0)  # Confirm the warning; wording awaits PR #16 integration.
+        touch_control(1)
+        assert 'InputOverlay: cleared' in h.log(), h.log()
+        saved = h.shell('cat', h.settings)
+        assert re.search(r'name="InputTouchOverlay" value="false"', saved), saved
+        before = h.log()
+        tap(pixels[0])
+        check_delta(before, [], 'disabled overlay is inert')
+        shot('touch-disabled-through-menu')
+        h.key('KEYCODE_DEL')
+        h.key('KEYCODE_ESCAPE')
+        for _ in range(4):
+            h.key('KEYCODE_DPAD_DOWN')
+        h.key('KEYCODE_ENTER')
+        for _ in range(4):
+            h.key('KEYCODE_DPAD_DOWN')
+        h.key('KEYCODE_ENTER')
+        h.key('KEYCODE_DEL')
+        assert re.search(r'name="InputTouchOverlay" value="true"', h.shell('cat', h.settings))
+        assert 'InputOverlay: restored (menu)' in h.log()
+        shot('touch-reenabled-through-menu')
+        record('touch-disable-reenable')
+        start(InputTouchOverlay=True)
+        centres = buttons(h.log())
+
+        if h.api == 34:
+            root = h.logpath.rsplit('/logs/', 1)[0]
+            override_names = ['custom_systems/es_systems.xml', 'custom_systems/es_find_rules.xml']
+            overrides = {name: h.shell('cat', root + '/' + name, check=False) for name in override_names}
+            try:
+                h.user_file(override_names[0], '<systemList><system><name>nes</name><fullname>NES</fullname>'
+                    '<path>%ROMPATH%/nes</path><extension>.nes .NES</extension>'
+                    '<command>%EMULATOR_TOUCH_SMOKE% %ACTION%=android.intent.action.VIEW '
+                    '%MIMETYPE%=application/octet-stream %DATA%=%ROMPROVIDER%</command>'
+                    '<platform>nes</platform><theme>nes</theme></system></systemList>')
+                h.user_file(override_names[1], '<ruleList><emulator name="TOUCH_SMOKE">'
+                    '<rule type="androidpackage"><entry>org.esdeplus.stub/.RecipientActivity</entry>'
+                    '</rule></emulator></ruleList>')
+                start(InputTouchOverlay=True, StartupSystem='nes', StartupView='system')
+                surface_bounds_cached = surface_bounds()
+                touch_control(0)
+                time.sleep(1)
+                touch_control(0)
+                h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()),
+                           'touch-only game launch to real recipient')
+                receipt = h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json')
+                assert json.loads(receipt).get('sha256'), receipt
+                (h.evidence / 'touch-only-launch-receipt.json').write_text(receipt)
+                recipient = shot('touch-only-recipient')
+                back = [n for n in h.hierarchy() if n.get('package') == 'com.android.systemui' and
+                        n.get('content-desc', '').lower() == 'back']
+                if back:
+                    x0, y0, x1, y1 = map(int, re.findall(r'\d+', back[0].get('bounds', '')))
+                    tap(((x0 + x1) / 2, (y0 + y1) / 2))
+                else:
+                    width, height = struct.unpack('>II', recipient[16:24])
+                    h.shell('input', 'swipe', '1', str(height // 2), str(min(200, width // 3)),
+                            str(height // 2), '500')
+                h.wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(h.app) + '/', h.focused_window()),
+                           'touch-only return from recipient')
+                time.sleep(1)
+                assert 'InputOverlay: restored (resume)' in h.log()
+                shot('touch-only-return-no-highlight')
+                touch_control(6)
+                touch_control(1)
+                record('touch-only-launch-return-menu')
+            finally:
+                for name in override_names:
+                    h.user_file(name, overrides[name] or None)
+                start(InputTouchOverlay=True)
+                surface_bounds_cached = surface_bounds()
+                centres = buttons(h.log())
 
         # A menu context prevents a face press from launching another app during
         # the independent multi-pointer scenarios. The stream itself opens menus.
@@ -233,6 +364,35 @@ def run(namespace):
             step('pointer-down', [face, down, shoulder], changed=11),
             step('cancel', [shoulder, face, down])],
             [(12, 1), (9, 1), (3, 1), (9, 0), (3, 0), (12, 0)])
+
+        for absence in [100, 3000]:
+            for lift_delay in [0, 150, 400]:
+                fresh = pointer(12, 1)
+                def accepted_around_block(output):
+                    # Classify from the independently logged live Window state,
+                    # rather than assuming a 300ms block survives a long absence.
+                    downs = re.findall(r'InputOverlay: event type=1792 finger=1 blocked=([01])', output)
+                    assert len(downs) == 2 and downs[-1] == '0', output
+                    return [(12, 1), (12, 0)] + ([(12, 1), (12, 0)] if downs[0] == '0' else []) + [(12, 1), (12, 0)]
+                inject(f'touch-focus-return-{absence}-{lift_delay}', [
+                    step('down', [down]), step('background', []),
+                    step('resume', [], wait=absence), step('up', [down], wait=0),
+                    step('down', [fresh], wait=0), step('up', [fresh], wait=lift_delay),
+                    step('down', [fresh], wait=400), step('up', [fresh])],
+                    accepted_around_block)
+
+        # The corrupt override is the first resource lookup and parses as invalid;
+        # APK asset fallback cannot hide this fixture, unlike deleting an internal copy.
+        try:
+            invalid = inject('touch-invalid-art', [step('down', [pointer(0)]),
+                step('up', [pointer(0)])], [(0, 1), (0, 0)], asset='invalid', menu='true')
+            assert 'InputOverlay: unavailable art id=0; primitive fallback' in invalid
+            assert 'emergencyShutdown' not in invalid
+        finally:
+            h.shell('am', 'force-stop', h.app)
+            restored = h.shell('am', 'instrument', '-w', '-e', 'asset', 'restore',
+                               h.app + '/org.esdeplus.frontend.TouchSmoke')
+            assert 'PASS: overlay asset fixture restored' in restored, restored
 
         # Geometry matrix uses the same executable getter as rendering. Pure tests
         # additionally cover independent offset/padding/clip fixtures and every ID.
@@ -265,6 +425,52 @@ def run(namespace):
         tap(p)  # Back is a non-launch control.
         check_delta(before, [(1, 1), (1, 0)], 'visible non-launch tap')
         record('touch-fade-wake')
+
+        # Automatic TV wakes neither show controls nor persist a setting change.
+        if 'android.software.leanback' in h.shell('pm', 'list', 'features'):
+            output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=6)
+            assert 'InputOverlay: textures built' not in output
+            before = h.shell('cat', h.settings)
+            shot('touch-tv-automatic-hidden')
+            h.key('KEYCODE_DPAD_RIGHT')
+            assert h.shell('cat', h.settings) == before
+            record('touch-tv-key-input')
+
+        # Real kiosk/kid passkey, including the two Up/two Down prefix. Only
+        # fixture preparation restarts the app; unlocking itself uses touch only.
+        h.shell('am', 'force-stop', h.app)
+        prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'kid-prepare',
+                           h.app + '/org.esdeplus.frontend.TouchSmoke')
+        assert 'PASS: kid-prepare' in prepared, prepared
+        try:
+            for mode in ['kiosk', 'kid']:
+                for swapped in [False, True]:
+                    start(InputTouchOverlay=True, UIMode=mode, InputSwapButtons=swapped)
+                    surface_bounds_cached = surface_bounds()
+                    for button in [11, 11, 12, 12, 13, 14, 13, 14,
+                                   0 if swapped else 1, 1 if swapped else 0]:
+                        touch_control(button)
+                    h.wait_for(lambda: 'Passkey sequence completed, switching UI mode to Full' in h.log(),
+                               'touch-only ' + mode + ' unlock')
+                    saved = h.shell('cat', h.settings)
+                    assert re.search(r'name="UIMode" value="full"', saved), saved
+                    shot(f'touch-unlock-{mode}-swap-{swapped}')
+                    record(f'touch-unlock-{mode}-swap-{swapped}')
+        finally:
+            h.shell('am', 'force-stop', h.app)
+            restored = h.shell('am', 'instrument', '-w', '-e', 'mode', 'kid-restore',
+                               h.app + '/org.esdeplus.frontend.TouchSmoke')
+            assert 'PASS: kid-restore' in restored, restored
+
+        # Orderly native exit is distinct from process death between instrumentation
+        # cases. SDL's native completion marker must follow the real Back action.
+        start(InputTouchOverlay=True, BackEventAppExit=True)
+        h.adb('logcat', '-c')
+        h.key('KEYCODE_BACK')
+        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d'), 'orderly touch-overlay native exit')
+        completion = h.adb('logcat', '-d')
+        assert not re.search(r'Fatal signal|FATAL EXCEPTION|JNI DETECTED ERROR', completion), completion
+        (h.evidence / 'touch-orderly-exit-logcat.txt').write_text(completion)
 
         # Logical DPI, live resizing, focus loss and touch-only journeys remain in
         # the evidence matrix; do not infer hardware inset safety from these taps.

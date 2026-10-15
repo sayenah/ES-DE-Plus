@@ -198,7 +198,12 @@ namespace TouchOverlay
         const float shoulderW {std::max(1.3f * d * 1.15f, 48 * mDensity)};
         const float left {mSafe.x + 1.15f * radius};
         const float right {mSafe.x + mSafe.w - 1.15f * radius};
-        const float y {mSafe.y + mSafe.h - 1.15f * radius};
+        const auto visible {mGeometry.visible()};
+        const bool landscape {visible.w >= visible.h};
+        const float bottomY {mSafe.y + mSafe.h - 1.15f * radius};
+        const float y {landscape && std::min(visible.w, visible.h) >= 600 * mDensity ?
+                           std::min(bottomY, visible.y + 0.62f * visible.h) :
+                           bottomY};
         const std::array<Point, 4> directions {{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
         for (int i {0}; i < 14; ++i) {
             Button& b {mButtons[i]};
@@ -218,17 +223,23 @@ namespace TouchOverlay
             }
             else if (i < 10) {
                 const float w {std::max(0.9f * d * 1.15f, 48 * mDensity)};
-                b.centre = {mSafe.x + mSafe.w / 2 + (i == 8 ? -1 : 1) * (w + gap) / 2,
-                            y - radius - gap - pillH / 2};
+                b.centre = {landscape ? (i == 8 ? left + 1.5f * d : right - 1.5f * d) :
+                                        mSafe.x + mSafe.w / 2 + (i == 8 ? -1 : 1) * (w + gap) / 2,
+                            y - 1.15f * radius - gap - pillH / 2};
             }
             else {
-                const float rowY {y - radius - 2 * gap - pillH - shoulderH / 2};
+                const float rowY {y - 1.15f * radius - 2 * gap - pillH - shoulderH / 2};
                 // LT, LB ... RB, RT; all rows are V-local and include V's origin.
                 const int column {i == 12 ? 0 : i == 10 ? 1 : i == 11 ? 2 : 3};
-                b.centre = {column < 2 ? mSafe.x + shoulderW / 2 + column * (shoulderW + gap) :
-                                         mSafe.x + mSafe.w - shoulderW / 2 -
-                                             (3 - column) * (shoulderW + gap),
-                            rowY};
+                b.centre =
+                    landscape ?
+                        Point {i == 10 || i == 12 ? left - 0.1f * d : right + 0.1f * d,
+                               y - 1.15f * radius - gap - shoulderH / 2 -
+                                   (i >= 12 ? shoulderH + gap : 0)} :
+                        Point {column < 2 ? mSafe.x + shoulderW / 2 + column * (shoulderW + gap) :
+                                            mSafe.x + mSafe.w - shoulderW / 2 -
+                                                (3 - column) * (shoulderW + gap),
+                               rowY};
             }
             const float w {i < 8 ? hit : std::max(b.width * 1.15f, 48 * mDensity)};
             const float h {i < 8 ? hit : std::max(b.height * 1.15f, 48 * mDensity)};
