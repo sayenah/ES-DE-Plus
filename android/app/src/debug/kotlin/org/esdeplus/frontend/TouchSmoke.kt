@@ -249,7 +249,13 @@ class TouchSmoke : Instrumentation() {
                         if (!cancelled) SystemClock.sleep(5)
                     }
                     check(cancelled) { "Real importer did not cancel accepted holds: $observed" }
-                    snapshot("importer-cancelled")
+                    // The native log precedes buffer presentation. Observe a
+                    // short frame sequence rather than labelling the old buffer
+                    // as the already-cancelled inventory frame.
+                    for (frame in 0..4) {
+                        if (frame != 0) SystemClock.sleep(80)
+                        snapshot("importer-cancelled-$frame")
+                    }
                     record.append("INVENTORY: cancellation boundary observed; physical pointers remain down\n")
                     continue
                 }

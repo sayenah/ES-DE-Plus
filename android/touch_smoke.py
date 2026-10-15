@@ -527,9 +527,31 @@ def run(namespace):
             step('importer-return', [], wait=500)],
             [(12, 1), (3, 1), (12, 0), (3, 0), (14, 1), (14, 0)], menu='importer')
         assert 'InputOverlay: importer cancellation boundary' in inventory
-        for name in ['importer-cancelled', 'importer-return-first', 'importer-return-later']:
+        for name in [f'importer-cancelled-{frame}' for frame in range(5)] + [
+                'importer-return-first', 'importer-return-later']:
             (h.evidence / ('touch-' + name + '.png')).write_bytes(h.adb(
                 'exec-out', 'run-as', h.app, 'cat', 'cache/touch-' + name + '.png', binary=True))
+
+        # Sample beyond the rotated arrow SVG's side but inside its pressed
+        # disc. Compare with nearby bare background, independently of model flags.
+        diameter = float(re.findall(r'InputOverlay: layout .*? D=([^ ]+)', inventory)[-1])
+        current = buttons(inventory)[12]['norm']
+        bounds = surface_bounds_cached
+        cx, cy = bounds[0] + current[0] * bounds[2], bounds[1] + current[1] * bounds[3]
+        def down_highlight(name):
+            w, height, channels, rows = pdf_smoke.pixels((h.evidence / (name + '.png')).read_bytes())
+            def mean(x, y):
+                x, y = round(x), round(y)
+                assert 2 <= x < w - 2 and 2 <= y < height - 2
+                return sum(rows[j][i * channels + c] for j in range(y - 2, y + 3)
+                           for i in range(x - 2, x + 3) for c in range(3)) / 75
+            return abs(mean(cx - 0.45 * diameter, cy) - mean(cx - 0.65 * diameter, cy))
+        held_contrast = down_highlight('touch-importer-cancellation-importer-down-held')
+        cancelled = [down_highlight(f'touch-importer-cancelled-{frame}') for frame in range(5)]
+        assert held_contrast > 20, ('No rendered held highlight in the positive fixture', held_contrast)
+        assert min(cancelled) < 15 and cancelled[-1] < 15, ('Importer highlight did not clear', cancelled)
+        (h.evidence / 'touch-importer-highlight-contrast.txt').write_text(
+            json.dumps(dict(held=held_contrast, cancelled=cancelled), indent=2))
 
         def retained_menu_hash(name):
             w, height, channels, rows = pdf_smoke.pixels((h.evidence / ('touch-' + name + '.png')).read_bytes())
