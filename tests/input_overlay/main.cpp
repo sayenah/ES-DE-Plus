@@ -110,14 +110,23 @@ static void gestures()
     expected(m.input(Event::UP, 3, up), {{1, 0}});
     expected(m.input(Event::DOWN, 4, a), {{0, 1}});
     m.suppress();
-    require(!m.highlighted(4), "importer suppresses held art");
+    require(!m.highlighted(4), "legacy suppression hides held art");
     expected(m.input(Event::UP, 4, b), {{0, 0}});
     expected(m.input(Event::DOWN, 4, a), {{0, 1}});
     require(m.highlighted(4), "new gesture clears suppression");
     expected(m.cancel(), {{0, 0}});
     expected(m.input(Event::MOTION, 4, b), {});
     expected(m.input(Event::UP, 4, b), {});
-    require(m.tracked() == 0, "cancel rejects residual motion");
+    require(m.tracked() == 0 && !m.highlighted(4), "cancel rejects residual motion and highlight");
+    // First importer-block render uses this cancellation path, not suppression.
+    expected(m.input(Event::DOWN, 4, up), {{11, 1}});
+    expected(m.input(Event::DOWN, 5, position(m, 7)), {{3, 1}});
+    const auto epoch {m.epoch()};
+    expected(m.cancel(), {{11, 0}, {3, 0}});
+    require(m.epoch() != epoch && m.tracked() == 0, "importer boundary starts a fresh epoch");
+    expected(m.input(Event::MOTION, 4, right), {});
+    expected(m.input(Event::UP, 5, a), {});
+    expected(m.input(Event::UP, 4, right), {});
     expected(m.input(Event::DOWN, 4, a), {{0, 1}});
     expected(m.input(Event::DOWN, 4, b), {{0, 0}});
     expected(m.input(Event::MOTION, 4, b), {});
@@ -312,6 +321,15 @@ static void layouts()
                     const Rect safe {m.safeArea()};
                     for (int i {0}; i < 14; ++i) {
                         const Button& b {m.buttons()[i]};
+                        if (i < 4) {
+                            // Native SVG inner arrow is Left: rotate (-1, 0),
+                            // independently of the outer outline's orientation.
+                            const float angle {b.rotation * 3.14159265f / 180};
+                            const std::array<Point, 4> actions {{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
+                            require(std::abs(-std::cos(angle) - actions[i].x) < 0.001f &&
+                                        std::abs(-std::sin(angle) - actions[i].y) < 0.001f,
+                                    "native Left arrow points in action direction in every layout");
+                        }
                         require(b.hit.w + 0.01f >= 48 * m.density() &&
                                     b.hit.h + 0.01f >= 48 * m.density(),
                                 "48 logical dp target floor");

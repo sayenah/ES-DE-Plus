@@ -488,6 +488,28 @@ def run(namespace):
                                h.app + '/org.esdeplus.frontend.TouchSmoke')
             assert 'PASS: overlay asset fixture restored' in restored, restored
 
+        # Enter the real Android-app importer with two physical pointers held.
+        # Its first blocking render must cancel accepted holds before the menu
+        # rejects input. Motion/lifts from those pointers remain inert afterwards.
+        h.user_file('settings/es_settings.xml', configure(original, **dict(common,
+            InputTouchOverlay=True, ImporterTargetSystem='androidapps',
+            ImporterRemoveEntries='never', ImporterImportMedia=False,
+            ImporterImportMediaAdditional=False, ImporterGamesOnly=False)))
+        down = pointer(12, 0); start_import = pointer(3, 1)
+        moved = pointer(14, 0)
+        inventory = inject('touch-importer-cancellation', [step('down', [down]),
+            step('snapshot', [], name='importer-down-held', held=12),
+            step('pointer-down', [down, start_import], changed=1),
+            step('inventory', [], wait=0),
+            step('move', [moved, start_import], wait=1000),
+            step('pointer-up', [start_import, moved], changed=1),
+            step('up', [moved]), step('down', [moved]), step('up', [moved])],
+            [(12, 1), (3, 1), (12, 0), (3, 0), (14, 1), (14, 0)], menu='importer')
+        assert 'InputOverlay: importer cancellation boundary' in inventory
+        for name in ['importer-cancelled']:
+            (h.evidence / ('touch-' + name + '.png')).write_bytes(h.adb(
+                'exec-out', 'run-as', h.app, 'cat', 'cache/touch-' + name + '.png', binary=True))
+
         # Geometry matrix uses the same executable getter as rendering. Pure tests
         # additionally cover independent offset/padding/clip fixtures and every ID.
         geometries = [(f'rotation-{r}', dict(ScreenRotate=r), IDS if r == 90 else [0, 11, 6, 9])
@@ -512,43 +534,14 @@ def run(namespace):
                 check_delta(before, [(button, 1), (button, 0)], name + ' id ' + str(button))
             record('touch-' + name)
 
-        # Live drawable invalidation while a pointer is held must cancel it before
-        # the new mapping/layout generation is published. No old transform is reused.
-        output = start(InputTouchOverlay=True)
-        centres = buttons(output)
-        s = surface_bounds()
-        nx, ny = centres[12]['norm']
-        x, y = str(round(s[0] + nx * s[2])), str(round(s[1] + ny * s[3]))
-        before = h.log()
-        h.shell('input', 'touchscreen', 'motionevent', 'DOWN', x, y)
-        dimensions = h.shell('wm', 'size')
-        physical = re.search(r'Physical size:\s*(\d+)x(\d+)', dimensions)
-        assert physical and 'Override size:' not in dimensions, dimensions
-        try:
-            width, height = map(int, physical.groups())
-            h.shell('wm', 'size', f'{width * 9 // 10}x{height * 9 // 10}')
-            h.wait_for(lambda: 'Window size has changed' in h.log()[len(before):], 'overlay resize reload')
-            time.sleep(1)
-            h.shell('input', 'touchscreen', 'motionevent', 'UP', x, y)
-            check_delta(before, [(12, 1), (12, 0)], 'held pointer cancelled on resize')
-            resized = buttons(h.log())
-            bounds = surface_bounds()
-            for button in [0, 11, 6, 9]:
-                neutral()
-                if button != 6:
-                    h.key('KEYCODE_ESCAPE')
-                before_tap = h.log()
-                nx, ny = resized[button]['norm']
-                tap((bounds[0] + nx * bounds[2], bounds[1] + ny * bounds[3]))
-                check_delta(before_tap, [(button, 1), (button, 0)], 'resized control ' + str(button))
-            shot('touch-resized-after-cancel')
-            record('touch-resize-held')
-        finally:
-            reset_before = h.log()
-            overridden = 'Override size:' in h.shell('wm', 'size')
-            h.shell('wm', 'size', 'reset')
-            if overridden:
-                h.wait_for(lambda: 'Window size has changed' in h.log()[len(reset_before):], 'overlay resize reset')
+        # D-018 amendment 4 explicitly accepts the live-resize evidence dependency.
+        # The recorded resize reaches cancellation/reload, then aborts in SDL's
+        # audio thread. Its separate work order must merge before retrying AC-16.
+        (h.evidence / 'touch-live-resize-dependency.txt').write_text(
+            'DEPENDENT (not a pass): AC-16 live window-resize reload; D-018 am. 4(3).\n'
+            'Observed SIGABRT on SDLAudioP2: pthread_mutex_lock on destroyed mutex.\n'
+            'Run 38669095922, TV leg, head 0afde078c, artifact 11944726275.\n'
+            'No audio workaround. Retry held-pointer reload after its separate fix merges.\n')
 
         # Fade: one complete waking gesture is inert, including its motion and UP.
         output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2,
@@ -662,7 +655,8 @@ def run(namespace):
         # the evidence matrix; do not infer hardware inset safety from these taps.
         (h.evidence / 'touch-summary.txt').write_text(
             'PASS: rendered fourteen-ID taps; empty space; lazy disabled textures; Android multi-pointer '
-            'refcounts, index reordering, stationary slide-and-hold and ACTION_CANCEL; rotations; wake-only fade.\n'
+            'refcounts, index reordering, stationary slide-and-hold and ACTION_CANCEL; importer cancellation; rotations; wake-only fade.\n'
+            'DEPENDENT: live-resize reload awaits the separate SDL audio fix (D-018 am. 4).\n'
             'OPEN: hardware ergonomics/multitouch, gesture-navigation/cutout safety; configurator reset after '
             'PR #15; PR #16 ownership and lockout warning. See PR AC evidence for remaining checks.\n')
     finally:

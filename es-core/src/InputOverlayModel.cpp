@@ -224,7 +224,8 @@ namespace TouchOverlay
             b.height = i < 4 ? d * 40 / 52 : i < 8 ? d : i < 10 ? 0.66f * d : 0.5f * d;
             if (i < 4) {
                 b.centre = {left + directions[i].x * 1.05f * d, y + directions[i].y * 1.05f * d};
-                b.rotation = i == 0 ? -90 : i == 1 ? 90 : i == 2 ? 180 : 0;
+                // The SVG's inner arrow points Left (tip x=9.86, base x=18.99).
+                b.rotation = i == 0 ? 90 : i == 1 ? -90 : i == 2 ? 0 : 180;
             }
             else if (i < 8) {
                 const std::array<Point, 4> face {{{0, 1}, {1, 0}, {-1, 0}, {0, -1}}};
@@ -277,7 +278,8 @@ namespace TouchOverlay
                        i < 8  ? mDiameter :
                        i < 10 ? mDiameter * 38 / 52 :
                                 mDiameter * 30 / 78;
-            b.rotation = i == 0 ? -90 : i == 1 ? 90 : i == 2 ? 180 : 0;
+            // Rotate the native Left arrow into the action's direction.
+            b.rotation = i == 0 ? 90 : i == 1 ? -90 : i == 2 ? 0 : 180;
             b.hit = {b.centre.x - cell / 2, b.centre.y - cell / 2, cell, cell};
         }
     }

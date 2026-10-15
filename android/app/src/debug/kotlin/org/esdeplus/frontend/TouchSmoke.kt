@@ -160,10 +160,13 @@ class TouchSmoke : Instrumentation() {
             traceAndroidDelivery()
             SystemClock.sleep(1200) // Initial gestures are outside foreground blocking.
             if (menu.isNotEmpty()) {
-                check(menu == "true" || menu == "sound")
+                check(menu == "true" || menu == "sound" || menu == "importer")
                 // Sound settings: start on Video volume. Up selects Navigation
                 // volume; Right must keep advancing it during a stationary hold.
-                val keys = if (menu == "sound") listOf(KeyEvent.KEYCODE_ESCAPE,
+                val keys = if (menu == "importer") listOf(KeyEvent.KEYCODE_ESCAPE) +
+                    List(7) { KeyEvent.KEYCODE_DPAD_DOWN } +
+                    listOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_ENTER)
+                    else if (menu == "sound") listOf(KeyEvent.KEYCODE_ESCAPE,
                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN,
                     KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)
                     else listOf(KeyEvent.KEYCODE_ESCAPE)
@@ -216,6 +219,21 @@ class TouchSmoke : Instrumentation() {
                         held !in heldControls(log.readText().substring(injectionOffset))) SystemClock.sleep(20)
                     check(held in heldControls(log.readText().substring(injectionOffset)))
                     snapshot(step.getString("name"))
+                    continue
+                }
+                if (actionName == "inventory") {
+                    check(menu == "importer")
+                    val by = SystemClock.elapsedRealtime() + 20_000
+                    while (SystemClock.elapsedRealtime() < by &&
+                        !log.readText().substring(injectionOffset).contains("InputOverlay: importer cancellation boundary"))
+                        SystemClock.sleep(5)
+                    val observed = log.readText().substring(injectionOffset)
+                    check(observed.contains("InputOverlay: importer cancellation boundary")) {
+                        "Real importer did not reach its first blocking render: $observed"
+                    }
+                    check(heldControls(observed).isEmpty()) { "Importer retained accepted holds" }
+                    snapshot("importer-cancelled")
+                    record.append("INVENTORY: cancellation boundary observed; physical pointers remain down\n")
                     continue
                 }
                 if (actionName == "background") {

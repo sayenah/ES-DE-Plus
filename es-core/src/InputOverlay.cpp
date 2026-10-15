@@ -116,7 +116,16 @@ void InputOverlay::resetFadeTimer()
     mModel.wake(true);
     LOG(LogDebug) << "InputOverlay: restored (menu)";
 }
-void InputOverlay::unselectAllButtons() { mModel.suppress(); }
+void InputOverlay::unselectAllButtons()
+{
+    // The importer calls this before setting its inventory-block flag. Release
+    // accepted consumer holds while its menu can still receive them, then reject
+    // residual motion through the same cancellation epoch used at other boundaries.
+    if (mModel.tracked() != 0) {
+        LOG(LogDebug) << "InputOverlay: importer cancellation boundary";
+    }
+    InputManager::getInstance().cancelTouchInput();
+}
 void InputOverlay::update(int deltaTime)
 {
     refreshGeometry();
