@@ -564,6 +564,37 @@ def run(namespace):
             assert h.shell('cat', h.settings) == before
             record('touch-tv-key-input')
 
+        # Select must open Search, and Back must restore the same menu under
+        # either button-swap setting. Compare settled UI content above the deck.
+        def menu_error(first, second):
+            w, height, channels, rows = pdf_smoke.pixels(first)
+            ow, oh, och, old = pdf_smoke.pixels(second)
+            assert (w, height, channels) == (ow, oh, och)
+            total = count = 0
+            for y in range(height * 15 // 100, height * 45 // 100):
+                for x in range(w * 3 // 10, w * 7 // 10):
+                    for channel in range(3):
+                        total += abs(rows[y][x * channels + channel] - old[y][x * channels + channel])
+                        count += 1
+            return total / count
+
+        for swapped in [False, True]:
+            start(InputTouchOverlay=True, UIMode='full', InputSwapButtons=swapped)
+            surface_bounds_cached = surface_bounds()
+            touch_control(6)
+            time.sleep(0.5)
+            menu = shot(f'touch-swap-{swapped}-menu')
+            touch_control(1 if swapped else 0)
+            time.sleep(0.5)
+            selected = shot(f'touch-swap-{swapped}-selected')
+            touch_control(0 if swapped else 1)
+            time.sleep(0.5)
+            returned = shot(f'touch-swap-{swapped}-back')
+            changed = menu_error(menu, selected)
+            restored = menu_error(menu, returned)
+            assert changed > 1 and restored < changed / 2, (swapped, changed, restored)
+            record(f'touch-select-back-swap-{swapped}')
+
         # Real kiosk/kid passkey, including the two Up/two Down prefix. Only
         # fixture preparation restarts the app; unlocking itself uses touch only.
         h.shell('am', 'force-stop', h.app)

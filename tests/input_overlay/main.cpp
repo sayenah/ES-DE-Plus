@@ -396,6 +396,29 @@ static void generated()
     std::mt19937 random {0x18A3};
     oracle.accept(m.rebuild(geometry(), Options {}, 320));
     const auto before {allocations};
+    // A separate cohort has complete physical gestures, rather than treating
+    // arbitrary duplicate DOWN/untracked UP events as valid input.
+    std::array<bool, 12> down {};
+    for (int n {0}; n < 100000; ++n) {
+        const int index {static_cast<int>(random() % down.size())};
+        const Event event {!down[index]      ? Event::DOWN :
+                           random() % 3 == 0 ? Event::UP :
+                                               Event::MOTION};
+        const Point point {position(m, random() % 14)};
+        const auto transitions {m.input(event, index + 1, point)};
+        require(transitions.count <= 2, "bounded valid-gesture transitions");
+        oracle.accept(transitions);
+        down[index] = event != Event::UP;
+        m.update(16);
+        if (n % 100 == 99) {
+            for (int i {0}; i < static_cast<int>(down.size()); ++i)
+                if (down[i])
+                    oracle.accept(m.input(Event::UP, i + 1, {}));
+            down = {};
+            oracle.empty();
+            require(m.tracked() == 0, "lifting every valid pointer empties capture table");
+        }
+    }
     for (int n {0}; n < 100000; ++n) {
         const int id {static_cast<int>(random() % 12 + 1)};
         const int choice {static_cast<int>(random() % 100)};
@@ -404,8 +427,8 @@ static void generated()
             point = {NAN, INFINITY};
         else if (choice < 10)
             point = {-2, 3};
-        // Fault injection has an explicit recovery boundary. Ordinary events may
-        // include duplicate DOWN; no missing-UP sequence is claimed as a valid gesture.
+        // Fault cohort: duplicate DOWN, missing UP, untracked events and invalid
+        // coordinates. Every fault sequence ends in an explicit cancellation.
         if (choice == 0)
             oracle.accept(m.cancel());
         else if (choice == 1) {
@@ -419,12 +442,15 @@ static void generated()
         for (int i {0}; i < 14; ++i)
             require(m.references(i) >= 0, "nonnegative refcounts");
         m.update(16);
+        if (n % 100 == 99)
+            oracle.accept(m.cancel());
     }
     oracle.accept(m.cancel());
     oracle.empty();
     require(m.tracked() == 0, "cancellation empties finger table");
     require(before == allocations, "warmed model input/update allocates nothing");
-    std::puts("PASS: 100000 generated events, cancellation epochs, balance and zero allocations");
+    std::puts(
+        "PASS: 100000 valid events + 100000 fault events, epochs, balance and zero allocations");
 }
 
 int main()
