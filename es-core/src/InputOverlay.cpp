@@ -13,6 +13,7 @@
 #include <SDL2/SDL_system.h>
 #include <algorithm>
 #include <cmath>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace
 {
@@ -243,6 +244,18 @@ void InputOverlay::render(const glm::mat4& parentTrans)
         const float w {b.width * (pressed ? 0.94f : 1.0f)};
         const float h {b.height * (pressed ? 0.94f : 1.0f)};
         auto* image {mImages[i].get()};
+        const auto shape = [&](float scale, unsigned int color, float opacity) {
+            const float width {w * scale};
+            const float height {h * scale};
+            // The rounded-corner shader uses local vertex positions and the
+            // rectangle's dimensions. Placement belongs in its transform.
+            renderer->setMatrix(glm::translate(
+                parentTrans, glm::vec3 {b.centre.x - width / 2, b.centre.y - height / 2, 0}));
+            const float radius {std::min(width, height) * (b.circle ? 0.5f : 0.2f)};
+            renderer->drawRect(0, 0, width, height, color, color, false, opacity, 1.0f,
+                               Renderer::BlendFactor::SRC_ALPHA,
+                               Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, radius);
+        };
         renderer->setMatrix(parentTrans);
         if (image) {
             image->setScale(pressed ? 0.94f * 1.08f : 1.08f);
@@ -251,19 +264,10 @@ void InputOverlay::render(const glm::mat4& parentTrans)
             image->render(parentTrans);
         }
         else {
-            const float radius {b.circle ? std::min(w, h) / 2 : std::min(w, h) * 0.2f};
-            renderer->drawRect(b.centre.x - w * 0.54f, b.centre.y - h * 0.54f, w * 1.08f, h * 1.08f,
-                               0x000000FF, 0x000000FF, false, 0.35f * alpha, 1.0f,
-                               Renderer::BlendFactor::SRC_ALPHA,
-                               Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, radius);
+            shape(1.08f, 0x000000FF, 0.35f * alpha);
         }
         if (!image || pressed) {
-            renderer->setMatrix(parentTrans);
-            const float radius {b.circle ? std::min(w, h) / 2 : std::min(w, h) * 0.2f};
-            renderer->drawRect(b.centre.x - w / 2, b.centre.y - h / 2, w, h, 0xFFFFFFFF, 0xFFFFFFFF,
-                               false, pressed ? 0.45f : 0.35f * alpha, 1.0f,
-                               Renderer::BlendFactor::SRC_ALPHA,
-                               Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, radius);
+            shape(1.0f, 0xFFFFFFFF, pressed ? 0.45f : 0.35f * alpha);
         }
         if (image) {
             image->setScale(pressed ? 0.94f : 1.0f);

@@ -75,6 +75,23 @@ def assertion_controls():
     return 'PASS: orphan release, double release and missing release rejected\n'
 
 
+def fallback_contrast(png, centre, hit_width):
+    width, height, channels, rows = pdf_smoke.pixels(png)
+    radius = max(2, round(hit_width * 0.05))
+    def mean(x, y):
+        values = [rows[py][px * channels + c]
+                  for py in range(max(0, round(y) - radius), min(height, round(y) + radius + 1))
+                  for px in range(max(0, round(x) - radius), min(width, round(x) + radius + 1))
+                  for c in range(3)]
+        assert values, 'Fallback sample must be on screen'
+        return sum(values) / len(values)
+    x, y = centre
+    distance = hit_width * 0.7
+    background = sum(mean(x + dx, y + dy) for dx, dy in
+                     [(distance, 0), (-distance, 0), (0, distance), (0, -distance)]) / 4
+    return abs(mean(x, y) - background)
+
+
 def rendered_centres(off, on, expected, surface):
     """Locate the largest connected difference component near each predicted glyph.
 
@@ -458,6 +475,13 @@ def run(namespace):
                 step('up', [pointer(0)])], [(0, 1), (0, 0)], asset='invalid', menu='true')
             assert 'InputOverlay: unavailable art id=0; primitive fallback' in invalid
             assert 'emergencyShutdown' not in invalid
+            button = buttons(invalid)[0]
+            point = (surface[0] + button['norm'][0] * surface[2],
+                     surface[1] + button['norm'][1] * surface[3])
+            contrast = fallback_contrast((h.evidence / 'touch-invalid-art.png').read_bytes(),
+                                         point, button['hit'][2])
+            (h.evidence / 'touch-fallback-contrast.txt').write_text(str(contrast) + '\n')
+            assert contrast > 20, ('Fallback must be visibly distinct from its surroundings', contrast)
         finally:
             h.shell('am', 'force-stop', h.app)
             restored = h.shell('am', 'instrument', '-w', '-e', 'asset', 'restore',
