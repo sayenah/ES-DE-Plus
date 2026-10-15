@@ -119,6 +119,12 @@ void GuiDetectDevice::onSizeChanged()
 
     mGrid.setSize(mSize);
     mGrid.setRowHeightPerc(0, mTitle->getFont()->getHeight() / mSize.y);
+#if defined(__ANDROID__)
+    // Do not distribute spare portrait height above the cancel prompt: on a
+    // nearly square display that would place the line in the shoulder row.
+    if (mRenderer->getIsVerticalOrientation())
+        mGrid.setRowHeightPerc(1, mDeviceInfo->getFont()->getHeight() / mSize.y);
+#endif
     mGrid.setRowHeightPerc(2, mMsg1->getFont()->getHeight() / mSize.y);
     mGrid.setRowHeightPerc(3, mMsg2->getFont()->getHeight() / mSize.y);
 }
