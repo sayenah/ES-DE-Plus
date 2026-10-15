@@ -277,6 +277,12 @@ def expired_restart_resume(harness, variant, failures):
     name = 'lifecycle-' + variant + '-restart-resume'
     command = '/data/local/tmp/esde-lifecycle-command'
     h.shell('am', 'force-stop', h.app)
+    # The prior timeout/retry control can leave its window in the display
+    # transition briefly after force-stop. Retire that fixture before a new
+    # helper can satisfy readiness; never mistake its old window for this one.
+    h.wait_for(lambda: not h.shell('pidof', h.app + ':lifecycle', check=False).strip() and
+               not h.smoke_checks.package_window_focused(h.focused_window(), h.app),
+               name + ' previous helper window retired', timeout=15)
     h.shell('rm', '-f', command)
     h.adb('logcat', '-c')
     harness['startup_baseline'] = h.log()
@@ -293,7 +299,14 @@ def expired_restart_resume(harness, variant, failures):
             'am', 'instrument', '-w', '-e', 'mode', 'restart-resume', '-e', 'parentPid', old,
             'org.esdeplus.stub/.LifecycleProbe'])], stdout=output, stderr=subprocess.STDOUT)
         try:
-            h.wait_for(lambda: 'FrontendRestartActivity' in h.focused_window(), name + ' helper focused', timeout=30)
+            def helper_focused():
+                if f'Lifecycle slow restart parent pid={old}' not in h.adb('logcat', '-d'):
+                    return False
+                window = h.focused_window()
+                return (h.shell('pidof', h.app + ':lifecycle', check=False).strip().isdigit() and
+                        h.smoke_checks.package_window_focused(window, h.app) and
+                        re.search(r'mCurrentFocus=.*[./]FrontendRestartActivity\b', window))
+            h.wait_for(helper_focused, name + ' fresh helper focused', timeout=30)
             helper = h.shell('pidof', h.app + ':lifecycle').strip()
             assert helper.isdigit()
             began = time.monotonic()
