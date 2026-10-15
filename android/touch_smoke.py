@@ -145,6 +145,34 @@ def rendered_centres(off, on, expected, surface):
     return points, boxes
 
 
+def run_fresh(namespace):
+    """Provision a separate emulator through the existing real configurator UI."""
+    h = types.SimpleNamespace(**namespace)
+    namespace['api'] = int(h.shell('getprop', 'ro.build.version.sdk').strip())
+    namespace['shared'] = '/sdcard/ESDEPlusSmoke'
+    shared = namespace['shared']
+    h.shell('mkdir', '-p', shared + '/nes')
+    dummy = h.evidence / 'dummy.nes'
+    dummy.write_bytes(b'\x00')
+    for name in ('Smoke Alpha.nes', 'Smoke Beta.nes'):
+        h.adb('push', str(dummy), shared + '/nes/' + name)
+    if namespace['api'] == 29:
+        h.shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
+    h.start_entry('HomeEntry', 'android.intent.category.HOME')
+    h.ui('Use direct filesystem compatibility', dpad=True)
+    h.ui('Grant direct filesystem access', dpad=True)
+    if namespace['api'] == 29:
+        h.ui('Allow')
+    else:
+        h.grant_from_settings()
+    h.ui('Absolute shared ROM folder path', dpad=namespace['television'])
+    h.shell('input', 'text', shared)
+    h.key('KEYCODE_BACK')
+    h.ui('Save and start frontend', dpad=True)
+    h.configured_system('touch-session-configured')
+    run(namespace)
+
+
 def run(namespace):
     h = types.SimpleNamespace(**namespace)
     smoke_support.connected()
@@ -154,6 +182,7 @@ def run(namespace):
                   InputTouchOverlaySize='medium', InputTouchOverlayOpacity='normal',
                   InputSwapButtons=False, VirtualKeyboard=True)
     logs = []
+    ready_surface_nodes = None
 
     def record(name):
         output = h.log()
@@ -163,9 +192,10 @@ def run(namespace):
         return output
 
     def start(**changes):
+        nonlocal ready_surface_nodes
         selected = dict(common, **changes)
         h.user_file('settings/es_settings.xml', configure(original, **selected))
-        h.launch()
+        ready_surface_nodes = h.launch()
         return h.log()
 
     def shot(name):
@@ -174,7 +204,9 @@ def run(namespace):
         return data
 
     def surface_bounds():
-        hierarchy = h.hierarchy()
+        # Reuse the actual ready-window dump from this launch. Its independent
+        # accessibility bounds are unchanged; live buffer geometry is still queried.
+        hierarchy = ready_surface_nodes if ready_surface_nodes is not None else h.hierarchy()
         nodes = [n for n in hierarchy if n.get('package') == h.app and 'Surface' in n.get('class', '')]
         if not nodes:
             # SDL exposes its focused surface as android.view.View on some SDKs.

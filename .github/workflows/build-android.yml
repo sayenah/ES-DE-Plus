@@ -89,6 +89,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Verify smoke-session failure propagation
+        run: python3 android/smoke_session.py self-test
       - name: Record exact Gradle cache key
         id: gradle-cache-key
         env:
@@ -411,7 +413,27 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+      # Both sessions run against the same on-runner APK and gate this job.
+      # A distinct forced-new AVD bounds emulator lifetime without dropping tests.
+      - name: ${{ matrix.image }} fresh-emulator touch smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-touch
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            python3 android/smoke_session.py touch -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --touch-only
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/
@@ -474,8 +496,8 @@ jobs:
           path: |
             android/*.log
             android/DEPENDENCY-LICENSES.md
-            android/evidence/*.txt
-            android/evidence/*.png
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
           retention-days: 7
       # This is the ONLY APK upload. Source upload/download/validation precede it.
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
@@ -529,7 +551,7 @@ jobs:
             echo "Publication suppressed: Android early legs=$EARLY_LEGS, API 34=$FINAL_LEG. No APK upload."
             exit 1
           fi
-          echo 'All Android legs succeeded; API 34 recorded the gated main/dry-run decision.'
+          echo 'All Android legs, including separate core and fresh-emulator touch sessions, succeeded; API 34 recorded the gated main/dry-run decision.'
 
   rebuild-source:
     if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.event_name == 'workflow_dispatch' && inputs.rebuild_run != '' }}

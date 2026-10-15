@@ -13,18 +13,21 @@ import smoke_checks
 import launch_checks
 import pdf_smoke
 import smoke_support
+import smoke_session
 import network_smoke
 import touch_smoke
 import json
 import os
 import tempfile
 
+touch_only = sys.argv[2:] == ['--touch-only']
+assert sys.argv[2:] in ([], ['--touch-only']), 'Usage: smoke.py APK [--touch-only]'
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
            if line.startswith('esde.applicationId='))
 activity = app + '/org.esdeplus.frontend.MainActivity'
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
-evidence = pathlib.Path('android/evidence')
+evidence = pathlib.Path(os.environ.get('ESDE_SMOKE_EVIDENCE', 'android/evidence'))
 evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
@@ -45,8 +48,14 @@ def adb(*args, check=True, binary=False):
     # Only identified transport errors on read-only diagnostics can be replayed.
     # Product actions/assertions and ordinary command failures never qualify.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
-        result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=not binary, timeout=90)
+        command_started = time.monotonic()
+        try:
+            result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=not binary, timeout=90)
+        except subprocess.TimeoutExpired:
+            smoke_session.record_command(args, time.monotonic() - command_started, 'timeout')
+            raise
+        smoke_session.record_command(args, time.monotonic() - command_started, result.returncode)
         if not result.returncode or not smoke_support.transport_error(
                 result.stderr.decode(errors='replace') if binary else result.stderr):
             break
@@ -143,13 +152,19 @@ def launch():
     startup_baseline = log()
     shell('am', 'start', '-n', activity)
     wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh frontend startup/system loading')
-    assert 'Error:' not in log(), log()
-    assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
+    startup = log()
+    assert 'Error:' not in startup, startup
+    assert re.search(r'Total game count: 2\s', startup), 'The two adb-provisioned ROMs were not loaded: ' + startup
     # Startup logging precedes the render loop's first frame/texture uploads.
     time.sleep(10)
     # Dismiss the real Android immersive-mode tutorial through its actual UI.
     try:
-        wait_for(lambda: bool(hierarchy()), 'frontend UI hierarchy')
+        nodes = []
+        def ready_hierarchy():
+            nonlocal nodes
+            nodes = hierarchy()
+            return bool(nodes)
+        wait_for(ready_hierarchy, 'frontend UI hierarchy')
     except AssertionError:
         # Capture the live failure before a caller's cleanup reinstalls debug
         # or force-stops the process (notably the minified-release check).
@@ -158,8 +173,10 @@ def launch():
         (evidence / 'frontend-readiness-failure-window.txt').write_text(shell('dumpsys', 'window'))
         (evidence / 'frontend-readiness-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
         raise
-    if any(node.get('text') == 'Got it' for node in hierarchy()):
+    if any(node.get('text') == 'Got it' for node in nodes):
         ui('Got it')
+        wait_for(ready_hierarchy, 'frontend hierarchy after immersive tutorial')
+    return nodes
 
 
 def save_logs(name):
@@ -1102,6 +1119,9 @@ try:
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
+    if touch_only:
+        touch_smoke.run_fresh(globals())
+        raise SystemExit(0)
     clear_app()
     retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
                      app + '/org.esdeplus.frontend.RuntimeSmoke')
@@ -1274,7 +1294,6 @@ try:
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
-    touch_smoke.run(globals())
     network_smoke.run(globals())
     launch_contract_probes('direct')
     shell('am', 'force-stop', app)
@@ -1660,6 +1679,8 @@ try:
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
+except SystemExit:
+    raise
 except BaseException:
     save_logs('failure')
     screenshot('failure')
