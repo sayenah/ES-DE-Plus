@@ -100,8 +100,17 @@ GuiDetectDevice::GuiDetectDevice(bool firstRun,
                        mRenderer->getScreenWidth()};
 
     setSize(width, mRenderer->getScreenHeight() * 0.5f);
-    setPosition((mRenderer->getScreenWidth() - mSize.x) / 2.0f,
-                (mRenderer->getScreenHeight() - mSize.y) / 2.0f);
+#if defined(__ANDROID__)
+    // Keep the cancel line above the portrait overlay's shoulder row.
+    if (mRenderer->getIsVerticalOrientation()) {
+        setSize(width, mRenderer->getScreenHeight() * 0.35f);
+        setPosition((mRenderer->getScreenWidth() - mSize.x) / 2.0f,
+                    mRenderer->getScreenHeight() * 0.08f);
+    }
+    else
+#endif
+        setPosition((mRenderer->getScreenWidth() - mSize.x) / 2.0f,
+                    (mRenderer->getScreenHeight() - mSize.y) / 2.0f);
 }
 
 void GuiDetectDevice::onSizeChanged()

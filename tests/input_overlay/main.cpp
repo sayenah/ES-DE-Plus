@@ -314,7 +314,8 @@ static void layouts()
                                      g.height, density, size);
                         require(false, "supported viewport has fourteen controls");
                     }
-                    require(m.diameter() + 0.01f >= previous, "sizes monotonically increase");
+                    require(m.diameter() + 0.01f >= previous * 1.1f,
+                            "each size grows by at least 10 percent");
                     previous = m.diameter();
                     require(m.diameter() <= 84 * m.density() * options.size + 0.01f,
                             "diameter cap");
@@ -367,6 +368,51 @@ static void layouts()
     m.rebuild(geometry(1080, 1920), Options {}, 320);
     require(std::abs(m.density() - 2) < 0.001f, "logical ddpi used irrespective of physical dpi");
     std::printf("PASS: %d layout/density/size fixtures\n", cases);
+}
+
+static void sizeRegressions()
+{
+    // Sweep the common phone widths from the QA reproduction, including the
+    // normal/compact boundary. Logical density changes must preserve each step.
+    for (int width {288}; width <= 800; ++width)
+        for (int dpi : {120, 160, 420, 640}) {
+            const float density {dpi / 160.0f};
+            float previous {0};
+            for (auto size : {"x-small", "small", "medium", "large"}) {
+                Model m;
+                m.rebuild(
+                    geometry(static_cast<int>(width * density), static_cast<int>(891 * density)),
+                    Options::parse(size, "normal", 0, false), dpi);
+                require(m.supported(), "phone width sweep supported");
+                require(m.diameter() + 0.001f >= previous * 1.1f,
+                        "phone sizes remain visibly distinct at every supported width");
+                if (width == 411 && std::string {size} == "large")
+                    require(m.diameter() / density > 50,
+                            "large can exceed the former portrait ceiling while fitting");
+                previous = m.diameter();
+            }
+        }
+    std::puts("PASS: distinct sizes at 288..800 dp, four logical densities");
+}
+
+static void outwardDrift()
+{
+    Model m;
+    m.rebuild(geometry(), Options {}, 320);
+    const auto& g {m.geometry()};
+    const auto safe {m.safeArea()};
+    const float radius {1.05f * m.diameter() + m.buttons()[0].hit.w / 2};
+    const Point pad {m.buttons()[0].centre.x, m.buttons()[2].centre.y};
+    const Point outsideSafe {safe.x - 0.1f * radius, pad.y};
+    require(g.visible().contains(outsideSafe) && !safe.contains(outsideSafe),
+            "outward drift fixture is visible but outside conservative safe area");
+    expected(m.input(Event::DOWN, 1, g.toNormalized(outsideSafe)), {});
+    expected(m.input(Event::UP, 1, {}), {});
+    expected(m.input(Event::DOWN, 1, position(m, 2)), {{13, 1}});
+    expected(m.input(Event::MOTION, 1, g.toNormalized(outsideSafe)), {});
+    require(m.highlighted(2), "held Left keeps full outward hysteresis beyond safe edge");
+    expected(m.input(Event::MOTION, 1, g.toNormalized({pad.x + 1.41f * radius, pad.y})), {{13, 0}});
+    expected(m.input(Event::UP, 1, {}), {});
 }
 
 static void fading()
@@ -479,6 +525,8 @@ int main()
     mapping();
     boundaries();
     layouts();
+    sizeRegressions();
+    outwardDrift();
     fading();
     generated();
     std::puts("PASS: overlay model deterministic regressions");

@@ -30,17 +30,19 @@ For ES-DE Plus, revoking direct-filesystem storage access opens storage configur
 
 By default the touch input overlay will be enabled which makes it possible to use ES-DE without a controller or physical keyboard by overlaying virtual buttons on top of the ES-DE interface. If you are using a device which has a built-in controller you may however want to disable this feature. That is done via the _Enable touch overlay_ option in the _Input device settings_ menu on the main menu. Just be aware that disabling this option on a device where you have no other input method than touch will lock you out of the application.
 
-If you accidentally disable the ES-DE Plus touch overlay, temporarily connect a controller or keyboard and enable it via its menu entry, or change _InputTouchOverlay_ from _false_ to _true_ in _settings/es_settings.xml_ in the selected application-data folder while the app is closed. Configurator-based reset is not yet available in ES-DE Plus.
+If you accidentally disable the ES-DE Plus touch overlay, temporarily connect a controller or keyboard and enable it via its menu entry, or, using adb from a computer while the app is closed, change _InputTouchOverlay_ from _false_ to _true_ in _settings/es_settings.xml_ under the app-private _Android/data/org.esdeplus.frontend/files/ES-DE-Plus_ folder. Android 11 and later restrict ordinary file-manager access to this folder. Configurator-based reset is not yet available in ES-DE Plus.
 
 Apart from this there are numerous options for the touch overlay, like the ability to change its size, opacity and fade-out time. Setting the fade-out to zero will make it permanently visible. See the [User guide](USERGUIDE.md) for a complete reference of all app settings and features.
 
 ES-DE Plus provides fourteen controls with fixed A/B/X/Y glyphs; changing the controller type does not change these glyphs. Button swapping changes their actions. Thumbstick clicks and analog sticks are not provided. A fully faded overlay consumes the entire first touch gesture to wake; use a second, non-launch control to dismiss a screensaver. On Android TV automatic startup/resume wakes stay hidden unless fade-out is zero; explicit touch or menu changes show the controls.
 
+The four size choices grow by at least 10% per step. When a controller layout cannot fit the whole size range, the compact grid keeps the sizes distinct while preserving the hit targets.
+
 Controls use SDL's Android logical density and the visible renderer viewport, with a compact grid when the normal deck cannot fit. If SDL cannot report logical density, the shorter visible dimension divided by 411 is used as a logged estimate of pixels per dp. The supported visible viewport is at least 288 dp on each dimension; smaller panes have no overlay. Every supported hit target is at least 48 dp. Conservative fixed margins are not window-inset data: cutouts, rounded corners and gesture-navigation edges still need device validation in both orientations. No inset-safety guarantee is made by this implementation.
 
 ## Retention of files and data
 
-ES-DE Plus stores downloaded themes under the selected application-data folder alongside settings and media. Android app-private storage, including the scoped-mode ROM folder, is deleted on uninstall or when app storage is cleared. Only folders explicitly selected in shared storage survive uninstall; keep backups.
+ES-DE Plus currently keeps settings, gamelists, downloaded themes and media in the app-private _Android/data/org.esdeplus.frontend/files/ES-DE-Plus_ folder in both storage modes. Android deletes this folder on uninstall or when app storage is cleared. The app-owned scoped-mode ROM folder is also deleted. Direct-mode ROMs in a separately selected shared-storage folder survive uninstall; keep backups.
 
 ## Emulation on Android in general
 

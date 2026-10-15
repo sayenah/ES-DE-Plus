@@ -10,6 +10,7 @@
 #include <memory>
 
 class ImageComponent;
+class TextComponent;
 class InputOverlay
 {
 public:
@@ -44,6 +45,7 @@ private:
     TouchOverlay::Model mModel;
     TouchOverlay::Options mOptions;
     std::array<std::unique_ptr<ImageComponent>, 14> mImages;
+    std::array<std::unique_ptr<TextComponent>, 14> mLabels;
     bool mInitialized {false};
     bool mDirty {true};
     bool mFullWarning {false};

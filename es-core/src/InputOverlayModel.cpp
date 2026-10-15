@@ -167,17 +167,32 @@ namespace TouchOverlay
         mSafe = {v.x + side, v.y + top, v.w - 2 * side, v.h - top - bottom};
         const float requested {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity) *
                                options.size};
-        // Find a size-independent normal-layout ceiling, preserving monotonic sizes.
-        float limit {84 * 1.2f * mDensity};
-        for (int i {0}; i < 80; ++i) {
-            layout(limit);
-            if (fits())
-                break;
-            limit *= 0.97f;
-        }
-        if (limit >= 39.2f * mDensity) {
-            layout(std::min(requested, limit));
-            mSupported = fits();
+        // Fit the whole size family to the largest safe diameter. Reserve a 10%
+        // step for each remaining size instead of clamping three choices to one
+        // portrait ceiling. The 48 dp hit floor still limits the smallest diamond.
+        const int steps {options.size < 0.8f  ? 3 :
+                         options.size < 0.95f ? 2 :
+                         options.size < 1.1f  ? 1 :
+                                                0};
+        const float minimum {48 * mDensity / (std::sqrt(2.0f) * 1.05f)};
+        layout(minimum);
+        if (fits()) {
+            float low {minimum};
+            float high {84 * 1.2f * mDensity};
+            for (int i {0}; i < 24; ++i) {
+                const float middle {(low + high) / 2};
+                layout(middle);
+                if (fits())
+                    low = middle;
+                else
+                    high = middle;
+            }
+            const float largest {
+                std::min(low, std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity) * 1.2f)};
+            if (largest >= minimum * 1.331f) {
+                layout(std::min(requested, largest / std::pow(1.1f, static_cast<float>(steps))));
+                mSupported = fits();
+            }
         }
         if (!mSupported) {
             mCompact = true;
@@ -188,6 +203,8 @@ namespace TouchOverlay
             mSafe = {v.x + compactSide, v.y + corner, v.w - 2 * compactSide,
                      v.h - corner - std::max(bottom, corner)};
             compactLayout(requested);
+            const float ceiling {mDiameter};
+            compactLayout(std::min(requested, ceiling / std::pow(1.1f, static_cast<float>(steps))));
             mSupported = fits();
         }
         if (!mSupported)
@@ -205,7 +222,7 @@ namespace TouchOverlay
         const float pillH {std::max(0.66f * d * 1.15f, 48 * mDensity)};
         const float shoulderH {std::max(0.5f * d * 1.15f, 48 * mDensity)};
         const float shoulderW {std::max(1.3f * d * 1.15f, 48 * mDensity)};
-        const float left {mSafe.x + 1.15f * radius};
+        const float left {mSafe.x + radius};
         const float right {mSafe.x + mSafe.w - 1.15f * radius};
         const auto visible {mGeometry.visible()};
         const bool landscape {visible.w >= visible.h};
@@ -328,7 +345,7 @@ namespace TouchOverlay
         // Sector capture regions, not just the arm circles, must remain disjoint.
         if (!mCompact) {
             const float r {1.05f * mDiameter + mButtons[0].hit.w / 2};
-            if (mButtons[4].centre.x - mButtons[0].centre.x < 2.3f * r + 0.15f * mDiameter)
+            if (mButtons[4].centre.x - mButtons[0].centre.x < 2.15f * r + 0.15f * mDiameter)
                 return false;
         }
         return true;
@@ -355,7 +372,7 @@ namespace TouchOverlay
 
     int Model::select(int cluster, Point p, int held) const
     {
-        if (cluster < 0 || !mSafe.contains(p))
+        if (cluster < 0 || !mGeometry.visible().contains(p))
             return -1;
         if (mCompact || cluster >= 2) {
             const int i {mCompact ? cluster : cluster + 6};

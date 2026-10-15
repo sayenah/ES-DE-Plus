@@ -282,8 +282,10 @@ void Window::releaseTouchInput(InputConfig* config, Input input)
         mMediaViewer->input(config, input);
     if (mPDFViewer)
         mPDFViewer->input(config, input);
-    for (auto* gui : mGuiStack)
-        gui->input(config, input);
+    const auto stack {mGuiStack};
+    for (auto* gui : stack)
+        if (std::find(mGuiStack.begin(), mGuiStack.end(), gui) != mGuiStack.end())
+            gui->input(config, input);
 }
 #endif
 

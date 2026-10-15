@@ -270,6 +270,16 @@ def run(namespace):
             time.sleep(0.2)
 
     try:
+        diameters = []
+        for size in ('x-small', 'small', 'medium', 'large'):
+            sized = start(InputTouchOverlay=True, InputTouchOverlaySize=size)
+            diameter = float(re.findall(r'InputOverlay: layout .*? D=([^ ]+)', sized)[-1])
+            if diameters:
+                assert diameter + 0.01 >= diameters[-1][1] * 1.1, (size, diameters, diameter)
+            diameters.append((size, diameter))
+            shot('touch-size-' + size)
+            record('touch-size-' + size)
+        (h.evidence / 'touch-size-diameters.txt').write_text(json.dumps(diameters) + '\n')
         disabled = start(InputTouchOverlay=False)
         assert 'InputOverlay: textures built' not in disabled
         off = shot('touch-disabled-reference')

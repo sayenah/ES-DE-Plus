@@ -6,9 +6,11 @@
 #include "Log.h"
 #include "Settings.h"
 #include "components/ImageComponent.h"
+#include "components/TextComponent.h"
 #include "renderers/Renderer.h"
 #include "resources/ResourceManager.h"
 #include "resources/TextureResource.h"
+#include "utils/LocalizationUtil.h"
 
 #include <SDL2/SDL_system.h>
 #include <algorithm>
@@ -94,6 +96,8 @@ void InputOverlay::clearButtons()
     mModel.clear();
     for (auto& image : mImages)
         image.reset();
+    for (auto& label : mLabels)
+        label.reset();
     mInitialized = false;
     mDirty = true;
     LOG(LogDebug) << "InputOverlay: cleared";
@@ -214,6 +218,7 @@ void InputOverlay::buildTextures()
 {
     for (int i {0}; i < 14; ++i) {
         mImages[i].reset();
+        mLabels[i].reset();
         const auto& b {mModel.buttons()[i]};
         const std::string path {ResourceManager::getInstance().getResourcePath(
             std::string {":/graphics/overlay/"} + ART[i], false)};
@@ -234,6 +239,18 @@ void InputOverlay::buildTextures()
         }
         if (!mImages[i]) {
             LOG(LogError) << "InputOverlay: unavailable art id=" << b.id << "; primitive fallback";
+            // Controller glyphs are fixed, like the reused SVGs. Back/Start use
+            // existing localized control names; no new art or font is introduced.
+            const std::array<std::string, 14> labels {"↑",  "↓",  "←",  "→",       "A",
+                                                      "B",  "X",  "Y",  _("BACK"), _("START"),
+                                                      "LB", "RB", "LT", "RT"};
+            auto label {std::make_unique<TextComponent>(
+                labels[i], Font::get(std::min(b.width, b.height) * 0.4f), 0xFFFFFFFF, ALIGN_CENTER,
+                ALIGN_CENTER, glm::ivec2 {0, 0})};
+            label->setSize(b.width, b.height);
+            label->setOrigin(0.5f, 0.5f);
+            label->setPosition(b.centre.x, b.centre.y);
+            mLabels[i] = std::move(label);
         }
     }
     mDirty = false;
@@ -284,6 +301,11 @@ void InputOverlay::render(const glm::mat4& parentTrans)
             image->setColorShift(0xFFFFFFFF);
             image->setOpacity(pressed ? std::max(alpha, 0.8f) : alpha);
             image->render(parentTrans);
+        }
+        if (mLabels[i]) {
+            mLabels[i]->setScale(pressed ? 0.94f : 1.0f);
+            mLabels[i]->setOpacity(pressed ? std::max(alpha, 0.8f) : alpha);
+            mLabels[i]->render(parentTrans);
         }
     }
 }

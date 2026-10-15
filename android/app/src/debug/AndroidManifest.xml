@@ -3,7 +3,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <receiver android:name="org.esdeplus.frontend.TouchSmoke$SurfaceGeometry"
-            android:exported="true" />
+            android:exported="true" android:permission="android.permission.DUMP" />
     </application>
     <instrumentation android:name="org.esdeplus.frontend.RuntimeSmoke"
         android:targetPackage="${applicationId}" />

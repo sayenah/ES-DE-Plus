@@ -4333,7 +4333,7 @@ How long, in seconds, to display the overlay before fading it. In ES-DE Plus, ze
 
 **Enable touch overlay** _(Android only)_
 
-The touch overlay applies a layer of virtual buttons on top of the ES-DE window. This makes it possible to use the application on devices that lack physical buttons, such as a mobile phone or tablet. Disabling it without another input device locks you out. In ES-DE Plus, temporarily connect a controller or keyboard to enable it again, or set `InputTouchOverlay` to `true` in `settings/es_settings.xml` in the selected application-data folder while the app is closed. Clearing Android app storage deletes private data and app-owned ROMs and is not a recovery route. See [Touch input overlay](ANDROID.md#touch-input-overlay) for supported viewport sizes, fixed glyphs and inset limitations.
+The touch overlay applies a layer of virtual buttons on top of the ES-DE window. This makes it possible to use the application on devices that lack physical buttons, such as a mobile phone or tablet. Disabling it without another input device locks you out. In ES-DE Plus, temporarily connect a controller or keyboard to enable it again, or, using adb from a computer while the app is closed, set `InputTouchOverlay` to `true` in `settings/es_settings.xml` under the app-private `Android/data/org.esdeplus.frontend/files/ES-DE-Plus` folder. Android 11 and later restrict ordinary file-manager access to this folder. Clearing Android app storage deletes private data and app-owned ROMs and is not a recovery route. See [Touch input overlay](ANDROID.md#touch-input-overlay) for supported viewport sizes, fixed glyphs and inset limitations.
 
 **Only accept input from first controller**
 
