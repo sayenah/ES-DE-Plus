@@ -170,18 +170,22 @@ def active_tracks(dump, pid):
     # AudioFlinger's playback table exposes Active, Client PID (PID/UID on
     # newer Android), and the hexadecimal Server frame counter. Require the
     # playback header and the app's own client, not a global active-track count.
-    server_end = None
+    server_field = None
     result = {}
     for line in dump.splitlines():
         if line.lstrip().startswith('Type') and 'Active Client' in line and 'Server FrmCnt' in line:
-            server_end = line.index('Server') + len('Server')
+            # Newer tables add PortVol/PortMuted before Server. Parse columns,
+            # not character offsets: their printed widths can differ from the
+            # header by a space between Android versions.
+            server_field = 16 if 'PortMuted' in line else 14
             continue
         match = re.match(r'^\s*(?:F\d+\s+)?(?:[SP?]\s+)?(\d+)\s+yes\s+(\d+)'
                          r'(?:\s*/\s*\d+)?\s+', line)
-        if server_end and match and match[2] == pid:
-            counter = line[server_end - 8:server_end].strip()
-            if re.fullmatch(r'[0-9A-Fa-f]{8}', counter):
-                result[match[1]] = int(counter, 16)
+        if server_field is not None and match and match[2] == pid:
+            fields = line[match.end():].split()
+            if (len(fields) > server_field and fields[3].startswith('0x')
+                    and re.fullmatch(r'[0-9A-Fa-f]{8}', fields[server_field])):
+                result[match[1]] = int(fields[server_field], 16)
     return result
 
 
@@ -283,10 +287,15 @@ def controls():
     # Own table samples exercise both documented PID column layouts, reject
     # other clients/inactive tracks and require the actual server-frame field.
     for client in ('Client', 'Client(pid/uid)'):
-        header = '    Type     Id Active ' + client + ' Session Port Id S  Flags  Server FrmCnt'
-        end = header.index('Server') + len('Server')
+        header = '    Type     Id Active ' + client + ' Session Port Id S  Flags '
+        if '/' in client:
+            header += 'PortVol dB PortMuted '
+        header += 'Server FrmCnt'
         row = '              7    yes ' + ('123/ 10001' if '/' in client else '123')
-        row = row.ljust(end - 8) + '00001234  4096'
+        row += ' 1 2 A 0x000 00000001 00000003 44100 3 1 0 0 0 0 0'
+        if '/' in client:
+            row += ' 0 false'
+        row += ' 00001234 4096'
         assert active_tracks(header + '\n' + row, '123') == {'7': 0x1234}
         assert not active_tracks(header + '\n' + row, '555')
         assert not active_tracks(header + '\n' + row.replace('yes', ' no'), '123')
