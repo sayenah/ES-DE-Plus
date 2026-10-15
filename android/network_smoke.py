@@ -9,8 +9,10 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 
 
 @contextlib.contextmanager
@@ -35,6 +37,12 @@ def mainloop_input(before, after):
     assert after.startswith(before), 'Frontend log reset during main-loop proof'
     assert re.search(r'Window::logInput\(Keyboard\): Key F12, .*value=1\b', after[len(before):]), \
         'Frontend main loop did not acknowledge the harmless F12 key'
+
+
+def process_stacks(text, pid, app):
+    blocks = re.findall(r'^----- pid ' + re.escape(pid) + r' at [^\n]*\n.*?^----- end ' +
+                        re.escape(pid) + r' -----', text, re.M | re.S)
+    return '\n'.join(block for block in blocks if re.search(r'^Cmd line: ' + re.escape(app) + r'$', block, re.M))
 
 
 class RemoteFailure(Exception):
@@ -244,6 +252,12 @@ def controls():
         pass
     else:
         raise AssertionError('Earlier F12 log satisfied main-loop proof')
+    trace = ('----- pid 1234 at 2026-10-15 04:00:00 -----\nCmd line: example.app\n'
+             '"SDLThread" native\n  native: #00 pc 0001 libmain.so\n----- end 1234 -----')
+    assert process_stacks(trace, '1234', 'example.app') == trace
+    assert not process_stacks(trace, '5678', 'example.app')
+    assert not process_stacks(trace, '1234', 'other.app')
+    assert not process_stacks('native: #00 pc 0001 libmain.so', '1234', 'example.app')
     with wall_budget(1, 'timer control'):
         pass
     try:
@@ -253,7 +267,7 @@ def controls():
         assert 'Total time bound' in str(error)
     else:
         raise AssertionError('Wall-time control escaped')
-    reports.append('PASS: missing request-start proof, frozen main loop and stale key logs stay hard; wall-time budget interrupts blocked work.')
+    reports.append('PASS: missing request-start proof, frozen main loop and stale key logs stay hard; trace extraction rejects other PID/app data; wall-time budget interrupts blocked work.')
     return '\n'.join(reports) + '\n'
 
 
@@ -346,31 +360,41 @@ def run_checks(harness):
             h.evidence.joinpath(stem + '-process.txt').write_text('Frontend PID absent: ' + pid)
             assert not required, 'Frontend died before live diagnostics'
             return ''
-        # Same emulator-only privilege pattern as smoke.py's native backtraces.
-        # /proc/net is restricted from Android 10; fd inodes identify this app's
-        # sockets within the accompanying network-namespace tables.
-        root = h.adb('root', check=False)
-        stacks = sockets = 'Native diagnostics unavailable: ' + root
-        try:
-            h.adb('wait-for-device')
-            if 'cannot run as root' not in root:
-                h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '0', 'native diagnostic shell', timeout=10)
-                stacks = h.shell('sh', '-c', f'debuggerd -b {pid} 2>&1', check=False)
-                sockets = h.shell('sh', '-c', f'exec 2>&1; cat /proc/{pid}/status; '
-                    f'echo "FD LINKS"; ls -l /proc/{pid}/fd; '
-                    f'for table in tcp tcp6 udp udp6 unix; do echo "TABLE $table"; cat /proc/{pid}/net/$table; done',
-                    check=False)
-        finally:
-            h.evidence.joinpath(stem + '-stacks.txt').write_text(stacks)
-            h.evidence.joinpath(stem + '-sockets.txt').write_text(sockets)
-            h.adb('unroot', check=False)
-            h.adb('wait-for-device')
-            h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '2000',
-                       'ordinary shell after frontend diagnostics', timeout=10)
+        # The debug APK owns its SIGQUIT request and fd snapshot. The shell
+        # reads the shared network tables (apps cannot read /proc/net on API 29+).
+        # Bugreport retrieves ART's all-thread traces on production images too;
+        # only this PID/app's trace text is retained, never the raw archive.
+        sockets = h.shell('run-as', h.app, 'sh', '-c',
+            f'exec 2>&1; cat /proc/{pid}/status; echo "FD LINKS"; ls -l /proc/{pid}/fd', check=False)
+        sockets += h.shell('sh', '-c', 'exec 2>&1; for table in tcp tcp6 udp udp6; '
+                           'do echo "TABLE $table"; cat /proc/net/$table; done', check=False)
+        h.evidence.joinpath(stem + '-sockets.txt').write_text(sockets)
+        stack_file = h.evidence.joinpath(stem + '-stacks.txt')
+        stack_file.write_text(f'Collecting app-owned SIGQUIT traces for PID {pid}\n')
+        before_dump = h.adb('logcat', '-d', '--pid=' + pid)
+        h.shell('run-as', h.app, 'kill', '-3', pid)
+        def dump_finished():
+            output = h.adb('logcat', '-d', '--pid=' + pid)
+            assert output.startswith(before_dump), 'App diagnostic log reset during SIGQUIT'
+            return 'Wrote stack traces to tombstoned' in output[len(before_dump):]
+        h.wait_for(dump_finished, 'fresh app-owned thread dump completed', timeout=20)
+        h.evidence.joinpath(stem + '-dump-logcat.txt').write_text(h.adb('logcat', '-d', '--pid=' + pid))
+        parent = pathlib.Path('android/.deps/network')
+        parent.mkdir(parents=True, exist_ok=True)
+        stacks = ''
+        with tempfile.TemporaryDirectory(prefix='traces-', dir=parent) as temporary:
+            report = pathlib.Path(temporary) / 'report.zip'
+            h.adb('bugreport', str(report))
+            with zipfile.ZipFile(report) as archive:
+                for entry in archive.namelist():
+                    if entry.startswith('FS/data/anr/') or (entry.startswith('bugreport-') and entry.endswith('.txt')):
+                        stacks += process_stacks(archive.read(entry).decode(errors='replace'), pid, h.app)
+        stack_file.write_text(stacks or 'No matching app/PID trace found in bugreport\n')
         if required:
             assert re.search(r'#00\s+pc\s', stacks), 'No frontend thread backtrace captured'
             assert 'Uid:' in sockets and 'FD LINKS' in sockets and 'local_address' in sockets and \
                 'Permission denied' not in sockets, 'No app socket snapshot captured'
+
         return stacks
 
     def responsive(pid):
@@ -403,7 +427,7 @@ def run_checks(harness):
         def deadline_proof():
             assert not negative, 'No-INTERNET control did not produce its resolve error'
             responsive(pid)
-            with wall_budget(60, 'stalled-request evidence'):
+            with wall_budget(120, 'stalled-request evidence'):
                 live_state('stalled-request', required=True)
             healthy(pid)
         try:
@@ -433,7 +457,7 @@ def run_checks(harness):
         # and every successful download. No product state or permission is reset.
         pid = h.shell('pidof', h.app, check=False).strip()
         healthy(pid)
-        with wall_budget(60, 'live state before remote cancellation'):
+        with wall_budget(120, 'live state before remote cancellation'):
             live_state('before-remote-restart')
         healthy(pid)
         h.shell('am', 'force-stop', h.app)
@@ -601,7 +625,7 @@ def run_checks(harness):
         h.launch()
         begin('liveness-control')
         responsive(h.shell('pidof', h.app, check=False).strip())
-        with wall_budget(60, 'native diagnostic control'):
+        with wall_budget(120, 'native diagnostic control'):
             live_state('healthy-frontend', required=True)
         record('PASS: real frontend acknowledges harmless F12; thread stacks and app socket snapshot captured.')
         def recover_list(error):
