@@ -244,7 +244,7 @@ def gl_transport_stall(stacks, later='', cpu=None, later_cpu=None, elapsed=0, su
                 r'#0[0-3]\s+pc\s+.*\b(?:sem_wait|SDL_SemWait)(?:\+|\))', body)
                 and 'libSDL2.so' in body and 'AudioStream' not in body for body in later_audio)
             and len(tid(stacks)) == 1 and tid(stacks) == tid(later)
-            and isinstance(cpu, int) and cpu >= 0 and cpu == later_cpu)
+            and isinstance(cpu, int) and cpu > 0 and cpu == later_cpu)
 
 
 def surface_changed(logcat, pid, size):
@@ -397,6 +397,7 @@ def controls():
     for later, cpu, later_cpu, elapsed, surface in (
             (render + idle, 100, 101, 5, True),
             (render + idle, None, None, 5, True),
+            (render + idle, 0, 0, 5, True),
             (render + idle, 100, 100, 4.9, True),
             (render + idle, 100, 100, 5, False),
             (render.replace('sysTid=1', 'sysTid=3') + idle, 100, 100, 5, True),
