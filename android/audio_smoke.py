@@ -66,6 +66,20 @@ def control_launch():
         return
     app = next(line.split('=', 1)[1] for line in (ROOT / 'android/gradle.properties').read_text().splitlines()
                if line.startswith('esde.applicationId='))
+
+    def shell(*arguments):
+        return subprocess.check_output(['adb', 'shell', *arguments], text=True).strip()
+
+    def font_weight():
+        configuration = shell('dumpsys', 'activity', 'activities')
+        match = re.search(r'^\s*mGlobalConfig=.*\bfontWeightAdjustment=(-?\d+)', configuration, re.M)
+        assert match, 'Global font-weight configuration unavailable'
+        return match.group(1)
+
+    api = int(shell('getprop', 'ro.build.version.sdk'))
+    if api >= 31:
+        previous_setting = shell('settings', 'get', 'secure', 'font_weight_adjustment')
+        previous_weight = font_weight()
     try:
         subprocess.run([sys.executable, 'android/smoke.py', str(CONTROL / 'unfixed.apk'),
                         '--audio-control'], cwd=ROOT, check=True)
@@ -73,6 +87,25 @@ def control_launch():
         # Controls use the normal SDK debug signer, preceding the full gating
         # smoke's independently signed APK. Never transfer data across signers.
         subprocess.run(['adb', 'uninstall', app], check=True)
+        if api >= 31:
+            # The inherited smoke deletes an originally absent setting, which
+            # can leave the effective configuration at the probe's weight. Put
+            # the original effective value first so the next full smoke must
+            # trigger a real change again; preserve the original database value.
+            shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
+            deadline = time.monotonic() + 30
+            while font_weight() != previous_weight:
+                assert time.monotonic() < deadline, 'Control did not restore effective font weight'
+                time.sleep(.25)
+            if previous_setting == 'null':
+                shell('settings', 'delete', 'secure', 'font_weight_adjustment')
+            else:
+                shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_setting)
+            assert shell('settings', 'get', 'secure', 'font_weight_adjustment') == previous_setting
+            assert font_weight() == previous_weight
+            (ROOT / 'android/evidence/audio-control-device-restored.txt').write_text(
+                f'PASS: original font-weight setting={previous_setting}; '
+                f'effective weight={previous_weight}; both restored before fixed smoke.\n')
 
 
 def xml_settings(document):
