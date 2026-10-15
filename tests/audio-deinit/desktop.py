@@ -10,6 +10,8 @@ import time
 
 def run(binary, probe, destination):
     root = pathlib.Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(root / 'android'))
+    from audio_smoke import video_fixture
     destination = pathlib.Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     for name in ['game-launched', 'command', 'ack']:
@@ -25,6 +27,10 @@ def run(binary, probe, destination):
     (roms / 'nes/systeminfo.txt').write_text('.nes\n')
     subprocess.run(['bash', str(root / 'tools/create_dummy_game_files.sh')], cwd=roms, check=True)
     (roms / 'nes/second.nes').write_bytes(b'')
+    media = home / 'media'
+    (media / 'nes/videos').mkdir(parents=True, exist_ok=True)
+    for stem in ['dummy', 'second']:
+        video_fixture(media / ('nes/videos/' + stem + '.avi'))
     marker = destination / 'game-launched'
     (appdata / 'custom_systems/es_systems.xml').write_text(
         f'<systemList><loadExclusive/><system><name>nes</name><fullname>Audio smoke</fullname>'
@@ -41,6 +47,9 @@ def run(binary, probe, destination):
         '<?xml version="1.0"?>\n<bool name="SplashScreen" value="false"/>\n'
         '<bool name="ApplicationUpdaterCheckForUpdates" value="false"/>\n'
         '<bool name="NavigationSounds" value="true"/>\n'
+        '<bool name="ViewsVideoAudio" value="true"/>\n'
+        '<string name="ThemeVariant" value="textlistWithVideos"/>\n'
+        '<string name="MediaDirectory" value="' + str(media) + '"/>\n'
         '<string name="ROMDirectory" value="' + str(roms) + '"/>\n')
     env = dict(os.environ, SDL_AUDIODRIVER='dummy', SDL_VIDEODRIVER='offscreen',
                LIBGL_ALWAYS_SOFTWARE='1', ESDE_AUDIO_PROBE=str(destination), LD_PRELOAD=str(pathlib.Path(probe).resolve()))
@@ -71,7 +80,7 @@ def run(binary, probe, destination):
         temporary.replace(destination / 'command')
         ack = destination / 'ack'
         wait(lambda: ack.exists() and ack.read_text().split()[:1] == [str(sequence)], action)
-        return int(ack.read_text().split()[1])
+        return tuple(map(int, ack.read_text().split()[1:]))
 
     try:
         wait(lambda: 'Application startup time:' in log(), 'actual system view')
@@ -86,14 +95,18 @@ def run(binary, probe, destination):
         command('down')
         time.sleep(1)
         after = command('status')
-        assert after > before, 'No nonzero navigation PCM after DEINIT_ON_LAUNCH return'
+        assert after[0] > before[0], 'No nonzero navigation PCM after DEINIT_ON_LAUNCH return'
+        time.sleep(4)
+        video = command('status')
+        assert video[0] > after[0] and video[1] > after[1], 'No decoded video audio after return'
         command('quit')
         assert process.wait(timeout=30) == 0
         assert 'cleanly shutting down' in log()
         assert 'Error:' not in log(), log()
         (destination / 'summary.txt').write_text(
             f'PASS: real dummy-ROM game command; audio setup twice; nonzero navigation mixes '
-            f'after return {before} -> {after}; SDL quit/desktop exit status 0.\n')
+            f'after return {before[0]} -> {after[0]}; decoded-video reads {after[1]} -> {video[1]}, '
+            f'nonzero mixes {after[0]} -> {video[0]}; SDL quit/desktop exit status 0.\n')
         print((destination / 'summary.txt').read_text(), flush=True)
     finally:
         if process.poll() is None:

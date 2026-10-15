@@ -19,6 +19,7 @@
 namespace
 {
     std::atomic<unsigned> audibleMixes {0};
+    std::atomic<unsigned> streamReads {0};
 
     template <typename Function> Function real(const char* name)
     {
@@ -28,6 +29,15 @@ namespace
         return reinterpret_cast<Function>(symbol);
     }
 } // namespace
+
+extern "C" int SDLCALL SDL_AudioStreamGet(SDL_AudioStream* stream, void* buffer, int length)
+{
+    static auto forward {real<decltype(&SDL_AudioStreamGet)>("SDL_AudioStreamGet")};
+    const int result {forward(stream, buffer, length)};
+    if (result > 0)
+        ++streamReads;
+    return result;
+}
 
 extern "C" void SDLCALL
 SDL_MixAudioFormat(Uint8* dst, const Uint8* src, SDL_AudioFormat format, Uint32 length, int volume)
@@ -68,7 +78,8 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
     if (sequence > last) {
         last = sequence;
         {
-            std::ofstream(directory + "/ack.new") << sequence << " " << audibleMixes << "\n";
+            std::ofstream(directory + "/ack.new")
+                << sequence << " " << audibleMixes << " " << streamReads << "\n";
         }
         std::rename((directory + "/ack.new").c_str(), (directory + "/ack").c_str());
         SDL_zero(*event);

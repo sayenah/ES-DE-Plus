@@ -234,8 +234,12 @@ def video_fixture(path):
                            64 if kind == b'vids' else 0)
     video = listing(b'strl', chunk(b'strh', stream(b'vids', b'DIB ', 1, 10, frames, 0)) +
                     chunk(b'strf', struct.pack('<IiiHHIIiiII', 40, 64, 64, 1, 24, 0, 64*64*3, 0, 0, 0, 0)))
+    # WAVEFORMATEXTENSIBLE declares the stereo channel mask explicitly. A plain
+    # PCM header leaves FFmpeg's channel layout unspecified on some versions.
+    pcm_format = struct.pack('<HHIIHHHHI', 0xfffe, 2, 44100, 44100*4, 4, 16, 22, 16, 3)
+    pcm_format += bytes.fromhex('0100000000001000800000aa00389b71')
     audio = listing(b'strl', chunk(b'strh', stream(b'auds', b'\0'*4, 4, 44100*4, frames*4410, 4)) +
-                    chunk(b'strf', struct.pack('<HHIIHH', 1, 2, 44100, 44100*4, 4, 16)))
+                    chunk(b'strf', pcm_format))
     movie = b''
     for frame in range(frames):
         colour = b'\0\xff\0' if frame % 10 < 5 else b'\xff\0\0'
