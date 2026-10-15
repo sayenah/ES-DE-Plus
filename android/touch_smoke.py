@@ -170,12 +170,13 @@ def run(namespace):
         assert 'PASS: owned surface geometry recorded' in probe, probe
         live = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat',
                                'cache/touch-surface-geometry.json'))
-        assert live['width'] == live['bufferWidth'] and live['height'] == live['bufferHeight'], live
+        native = re.findall(r'InputOverlay: layout .*?surface=(\d+)x(\d+)', h.log())[-1]
+        assert tuple(map(int, native)) == (live['bufferWidth'], live['bufferHeight']), live
         with (h.evidence / 'touch-surface-observations.txt').open('a') as output:
             output.write(json.dumps(dict(accessibility=[x0, y0, x1, y1], sdk=live)) + '\n')
-        # SDK View origin/extent is independent of Renderer and remains complete
-        # when accessibility clips a fullscreen child to its parent's bounds.
-        return live['x'], live['y'], live['width'], live['height']
+        # SDLSurface.onTouch normalizes by SurfaceHolder's dimensions, which need
+        # not equal a clipped View/accessibility extent after fullscreen resize.
+        return live['x'], live['y'], live['bufferWidth'], live['bufferHeight']
 
     def tap(point, wait=True):
         before = h.log() if wait else ''

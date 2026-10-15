@@ -351,14 +351,23 @@ class TouchSmoke : Instrumentation() {
         val origin = IntArray(2)
         var width = 0
         var height = 0
+        var viewWidth = 0
+        var viewHeight = 0
         var focused = false
         runOnMainSync {
             surface.getLocationOnScreen(origin)
-            width = surface.width
-            height = surface.height
+            // Match the public SDLSurface.onTouch normalization (surfaceChanged
+            // buffer dimensions), independently of a clipped View's bounds.
+            width = surface.holder.surfaceFrame.width()
+            height = surface.holder.surfaceFrame.height()
+            viewWidth = surface.width
+            viewHeight = surface.height
             focused = surface.hasWindowFocus()
         }
         check(focused && width > 0 && height > 0) { "No owned focused SDL surface" }
+        check(pointers.all { it.x * width < viewWidth && it.y * height < viewHeight }) {
+            "Pointer target lies beyond the owned View"
+        }
         val properties = pointers.map { p -> MotionEvent.PointerProperties().apply {
             id = p.id; toolType = MotionEvent.TOOL_TYPE_FINGER
         } }.toTypedArray()
