@@ -1115,7 +1115,7 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
-    if device_api in (29, 34):
+    if not touch_only and device_api in (29, 34):
         import update_smoke
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
