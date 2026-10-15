@@ -206,6 +206,28 @@ before each attempt: a resolve diagnostic alone cannot distinguish a missing gra
 An SDL destruction-start log from the current PID also fails immediately, even
 when the process and focus still appear live before an ANR.
 
+A deadline qualifies as a remote stall only with fresh start proof: the initial
+list-clone log, the new theme's clone target (verified absent before submission),
+or the scraper-search start log. An existing-list refresh needs a captured
+`git_remote_fetch` worker frame because its target already existed. A single
+unmapped F12 key must then produce a fresh `Window::logInput` acknowledgement
+within 10 seconds. Missing start/liveness proof is a hard failure. Stall evidence
+includes all native thread stacks, app file-descriptor socket inodes and the
+associated network tables, collected before cancellation. The emulator must
+support `adb root` for these diagnostics; privilege is dropped afterward.
+Each operation/attempt has separate evidence names, such as
+`network-fixed-theme-download-attempt2-stalled-request-stacks.txt`. Failures are
+captured while the process is still live, before cleanup force-stops it.
+
+The total request-deadline/backoff allowance is at most 3,920 seconds (65m20s),
+including both possible three-attempt list refreshes during theme recovery.
+API 34 adds one 300-second and one 90-second negative probe: 4,310 seconds
+(71m50s). The whole network phase also has a 90-minute wall-time budget covering
+UI actions, health checks and diagnostics; exceeding it is hard, never remote.
+Failure capture and state restoration have separate 60-second and five-minute
+budgets (96 minutes including those reserves). The normal smoke also exercises
+the real F12 acknowledgement and native/socket collector on a healthy frontend.
+
 The downloader cannot cancel an active clone through its UI. On a healthy remote
 deadline the harness captures evidence, rechecks health, stops that healthy
 process and removes only the incomplete clone whose destination it verified
@@ -215,13 +237,35 @@ startup during recovery fails the leg, including the known API 29 lifecycle stal
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-For a local API 34 smoke, first build the normal debug APK for both ABIs, then run
-`python3 android/network-control.py` from the repository root before invoking
-`python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk`.
+For a local API 34 smoke, use a full-history checkout at the commit being tested.
+Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
+including PDF fixtures; set `RUNNER_TEMP` to a temporary directory outside the
+checkout for throwaway signing material. The network/signing sequence, from the
+repository root, is:
+
+```sh
+esde_smoke_code=$(python3 android/test_signing.py version | python3 -c 'import json, sys; print(json.load(sys.stdin)["version_code"])')
+android/gradlew -p android --no-daemon assembleDebug assembleRelease
+mkdir -p android/.deps/update
+android/gradlew -p android --no-daemon -Pesde.versionCode=$((esde_smoke_code - 1)) :app:assembleDebug
+cp android/app/build/outputs/apk/debug/app-debug.apk android/.deps/update/lower-unsigned.apk
+android/gradlew -p android --no-daemon :app:assembleDebug
+python3 android/network-control.py
+python3 android/test_signing.py fixtures
+python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+The signing fixture re-signs both smoke variants and the control with the same
+in-run throwaway key. Do not install a control over a differently signed frontend.
 The control command requires the same SDK/JDK/Gradle setup as the normal build
 and `ANDROID_HOME` with build-tools 36.0.0. It assembles a no-INTERNET control in
-an isolated temporary copy using the built native inputs; the original manifest
-and normal APK are never edited. The control must fail each real network check
+an isolated temporary copy using the built native inputs and explicitly passes
+the original commit's `esde.versionCode` and `esde.versionName` to Gradle. It never
+uses parent history from the temporary source directory. The original manifest
+and normal APK are never edited. The destination is pre-cleaned and the validated
+control is published atomically. Its full compiled manifest must equal the
+normal APK's except for the single INTERNET declaration; every other element,
+attribute and typed value is checked. The control must fail each real network check
 with one resolve error, without retries or a non-gating exemption. It remains
 runner-local and is never uploaded. CI runs this build before the API 34 smoke.
 `python3 android/network_smoke.py` exercises deadline/classification controls

@@ -14,6 +14,8 @@ import tempfile
 import time
 import zipfile
 
+import test_signing
+
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -42,12 +44,14 @@ def tracked_digest(root, entries=None):
 
 
 def build(root):
+    destination = root / 'android/.deps/network/no-internet.apk'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)  # A failed/killed build cannot reuse an old control.
+    version = test_signing.public_version()
     manifest = root / 'android/app/src/main/AndroidManifest.xml'
     original = manifest.read_bytes()
     declaration = b'    <uses-permission android:name="android.permission.INTERNET" />\n'
     assert original.count(declaration) == 1
-    destination = root / 'android/.deps/network/no-internet.apk'
-    destination.parent.mkdir(parents=True, exist_ok=True)
     evidence = root / 'android/evidence/network-control-build.txt'
     evidence.parent.mkdir(parents=True, exist_ok=True)
     apk = root / 'android/app/build/outputs/apk/debug/app-debug.apk'
@@ -71,25 +75,28 @@ def build(root):
         copied_apk = copied / apk.relative_to(root)
         copied_manifest.write_bytes(original.replace(declaration, b''))
         print('Control uses isolated copy: ' + str(copied), flush=True)
-        assemble(copied, copied_apk)
+        assemble(copied, copied_apk, version)
         # Validate before publishing the control path. The normal APK is read only.
         payload, badging = validate(apk, copied_apk)
-        shutil.copyfile(copied_apk, destination)
-    assert digest(manifest) == manifest_hash, 'Source manifest changed'
-    assert digest(apk) == fixed_hash, 'Normally-built APK changed'
-    after_tracked = tracked_digest(root)
-    assert after_tracked == tracked_hash, 'Tracked tree changed'
+        assert digest(manifest) == manifest_hash, 'Source manifest changed'
+        assert digest(apk) == fixed_hash, 'Normally-built APK changed'
+        after_tracked = tracked_digest(root)
+        assert after_tracked == tracked_hash, 'Tracked tree changed'
+        # Same filesystem: readers see either no control or the fully validated APK.
+        copied_apk.replace(destination)
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     evidence.write_text(f'CI-only positive control built from isolated copy of {sha}; only INTERNET removed.\n'
                         f'Manifest SHA256 before={manifest_hash} after={digest(manifest)}\n'
                         f'Fixed APK SHA256 before={fixed_hash} after={digest(apk)}\n'
                         f'Tracked tree SHA256 before={tracked_hash} after={after_tracked}\n'
                         f'Control APK SHA256={digest(destination)}\n'
-                        f'PASS: {len(payload)} executable/asset entries byte-identical; normal native builds retained.\n' + badging)
+                        f'Version: {version}\n'
+                        f'PASS: {len(payload)} executable/asset entries byte-identical; normal native builds retained.\n'
+                        'PASS: full compiled manifest equal except the single INTERNET declaration.\n' + badging)
     print('PASS: isolated control has exactly the original three permissions; source and normal APK untouched')
 
 
-def assemble(copied, copied_apk):
+def assemble(copied, copied_apk, version):
     # Relocating the project changes AGP's CMake model hash. Keep the copied
     # normal build's merged/stripped JNI outputs as well as its compiled code;
     # otherwise a fresh merge drops the native targets whose tasks are excluded.
@@ -97,14 +104,44 @@ def assemble(copied, copied_apk):
                   '--exclude-task', ':app:stripDebugDebugSymbols']
     # Only this manifest-only control reuses the native code already compiled by
     # normal assembleDebug on both ABIs. The ordinary debug/release builds and
-    # every audit/smoke gate still run. Re-running native CMake here can link the
-    # other ABI's upstream root-level libplutovg.a; no CMake/source workaround.
+    # every audit/smoke gate still run. ABI-specific native output directories
+    # are supplied by native-output.cmake; this control only repackages them.
     for abi in ('arm64-v8a', 'x86_64'):
         for task in (f'configureCMakeDebug[{abi}]', f'buildCMakeDebug[{abi}][es-pdf-convert,main]'):
             exclusions += ['--exclude-task', ':app:' + task]
     subprocess.run(['./gradlew', '--no-daemon', *shlex.split(os.environ.get('GRADLE_NETWORK_ARGS', '')),
+                    '-Pesde.versionCode=' + str(version['version_code']),
+                    '-Pesde.versionName=' + version['version_name'],
                     ':app:assembleDebug', *exclusions], cwd=copied / 'android', check=True)
     assert copied_apk.is_file()
+
+
+def manifest_tree(tree, remove_internet=False):
+    # aapt xmltree retains every element, attribute, namespace and typed value.
+    # Source line positions change when the one declaration is removed.
+    lines = [re.sub(r' \(line=\d+\)$', '', line) for line in tree.splitlines()]
+    result = []
+    removed = 0
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        permission = re.fullmatch(r'(\s*)E: uses-permission', line)
+        end = index + 1
+        if permission:
+            depth = len(permission[1])
+            while end < len(lines) and len(lines[end]) - len(lines[end].lstrip()) > depth:
+                end += 1
+            block = lines[index:end]
+            if any(re.match(r'\s*A: android:name(?:\([^)]*\))?="android.permission.INTERNET"', item)
+                   for item in block):
+                assert remove_internet and len(block) == 2, 'Unexpected INTERNET declaration'
+                removed += 1
+                index = end
+                continue
+        result.append(line)
+        index += 1
+    assert removed == int(remove_internet), 'Expected exactly one INTERNET declaration'
+    return '\n'.join(result)
 
 
 def validate(apk, control):
@@ -124,10 +161,25 @@ def validate(apk, control):
     expected = {'android.permission.' + name for name in
                 ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE', 'MANAGE_EXTERNAL_STORAGE']}
     assert actual == expected, actual
+    original_tree, control_tree = [subprocess.check_output(
+        [str(aapt), 'dump', 'xmltree', str(path), 'AndroidManifest.xml'], text=True)
+        for path in (apk, control)]
+    assert manifest_tree(original_tree, True) == manifest_tree(control_tree), 'Control changed the compiled manifest'
     return payload, badging
 
 
 def controls():
+    tree = ('N: android=http://schemas.android.com/apk/res/android\n'
+            '  E: manifest (line=1)\n    A: android:versionCode(0x0101021b)=(type 0x10)0x123\n'
+            '    E: uses-permission (line=2)\n'
+            '      A: android:name(0x01010003)="android.permission.INTERNET" (Raw: "android.permission.INTERNET")\n'
+            '    E: application (line=3)\n      A: android:debuggable(0x0101000f)=(type 0x12)0xffffffff\n')
+    expected_tree = '\n'.join(line for line in tree.splitlines() if 'uses-permission' not in line and
+                              'android.permission.INTERNET' not in line)
+    assert manifest_tree(tree, True) == manifest_tree(expected_tree.replace('line=3', 'line=2'))
+    for changed in [expected_tree.replace('0x123', '0x124'), expected_tree.replace('0xffffffff', '0x0'),
+                    expected_tree + '\n    E: queries (line=4)']:
+        assert manifest_tree(tree, True) != manifest_tree(changed)
     # Kill the actual copy/build path while a fixture Gradle process is holding
     # the altered manifest. No SDK needed; real Gradle/APK validation runs in CI.
     parent = pathlib.Path('android/.deps/network')
@@ -154,11 +206,17 @@ def controls():
         apk.write_bytes(b'normal APK fixture, must never be replaced')
         wrapper = root / 'android/gradlew'
         wrapper.write_text('#!/usr/bin/env python3\nimport pathlib, time\n'
+                           'import sys\n'
+                           'assert any(a.startswith("-Pesde.versionCode=") for a in sys.argv)\n'
+                           'assert any(a.startswith("-Pesde.versionName=test-") for a in sys.argv)\n'
                            'assert "android.permission.INTERNET" not in pathlib.Path("app/src/main/AndroidManifest.xml").read_text()\n'
                            'pathlib.Path("build-started").write_text("isolated manifest lacks INTERNET")\n'
                            'time.sleep(120)\n')
         wrapper.chmod(0o755)
         before = {str(p.relative_to(root)): digest(p) for p in root.rglob('*') if p.is_file()}
+        stale = root / 'android/.deps/network/no-internet.apk'
+        stale.parent.mkdir(parents=True)
+        stale.write_bytes(b'stale control must be removed before starting')
         with (root / 'kill-output.txt').open('w+') as output:
             process = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).resolve())],
                                        cwd=root, stdout=output, stderr=output, start_new_session=True)
@@ -188,6 +246,7 @@ def controls():
         report = ('PASS: SIGKILL during isolated manifest/control build leaves all original fixture files unchanged; '
                   'normal APK and manifest hashes before/after below; no partial control APK published.\n' +
                   'PASS: tree fingerprint supports files, symlinks and uninitialised Gitlinks; file/reference changes detected.\n' +
+                  'PASS: stale control pre-cleaned; explicit commit version passed; manifest mutation controls rejected.\n' +
                   '\n'.join(f'{name}: before={value} after={after[name]}' for name, value in before.items()) +
                   '\n' + transcript)
         evidence = pathlib.Path('android/evidence/network-control-kill-test.txt')
