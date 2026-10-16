@@ -45,6 +45,7 @@
 
 #if defined(__ANDROID__)
 #include "utils/PlatformUtilAndroid.h"
+#include <chrono>
 #endif
 
 #if defined(__EMSCRIPTEN__)
@@ -71,6 +72,13 @@ namespace
 #if defined(__ANDROID__)
     int inputBlockTime {0};
     bool blockInput {false};
+
+    auto inputTraceUptime()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
 #endif
 
 #if defined(APPLICATION_UPDATER)
@@ -529,6 +537,8 @@ void applicationLoop()
                     blockInput = true;
                     inputBlockTime = 0;
                     window->setBlockInput(true);
+                    LOG(LogDebug) << "Android foreground input block started uptime_ms="
+                                  << inputTraceUptime();
                     // This sets the lastplayed and playtime metadata values.
                     if (Window::getInstance()->getGameLaunched() != nullptr) {
                         Window::getInstance()->getGameLaunched()->setPlayMetadata(true);
@@ -564,6 +574,8 @@ void applicationLoop()
                 inputBlockTime = 0;
                 blockInput = false;
                 window->setBlockInput(false);
+                LOG(LogDebug) << "Android foreground input block released uptime_ms="
+                              << inputTraceUptime();
             }
         }
 #endif

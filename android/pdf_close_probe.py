@@ -8,6 +8,48 @@ import shlex
 import time
 
 
+def resume_input_release(logcat, pid):
+    # A release without its matching start cannot prove readiness. Callers
+    # clear logcat before BACK, then inspect only this retained native PID.
+    started = released = None
+    for line in logcat.splitlines():
+        fields = line.split()
+        if len(fields) < 6 or fields[2] != pid:
+            continue
+        event = re.search(r'Android foreground input block (started|released) uptime_ms=(\d+)', line)
+        if not event:
+            continue
+        uptime = int(event[2])
+        if event[1] == 'started':
+            started, released = uptime, None
+        else:
+            released = uptime if started is not None and uptime >= started else None
+    if released is None:
+        return None
+    return dict(start_uptime_ms=started, release_uptime_ms=released)
+
+
+def controls():
+    def event(kind, uptime, pid='123'):
+        return ('10-16 01:02:03.000 ' + pid + ' 124 D app: Android foreground input block ' +
+                kind + ' uptime_ms=' + str(uptime) + '\n')
+    start, release = event('started', 100), event('released', 101)
+    assert resume_input_release(start + release, '123') == dict(start_uptime_ms=100, release_uptime_ms=101)
+    assert resume_input_release(start + event('released', 100), '123')['release_uptime_ms'] == 100
+    checks = ['PASS: paired native release accepted, including immediate release after pause delta']
+    for name, logs, pid in [
+        ('empty log', '', '123'), ('start without release', start, '123'),
+        ('release without start', release, '123'), ('wrong process', start + release, '321'),
+        ('release before start', release + start, '123'),
+        ('new block after release', start + release + event('started', 102), '123'),
+        ('regressed uptime', start + event('released', 99), '123'),
+        ('other process release', start + event('released', 101, '321'), '123'),
+    ]:
+        assert resume_input_release(logs, pid) is None, name
+        checks.append('PASS: native input-readiness control rejected: ' + name)
+    return '\n'.join(checks)
+
+
 class CloseProbe:
     def __init__(self, harness, mode):
         self.h = harness

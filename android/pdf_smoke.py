@@ -206,6 +206,7 @@ def controls():
         except AssertionError: checks.append('PASS: PDF wrong live owner rejected despite matching cached ANR for ' + package)
         else: raise AssertionError('PDF live focus control escaped')
         assert wrong.samples == 1
+    checks.append(pdf_close_probe.controls())
     return '\n'.join(checks) + '\n'
 
 
@@ -274,6 +275,23 @@ def run(mode, harness):
                 return session_acknowledged(result, value, finished, output_path.read_text())
             h.wait_for(completed, 'PDF session ' + action)
             return h.private('cat', 'cache/pdf-result')
+        def resumed_input(stage, pid):
+            latest = {}
+            def ready():
+                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                release = pdf_close_probe.resume_input_release(logs, pid)
+                if release is None:
+                    return False
+                latest.update(logs=logs, release=release)
+                return True
+            try:
+                h.wait_for(ready, 'PDF foreground input block released ' + stage)
+            except Exception:
+                pdf_close_probe.CloseProbe(h, mode).capture('resume-' + stage + '-timeout')
+                raise
+            h.evidence.joinpath('pdf-' + mode + '-input-ready-' + stage + '.txt').write_text(latest['logs'])
+            pdf_close_probe.CloseProbe(h, mode).record(
+                event='input-ready', stage=stage, pid=pid, **latest['release'])
         def paused_command(action, stage):
             # Active frames create and retire graphics fence descriptors. Use
             # the real paused host for every full-process descriptor snapshot.
@@ -288,6 +306,9 @@ def run(mode, harness):
             snapshot = command(action)
             h.evidence.joinpath('pdf-' + mode + '-paused-' + stage + '.txt').write_text(
                 paused + '\n' + h.shell('dumpsys', 'activity', 'activities') + '\n' + snapshot)
+            # Keep this resume's start/release in the evidence; clearing after
+            # BACK erased the deliberate input-block window (D-024 am. 1).
+            h.adb('logcat', '-c')
             h.key('KEYCODE_BACK')
             wait_for_focus(h, h.app, 'PDF descriptor snapshot returns frontend focus')
             h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF snapshot retains process')
@@ -296,11 +317,11 @@ def run(mode, harness):
             h.launch_checks.equal([r[:2] for r in after], [r[:2] for r in before], 'PDF snapshot retains host and task')
             rejects('PDF snapshot changed host/task', lambda: h.launch_checks.equal(
                 [r[:2] for r in before] + [('wrong', '-1')], [r[:2] for r in before], 'PDF snapshot task control'))
+            resumed_input(stage, pid)
             return snapshot
         result = paused_command('contract', 'contract')
         h.smoke_checks.probe_passed(result, 'PASS: D-008 real JNI')
         h.evidence.joinpath('pdf-' + mode + '-contract.txt').write_text(result)
-        h.adb('logcat', '-c')
         def frame(name):
             h.screenshot('pdf-' + mode + '-' + name)
             return (h.evidence / ('pdf-' + mode + '-' + name + '.png')).read_bytes()
@@ -311,8 +332,12 @@ def run(mode, harness):
             h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
             # Rendering and releasing the visited-page cache can outlast a fixed
             # screenshot delay. Await the actual frame without reissuing input.
-            h.wait_for(lambda: manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
-                       'actual manual frame ' + name)
+            try:
+                h.wait_for(lambda: manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
+                           'actual manual frame ' + name)
+            except Exception:
+                pdf_close_probe.CloseProbe(h, mode).capture('open-' + name + '-timeout')
+                raise
             png = frame(name)
             manual_image(png)
             return png
@@ -334,7 +359,11 @@ def run(mode, harness):
                         return False
                     h.evidence.joinpath('pdf-' + mode + '-diagnostic-first-' + str(cycle) + '.png').write_bytes(png)
                     return True
-                h.wait_for(first_ready, 'diagnostic actual first page')
+                try:
+                    h.wait_for(first_ready, 'diagnostic actual first page')
+                except Exception:
+                    probe.capture('open-timeout')
+                    raise
                 # Multiple keycodes are ordinary input keyevent presses; no
                 # 0.4 s host sleep per warm-up page. Every page must render.
                 h.shell('input', 'keyevent', *(['KEYCODE_DPAD_RIGHT'] * 59))
@@ -417,13 +446,14 @@ def run(mode, harness):
             h.launch_checks.equal(displayed_page(first_stress, 1), True, 'Displayed stress page ready')
             h.launch_checks.equal(displayed_page(first_stress, 2), False, 'Wrong stress page readiness control')
             rejects('non-solid stress marker', lambda: solid_bit([128, 128, 128]))
+            first_stress_logs = h.adb('logcat', '-d')
             baseline = paused_command('stats', 'before-stress')
             for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
                 for _ in range(59): h.key(code)
                 h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), page),
                            'actual displayed stress endpoint ' + str(page))
                 stress_page(frame('stress-' + code), page)
-            logs = h.adb('logcat', '-d')
+            logs = first_stress_logs + '\n' + h.adb('logcat', '-d')
             for page in range(1, 61):
                 h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
             h.evidence.joinpath('pdf-' + mode + '-stress-pages.txt').write_text(logs)
@@ -445,8 +475,9 @@ def run(mode, harness):
             command('fixture=valid')
         open_manual('lifecycle')
         pid = h.shell('pidof', h.app).strip()
-        h.shell('am', 'start', '-a', 'android.settings.SETTINGS')
-        time.sleep(2); h.key('KEYCODE_BACK')
+        # Use the same opaque recipient on every image. TV Settings can leave
+        # SDL resumed, which cannot produce a foreground-block release.
+        paused_command('stats', 'lifecycle')
         h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF foreground process')
         manual_image(frame('foreground'))
         h.key('KEYCODE_DEL')
