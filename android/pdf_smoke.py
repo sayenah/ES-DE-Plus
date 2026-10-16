@@ -45,8 +45,8 @@ def pixels(png):
     return w, h, channels, rows
 
 
-def colour_points(png):
-    w, h, channels, rows = pixels(png)
+def colour_points(png, decoded=None):
+    w, h, channels, rows = pixels(png) if decoded is None else decoded
     points = {name: [] for name in ['red', 'blue', 'green']}
     for y in range(0, h, 4):
         for x in range(0, w, 4):
@@ -57,8 +57,8 @@ def colour_points(png):
     return points
 
 
-def manual_image(png):
-    points = colour_points(png)
+def manual_image(png, decoded=None):
+    points = colour_points(png, decoded)
     assert all(len(p) >= 12 for p in points.values()), {k: len(v) for k, v in points.items()}
     return points
 
@@ -112,12 +112,13 @@ def orientation(points, rotation):
 
 
 def stress_page(png, expected):
-    points = manual_image(png)
+    decoded = pixels(png)
+    points = manual_image(png, decoded)
     # Corner markers locate the normal 240x320 page at any display resolution.
     left = min(p[0] for p in points['red']); top = min(p[1] for p in points['red'])
     scale_x = (max(p[0] for p in points['blue']) - left) / 220
     scale_y = (max(p[1] for p in points['green']) - top) / 300
-    _, _, channels, rows = pixels(png)
+    _, _, channels, rows = decoded
     value = 0
     for bit in range(6):
         x = round(left + (75 + 16 * bit - 10) * scale_x)
@@ -351,7 +352,9 @@ def run(mode, harness):
             probe = pdf_close_probe.CloseProbe(h, mode)
             poll_counts = []
             for cycle in range(diagnostic_cycles):
-                h.adb('logcat', '-c')
+                # Exercise the open path's first post-resume key too, with
+                # the viewer stopped. Each cycle then warms and closes it.
+                paused_command('stats', 'diagnostic-open-' + str(cycle))
                 h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
                 def first_ready():
                     png = h.adb('exec-out', 'screencap', '-p', binary=True)
@@ -372,6 +375,7 @@ def run(mode, harness):
                 logs = h.adb('logcat', '-d')
                 for page in range(1, 61):
                     h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
+                h.evidence.joinpath('pdf-' + mode + '-diagnostic-open-' + str(cycle) + '-logcat.txt').write_text(logs)
                 h.key('KEYCODE_MOVE_HOME')
                 h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), 1),
                            'diagnostic cached-page endpoint 1')
