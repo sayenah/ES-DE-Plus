@@ -36,6 +36,12 @@ jobs:
             clang-format-18 --dry-run --Werror "$file"
           done
 
+      - name: Build and run pure overlay model checks
+        run: |
+          cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-input-overlay --parallel 2
+          ctest --test-dir build-input-overlay --output-on-failure
+
       - name: Configure
         run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release
 

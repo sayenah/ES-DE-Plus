@@ -2968,6 +2968,14 @@ msgstr "設定するにはデバイスの任意ボタンを押してください
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "設定するにはキーボードの任意ボタンを押してください"
 
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
+
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr ""
 "ESC キーを押してスキップ（また、任意のタイミングで、退出ショートカットで退出"

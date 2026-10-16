@@ -2932,6 +2932,14 @@ msgstr "GIỮ NÚT \"A\" TRÊN THIẾT BỊ CỦA BẠN ĐỂ CẤU HÌNH"
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "GIỮ PHÍM \"A\" TRÊN BÀN PHÍM ĐỂ CẤU HÌNH"
 
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
+
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr "NHẤN ESC ĐỂ BỎ QUA (HOẶC PHÍM TẮT THOÁT ĐỂ THOÁT BẤT KỲ LÚC NÀO)"
 

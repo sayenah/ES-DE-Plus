@@ -357,6 +357,18 @@ void Renderer::destroyWindow()
     SDL_Quit();
 }
 
+#if defined(__ANDROID__)
+TouchOverlay::Geometry Renderer::getTouchGeometry() const
+{
+    int drawableWidth {0};
+    int drawableHeight {0};
+    if (mSDLWindow)
+        SDL_GL_GetDrawableSize(mSDLWindow, &drawableWidth, &drawableHeight);
+    return {getScreenWidth(), getScreenHeight(), mScreenRotation, mWindowHeight, mViewport.x,
+            mViewport.y,      mViewport.w,       mViewport.h,     drawableWidth, drawableHeight};
+}
+#endif
+
 bool Renderer::init()
 {
     if (!createWindow())

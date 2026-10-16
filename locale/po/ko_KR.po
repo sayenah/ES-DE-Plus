@@ -2905,6 +2905,14 @@ msgstr "구성하려면 장치의 A 버튼을 길게 누르세요"
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "구성하려면 키보드의 A 버튼을 길게 누르세요"
 
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
+
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr ""
 "건너뛰려면 ESC를 누르세요 (또는 언제든지 종료하려면 종료 단축키를 누르세요)"

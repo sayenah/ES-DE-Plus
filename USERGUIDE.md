@@ -4329,11 +4329,11 @@ Sets the opacity of the input overlay to _normal, low_ or _very low_.
 
 **Touch overlay fade-out time** _(Android only)_
 
-How long, in seconds, to display the overlay before fading it. Tapping anywhere on the screen will bring back the overlay if it's been faded out.
+How long, in seconds, to display the overlay before fading it. In ES-DE Plus, zero keeps it visible. A fully faded overlay consumes the entire first touch gesture to wake; a subsequent tap operates a control. On Android TV automatic startup/resume wakes stay hidden when this time is nonzero.
 
 **Enable touch overlay** _(Android only)_
 
-The touch overlay applies a layer of virtual buttons on top of the ES-DE window. This makes it possible to use the application on devices that lack physical buttons, such as a mobile phone or tablet. Be careful to not accidentally disable this setting as you may lock yourself out of the application. If you do that, you'll need to temporarily plug in a controller or keyboard to enable the setting again, or you could clear the ES-DE storage in the Android App settings which will force the configurator to run on next startup.
+The touch overlay applies a layer of virtual buttons on top of the ES-DE window. This makes it possible to use the application on devices that lack physical buttons, such as a mobile phone or tablet. Disabling it without another input device locks you out. In ES-DE Plus, temporarily connect a controller or keyboard to enable it again, or, using adb from a computer while the app is closed, set `InputTouchOverlay` to `true` in `settings/es_settings.xml` under the app-private `Android/data/org.esdeplus.frontend/files/ES-DE-Plus` folder. Android 11 and later restrict ordinary file-manager access to this folder. Clearing Android app storage deletes private data and app-owned ROMs and is not a recovery route. See [Touch input overlay](ANDROID.md#touch-input-overlay) for supported viewport sizes, fixed glyphs and inset limitations.
 
 **Only accept input from first controller**
 

@@ -2861,6 +2861,14 @@ msgstr "按住设备上的某个按键以进行配置"
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "按住键盘上的某个按键以进行配置"
 
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
+
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr "按 ESC 跳过（或按退出快捷键随时退出）"
 

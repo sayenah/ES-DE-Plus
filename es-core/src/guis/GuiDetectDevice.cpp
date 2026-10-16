@@ -74,9 +74,15 @@ GuiDetectDevice::GuiDetectDevice(bool firstRun,
 
     mGrid.setEntry(mMsg1, glm::ivec2 {0, 2}, false, true);
 
+#if defined(__ANDROID__)
+    const std::string msg2str {Utils::String::format(
+        firstRun ? _("PRESS ESC OR TOUCH %s TO SKIP") : _("PRESS ESC OR TOUCH %s TO CANCEL"),
+        Settings::getInstance()->getBool("InputSwapButtons") ? "A" : "B")};
+#else
     const std::string msg2str {
         firstRun ? _("PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)") :
                    _("PRESS ESC TO CANCEL")};
+#endif
     mMsg2 = std::make_shared<TextComponent>(msg2str, Font::get(FONT_SIZE_SMALL), mMenuColorPrimary,
                                             ALIGN_CENTER);
     mGrid.setEntry(mMsg2, glm::ivec2 {0, 3}, false, true);
@@ -94,8 +100,17 @@ GuiDetectDevice::GuiDetectDevice(bool firstRun,
                        mRenderer->getScreenWidth()};
 
     setSize(width, mRenderer->getScreenHeight() * 0.5f);
-    setPosition((mRenderer->getScreenWidth() - mSize.x) / 2.0f,
-                (mRenderer->getScreenHeight() - mSize.y) / 2.0f);
+#if defined(__ANDROID__)
+    // Keep the cancel line above the portrait overlay's shoulder row.
+    if (mRenderer->getIsVerticalOrientation()) {
+        setSize(width, mRenderer->getScreenHeight() * 0.35f);
+        setPosition((mRenderer->getScreenWidth() - mSize.x) / 2.0f,
+                    mRenderer->getScreenHeight() * 0.08f);
+    }
+    else
+#endif
+        setPosition((mRenderer->getScreenWidth() - mSize.x) / 2.0f,
+                    (mRenderer->getScreenHeight() - mSize.y) / 2.0f);
 }
 
 void GuiDetectDevice::onSizeChanged()
@@ -104,12 +119,28 @@ void GuiDetectDevice::onSizeChanged()
 
     mGrid.setSize(mSize);
     mGrid.setRowHeightPerc(0, mTitle->getFont()->getHeight() / mSize.y);
+#if defined(__ANDROID__)
+    // Do not distribute spare portrait height above the cancel prompt: on a
+    // nearly square display that would place the line in the shoulder row.
+    if (mRenderer->getIsVerticalOrientation())
+        mGrid.setRowHeightPerc(1, mDeviceInfo->getFont()->getHeight() / mSize.y);
+#endif
     mGrid.setRowHeightPerc(2, mMsg1->getFont()->getHeight() / mSize.y);
     mGrid.setRowHeightPerc(3, mMsg2->getFont()->getHeight() / mSize.y);
 }
 
 bool GuiDetectDevice::input(InputConfig* config, Input input)
 {
+#if defined(__ANDROID__)
+    if (input.device == DEVICE_TOUCH && input.type == TYPE_TOUCH && input.value &&
+        config->isMappedTo("b", input)) {
+        LOG(LogDebug) << "GuiDetectDevice: touch cancel";
+        if (mDoneCallback)
+            mDoneCallback();
+        delete this;
+        return true;
+    }
+#endif
     if (!mFirstRun && input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY && input.value &&
         input.id == SDLK_ESCAPE) {
         if (mDoneCallback)

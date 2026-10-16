@@ -99,6 +99,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Verify smoke-session and startup-ownership controls
+        run: |
+          python3 android/smoke_session.py self-test
+          python3 android/touch_startup.py self-test
       - name: Record exact Gradle cache key
         id: gradle-cache-key
         env:
@@ -441,6 +445,27 @@ jobs:
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
+      # Both sessions run against the same on-runner APK and gate this job.
+      # Touch runs first for fast feedback; core then starts in another fresh AVD.
+      # Distinct forced-new AVDs bound emulator lifetime without dropping tests.
+      - name: ${{ matrix.image }} fresh-emulator touch smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-touch
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            python3 android/smoke_session.py touch -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --touch-only
       - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
@@ -449,7 +474,9 @@ jobs:
           arch: x86_64
           target: ${{ matrix.target }}
           profile: ${{ matrix.profile }}
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          avd-name: esde-core
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           sdcard-path-or-size: 512M
           disable-animations: true
           cores: 4
@@ -457,7 +484,7 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/
@@ -527,8 +554,8 @@ jobs:
           path: |
             android/*.log
             android/DEPENDENCY-LICENSES.md
-            android/evidence/*.txt
-            android/evidence/*.png
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
           retention-days: 7
       # This is the ONLY APK upload. Source upload/download/validation precede it.
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
@@ -690,6 +717,8 @@ jobs:
       - *release_tools
       - *release_setup_check
 
+  # Both emulator sessions are steps in each build/API 34 job. Any failed
+  # session fails that job and is rejected by the publication outcome checks.
   publication-result:
     needs: [build, api34, api34-dry-run, release]
     if: ${{ always() && !inputs.rebuild_run }}
@@ -713,6 +742,7 @@ jobs:
               assert os.environ['DRY_LEG'] == 'success' and os.environ['FINAL_LEG'] == 'skipped' and os.environ['RELEASE_RESULT'] == 'skipped', 'Dry run failed or accessed publisher'
           print('PASS: all required build/publication outcomes present')
           PYCODE
+
 
   rebuild-source:
     if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.event_name == 'workflow_dispatch' && inputs.rebuild_run != '' }}
