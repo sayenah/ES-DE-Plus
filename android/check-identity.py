@@ -186,7 +186,7 @@ print('PASS: manifest-selected compiled icon matches the original placeholder ve
 assert ('application-debuggable' in badging) != release
 assert f"package: name='{application_id}'" in badging
 assert f"application-label:'{label}'" in badging
-assert "sdkVersion:'29'" in badging and "targetSdkVersion:'36'" in badging
+assert "sdkVersion:'31'" in badging and "targetSdkVersion:'36'" in badging
 print(f'PASS APK identity audit: {application_id}, label={label}, original placeholder icon/splash; only exact upstream desktop literals allowed in libmain.so')
 
 # Inspect packaged manifest values, including release output, rather than only

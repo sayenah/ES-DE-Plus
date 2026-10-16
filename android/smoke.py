@@ -650,7 +650,7 @@ def configured_system(name):
 
 
 def launch_contract_probes(mode):
-    if api >= 30 and mode.startswith('direct'):
+    if mode.startswith('direct'):
         # A raw-path emulator needs its own explicitly granted filesystem
         # permission. Drive the recipient's real Settings flow under its UID;
         # provider grants are tested separately and never widened.
@@ -840,8 +840,6 @@ def gamelist_recipient_flow(mode):
         adb('uninstall', 'org.esdeplus.stub')
         failed_target('removed')
         adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
-        if api == 29:
-            shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
         start_custom()
         importer_navigation.open_importer(globals(), mode)
         screenshot('importer-' + mode)
@@ -1029,7 +1027,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 29 and API 34 still fail without a product launch retry.
+                raise  # API 31 and API 34 still fail without a product launch retry.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')
@@ -1097,7 +1095,7 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
-    if device_api in (29, 34):
+    if device_api in (31, 34):
         import update_smoke
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
@@ -1111,8 +1109,6 @@ try:
         'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
     clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
-    if api == 29:
-        shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
     (evidence / 'image.txt').write_text(shell('getprop'))
     # Genuine shared files, accessible to users through file transfer; no settings
     # or preferences are written by the host-side automation.
@@ -1186,34 +1182,26 @@ try:
     ui('Create system folders', dpad=True)
     ui('Use direct filesystem compatibility', dpad=True)
     screenshot('mode-before-permission')
-    if api >= 30:
-        settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
-        if settings_component and component_enabled(settings_component, False):
-            try:
-                ui('Grant direct filesystem access', dpad=True)
-                grant_from_settings()
-                screenshot('generic-all-files-settings-return')
-                # Revoke only for the subsequent denial/grant UI probe.
-                shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
-                start_entry('HomeEntry', 'android.intent.category.HOME')
-            finally:
-                component_enabled(settings_component, True)
+    settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
+    if settings_component and component_enabled(settings_component, False):
+        try:
+            ui('Grant direct filesystem access', dpad=True)
+            grant_from_settings()
+            screenshot('generic-all-files-settings-return')
+            # Revoke only for the subsequent denial/grant UI probe.
+            shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+            start_entry('HomeEntry', 'android.intent.category.HOME')
+        finally:
+            component_enabled(settings_component, True)
     ui('Grant direct filesystem access', dpad=True)
-    if api == 29:
-        ui('Deny')
-        ui('Access was not granted')
-        screenshot('permission-denied')
-        ui('Grant direct filesystem access', dpad=True)
-        ui('Allow')
-    else:
-        # Return without granting once, from either app-specific or generic UI.
+    # Return without granting once, from either app-specific or generic UI.
+    key('KEYCODE_BACK')
+    if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
-        if not any(n.get('package') == app for n in hierarchy()):
-            key('KEYCODE_BACK')
-        ui('Access was not granted')
-        screenshot('all-files-denied')
-        ui('Grant direct filesystem access', dpad=True)
-        grant_from_settings()
+    ui('Access was not granted')
+    screenshot('all-files-denied')
+    ui('Grant direct filesystem access', dpad=True)
+    grant_from_settings()
     # Real editable field and focus survive an Activity resume/re-render.
     ui('Absolute shared ROM folder path', dpad=television)
     if television:
@@ -1370,13 +1358,10 @@ try:
     # Revoke actual access after persisted configuration; ordinary startup must
     # show recovery, never substitute a directory or restart-loop HOME.
     shell('am', 'force-stop', app)
-    if api == 29:
-        shell('pm', 'revoke', app, 'android.permission.WRITE_EXTERNAL_STORAGE')
-    else:
-        shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
-        revoked = shell('appops', 'get', '--uid', app, 'MANAGE_EXTERNAL_STORAGE')
-        assert 'deny' in revoked, revoked
-        (evidence / 'revoked-all-files-appop.txt').write_text(revoked)
+    shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+    revoked = shell('appops', 'get', '--uid', app, 'MANAGE_EXTERNAL_STORAGE')
+    assert 'deny' in revoked, revoked
+    (evidence / 'revoked-all-files-appop.txt').write_text(revoked)
     start_entry('HomeEntry', 'android.intent.category.HOME')
     ui('Configure ' + label)
     screenshot('revoked-access-recovery')

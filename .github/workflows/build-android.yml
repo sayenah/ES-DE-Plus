@@ -50,8 +50,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: api29
-            api: 29
+          - image: api31
+            api: 31
             target: google_apis
             profile: pixel_2
           - image: tv36
@@ -200,7 +200,7 @@ jobs:
       - name: Record dependency cache key
         id: dependency-cache
         env:
-          KEY: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          KEY: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
         run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
       - name: Restore per-ABI dependencies
         id: deps
@@ -441,6 +441,33 @@ jobs:
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
+      - name: Verify Android 11 refuses the Android 12 minimum APK
+        if: ${{ success() && matrix.image == 'api31' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          avd-name: minimum-api30
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            python3 - <<'PYCODE'
+            import os, pathlib, subprocess
+            apk = 'android/app/build/outputs/apk/debug/app-debug.apk'
+            aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt2'
+            badging = subprocess.check_output([str(aapt), 'dump', 'badging', apk], text=True)
+            assert "sdkVersion:'31'" in badging and "targetSdkVersion:'36'" in badging, badging
+            assert subprocess.check_output(['adb', 'shell', 'getprop', 'ro.build.version.sdk'], text=True).strip() == '30'
+            result = subprocess.run(['adb', 'install', '-r', apk], capture_output=True, text=True, timeout=180)
+            output = result.stdout + result.stderr
+            record = '\n'.join(line for line in badging.splitlines() if 'sdkVersion:' in line or 'targetSdkVersion:' in line) + '\n' + output
+            pathlib.Path('android/evidence/minimum-sdk-api30.txt').write_text(record)
+            print(record, flush=True)
+            assert result.returncode != 0 and 'INSTALL_FAILED_OLDER_SDK' in output, output
+            print('PASS: API 30 rejects the actual minSdk 31 / targetSdk 36 frontend APK')
+            PYCODE
       - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
