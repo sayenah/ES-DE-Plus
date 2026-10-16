@@ -170,7 +170,7 @@ def wait_for(condition, description, timeout=90):
         time.sleep(0.25)
     with (evidence / 'readiness-waits.txt').open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
-    if startup_monitoring and startup_log_marker:
+    if timeout >= 30 and startup_monitoring and startup_log_marker:
         captured = capture_startup_failure('timeout-' + startup_log_marker, startup_log_marker)
         try:
             fresh_session_checks.startup_restart(captured['logcat'], app)
