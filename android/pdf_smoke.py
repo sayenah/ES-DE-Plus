@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Real gamelist PDF runtime smoke; no framework.
 import pathlib
+import os
+import pdf_close_probe
 import re
 import shlex
 import struct
@@ -43,8 +45,8 @@ def pixels(png):
     return w, h, channels, rows
 
 
-def colour_points(png):
-    w, h, channels, rows = pixels(png)
+def colour_points(png, decoded=None):
+    w, h, channels, rows = pixels(png) if decoded is None else decoded
     points = {name: [] for name in ['red', 'blue', 'green']}
     for y in range(0, h, 4):
         for x in range(0, w, 4):
@@ -55,8 +57,8 @@ def colour_points(png):
     return points
 
 
-def manual_image(png):
-    points = colour_points(png)
+def manual_image(png, decoded=None):
+    points = colour_points(png, decoded)
     assert all(len(p) >= 12 for p in points.values()), {k: len(v) for k, v in points.items()}
     return points
 
@@ -110,12 +112,13 @@ def orientation(points, rotation):
 
 
 def stress_page(png, expected):
-    points = manual_image(png)
+    decoded = pixels(png)
+    points = manual_image(png, decoded)
     # Corner markers locate the normal 240x320 page at any display resolution.
     left = min(p[0] for p in points['red']); top = min(p[1] for p in points['red'])
     scale_x = (max(p[0] for p in points['blue']) - left) / 220
     scale_y = (max(p[1] for p in points['green']) - top) / 300
-    _, _, channels, rows = pixels(png)
+    _, _, channels, rows = decoded
     value = 0
     for bit in range(6):
         x = round(left + (75 + 16 * bit - 10) * scale_x)
@@ -204,6 +207,7 @@ def controls():
         except AssertionError: checks.append('PASS: PDF wrong live owner rejected despite matching cached ANR for ' + package)
         else: raise AssertionError('PDF live focus control escaped')
         assert wrong.samples == 1
+    checks.append(pdf_close_probe.controls())
     return '\n'.join(checks) + '\n'
 
 
@@ -224,6 +228,9 @@ def session_acknowledged(result, value, finished, diagnostic):
 
 def run(mode, harness):
     h = type('Harness', (), harness)
+    diagnostic_cycles = int(os.environ.get('ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES', '0'))
+    assert 0 <= diagnostic_cycles <= 20, 'PDF diagnostic cycles must be 0..20'
+    input_trace_level = h.shell('getprop', 'log.tag.ESDE-PDF-CLOSE').strip()
     h.evidence.joinpath('pdf-assertion-positive-controls.txt').write_text(controls())
     h.shell('am', 'force-stop', h.app)
     original = h.shell('cat', h.settings)
@@ -231,6 +238,13 @@ def run(mode, harness):
     node = settings.find("string[@name='MediaDirectory']")
     media = h.external + '/ES-DE-Plus/Manual spaces 🚀'
     node.set('value', media)
+    # Runtime Debug logging includes SDL repeats and Window's blocked-input
+    # state before any early return, and mirrors native logs into logcat.
+    for name, value in [('DebugMode', 'true'), ('DebugSkipInputLogging', 'false')]:
+        option = settings.find("bool[@name='" + name + "']")
+        if option is None:
+            option = ET.SubElement(settings, 'bool', name=name)
+        option.set('value', value)
     h.user_file('settings/es_settings.xml', settings_xml(settings))
     h.adb('logcat', '-c')
     output_path = h.evidence / ('pdf-' + mode + '-instrumentation.txt')
@@ -238,6 +252,9 @@ def run(mode, harness):
     process = None
     output = output_path.open('w')
     try:
+        # G-28 instrumentation: remove this log-tag switch/restore with the host
+        # trace when the root cause is found or 20 consecutive main runs lose no first key.
+        h.shell('setprop', 'log.tag.ESDE-PDF-CLOSE', 'DEBUG')
         h.private('rm', '-f', 'cache/pdf-result', 'cache/pdf-command')
         process = subprocess.Popen(['adb', 'shell', 'am', 'instrument', '-w', '-e', 'mode', 'pdf-session',
                                     h.app + '/org.esdeplus.frontend.RuntimeSmoke'], stdout=output, stderr=subprocess.STDOUT)
@@ -261,6 +278,23 @@ def run(mode, harness):
                 return session_acknowledged(result, value, finished, output_path.read_text())
             h.wait_for(completed, 'PDF session ' + action)
             return h.private('cat', 'cache/pdf-result')
+        def resumed_input(stage, pid):
+            latest = {}
+            def ready():
+                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                release = pdf_close_probe.resume_input_release(logs, pid)
+                if release is None:
+                    return False
+                latest.update(logs=logs, release=release)
+                return True
+            try:
+                h.wait_for(ready, 'PDF foreground input block released ' + stage)
+            except Exception:
+                pdf_close_probe.CloseProbe(h, mode).capture('resume-' + stage + '-timeout')
+                raise
+            h.evidence.joinpath('pdf-' + mode + '-input-ready-' + stage + '.txt').write_text(latest['logs'])
+            pdf_close_probe.CloseProbe(h, mode).record(
+                event='input-ready', stage=stage, pid=pid, **latest['release'])
         def paused_command(action, stage):
             # Active frames create and retire graphics fence descriptors. Use
             # the real paused host for every full-process descriptor snapshot.
@@ -275,6 +309,9 @@ def run(mode, harness):
             snapshot = command(action)
             h.evidence.joinpath('pdf-' + mode + '-paused-' + stage + '.txt').write_text(
                 paused + '\n' + h.shell('dumpsys', 'activity', 'activities') + '\n' + snapshot)
+            # Keep this resume's start/release in the evidence; clearing after
+            # BACK erased the deliberate input-block window (D-024 am. 1).
+            h.adb('logcat', '-c')
             h.key('KEYCODE_BACK')
             wait_for_focus(h, h.app, 'PDF descriptor snapshot returns frontend focus')
             h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF snapshot retains process')
@@ -283,11 +320,11 @@ def run(mode, harness):
             h.launch_checks.equal([r[:2] for r in after], [r[:2] for r in before], 'PDF snapshot retains host and task')
             rejects('PDF snapshot changed host/task', lambda: h.launch_checks.equal(
                 [r[:2] for r in before] + [('wrong', '-1')], [r[:2] for r in before], 'PDF snapshot task control'))
+            resumed_input(stage, pid)
             return snapshot
         result = paused_command('contract', 'contract')
         h.smoke_checks.probe_passed(result, 'PASS: D-008 real JNI')
         h.evidence.joinpath('pdf-' + mode + '-contract.txt').write_text(result)
-        h.adb('logcat', '-c')
         def frame(name):
             h.screenshot('pdf-' + mode + '-' + name)
             return (h.evidence / ('pdf-' + mode + '-' + name + '.png')).read_bytes()
@@ -298,12 +335,63 @@ def run(mode, harness):
             h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
             # Rendering and releasing the visited-page cache can outlast a fixed
             # screenshot delay. Await the actual frame without reissuing input.
-            h.wait_for(lambda: manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
-                       'actual manual frame ' + name)
+            try:
+                h.wait_for(lambda: manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
+                           'actual manual frame ' + name)
+            except Exception:
+                pdf_close_probe.CloseProbe(h, mode).capture('open-' + name + '-timeout')
+                raise
             png = frame(name)
             manual_image(png)
             return png
         h.key('KEYCODE_ENTER')
+        if diagnostic_cycles:
+            # This is a separate, focused diagnostic workload. The normal
+            # PR-D smoke below remains complete. Keep the existing total
+            # instrumentation deadline and per-close timeout unchanged.
+            assert h.api >= 31 and not h.television
+            command('fixture=stress')
+            probe = pdf_close_probe.CloseProbe(h, mode)
+            poll_counts = []
+            for cycle in range(diagnostic_cycles):
+                # Exercise the open path's first post-resume key too, with
+                # the viewer stopped. Each cycle then warms and closes it.
+                paused_command('stats', 'diagnostic-open-' + str(cycle))
+                h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
+                def first_ready():
+                    png = h.adb('exec-out', 'screencap', '-p', binary=True)
+                    if not displayed_page(png, 1):
+                        return False
+                    h.evidence.joinpath('pdf-' + mode + '-diagnostic-first-' + str(cycle) + '.png').write_bytes(png)
+                    return True
+                try:
+                    h.wait_for(first_ready, 'diagnostic actual first page')
+                except Exception:
+                    probe.capture('open-timeout')
+                    raise
+                # Multiple keycodes are ordinary input keyevent presses; no
+                # 0.4 s host sleep per warm-up page. Every page must render.
+                h.shell('input', 'keyevent', *(['KEYCODE_DPAD_RIGHT'] * 59))
+                h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), 60),
+                           'diagnostic cached-page endpoint 60')
+                logs = h.adb('logcat', '-d')
+                for page in range(1, 61):
+                    h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
+                h.evidence.joinpath('pdf-' + mode + '-diagnostic-open-' + str(cycle) + '-logcat.txt').write_text(logs)
+                h.key('KEYCODE_MOVE_HOME')
+                h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), 1),
+                           'diagnostic cached-page endpoint 1')
+                paused_command('stats', 'diagnostic-resume-' + str(cycle))
+                poll_counts.append(probe.close(manual_visible, diagnostic=True, kind='cached-resume'))
+            command('end')
+            process.wait(timeout=15)
+            h.smoke_checks.probe_passed(output_path.read_text(), 'PASS: PDF viewer session completed')
+            h.evidence.joinpath('pdf-' + mode + '-diagnostic-summary.txt').write_text(
+                'Diagnostic workload completed: ' + str(diagnostic_cycles) +
+                ' cached-60-page pause/resume single-key closes; polls=' + str(poll_counts) + '\n')
+            if diagnostic_cycles == 20:
+                assert poll_counts == [1] * 20, 'Twenty consecutive native-stop/single-poll closes required: ' + str(poll_counts)
+            return
         first = open_manual('first')
         h.launch_checks.equal(manual_visible(first), True, 'Actual manual readiness control')
         rejects('stale page', lambda: closed(first))
@@ -355,7 +443,9 @@ def run(mode, harness):
         h.key('KEYCODE_FORWARD_DEL'); command('fixture=missing'); h.key('KEYCODE_DPAD_UP')
         closed(frame('missing-after-discovery'))
         command('fixture=valid'); open_manual('missing-recovery'); h.key('KEYCODE_DEL')
-        if h.api in [29, 34]:
+        # Retain the existing API 29 CI check until the Android 12 platform merge;
+        # every supported phone image runs this stress path. TV remains excluded.
+        if not h.television and (h.api == 29 or h.api >= 31):
             command('fixture=stress')
             h.adb('logcat', '-c')
             first_stress = open_manual('stress-first')
@@ -364,13 +454,14 @@ def run(mode, harness):
             h.launch_checks.equal(displayed_page(first_stress, 1), True, 'Displayed stress page ready')
             h.launch_checks.equal(displayed_page(first_stress, 2), False, 'Wrong stress page readiness control')
             rejects('non-solid stress marker', lambda: solid_bit([128, 128, 128]))
+            first_stress_logs = h.adb('logcat', '-d')
             baseline = paused_command('stats', 'before-stress')
             for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
                 for _ in range(59): h.key(code)
                 h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), page),
                            'actual displayed stress endpoint ' + str(page))
                 stress_page(frame('stress-' + code), page)
-            logs = h.adb('logcat', '-d')
+            logs = first_stress_logs + '\n' + h.adb('logcat', '-d')
             for page in range(1, 61):
                 h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
             h.evidence.joinpath('pdf-' + mode + '-stress-pages.txt').write_text(logs)
@@ -380,11 +471,14 @@ def run(mode, harness):
             memory_path.write_text(baseline + '\n' + after + '\n' + memory)
             descriptors(baseline, after)
             rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
+            probe = pdf_close_probe.CloseProbe(h, mode)
             def close_cycle():
-                h.key('KEYCODE_DEL')
-                h.wait_for(lambda: not manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
-                           'manual closed before next cycle')
-            close_cycle()
+                return probe.close(manual_visible)
+            polls = close_cycle()
+            if h.api >= 31:
+                if polls != 1:
+                    probe.capture('slow-stress-close')
+                h.launch_checks.equal(polls, 1, 'Cached PDF closes on first poll after resume')
             for _ in range(10):
                 open_manual('cycle'); close_cycle()
             stable = paused_command('stats', 'after-cycles')
@@ -393,8 +487,9 @@ def run(mode, harness):
             command('fixture=valid')
         open_manual('lifecycle')
         pid = h.shell('pidof', h.app).strip()
-        h.shell('am', 'start', '-a', 'android.settings.SETTINGS')
-        time.sleep(2); h.key('KEYCODE_BACK')
+        # Use the same opaque recipient on every image. TV Settings can leave
+        # SDL resumed, which cannot produce a foreground-block release.
+        paused_command('stats', 'lifecycle')
         h.launch_checks.equal(h.shell('pidof', h.app).strip(), pid, 'PDF foreground process')
         manual_image(frame('foreground'))
         h.key('KEYCODE_DEL')
@@ -475,6 +570,7 @@ def run(mode, harness):
         output.close()
         h.shell('am', 'force-stop', h.app)
         h.user_file('settings/es_settings.xml', original)
+        h.shell('setprop', 'log.tag.ESDE-PDF-CLOSE', input_trace_level)
     # The inherited warm-alias checks expect a live HOME session, just as
     # launch_contract_probes restores after its standalone gamelist probes.
     h.wait_for(lambda: not h.shell('pidof', h.app, check=False).strip(), 'PDF frontend stopped before restoring HOME')

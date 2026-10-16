@@ -99,8 +99,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Verify fresh-session settle, forced-relaunch controls and failure propagation
-        run: python3 android/smoke_session.py self-test
+      - name: Verify fresh-session, forced-relaunch and PDF-close controls
+        run: |
+          python3 android/smoke_session.py self-test
+          python3 android/pdf_close_probe_test.py
       - name: Record exact Gradle cache key
         id: gradle-cache-key
         env:
