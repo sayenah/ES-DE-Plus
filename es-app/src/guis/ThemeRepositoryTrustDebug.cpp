@@ -350,10 +350,16 @@ namespace
             const std::string original {themes + "/themes-list"};
             // Unguarded positive controls write only original, disposable fixtures.
             for (const std::string attack : {"worktree", "gitlink", "commondir"}) {
-                const std::string target {privateRoot + "/unguarded-" + attack};
-                fs::copy(source, target, fs::copy_options::recursive);
+                // Ownership exceptions are keyed by the resolved workdir. An
+                // outside/private workdir correctly fails ownership on FUSE;
+                // another admitted workdir reaches the independent identity gate.
+                const std::string target {attack == "worktree" ?
+                                              themes + "/second" :
+                                              privateRoot + "/unguarded-" + attack};
+                if (attack != "worktree")
+                    fs::copy(source, target, fs::copy_options::recursive);
                 if (attack == "worktree") {
-                    write(target + "/theme.xml", "ES-DE-Plus private write positive control");
+                    write(target + "/theme.xml", "ES-DE-Plus redirect write positive control");
                     auto repository = open(original);
                     setting(repository.get(), "core.worktree", &target);
                 }
@@ -419,7 +425,8 @@ namespace
                 }
                 positive(original);
                 evidence << "PASS: unguarded " << attack
-                         << " positive control changed only its authored private target\n";
+                         << " positive control changed only its authored "
+                         << (attack == "worktree" ? "admitted" : "private") << " target\n";
             }
             const uint64_t secondBefore {fingerprint(themes + "/second")};
             fs::create_directory(themes + "/unlisted");
@@ -432,7 +439,7 @@ namespace
                     setting(repository.get(), "core.worktree", &target);
                 }
                 evidence << "WORKTREE target=" << target;
-                deniedIdentity(original, target != themes + "/unlisted");
+                deniedIdentity(original, target == themes + "/second");
                 evidence << '\n';
                 // Restore without opening the redirected repository.
                 const std::string config {original + "/.git/config"};
