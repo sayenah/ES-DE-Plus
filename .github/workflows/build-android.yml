@@ -463,6 +463,13 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             python3 android/configurator_insets_smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload phone inset evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' && matrix.image == 'tv36' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-phone-insets-attempt${{ github.run_attempt }}
+          path: android/evidence/configurator-insets/*.txt
+          retention-days: 7
       - name: ${{ matrix.image }} fresh-emulator app-data smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2

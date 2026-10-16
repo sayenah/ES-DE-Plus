@@ -278,7 +278,8 @@ startup during recovery fails the leg, including the known API 29 lifecycle stal
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs five gating smoke phases, each in a distinct cold AVD: `core`
+CI runs six gating smoke phases, each in a distinct cold AVD: `app-data`
+(consent, adoption, root recovery and retained data after uninstall), `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 (update continuity on API 29/34 and network checks), `pdf-direct`, and

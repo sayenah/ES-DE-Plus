@@ -33,12 +33,14 @@ def main():
                 result = run('shell', 'am', 'instrument', '-w', '-e', 'mode', 'configurator-insets',
                              app + '/org.esdeplus.frontend.RuntimeSmoke')
                 overlay_state = run('shell', 'cmd', 'overlay', 'list')
+                # Preserve the actual failure report before any assertion: this
+                # probe gates and its evidence must survive later session loss.
+                (root / (mode + '-' + orientation + '.txt')).write_text(result + '\n' + overlay_state)
+                print(mode, orientation, result, flush=True)
                 assert '[x] com.android.internal.systemui.navbar.' + overlay in overlay_state, overlay_state
                 smoke_checks.probe_passed(result, 'PASS: inset oracle rejects bar overlap positive controls')
                 assert 'cutout=DisplayCutout' in result, result
                 assert ('orientation=' + ('1' if rotation == '0' else '2')) in result, result
-                (root / (mode + '-' + orientation + '.txt')).write_text(result + '\n' + overlay_state)
-                print(mode, orientation, result, flush=True)
     finally:
         run('shell', 'settings', 'put', 'system', 'accelerometer_rotation', '1')
 
