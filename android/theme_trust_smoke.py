@@ -4,6 +4,7 @@
 import shlex
 import json
 import pathlib
+import re
 
 
 def request(h):
@@ -22,6 +23,21 @@ def collect(h):
     finally:
         h.evidence.joinpath('theme-trust-controls.txt').write_text(result())
     report = result()
+    if 'FAIL: actual update fetch positive control' in report:
+        # Observe the failed fixture later from the same UID, without retrying
+        # the operation or changing its failed result. This distinguishes a
+        # persistent missing origin from a transient shared-filesystem view.
+        root = h.shell('readlink', '-f', h.data_root, check=False).strip()
+        allowed = re.escape(root) + r'/theme-trust\.[^/\n]+/themes/original'
+        for path in set(re.findall(r'^FETCH remote lookup=.*? path=(.*?) error=', report, re.M)):
+            if not root.startswith('/') or not re.fullmatch(allowed, path):
+                continue
+            observation = ('run-as UID=' + h.shell('run-as', h.app, 'id', '-u', check=False) +
+                           '\nstat uid/gid/mode/inode/size=' +
+                           h.shell('run-as', h.app, 'stat', '-c', '%u %g %a %i %s',
+                                   path + '/.git/config', check=False) + '\nCONFIG\n' +
+                           h.shell('run-as', h.app, 'cat', path + '/.git/config', check=False))
+            h.evidence.joinpath('theme-trust-failed-config-readback.txt').write_text(observation)
     assert 'FAIL:' not in report and 'PASS: app-context theme trust controls\n' in report, report
     assert report.count('PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n') == 2, report
     for required in ['raw owner control shared=1 code=-36', 'worktree outside, private and admitted',
