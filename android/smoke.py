@@ -1220,8 +1220,11 @@ try:
         # restore actual selections, not just display an empty configurator.
         ui('Use app-owned storage', dpad=True)
         ui('Create system folders', dpad=True)
-        draft_before = fresh_session_checks.font_draft(hierarchy(), app)
+        scoped_path = shell('readlink', '-f', roms).strip()
+        assert scoped_path, 'Missing canonical scoped ROM directory'
+        draft_before = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
         assert ('Create system folders', 'false') in draft_before, draft_before
+        assert ('scoped_path', scoped_path) in draft_before, draft_before
         held_pid = shell('pidof', app).strip()
         before_records = activity_records()[1]
         held_task = next(r[1] for r in before_records if r[0] != 'ConfiguratorActivity')
@@ -1264,7 +1267,7 @@ try:
                 wait_for(lambda: any(n.get('package') == app and n.get('text') == 'Create system folders'
                                      for n in hierarchy()), 'configurator after forced assets-path relaunch')
             after_records = activity_records()[1]
-            draft_after = fresh_session_checks.font_draft(hierarchy(), app)
+            draft_after = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
             output = font_log()
             if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH':
                 fresh_session_checks.font_recovery(held_pid, shell('pidof', app).strip(), held_task,

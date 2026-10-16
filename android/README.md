@@ -269,6 +269,8 @@ requires every phase and all existing D-020 gates.
 Before the first frontend launch or instrumentation, each fresh session samples
 `cmd overlay list` and the installed frontend's ApplicationInfo. Three consecutive
 unchanged samples must also have host `/proc/pressure/cpu` `some avg10 < 20%`.
+Only the per-query ApplicationInfo `createTimestamp` is excluded from comparison;
+raw samples retain it. Resource, overlay and shared-library fields remain compared.
 Samples are five seconds apart; this selects the lower-pressure band observed in
 run 38841218615 (API 34 core: 2.8–67.03%). The 120-second deadline is non-gating:
 expiry is recorded and the original assertions still run. `session-settle-*.txt`

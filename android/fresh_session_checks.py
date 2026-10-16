@@ -7,9 +7,12 @@ import re
 ASSETS_PATHS = 0x80000000
 
 
-def font_draft(nodes, app):
-    return sorted((n.get('text'), n.get('checked')) for n in nodes
-                  if n.get('package') == app and n.get('checkable') == 'true')
+def font_draft(nodes, app, scoped_path):
+    fields = [(n.get('text'), n.get('checked')) for n in nodes
+              if n.get('package') == app and n.get('checkable') == 'true']
+    if any(n.get('package') == app and scoped_path in n.get('text', '') for n in nodes):
+        fields.append(('scoped_path', scoped_path))
+    return sorted(fields)
 
 
 def font_outcome(output, pid, task):
@@ -56,6 +59,11 @@ def controls():
         assert result['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH'
     records = [('MainActivity', '12', ''), ('ConfiguratorActivity', '12', '')]
     app = 'org.esdeplus.frontend'
+    nodes = [dict(package=app, text='Create system folders', checkable='true', checked='false'),
+             dict(package=app, text='Put games in /owned/ROMs')]
+    draft = font_draft(nodes, app, '/owned/ROMs')
+    assert draft == [('Create system folders', 'false'), ('scoped_path', '/owned/ROMs')]
+    assert font_draft(nodes[:1], app, '/owned/ROMs') != draft
     good = ['4970', '6629', '12', records, True, True, '', app]
     font_recovery(*good)
     bad = [

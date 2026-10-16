@@ -27,6 +27,10 @@ def application_info(output):
     # including resourceDirs/overlayPaths/sharedLibraryFiles when non-null.
     # GET_SHARED_LIBRARY_FILES (0x400) requests the latter. No app is launched.
     info = output.partition('ApplicationInfo:')[2].strip()
+    # Android 16 stamps each newly returned ApplicationInfo with its creation
+    # uptime. That is query metadata, not package/overlay state. Keep the raw
+    # sample but exclude only this field from the stability comparison.
+    info = re.sub(r'(?m)^\s*createTimestamp=\d+\s*$', '', info).strip()
     return info if 'packageName=' in info and 'sourceDir=' in info else None
 
 
@@ -122,6 +126,9 @@ def settle_controls():
             return result
 
     assert exercise([snapshot()])['seconds'] == 10
+    timestamps = [snapshot(info='sourceDir=/data/app/base.apk\n createTimestamp=' + str(t))
+                  for t in (1000, 6000, 11000)]
+    assert exercise(timestamps)['seconds'] == 10
     # Stable but busy/unknown samples must not qualify. Overlay or ApplicationInfo
     # churn resets the consecutive count even when CPU pressure is already low.
     for changed in (snapshot(overlays='android\n[ ] overlay\n'),
