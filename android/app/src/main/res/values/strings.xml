@@ -58,4 +58,6 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="storage_validation_failed">Storage validation failed. Retry.</string>
     <string name="resource_verification_failed">Resource verification failed: %1$s</string>
     <string name="resource_installation_incomplete">Resource installation is incomplete. Retry.</string>
+    <string name="frontend_restart_waiting">Waiting for the frontend to close before restarting…</string>
+    <string name="frontend_restart_recovery">The frontend could not restart yet. Retry after it closes, or return to your home screen and open the app again. Your games and settings are kept.</string>
 </resources>

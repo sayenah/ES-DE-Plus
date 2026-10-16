@@ -99,6 +99,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Verify smoke-session failure propagation
+        run: python3 android/smoke_session.py self-test
       - name: Record exact Gradle cache key
         id: gradle-cache-key
         env:
@@ -453,7 +455,9 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: python3 android/minimum-sdk-smoke.py android/app/build/outputs/apk/debug/app-debug.apk
-      - name: ${{ matrix.image }} x86_64 configurator and frontend smoke
+      # Every phase cold-boots a distinct AVD, uses the same built APK, and gates this job.
+      # Upload each phase before booting the next so later runner loss retains earlier evidence.
+      - name: ${{ matrix.image }} fresh-emulator core smoke
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
@@ -461,7 +465,9 @@ jobs:
           arch: x86_64
           target: ${{ matrix.target }}
           profile: ${{ matrix.profile }}
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          avd-name: esde-core
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           sdcard-path-or-size: 512M
           disable-animations: true
           cores: 4
@@ -469,7 +475,138 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload core session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-core-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
+            android/evidence/core-session-*.txt
+            android/evidence/core-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator lifecycle smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-lifecycle
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py lifecycle -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase lifecycle
+      - name: Upload lifecycle session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-lifecycle-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/lifecycle/*.txt
+            android/evidence/lifecycle/*.png
+            android/evidence/lifecycle-session-*.txt
+            android/evidence/lifecycle-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator integration smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-integration
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py integration -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase integration
+      - name: Upload integration session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-integration-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/integration/*.txt
+            android/evidence/integration/*.png
+            android/evidence/integration-session-*.txt
+            android/evidence/integration-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator pdf-direct smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-pdf-direct
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py pdf-direct -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase pdf-direct
+      - name: Upload pdf-direct session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-pdf-direct-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/pdf-direct/*.txt
+            android/evidence/pdf-direct/*.png
+            android/evidence/pdf-direct-session-*.txt
+            android/evidence/pdf-direct-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator pdf-scoped smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-pdf-scoped
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py pdf-scoped -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase pdf-scoped
+      - name: Upload pdf-scoped session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-pdf-scoped-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/pdf-scoped/*.txt
+            android/evidence/pdf-scoped/*.png
+            android/evidence/pdf-scoped-session-*.txt
+            android/evidence/pdf-scoped-command-costs.txt
+          retention-days: 7
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: git diff --exit-code -- external/
@@ -539,8 +676,8 @@ jobs:
           path: |
             android/*.log
             android/DEPENDENCY-LICENSES.md
-            android/evidence/*.txt
-            android/evidence/*.png
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
           retention-days: 7
       # This is the ONLY APK upload. Source upload/download/validation precede it.
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
