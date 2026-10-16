@@ -15,6 +15,7 @@ import pdf_smoke
 import lifecycle_smoke
 import smoke_support
 import smoke_session
+import fresh_session_checks
 import smoke_phases
 import network_smoke
 import importer_navigation
@@ -35,6 +36,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 (evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
+(evidence / 'fresh-session-controls.txt').write_text(fresh_session_checks.controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
@@ -44,6 +46,14 @@ stock_package = 'com.google.android.tvlauncher'
 onboarding_guard = False
 dismissing_onboarding = False
 last_onboarding_check = 0.0
+session_settled = False
+
+
+def settle_session():
+    global session_settled
+    if not session_settled:
+        smoke_session.settle(app, evidence)
+        session_settled = True
 
 
 def adb(*args, check=True, binary=False):
@@ -379,6 +389,7 @@ def ui(label, dpad=False, exact=False):
 
 def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
     global startup_baseline
+    settle_session()
     if not shell('pidof', app, check=False).strip():
         startup_baseline = log()
     shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
@@ -654,6 +665,7 @@ def owned_fixture(action, directory):
 
 
 def clear_app():
+    settle_session()
     shell('am', 'force-stop', app)
     shell('pm', 'clear', app)
     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'cleared app process stopped')
@@ -1204,8 +1216,29 @@ try:
         shell('wm', 'density', str(density))
     if api >= 31:
         previous_weight = shell('settings', 'get', 'secure', 'font_weight_adjustment').strip()
+        # Keep a non-default draft so the forced-process-restart path must
+        # restore actual selections, not just display an empty configurator.
+        ui('Use app-owned storage', dpad=True)
+        ui('Create system folders', dpad=True)
+        draft_before = fresh_session_checks.font_draft(hierarchy(), app)
+        assert ('Create system folders', 'false') in draft_before, draft_before
+        held_pid = shell('pidof', app).strip()
         before_records = activity_records()[1]
-        adb('logcat', '-c')
+        held_task = next(r[1] for r in before_records if r[0] != 'ConfiguratorActivity')
+        (evidence / 'font-weight-before-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        (evidence / 'font-weight-before-overlays.txt').write_text(shell('cmd', 'overlay', 'list'))
+        (evidence / 'font-weight-before-package.txt').write_text(shell('dumpsys', 'package', app))
+        (evidence / 'font-weight-before-application-info.txt').write_text(shell(
+            'cmd', 'package', 'resolve-activity', '--query-flags', '1024', '-n', activity))
+        (evidence / 'font-weight-before-draft.txt').write_text(json.dumps(draft_before) + '\n')
+        # Keep session logcat intact. A unique marker delimits this assertion;
+        # the wrapper also streams all buffers from before the first app action.
+        marker = 'ESDE_FONT_WEIGHT_' + str(time.monotonic_ns())
+        shell('log', '-t', 'ESDE-Smoke', marker)
+        def font_log():
+            output = adb('logcat', '-d', '-v', 'threadtime')
+            assert marker in output, 'Font-weight log marker missing'
+            return output.split(marker, 1)[1]
         requested_weight = '300' if previous_weight != '300' else '0'
         try:
             shell('settings', 'put', 'secure', 'font_weight_adjustment',
@@ -1215,13 +1248,41 @@ try:
             # Make the hidden host process its pending configuration through a
             # real re-entry; it immediately re-presents the held configurator.
             start_entry('HomeEntry', 'android.intent.category.HOME')
-            wait_for(lambda: 'SDL activity configuration handled' in adb('logcat', '-d'),
+            def font_changed():
+                return fresh_session_checks.font_outcome(font_log(), held_pid, held_task)
+            wait_for(font_changed,
                      'held SDL host handles the actual font-weight change')
-            assert shell('pidof', app).strip() == held_pid
+            outcome = fresh_session_checks.font_outcome(font_log(), held_pid, held_task)
+            if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH':
+                # This is a different environmental outcome with strict
+                # recovery requirements, never a retry of the font action.
+                (evidence / 'font-weight-outcome.txt').write_text(json.dumps(outcome) + '\nRecovery pending\n')
+                print('G-29 ' + json.dumps(outcome), flush=True)
+                wait_for(lambda: bool(shell('pidof', app, check=False).strip()) and
+                         shell('pidof', app, check=False).strip() != held_pid,
+                         'forced assets-path relaunch has a new frontend PID')
+                wait_for(lambda: any(n.get('package') == app and n.get('text') == 'Create system folders'
+                                     for n in hierarchy()), 'configurator after forced assets-path relaunch')
             after_records = activity_records()[1]
-            assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
-                r for r in before_records if r[0] != 'ConfiguratorActivity'), (before_records, after_records)
-            assert 'Creating sole SDL activity' not in adb('logcat', '-d')
+            draft_after = fresh_session_checks.font_draft(hierarchy(), app)
+            output = font_log()
+            if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH':
+                fresh_session_checks.font_recovery(held_pid, shell('pidof', app).strip(), held_task,
+                    after_records, 'ConfiguratorActivity' in focused_window(),
+                    draft_after == draft_before, output, app)
+            else:
+                # Re-read the destroy mask after UI inspection too; a handled
+                # callback must not conceal a subsequent declared-bits relaunch.
+                assert fresh_session_checks.font_outcome(output, held_pid, held_task)['outcome'] == 'IN_PLACE'
+                assert shell('pidof', app).strip() == held_pid
+                assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
+                    r for r in before_records if r[0] != 'ConfiguratorActivity'), (before_records, after_records)
+                assert 'Creating sole SDL activity' not in output
+                assert draft_after == draft_before, (draft_before, draft_after)
+            (evidence / 'font-weight-step-logcat.txt').write_text(output)
+            (evidence / 'font-weight-outcome.txt').write_text(json.dumps(dict(
+                **outcome, recovery='PASS', before_pid=held_pid, after_pid=shell('pidof', app).strip(),
+                task=held_task, draft=draft_after)) + '\n')
             (evidence / 'font-weight-held-activities.txt').write_text(activity_records()[0])
             save_logs('font-weight-held')
             screenshot('font-weight-held')
@@ -1230,6 +1291,7 @@ try:
                 shell('settings', 'delete', 'secure', 'font_weight_adjustment')
             else:
                 shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
+        ui('Create system folders', dpad=True)
     ui('Use app-owned storage', dpad=True)
     ui('Create system folders', dpad=True)
     destroy_held('destroy-initial-held')

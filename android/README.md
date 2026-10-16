@@ -266,6 +266,24 @@ RSS, host available memory and wrapped-ADB command counts/durations. Each
 phase's evidence is uploaded before the next AVD starts; publication still
 requires every phase and all existing D-020 gates.
 
+Before the first frontend launch or instrumentation, each fresh session samples
+`cmd overlay list` and the installed frontend's ApplicationInfo. Three consecutive
+unchanged samples must also have host `/proc/pressure/cpu` `some avg10 < 20%`.
+Samples are five seconds apart; this selects the lower-pressure band observed in
+run 38841218615 (API 34 core: 2.8–67.03%). The 120-second deadline is non-gating:
+expiry is recorded and the original assertions still run. `session-settle-*.txt`
+and each phase's session summary record the outcome and elapsed time. A continuous
+`PHASE-session-logcat.txt` preserves all buffers from session start, including
+before older checks clear their assertion buffers.
+
+The held-host font-weight probe captures activity override configuration, overlays,
+package resources and ApplicationInfo before the change. An ASSETS_PATHS destroy
+mask is labelled `ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH` (G-29); it still requires
+a new PID, the same task, a focused configurator with its non-default draft kept,
+and no frontend ANR or crash. Every other relaunch fails immediately. CI's
+`smoke_session.py self-test` runs rejection and acceptance controls for the mask,
+recovery and settle conditions, saved in `fresh-session-controls.txt`.
+
 For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
 including PDF fixtures; set `RUNNER_TEMP` to a temporary directory outside the

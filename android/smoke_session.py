@@ -7,9 +7,137 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
+
+
+# API 34 core telemetry (38841218615 attempts 1/2) ranged from 2.8–67.03%;
+# both attempts reached <20%. Require that lower-pressure band, not boot's
+# 34–59% samples. This is a readiness heuristic, not a product pass criterion.
+# PSI avg10 is a percent: https://docs.kernel.org/accounting/psi.html
+SETTLE_CPU_AVG10 = 20.0
+SETTLE_DEADLINE = 120
+SETTLE_SAMPLES = 3
+
+
+def application_info(output):
+    # resolve-activity (without --brief) dumps the component's ApplicationInfo,
+    # including resourceDirs/overlayPaths/sharedLibraryFiles when non-null.
+    # GET_SHARED_LIBRARY_FILES (0x400) requests the latter. No app is launched.
+    info = output.partition('ApplicationInfo:')[2].strip()
+    return info if 'packageName=' in info and 'sourceDir=' in info else None
+
+
+def settle_sample(app, remaining):
+    result = dict(host_cpu_pressure=read('/proc/pressure/cpu'))
+    for name, arguments in (
+            ('overlays', ['cmd', 'overlay', 'list']),
+            ('frontend', ['cmd', 'package', 'resolve-activity', '--query-flags', '1024',
+                          '-n', app + '/org.esdeplus.frontend.MainActivity'])):
+        try:
+            completed = subprocess.run(['adb', 'shell', *arguments], capture_output=True,
+                                       text=True, timeout=max(0.01, min(5, remaining / 2)))
+            result[name] = dict(status=completed.returncode, output=completed.stdout,
+                                error=completed.stderr)
+        except subprocess.TimeoutExpired:
+            result[name] = dict(status='timeout', output='', error='Settle sample timed out')
+    return result
+
+
+def settle_key(snapshot):
+    overlay, frontend = snapshot['overlays'], snapshot['frontend']
+    info = application_info(frontend['output'])
+    if overlay['status'] != 0 or frontend['status'] != 0 or not overlay['output'].strip() or not info:
+        return None
+    return overlay['output'], info
+
+
+def cpu_avg10(pressure):
+    match = re.search(r'^some avg10=(\d+(?:\.\d+)?)\b', pressure, re.M)
+    value = float(match[1]) if match else None
+    return value if value is not None and 0 <= value <= 100 else None
+
+
+def settle(app, evidence, take_sample=settle_sample, now=time.monotonic, pause=time.sleep):
+    began = now()
+    deadline = began + SETTLE_DEADLINE
+    previous = None
+    consecutive = 0
+    count = 0
+    outcome = 'DEADLINE_EXPIRED'
+    with (evidence / 'session-settle-samples.txt').open('w') as output:
+        while now() < deadline:
+            snapshot = take_sample(app, deadline - now())
+            count += 1
+            current = settle_key(snapshot)
+            cpu = cpu_avg10(snapshot['host_cpu_pressure'])
+            eligible = current is not None and cpu is not None and cpu < SETTLE_CPU_AVG10
+            consecutive = (consecutive + 1 if current == previous else 1) if eligible else 0
+            previous = current
+            snapshot.update(seconds=now() - began, cpu_some_avg10=cpu, consecutive=consecutive)
+            output.write(json.dumps(snapshot) + '\n')
+            output.flush()
+            print('SETTLE_SAMPLE ' + json.dumps(dict(seconds=snapshot['seconds'],
+                  cpu_some_avg10=cpu, consecutive=consecutive)), flush=True)
+            if consecutive >= SETTLE_SAMPLES and now() < deadline:
+                outcome = 'SETTLED'
+                break
+            pause(max(0, min(5, deadline - now())))
+    result = dict(outcome=outcome, seconds=now() - began, samples=count,
+                  deadline_seconds=SETTLE_DEADLINE, cpu_some_avg10_below=SETTLE_CPU_AVG10,
+                  required_consecutive_samples=SETTLE_SAMPLES)
+    (evidence / 'session-settle-summary.txt').write_text(json.dumps(result, indent=2) + '\n')
+    print('SESSION_SETTLE ' + json.dumps(result), flush=True)
+    # Deadline expiry or unavailable telemetry is evidence, never a session
+    # failure or permission to replay a product action. The original suite runs.
+    return result
+
+
+def settle_controls():
+    import contextlib
+    import io
+    import tempfile
+
+    def snapshot(overlays='android\n[x] overlay\n', info='sourceDir=/data/app/base.apk', cpu='10.0', status=0):
+        return dict(overlays=dict(status=status, output=overlays),
+                    frontend=dict(status=0, output='ApplicationInfo:\n packageName=org.esdeplus.frontend\n ' + info),
+                    host_cpu_pressure='some avg10=' + cpu + ' avg60=30.0 total=1\n')
+
+    def exercise(samples):
+        clock = [0]
+        calls = [0]
+        def take_sample(app, remaining):
+            index = min(calls[0], len(samples) - 1)
+            calls[0] += 1
+            return dict(samples[index])
+        def pause(seconds):
+            clock[0] += seconds
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            root = Path(directory)
+            result = settle('org.esdeplus.frontend', root, take_sample, lambda: clock[0], pause)
+            assert json.loads((root / 'session-settle-summary.txt').read_text()) == result
+            assert len((root / 'session-settle-samples.txt').read_text().splitlines()) == calls[0]
+            return result
+
+    assert exercise([snapshot()])['seconds'] == 10
+    # Stable but busy/unknown samples must not qualify. Overlay or ApplicationInfo
+    # churn resets the consecutive count even when CPU pressure is already low.
+    for changed in (snapshot(overlays='android\n[ ] overlay\n'),
+                    snapshot(info='sourceDir=/data/app/new.apk'),
+                    snapshot(info='sourceDir=/data/app/base.apk\n overlayPaths=[changed.frro]'),
+                    snapshot(cpu='66.48'), snapshot(cpu='20.0'), snapshot(cpu='unavailable'),
+                    snapshot(status=1), snapshot(info='No activity found')):
+        result = exercise([snapshot(), changed, snapshot(), snapshot(), snapshot()])
+        assert result['outcome'] == 'SETTLED' and result['seconds'] == 20, result
+    for unavailable in (snapshot(cpu='66.48'), snapshot(status='timeout'), snapshot(info='')):
+        result = exercise([unavailable])
+        assert result['outcome'] == 'DEADLINE_EXPIRED' and result['seconds'] == SETTLE_DEADLINE, result
+    assert cpu_avg10('full avg10=0.00') is None
+    assert cpu_avg10('some avg10=100.1') is None
+    return ('PASS: settle controls: stable/low pressure qualifies; overlay/ApplicationInfo churn, high/boundary/missing '
+            'CPU and failed reads delay readiness; bounded deadline returns without failing the session.\n')
 
 
 def command_kind(args):
@@ -109,6 +237,12 @@ def main():
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.phase == 'self-test':
+        import fresh_session_checks
+        controls = fresh_session_checks.controls() + settle_controls()
+        root = Path('android/evidence')
+        root.mkdir(parents=True, exist_ok=True)
+        (root / 'fresh-session-controls.txt').write_text(controls)
+        print(controls, end='')
         for status in (0, 7):
             assert run_child([sys.executable, '-c', f'raise SystemExit({status})'],
                              dict(os.environ), lambda: None) == status
@@ -163,12 +297,27 @@ def main():
                   memory=available, qemu=snapshot['qemu'], commands=counts,
                   pressure=snapshot['pressure'], vmstat=snapshot['host_vmstat'])), flush=True)
         print(f'SESSION {args.phase}: fresh guest {identity}; UTC telemetry every 30 seconds', flush=True)
-        status = run_child(command, env, observe)
+        # Keep a continuous copy even when an older suite clears its own
+        # assertion buffer. Start before installation/settling; never clear it.
+        with (root / (args.phase + '-session-logcat.txt')).open('w') as session_log:
+            follower = subprocess.Popen(['adb', 'logcat', '-b', 'all', '-v', 'threadtime'],
+                                        stdout=session_log, stderr=subprocess.STDOUT)
+            try:
+                status = run_child(command, env, observe)
+            finally:
+                streaming = follower.poll() is None
+                if streaming:
+                    follower.terminate()
+                follower.wait(timeout=5)
+                (root / (args.phase + '-session-logcat-status.txt')).write_text(
+                    json.dumps(dict(streaming_until_child_exit=streaming, status=follower.returncode)) + '\n')
         observe()
         records = lambda path: [json.loads(line) for line in path.read_text().splitlines(keepends=True)
                                 if line.endswith('\n')]
         measured = summary(records(health), records(Path(env['ESDE_SMOKE_COMMAND_METRICS'])),
                            time.monotonic() - began, status)
+        settle_record = Path(env.get('ESDE_SMOKE_EVIDENCE', str(root))) / 'session-settle-summary.txt'
+        measured['settle'] = json.loads(settle_record.read_text()) if settle_record.exists() else None
         (root / (args.phase + '-session-summary.txt')).write_text(json.dumps(measured, indent=2) + '\n')
         print('SESSION_SUMMARY ' + json.dumps(dict(phase=args.phase, **measured)), flush=True)
         print(f'SESSION {args.phase}: child exit status {status}', flush=True)

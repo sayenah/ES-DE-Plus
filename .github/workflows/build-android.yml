@@ -99,7 +99,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Verify smoke-session failure propagation
+      - name: Verify fresh-session settle, forced-relaunch controls and failure propagation
         run: python3 android/smoke_session.py self-test
       - name: Record exact Gradle cache key
         id: gradle-cache-key
