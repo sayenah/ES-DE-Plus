@@ -7,6 +7,48 @@ import shlex
 import subprocess
 import threading
 import time
+import sys
+
+
+def destruction_evidence(logs, old):
+    old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
+    destruction = next((line for line in old_lines.splitlines() if 'Destroying SDL activity' in line), '')
+    assert 'changingConfigurations=true' in destruction and 'finishing=false' in destruction, destruction
+    assert 'configurationChanges=0x-80000000' in destruction, 'Not ASSETS_PATHS-only: ' + destruction
+    assert old_lines.count('Running main function') == 1, 'Second/missing native main in old VM'
+    return old_lines
+
+
+def restoration_evidence(logs, old):
+    old_lines = destruction_evidence(logs, old)
+    assert 'Frontend restart decision requested=true configured=true helperStarted=true' in old_lines, old_lines
+    assert re.search(r'START .*FrontendRestartActivity', logs), 'Missing helper START'
+    assert f'SDL process {old} retired; restarting entry' in logs, 'Missing observed old-process retirement'
+
+
+def controls():
+    logs = (' I 123 124 Running main function\n'
+            ' I 123 123 Destroying SDL activity finishing=false changingConfigurations=true '
+            'configurationChanges=0x-80000000\n'
+            ' I 123 123 Frontend restart decision requested=true configured=true helperStarted=true\n'
+            ' I 456 456 START cmp=FrontendRestartActivity\n'
+            ' I 789 789 SDL process 123 retired; restarting entry\n')
+    restoration_evidence(logs, '123')
+    mutants = [logs.replace(token, replacement) for token, replacement in (
+        ('requested=true', 'requested=false'), ('configured=true', 'configured=false'),
+        ('helperStarted=true', 'helperStarted=false'), ('START', 'NOT_STARTED'),
+        ('SDL process 123 retired;', 'SDL process 999 retired;'),
+        ('configurationChanges=0x-80000000', 'configurationChanges=0x10000000'),
+        ('finishing=false', 'finishing=true'), ('changingConfigurations=true', 'changingConfigurations=false'))]
+    mutants += [logs + ' I 123 124 Running main function\n', logs.replace(' I 123 ', ' I 999 ')]
+    for mutant in mutants:
+        try:
+            restoration_evidence(mutant, '123')
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Incomplete/mismatched restore chain escaped')
+    return 'PASS: ten broken restore chains rejected; no recovery or action retry\n'
 
 
 def run(harness):
@@ -15,6 +57,7 @@ def run(harness):
     overlay = 'com.android.shell:esde_wo18'
     failures = []
     outcomes = []
+    (h.evidence / 'assets-chain-controls.txt').write_text(controls())
 
     def capture(name):
         h.save_logs(name)
@@ -68,6 +111,7 @@ def run(harness):
                 h.configured_system(name + '-before')
             old = h.shell('pidof', h.app).strip()
             assert old.isdigit(), old
+            before = h.log()
             dump, records = h.activity_records()
             frontend = [r for r in records if r[0] == 'MainActivity']
             assert len(frontend) == 1, dump
@@ -130,11 +174,7 @@ def run(harness):
             h.wait_for(lambda: old not in h.shell('pidof', h.app, check=False).split(),
                        name + ' old PID retired', timeout=10)
             logs = h.adb('logcat', '-d', '-v', 'threadtime')
-            old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
-            destruction = next(line for line in old_lines.splitlines() if 'Destroying SDL activity' in line)
-            assert 'changingConfigurations=true' in destruction and 'finishing=false' in destruction, destruction
-            assert 'configurationChanges=0x-80000000' in destruction, 'Not ASSETS_PATHS-only: ' + destruction
-            assert old_lines.count('Running main function') == 1, 'Second native main in old VM'
+            destruction_evidence(logs, old)
             if baseline:
                 # These are separate positive controls, never an expected-fail
                 # path in the candidate gate. Record races that happen to pass.
@@ -143,19 +183,24 @@ def run(harness):
                 while helper not in h.adb('logcat', '-d') and time.monotonic() < until:
                     time.sleep(0.25)
                 restored = helper in h.adb('logcat', '-d')
-                if mode in ('game', 'configurator'):
+                if mode in ('game', 'configurator', 'copy'):
                     assert not restored, 'Unfixed positive control unexpectedly restored stopped host'
+                if mode == 'copy':
+                    assert 'ASSETS actual SDL finish followed the destruction snapshot' in logs, 'Copy race seam not reached'
+                if not restored:
+                    logs = h.adb('logcat', '-d')
+                    assert not re.search(r'START .*FrontendRestartActivity', logs), 'Helper started but did not restore'
+                    assert not h.shell('pidof', h.app + ':lifecycle', check=False).strip(), 'Helper still running'
                 outcomes.append(f'{mode}: ' + ('race did not reproduce' if restored else 'G-30 reproduced; no helper restoration'))
             else:
                 h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
                            name + ' helper restoration', timeout=15)
                 logs = h.adb('logcat', '-d', '-v', 'threadtime')
-                old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
-                assert 'Frontend restart decision requested=true' in old_lines, old_lines
-                assert 'configured=true' in old_lines and 'helperStarted=true' in old_lines, old_lines
-                assert re.search(r'START .*FrontendRestartActivity', logs), logs
+                restoration_evidence(logs, old)
                 h.wait_for(lambda: h.shell('pidof', h.app, check=False).strip().isdigit() and
-                           h.shell('pidof', h.app).strip() != old and 'Application startup time:' in h.log(),
+                           h.shell('pidof', h.app).strip() != old and
+                           h.log().splitlines()[:1] != before.splitlines()[:1] and
+                           'Application startup time:' in h.log(),
                            name + ' new PID ready', timeout=90)
                 h.configured_system(name + '-restored')
                 dump, records = h.activity_records()
@@ -177,3 +222,8 @@ def run(harness):
                 process.wait(timeout=10)
     (h.evidence / 'assets-summary.txt').write_text('\n'.join(outcomes + failures) + '\n')
     assert not failures, '\n'.join(failures)
+
+
+if __name__ == '__main__':
+    assert sys.argv[1:] == ['self-test']
+    print(controls(), end='')

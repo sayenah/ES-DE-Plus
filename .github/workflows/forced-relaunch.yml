@@ -27,6 +27,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+      - name: Pin unfixed production host for positive controls
+        run: |
+          mkdir -p android/evidence
+          git show 899f98cf0444408cb00b60175dc4d606aaadc65d:android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt > android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt
+          echo 'Unfixed host: main 899f98cf0444408cb00b60175dc4d606aaadc65d; probe files from the run SHA' > android/evidence/assets-host-source.txt
+          sha256sum android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt >> android/evidence/assets-host-source.txt
+      - name: Verify restore-chain rejection controls
+        run: python3 android/forced_relaunch_smoke.py self-test
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin

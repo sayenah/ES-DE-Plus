@@ -24,8 +24,9 @@ class ForcedRelaunchProbe : Instrumentation() {
 
     override fun callActivityOnCreate(activity: Activity, state: Bundle?) {
         super.callActivityOnCreate(activity, state)
-        if (mode != "copy" || activity.javaClass.name != "org.esdeplus.frontend.MainActivity") return
-        val bridge = activity.javaClass.getDeclaredMethod("getBridge").apply { isAccessible = true }.invoke(activity)
+        if (mode != "copy" || activity.javaClass.name != "org.esdeplus.frontend.ForcedRelaunchActivity") return
+        val host = activity.javaClass.superclass!!
+        val bridge = host.getDeclaredMethod("getBridge").apply { isAccessible = true }.invoke(activity)
         val field = bridge.javaClass.getDeclaredField("context").apply { isAccessible = true }
         val original = field.get(bridge) as Context
         field.set(bridge, object : ContextWrapper(original) {
@@ -35,7 +36,7 @@ class ForcedRelaunchProbe : Instrumentation() {
                         it.className == "org.esdeplus.frontend.NativeBridge" }) {
                     blocked = true
                     Log.i("ES-DE-Plus-Probe", "ASSETS copy barrier entered")
-                    val destroying = activity.javaClass.getDeclaredField("destroying").apply { isAccessible = true }
+                    val destroying = host.getDeclaredField("destroying").apply { isAccessible = true }
                     val deadline = System.nanoTime() + 60_000_000_000L
                     while (!destroying.getBoolean(activity)) {
                         check(System.nanoTime() < deadline) { "Overlay did not destroy the copying host" }
@@ -46,6 +47,13 @@ class ForcedRelaunchProbe : Instrumentation() {
                 return super.getAssets()
             }
         })
+    }
+
+    override fun newActivity(loader: ClassLoader, className: String, intent: Intent): Activity {
+        if (mode == "copy" && className == "org.esdeplus.frontend.MainActivity")
+            return loader.loadClass("org.esdeplus.frontend.ForcedRelaunchActivity")
+                .getDeclaredConstructor().newInstance() as Activity
+        return super.newActivity(loader, className, intent)
     }
 
     override fun onStart() {

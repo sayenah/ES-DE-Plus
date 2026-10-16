@@ -78,19 +78,28 @@ open class MainActivity : SDLActivity() {
         }
     }
     override fun onDestroy() {
-        destroying = true
-        val terminal = !ConfiguratorSession.configuring && !SDLActivity.mBrokenLibraries
-        val destruction = "Destroying SDL activity held=${ConfiguratorSession.configuring} " +
-            "finishing=$isFinishing changingConfigurations=$isChangingConfigurations " +
-            "configurationChanges=0x${changingConfigurations.toString(16)} task=$taskId " +
-            "visibleForRestart=$visibleForRestart"
+        // Cancellation can return native main, whose SDL thread calls finish().
+        // Capture the framework's inputs once, before making cancellation visible.
+        val finishing = isFinishing
+        val changing = isChangingConfigurations
+        val changes = changingConfigurations
+        val visible = visibleForRestart
+        val held = ConfiguratorSession.configuring
+        val terminal = !held && !SDLActivity.mBrokenLibraries
+        restartRequested = terminal && visible && changing && !finishing
+        val destruction = "Destroying SDL activity held=$held " +
+            "finishing=$finishing changingConfigurations=$changing " +
+            "configurationChanges=0x${changes.toString(16)} task=$taskId " +
+            "visibleForRestart=$visible"
         if (BuildConfig.DEBUG) Log.i("ES-DE-Plus", destruction, Throwable("SDL destruction caller"))
         else Log.i("ES-DE-Plus", destruction)
         // A visible activity's non-finishing relaunch retains a foreground
         // owner while this process retires. The private Java activity waits for
         // actual process death; it cannot conceal a native quit/join stall.
-        restartRequested = terminal && visibleForRestart && isChangingConfigurations && !isFinishing
         prepareRestart()
+        Log.i("ES-DE-Plus", "Frontend restart decision requested=$restartRequested " +
+            "configured=$configured helperStarted=${restartPrepared.get()}")
+        destroying = true
         // Task clear can destroy the root before pausing the configurator.
         // Save its scalar snapshot without calling a retained Activity.
         if (ConfiguratorSession.configuring) ConfiguratorSession.persistPendingDraft(applicationContext)
@@ -121,8 +130,10 @@ open class MainActivity : SDLActivity() {
         return needed
     }
     private fun prepareRestart() {
-        if (restartRequested && configured && restartPrepared.compareAndSet(false, true))
+        if (restartRequested && configured && restartPrepared.compareAndSet(false, true)) {
             FrontendRestartActivity.prepare(applicationContext, ConfiguratorSession.restartEntry())
+            Log.i("ES-DE-Plus", "Frontend restart decision requested=true configured=true helperStarted=true")
+        }
     }
     fun checkEmulatorInstalled(packageName: String, activityName: String) = bridge.checkEmulatorInstalled(packageName, activityName)
     fun checkNeedResourceCopy(buildIdentifier: String) = bridge.checkNeedResourceCopy(buildIdentifier)
