@@ -39,6 +39,15 @@ def mainloop_input(before, after):
         'Frontend main loop did not acknowledge the harmless F12 key'
 
 
+def root_destinations(api, removable_roots):
+    # Keep the full Git-config escaping case on emulated shared storage. SDK
+    # removable-card images use FAT32, whose filenames cannot contain quotes.
+    result = [('/sdcard/ESDEPlus trust # ; " café', 'escaping')] if api == 34 else []
+    if removable_roots:
+        result.append((removable_roots[0] + '/ESDEPlus removable café', 'removable'))
+    return result
+
+
 def process_stacks(text, pid, app):
     blocks = re.findall(r'^----- pid ' + re.escape(pid) + r' at [^\n]*\n.*?^----- end ' +
                         re.escape(pid) + r' -----', text, re.M | re.S)
@@ -156,6 +165,18 @@ def controls():
                   'SSL peer certificate cannot be authenticated']:
         assert not scraper_reply(value), value
     reports = []
+    destinations = root_destinations(34, ['/storage/0000-0000'])
+    assert len(destinations) == 2
+    assert destinations[0][1] == 'escaping' and destinations[0][0].startswith('/sdcard/')
+    assert all(character in destinations[0][0] for character in ['#', ';', '"', ' ', 'é'])
+    assert destinations[1][1] == 'removable'
+    assert not any(character in pathlib.PurePosixPath(destinations[1][0]).name
+                   for character in '<>:"/\\|?*')
+    assert root_destinations(31, []) == [] and root_destinations(36, []) == []
+    assert len(root_destinations(34, [])) == 1
+    assert all(root_destinations(api, ['/storage/card'])[0][1] == 'removable' for api in (31, 36))
+    reports.append('PASS: API34 full escaping fixture remains on emulated storage even with a card; '
+                   'removable clone/load fixture uses a portable filename; absence is explicit.')
     for api in (31, 34, 36):
         ticks = [0]
         attempts = []
@@ -559,6 +580,9 @@ def run_checks(harness, scoped=False):
         if scoped or h.api not in (31, 34) or not baseline.is_file():
             return  # TV36 already has the required historical 438bf5927 evidence.
         begin('historical-owner-control')
+        # user_file() stopped the frontend after preparing DebugMode. Load it
+        # before theme_path() requires the native directory record in its log.
+        h.launch()
         h.shell('test', '!', '-e', theme_path('themes-list'))
         h.shell('am', 'force-stop', h.app)
         h.adb('install', '-r', '-d', str(baseline))
@@ -643,13 +667,14 @@ def run_checks(harness, scoped=False):
             assert size_kib >= 50 * 1024, ('TV large-theme control must exceed 50 MiB', size_kib)
         record(f'PASS: shared-data theme clone seconds={time.monotonic() - clone_began:.3f} KiB={size_kib} path={theme_path(repository)}')
         if extended and h.api in (31, 34, 36):
-            # Reopen the actual downloader; its admission hook makes this run's
-            # newly cloned theme exactly one commit behind before inventory.
-            h.key('KEYCODE_DEL')
+            # AC-4 exercises a fresh frontend; its admission hook rewinds this
+            # run's clone before inventory.
+            h.shell('am', 'force-stop', h.app)
+            h.launch()
             theme_trust_smoke.request_rewind(h, repository)
             begin('shared-theme-update-list')
             before_list = h.log()
-            h.key('KEYCODE_ENTER')
+            downloader()
             request_result(before_list,
                 lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
                 lambda text: "Couldn't fetch" in text,
@@ -851,6 +876,7 @@ def run_checks(harness, scoped=False):
             assert f'Finished loading theme "{repository}"' in h.log(), h.log()
             assert {path: h.shell('sha256sum', theme_path(path)).split()[0] for path in retained} == hashes
             h.evidence.joinpath('shared-theme-uninstall-hashes.txt').write_text(json.dumps(hashes, indent=2))
+            theme_trust_smoke.request_rewind(h, repository)
             before_reinstall_update = h.log()
             downloader()
             refreshed = request_result(before_reinstall_update,
@@ -860,21 +886,29 @@ def run_checks(harness, scoped=False):
                 lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('reinstall-list-start', required=True))))
             if 'Not running the most current application release' in refreshed:
                 h.key('KEYCODE_ENTER')
+            retained_rewind = theme_trust_smoke.rewind_result(h)
             select_theme_row()
             before_retained_update = h.log()
+            retained_update_began = time.monotonic()
             h.key('KEYCODE_ENTER')
             updated = request_result(before_retained_update,
-                lambda text: f'Repository "{repository}" already up to date' in text,
+                lambda text: f'Performing fast-forward of repository "{repository}"' in text,
                 lambda text: "Couldn't fetch" in text or "Couldn't clone" in text,
                 'retained installed theme update after real uninstall', 300,
                 lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('reinstall-update-start', required=True))))
-            assert f'Repository "{repository}" already up to date' in updated, updated
+            h.wait_for(lambda: h.shell('cat', theme_path(repository + '/.git/' + retained_rewind['reference'])).strip()
+                       == retained_rewind['latest'], 'retained theme fast-forward after uninstall', 90)
+            h.shell('test', '!', '-e', theme_path(repository + '_DISABLED'))
+            assert 'contains local changes' not in updated, updated
             h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
-            record('PASS: real uninstall without -k; reselected shared data; theme hashes/HEAD retained, theme loaded, installed inventory and update passed')
-        if extended and not scoped and (h.api == 34 or removable_roots):
+            record(f'PASS: real uninstall without -k; reselected shared data; hashes/HEAD retained, '
+                   f'theme loaded, installed inventory and actual fast-forward passed; '
+                   f'HEAD {retained_rewind["previous"]} -> {retained_rewind["latest"]}; '
+                   f'seconds={time.monotonic() - retained_update_began:.3f}')
+        destinations = root_destinations(h.api, removable_roots) if extended and not scoped else []
+        for new_root, root_kind in destinations:
             # Real root re-selection, using ordinary EditText paste for Unicode.
             old_root = h.data_root
-            new_root = (removable_roots[0] if removable_roots else '/sdcard') + '/ESDEPlus trust # ; " café'
             saved_root = old_root + '.prf-theme-root-saved'
             h.shell('am', 'force-stop', h.app)
             h.shell('test', '!', '-e', saved_root)
@@ -923,7 +957,8 @@ def run_checks(harness, scoped=False):
             expected_parent = h.shell('readlink', '-f', new_root + '/themes').strip()
             assert all(str(pathlib.PurePosixPath(path).parent) == expected_parent for path in paths), contents
             h.evidence.joinpath('theme-root-reselection-allowlist.txt').write_text(contents)
-            record('PASS: real root re-selection with # ; quote space and é; HTTPS list/theme cloned, selected and loaded; allowlist contains only new root; removable=' + str(bool(removable_roots)))
+            record('PASS: real ' + root_kind + ' root re-selection path=' + new_root +
+                   '; HTTPS list/theme cloned, selected and loaded; allowlist contains only new root')
         capture('network-theme-applied')
         record(f'PASS: real downloaded {repository} is selectable, saved and loaded through the UI.')
 
