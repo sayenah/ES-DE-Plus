@@ -387,7 +387,8 @@ def publication_result(eligible, outcome, artifact_id):
 def verify_publication(injection):
     validate_injection(injection)
     eligible = permitted_publication(os.environ['GITHUB_REPOSITORY'],
-                                     os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'])
+                                     os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
+                                     os.getenv('PUBLISH') == 'true', os.getenv('REBUILD_RUN', ''), injection)
     # Simulate only the eligible-main verdict; the actual upload guard stays main-only.
     if injection == 'apk-upload':
         eligible = True
@@ -470,8 +471,8 @@ def provenance(path, tracked, audit):
     require(False, f'Unmapped input: {path}')
 
 
-def permitted_publication(repository, event, ref):
-    return repository == REPOSITORY and event in {'push', 'workflow_dispatch'} and ref == 'refs/heads/main'
+def permitted_publication(repository, event, ref, publish=False, rebuild='', failure='none'):
+    return test_signing.eligible(repository, event, ref, 'api34', rebuild, failure, publish)
 
 
 def artifact_names(commit, run_id, attempt):
@@ -483,8 +484,9 @@ def artifact_names(commit, run_id, attempt):
 
 def validate_injection(injection):
     require(not injection or injection == 'none' or
-            not permitted_publication(os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_EVENT_NAME'],
-                                      os.environ['GITHUB_REF']), 'Failure injection is forbidden on main')
+            not (os.environ['GITHUB_REPOSITORY'] == REPOSITORY and
+                 os.environ['GITHUB_EVENT_NAME'] in ('push', 'workflow_dispatch') and
+                 os.environ['GITHUB_REF'] == 'refs/heads/main'), 'Failure injection is forbidden on main')
 
 
 def gate(android, linux, source):
@@ -877,8 +879,10 @@ def bundle_controls(bundle):
 
 
 def gate_controls():
-    require(permitted_publication(REPOSITORY, 'push', 'refs/heads/main'), 'Main push rejected')
-    require(permitted_publication(REPOSITORY, 'workflow_dispatch', 'refs/heads/main'), 'Main dispatch rejected')
+    require(not permitted_publication(REPOSITORY, 'push', 'refs/heads/main', True), 'Main push must dry-run')
+    require(not permitted_publication(REPOSITORY, 'workflow_dispatch', 'refs/heads/main'), 'Dispatch defaults to dry-run')
+    require(permitted_publication(REPOSITORY, 'workflow_dispatch', 'refs/heads/main', True),
+            'Explicit main publication dispatch rejected')
     for repository, event, ref in [(REPOSITORY, 'pull_request', 'refs/heads/main'),
                                    (REPOSITORY, 'push', 'refs/heads/feature/distribution-posture'),
                                    ('someone/ES-DE-Plus', 'push', 'refs/heads/main')]:
