@@ -606,9 +606,9 @@ def run_checks(harness, scoped=False):
 
     def download_theme(entries, extended=True):
         nonlocal owner_leftover
-        # TV's accepted timing criterion needs a large repository. Select its
-        # actual fetched row; other targets use the first admitted theme.
-        selected = next(entry for entry in entries if entry['reponame'] == 'art-book-next-es-de') if h.television else entries[0]
+        # Select the same named, fully bundled theme from the real admitted
+        # list on every image. Its size also exercises TV's large-clone timing.
+        selected = next(entry for entry in entries if entry['reponame'] == 'art-book-next-es-de')
         def select_theme_row():
             h.key('KEYCODE_MOVE_HOME')
             for _ in range(entries.index(selected)):
