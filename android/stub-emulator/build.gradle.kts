@@ -10,6 +10,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "PR-C-probe"
+        manifestPlaceholders["frontendId"] = providers.gradleProperty("esde.applicationId").get()
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }

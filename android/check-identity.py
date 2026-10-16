@@ -86,6 +86,7 @@ for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
+assert ('Lorg/esdeplus/frontend/StartupProbeActivity;' in classes) != release
 required_methods = {
     ('checkConfigurationNeeded', '()Z'),
     ('checkEmulatorInstalled', '(Ljava/lang/String;Ljava/lang/String;)Z'),
@@ -221,6 +222,10 @@ def integer_attribute(node, name):
 activities = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity'}
 main = activities['org.esdeplus.frontend.MainActivity']
 configurator = activities['org.esdeplus.frontend.ConfiguratorActivity']
+restart = activities['org.esdeplus.frontend.FrontendRestartActivity']
+assert integer_attribute(restart, 'exported') == 0, 'Lifecycle restart must be private'
+assert string_attribute(restart, 'process') == ':lifecycle', 'Lifecycle restart must survive the SDL process exit'
+assert not restart['children'], 'Lifecycle restart must have no public intent filters'
 assert 'taskAffinity' not in configurator['attributes'], 'Configurator must share the SDL task affinity'
 assert integer_attribute(main, 'launchMode') == 2, 'SDL activity must be singleTask'
 assert integer_attribute(main, 'exported') == 0xffffffff
@@ -238,6 +243,23 @@ permissions = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'
 for permission in ['READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE']:
     assert integer_attribute(permissions['android.permission.' + permission], 'maxSdkVersion') == 29
 assert 'android.permission.MANAGE_EXTERNAL_STORAGE' in permissions
+expected_permissions = {'android.permission.' + name for name in
+                        ['INTERNET', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE',
+                         'MANAGE_EXTERNAL_STORAGE']}
+def network_permissions(actual):
+    assert set(actual) == expected_permissions, ('Unexpected APK permissions', set(actual))
+
+network_permissions(permissions)
+network_permissions(re.findall(r"^uses-permission(?:-sdk-\d+)?: name='([^']+)'", badging, re.M))
+for wrong in [expected_permissions - {'android.permission.INTERNET'},
+              expected_permissions | {'android.permission.ACCESS_NETWORK_STATE'}]:
+    try:
+        network_permissions(wrong)
+    except AssertionError:
+        print('PASS: missing INTERNET / added permission positive control rejected')
+    else:
+        raise AssertionError('Network permission control escaped')
+print('PASS: badging and packaged manifest declare INTERNET and only the three existing storage permissions')
 application = next(n for n in manifest_nodes if n['tag'] == 'application')
 assert string_attribute(application, 'appComponentFactory') == 'org.esdeplus.frontend.FrontendActivityFactory'
 assert ('nativeWaitForConfiguration', '()V') in classes['Lorg/esdeplus/frontend/MainActivity;']
