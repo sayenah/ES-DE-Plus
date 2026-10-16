@@ -5,11 +5,13 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.font.TextAttribute;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.imageio.ImageIO;
 
@@ -46,7 +48,9 @@ class SmokeMenuFocus {
         BufferedImage canvas = new BufferedImage(2400, 300, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = canvas.createGraphics();
         g.setColor(new Color(128, 128, 128));
-        g.setFont(font);
+        // The frontend shapes with HarfBuzz kerning. Java disables it by
+        // default; enable it rather than relaxing label-match thresholds.
+        g.setFont(font.deriveFont(Map.of(TextAttribute.KERNING, TextAttribute.KERNING_ON)));
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g.drawString(label, 10, 200);
         g.dispose();
@@ -121,16 +125,6 @@ class SmokeMenuFocus {
                 double score = 1, second = 1;
                 for (String label : LABELS) {
                     double candidate = distance(word, render(label, font));
-                    // Settings labels are long enough for subpixel advance and
-                    // FreeType/JDK rounding differences to accumulate. Keep the
-                    // same strict distance/margin, compare nearby raster sizes.
-                    if (label.equals("AUDIO DRIVER (REQUIRES RESTART)") ||
-                            label.equals("NAVIGATION SOUNDS VOLUME")) {
-                        for (float delta = -1; delta <= 1; delta += 0.25f) {
-                            candidate = Math.min(candidate,
-                                    distance(word, render(label, font.deriveFont(font.getSize2D() + delta))));
-                        }
-                    }
                     if (candidate < score) { second = score; score = candidate; best = label; }
                     else second = Math.min(second, candidate);
                 }
@@ -158,7 +152,7 @@ class SmokeMenuFocus {
         g.setColor(selected ? Color.BLACK : new Color(25, 25, 25));
         g.fillRect(left, top + row * 2, width, row);
         g.setColor(new Color(128, 128, 128));
-        g.setFont(font);
+        g.setFont(font.deriveFont(Map.of(TextAttribute.KERNING, TextAttribute.KERNING_ON)));
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g.drawString(label, left + 12, top + row * 3 - row / 4);
         g.dispose();
