@@ -29,7 +29,9 @@ namespace ThemeRepositoryTrust
 
 #if defined(__ANDROID__) || defined(THEME_TRUST_TEST)
 #include <git2.h>
+#if __has_include(<git2/sys/errors.h>)
 #include <git2/sys/errors.h>
+#endif
 
 namespace ThemeRepositoryTrust
 {
