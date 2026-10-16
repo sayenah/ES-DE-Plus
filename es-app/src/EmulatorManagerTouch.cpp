@@ -12,6 +12,7 @@
 #include "InputManager.h"
 #include "Log.h"
 #include "components/ButtonComponent.h"
+#include "components/ComponentGrid.h"
 #include "components/ComponentList.h"
 #include "components/TextEditComponent.h"
 #include "renderers/Renderer.h"
@@ -107,7 +108,7 @@ bool EmulatorManagerTouch::handle(GuiComponent& gui, int type, int64_t finger, f
     return true;
 }
 
-void EmulatorManagerTouch::updateTargets(GuiComponent& gui)
+void EmulatorManagerTouch::updateTargets(GuiComponent& gui, bool reportButtonFocus)
 {
     if (!mDirty)
         return;
@@ -124,6 +125,13 @@ void EmulatorManagerTouch::updateTargets(GuiComponent& gui)
         if (!component.isVisible() || !component.getEnabled())
             return;
         const auto transform = parent * component.getTransform();
+        if (reportButtonFocus) {
+            if (auto grid = dynamic_cast<ComponentGrid*>(&component)) {
+                auto selected = grid->getSelectedComponent();
+                if (auto button = dynamic_cast<ButtonComponent*>(selected.get()))
+                    LOG(LogDebug) << "Emulator manager dialog focus: " << button->getText();
+            }
+        }
         if (auto list = dynamic_cast<ComponentList*>(&component)) {
             for (int i {0}; i < list->size(); ++i) {
                 const float y = (i + 0.5f) * list->getRowHeight() - list->getTouchOffset();

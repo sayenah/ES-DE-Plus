@@ -19,7 +19,7 @@ class EmulatorManagerTouch
 public:
     bool handle(GuiComponent& gui, int type, int64_t finger, float x, float y);
 
-    void updateTargets(GuiComponent& gui);
+    void updateTargets(GuiComponent& gui, bool reportButtonFocus = false);
     void invalidate() { mDirty = true; }
 
 private:
@@ -38,7 +38,12 @@ public:
     void update(int deltaTime) override
     {
         GuiMsgBox::update(deltaTime);
-        mTouch.updateTargets(*this);
+        mTouch.updateTargets(*this, true);
+    }
+    bool input(InputConfig* config, Input input) override
+    {
+        mTouch.invalidate();
+        return GuiMsgBox::input(config, input);
     }
     bool nativeTouch(int type, int64_t finger, float x, float y) override
     {

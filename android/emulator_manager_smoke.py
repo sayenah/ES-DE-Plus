@@ -54,7 +54,7 @@ def navigation_controls():
     return 'PASS: manager entry verifies fresh focus before every Down/A; QUIT, wrong and stale submenu labels send no A.\n'
 
 
-def open_manager(h, mode):
+def manager_menus(h, mode, leave=False):
     with (h.evidence / 'emulator-manager-navigation-sequence.txt').open('a+') as sequence:
         sequence.seek(0)
         name = f'emulator-manager-navigation-{mode}-{len(sequence.readlines()) + 1}'
@@ -74,8 +74,14 @@ def open_manager(h, mode):
         step += 1
         return result.stdout.strip() if result.returncode == 0 else None
     try:
-        h.key('KEYCODE_ESCAPE')
-        navigate_menus(read, h.key)
+        if leave:
+            for expected in ('EMULATOR MANAGER', 'ALTERNATIVE EMULATORS', 'OTHER SETTINGS'):
+                focused = importer_navigation.wait_selection(read)
+                assert focused == expected, f'Manager exit expected {expected!r}, focused {focused!r}; Back was not sent'
+                h.key('KEYCODE_DEL')
+        else:
+            h.key('KEYCODE_ESCAPE')
+            navigate_menus(read, h.key)
     except Exception:
         importer_navigation.capture_failure(h, name + '-failure')
         raise
@@ -220,14 +226,30 @@ def run(mode, harness, minified=False):
         h.shell('input', 'tap', str(round(display_x)), str(round(display_y)))
         h.time.sleep(0.5)
     def manager():
-        open_manager(h, mode)
+        manager_menus(h, mode)
         page('systems')
         pick(1); page('system')
     def restart_games():
         start_native(2, 'fresh startup manager configuration')
+    def notice_focus(expected):
+        def focused():
+            matches = re.findall(r'Emulator manager dialog focus: ([^\r\n]+)', h.adb('logcat', '-d'))
+            return matches and matches[-1] == expected
+        h.wait_for(focused, 'manager dialog focused ' + expected, timeout=15)
+        h.evidence.joinpath(f'emulator-manager-{mode}-dialog{focus_step}-{expected}.png').write_bytes(
+            h.adb('exec-out', 'screencap', '-p', binary=True))
+    def accept_notice(expected='CONTINUE'):
+        notice_focus(expected)
+        h.adb('logcat', '-c')
+        h.key('KEYCODE_ENTER')
     def cancel_notice():
-        if h.api != 36: tap('CANCEL')
-        else: h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
+        if not h.television:
+            tap('CANCEL')
+        else:
+            notice_focus('CONTINUE')
+            h.adb('logcat', '-c')
+            h.key('KEYCODE_DPAD_RIGHT')
+            accept_notice('CANCEL')
 
     release_installed = False
     try:
@@ -243,7 +265,7 @@ def run(mode, harness, minified=False):
             release_installed = True
         start()
         before = current()
-        if h.api != 36:
+        if not h.television:
             # Tap a field, type one character on the real virtual keyboard, cancel
             # the edit and then cancel the complete draft. Neither file is written.
             tap('EMULATOR LABEL:')
@@ -268,11 +290,10 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: 'Emulator manager discovery complete:' in h.adb('logcat', '-d'), 'discovery completion', timeout=30)
         # Wait for the asynchronous completion before selecting its first result.
         h.wait_for(lambda: h.adb('logcat', '-d').count('Emulator manager page: apps;') >= 1, 'app picker rebuilt')
-        pick(1); h.screenshot('emulator-manager-' + mode + '-receiving-component'); h.key('KEYCODE_ENTER'); page('draft')
+        pick(1); h.screenshot('emulator-manager-' + mode + '-receiving-component'); accept_notice(); page('draft')
         pick(3); page('profiles'); pick(0)
         # Decline the source TelevisionOnly receiver; keep the manually chosen activity.
-        if h.api != 36: tap('CANCEL')
-        else: h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
+        cancel_notice()
         page('draft')
         pick(4); text('.zip .ZIP'); page('draft')
         pick(15); page('files'); pick(0); text(fixture_data['file']); page('draft')
@@ -283,7 +304,7 @@ def run(mode, harness, minified=False):
         pick(16)
         h.wait_for(lambda: 'Integer extras must fit a signed 32-bit integer' in h.adb('logcat', '-d'), 'typed integer validation error')
         controls(before, current(), 'invalid typed extra test isolation')
-        h.screenshot('emulator-manager-' + mode + '-typed-extra-error'); h.key('KEYCODE_ENTER')
+        h.screenshot('emulator-manager-' + mode + '-typed-extra-error'); accept_notice('OK')
         pick(11); page('extras'); pick(2); page('extra')
         pick(2); text('3', erase=10); page('extra')
         h.key('KEYCODE_DEL'); page('extras'); h.key('KEYCODE_DEL'); page('draft')
@@ -308,13 +329,13 @@ def run(mode, harness, minified=False):
         h.key('KEYCODE_BACK')
         h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'test return keeps editable draft')
         h.screenshot('emulator-manager-' + mode + '-test-return')
-        h.key('KEYCODE_ENTER')  # Close the accepted-request notice.
+        accept_notice('OK')  # Close the verified accepted-request notice.
         pick(5); page('draft')  # path -> document URI, same named ROM extra
         pick(5)  # provider is invalid in a named extra; the error is modal
         h.wait_for(lambda: 'The ROM provider can only be used as Intent data' in h.adb('logcat', '-d'), 'invalid transport selection gives actionable error')
         controls(before, current(), 'invalid transport selection preserves files/defaults')
         h.screenshot('emulator-manager-' + mode + '-transport-selection-error')
-        h.key('KEYCODE_ENTER'); page('draft')
+        accept_notice('OK'); page('draft')
         controls(True, 'ROM TRANSPORT: DOCUMENT URI' in h.adb('logcat', '-d'), 'rejected transport keeps displayed document URI choice')
         # Test refusal must also preserve the candidate. App-private SAF is refused.
         if mode.startswith('scoped'):
@@ -322,7 +343,7 @@ def run(mode, harness, minified=False):
             h.wait_for(lambda: 'Emulator manager test: refused;' in h.adb('logcat', '-d'), 'app-private SAF refusal')
             controls(before, current(), 'refused test isolation')
             h.screenshot('emulator-manager-' + mode + '-refused-saf')
-            h.key('KEYCODE_ENTER')
+            accept_notice('OK')
             # Switch to provider and Intent data explicitly; no transport substitution.
             pick(6); text('', erase=3); page('draft')
             pick(5); page('draft')  # document URI -> provider
@@ -335,7 +356,7 @@ def run(mode, harness, minified=False):
             h.wait_for(lambda: 'The receiving activity is unavailable' in h.adb('logcat', '-d'), 'removed package gives actionable error')
             controls(before, current(), 'package-removal refusal preserves draft files')
             h.screenshot('emulator-manager-' + mode + '-package-removed')
-            h.key('KEYCODE_ENTER')
+            accept_notice('OK')
             h.adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
         discard_receipt()
         pick(16)
@@ -348,7 +369,7 @@ def run(mode, harness, minified=False):
         h.key('KEYCODE_BACK')
         h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'provider test return')
         h.screenshot('emulator-manager-' + mode + '-provider-test-return')
-        h.key('KEYCODE_ENTER')
+        accept_notice('OK')
         pick(17)
         h.wait_for(lambda: 'Emulator manager saved: ps3; label: EMUPLUS TEST' in h.adb('logcat', '-d'), 'manager saved')
         h.wait_for(lambda: 'Total game count: 2' in h.log(), 'both case extensions visible immediately')
@@ -365,7 +386,7 @@ def run(mode, harness, minified=False):
         controls(True, ET.fromstring(saved[1]).find("emulator[@name='" + rule_id + "']") is not None, 'new rule read back')
         # Re-enter through the ordinary menu, set default and launch through normal search.
         manager()
-        if h.api != 36:
+        if not h.television:
             tap('SET SYSTEM DEFAULT'); page('defaults'); tap('EMUPLUS TEST'); page('system')
         else:
             pick(1); page('defaults'); pick(1); page('system')
@@ -375,7 +396,9 @@ def run(mode, harness, minified=False):
         # dialogs through their normal callbacks, then exercise the fresh find rules
         # before restarting the native frontend.
         h.key('KEYCODE_DEL'); page('systems')
-        for _ in range(4): h.key('KEYCODE_DEL')
+        focus(0)
+        h.key('KEYCODE_DEL')  # Close the system list; parent menus are verified separately.
+        manager_menus(h, mode, leave=True)
         discard_receipt()
         h.search_launch('Manager', 'emulator-manager-' + mode + '-immediate')
         h.wait_for(lambda: 'Activity launch accepted:' in h.adb('logcat', '-d'), 'new saved command resolves before restart')
@@ -435,12 +458,12 @@ def run(mode, harness, minified=False):
             before_removal = current()
             pick(3); cancel_notice()
             controls(before_removal, current(), 'cancelled removal preserves selections and definitions')
-            pick(3); h.key('KEYCODE_ENTER')
+            pick(3); accept_notice()
             # Removal requires explicit repair of the selected manager entry.
             h.screenshot('emulator-manager-' + mode + '-repair-consent')
             cancel_notice()
             controls(before_removal, current(), 'declined repair preserves selections and definitions')
-            pick(3); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER')
+            pick(3); accept_notice(); accept_notice()
             h.wait_for(lambda: 'Emulator manager applied: ps3' in h.adb('logcat', '-d'), 'remove reapplies with accepted extensions')
             repaired = fragment(current()[2])
             controls('', repaired.findtext('alternativeEmulator/label') or '', 'affected system selection repaired')
@@ -452,9 +475,9 @@ def run(mode, harness, minified=False):
             before_reset = current()
             pick(3); h.screenshot('emulator-manager-' + mode + '-whole-override-reset-consent'); cancel_notice()
             controls(before_reset, current(), 'reset needs explicit confirmation')
-            pick(3); h.key('KEYCODE_ENTER')
+            pick(3); accept_notice()
             # The remaining per-game Original choice also needs explicit repair.
-            h.key('KEYCODE_ENTER')
+            accept_notice()
             h.wait_for(lambda: 'Emulator manager applied: ps3' in h.adb('logcat', '-d') and 'Total game count: 0' in h.log(), 'reset reapplies bundled file types immediately')
             reset = fragment(current()[0])
             controls(True, reset.find('loadExclusive') is not None, 'exclusive directive survives reset')
