@@ -201,8 +201,11 @@ internal object AppDataSmoke {
                         override fun getExternalFilesDir(type: String?): File? = alias
                     })
                     val configuration = StorageModel.Configuration("scoped", scopedROMs.path, "", false, scopedData.path)
+                    check(android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK))
                     android.system.Os.chmod(scopedROMs.path, 0x140) // 0500: real read/search, no write.
-                    check(!android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK))
+                    val denial = try { android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK); null }
+                        catch (error: android.system.ErrnoException) { error }
+                    check(denial?.errno == android.system.OsConstants.EACCES)
                     check(scoped.validate(configuration) == scopedROMs)
                     android.system.Os.chmod(scopedData.path, 0x140)
                     try { rejected { scoped.validate(configuration) } }

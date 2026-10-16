@@ -15,6 +15,7 @@ class RuntimeSmoke : Instrumentation() {
     private var ownedAction: String? = null
     private var ownedDirectory: String? = null
     private var followupMode: String? = null
+    private var insetRotation = 0
     private var userFileArguments: Bundle? = null
     private var importedTarget = ""
     override fun onCreate(arguments: Bundle?) {
@@ -23,6 +24,7 @@ class RuntimeSmoke : Instrumentation() {
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
         followupMode = arguments?.getString("mode")
+        insetRotation = arguments?.getString("rotation")?.toIntOrNull() ?: 0
         if (followupMode in listOf("write-user-file", "remove-user-file")) userFileArguments = arguments
         if (followupMode == "cleanup-importer") importedTarget = arguments?.getString("file").orEmpty()
         if (arguments?.getString("mode") == "owned-fixture") {
@@ -79,7 +81,7 @@ class RuntimeSmoke : Instrumentation() {
                 return
             }
             if (followupMode == "configurator-insets") {
-                result.putString("stream", ConfiguratorInsetsSmoke.run(this))
+                result.putString("stream", ConfiguratorInsetsSmoke.run(this, insetRotation))
                 finish(-1, result)
                 return
             }
