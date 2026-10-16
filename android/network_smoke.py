@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -294,8 +295,12 @@ def controls():
 
 
 def run(harness, scoped=False):
-    with wall_budget(90 * 60, 'network checks (90 minutes)'):
-        run_checks(harness, scoped)
+    try:
+        with wall_budget(90 * 60, 'network checks (90 minutes)'):
+            run_checks(harness, scoped)
+    except Exception:
+        harness['evidence'].joinpath('network-exception.txt').write_text(traceback.format_exc())
+        raise
 
 
 def run_checks(harness, scoped=False):
@@ -535,6 +540,9 @@ def run_checks(harness, scoped=False):
             theme_trust_smoke.collect(h)
             trust_controls_complete = True
         capture('network-' + ('control' if negative else 'fixed') + '-first-use')
+        # Debug prerequisites have their own result and may mention arbitrary
+        # paths. Classify diagnostics from the actual request, after PROCEED.
+        before = h.log()
         h.key('KEYCODE_ENTER')  # Real first-use PROCEED, never bypassed.
         output = request_result(before,
             lambda s: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', s)),
@@ -672,6 +680,9 @@ def run_checks(harness, scoped=False):
             # run's clone before inventory.
             h.shell('am', 'force-stop', h.app)
             h.launch()
+            # The fresh frontend rotates its log. Subsequent inventory/theme
+            # assertions must use this process's prefix, retaining delta's reset guard.
+            before = h.log()
             theme_trust_smoke.request_rewind(h, repository)
             begin('shared-theme-update-list')
             before_list = h.log()

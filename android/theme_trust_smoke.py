@@ -23,6 +23,7 @@ def collect(h):
         h.evidence.joinpath('theme-trust-controls.txt').write_text(result())
     report = result()
     assert 'FAIL:' not in report and 'PASS: app-context theme trust controls\n' in report, report
+    assert report.count('PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n') == 2, report
     for required in ['raw owner control shared=1 code=-36', 'worktree outside, private and admitted',
                      'gitlink and commondir blocked', 'non-repository, bare and linked worktree',
                      'between-precheck-fetch', 'substituted transport calls=0',

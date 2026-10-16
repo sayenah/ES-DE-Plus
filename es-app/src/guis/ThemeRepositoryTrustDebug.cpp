@@ -12,6 +12,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -37,6 +38,12 @@ namespace
     std::ostringstream evidence;
     bool running {false};
     int fetches {0};
+    struct CloneTrace {
+        std::string initialized;
+        std::string remote;
+        std::string completed;
+    };
+    std::map<std::string, CloneTrace> cloneTraces;
 
     void require(bool condition, const std::string& message)
     {
@@ -63,6 +70,21 @@ namespace
     {
         std::ifstream stream(path, std::ios::binary);
         return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    }
+
+    std::string configState(const std::string& repository)
+    {
+        const std::string path {repository + "/.git/config"};
+        struct stat info {
+        };
+        std::ostringstream state;
+        if (stat(path.c_str(), &info) == 0)
+            state << "uid=" << info.st_uid << " inode=" << info.st_ino << " size=" << info.st_size
+                  << '\n';
+        else
+            state << "stat errno=" << errno << '\n';
+        state << read(path);
+        return state.str();
     }
 
     std::string temporary(const std::string& parent)
@@ -167,13 +189,40 @@ namespace
     {
         git_clone_options options {};
         git(git_clone_options_init(&options, GIT_CLONE_OPTIONS_VERSION), "clone options");
-        options.repository_cb = ThemeRepositoryTrust::create;
-        options.remote_cb = ThemeRepositoryTrust::createRemote;
+        CloneTrace trace;
+        options.repository_cb = [](git_repository** out, const char* path, int bare,
+                                   void* payload) {
+            const int result {ThemeRepositoryTrust::create(out, path, bare, nullptr)};
+            static_cast<CloneTrace*>(payload)->initialized = configState(path);
+            return result;
+        };
+        options.repository_cb_payload = &trace;
+        options.remote_cb = [](git_remote** out, git_repository* repository, const char* name,
+                               const char* url, void* payload) {
+            const int result {
+                ThemeRepositoryTrust::createRemote(out, repository, name, url, nullptr)};
+            static_cast<CloneTrace*>(payload)->remote =
+                configState(git_repository_workdir(repository));
+            return result;
+        };
+        options.remote_cb_payload = &trace;
         options.local = GIT_CLONE_NO_LOCAL;
         git_repository* repository {nullptr};
         const int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
+        trace.completed = configState(path);
+        cloneTraces[path] = std::move(trace);
         git_repository_free(repository);
         return result;
+    }
+
+    void traceClone(const std::string& path)
+    {
+        const auto& trace = cloneTraces.at(path);
+        evidence << "AFTER INITIALIZATION\n"
+                 << trace.initialized << "AFTER REMOTE CREATION\n"
+                 << trace.remote << "AFTER CLONE\n"
+                 << trace.completed << "CURRENT CONFIG\n"
+                 << configState(path) << "END CLONE TRACE\n";
     }
 
     bool fetch(const std::string& path)
@@ -332,37 +381,50 @@ namespace
                         "and overlength names blocked at filesystem boundaries; reserved/other "
                         "themes unchanged\n";
         }
-        // Force a genuine one-commit-behind update, then fetch and reset forward.
-        std::string latest;
-        {
-            auto repository = open(original);
-            latest = head(repository.get());
-            git_object* previous {nullptr};
-            git(git_revparse_single(&previous, repository.get(), "HEAD~1"),
-                "previous fixture commit");
-            git(git_reset(repository.get(), previous, GIT_RESET_HARD, nullptr),
-                "set one commit behind");
-            git_object_free(previous);
-            evidence << "UPDATE before=" << head(repository.get()) << " expected=" << latest
-                     << '\n';
+        // Reproduce the API 31 metadata-persistence failure without retries:
+        // every clone, rewind, fetch and forward reset must independently pass.
+        for (int cycle {0}; cycle < 16; ++cycle) {
+            if (cycle != 0) {
+                fs::remove_all(original);
+                prepare();
+                git(clone(url, original), "repeated clone positive control");
+            }
+            std::string latest;
+            {
+                auto repository = open(original);
+                latest = head(repository.get());
+                git_object* previous {nullptr};
+                git(git_revparse_single(&previous, repository.get(), "HEAD~1"),
+                    "previous fixture commit");
+                git(git_reset(repository.get(), previous, GIT_RESET_HARD, nullptr),
+                    "set one commit behind");
+                git_object_free(previous);
+                evidence << "UPDATE cycle=" << cycle << " before=" << head(repository.get())
+                         << " expected=" << latest << '\n';
+            }
+            if (!fetch(original)) {
+                traceClone(original);
+                require(false,
+                        "actual update fetch positive control cycle=" + std::to_string(cycle));
+            }
+            {
+                auto repository = open(original);
+                git_reference* reference {nullptr};
+                git(git_repository_head(&reference, repository.get()), "fixture branch name");
+                const std::string branch {git_reference_shorthand(reference)};
+                git_reference_free(reference);
+                git_object* target {nullptr};
+                git(git_revparse_single(&target, repository.get(), ("origin/" + branch).c_str()),
+                    "fetched target");
+                require(verify(repository.get(), original), "update reset identity");
+                git(git_reset(repository.get(), target, GIT_RESET_HARD, nullptr),
+                    "forward update reset");
+                git_object_free(target);
+                require(head(repository.get()) == latest, "update reaches original HEAD");
+                evidence << "PASS: update after=" << head(repository.get()) << '\n';
+            }
         }
-        require(fetch(original), "actual update fetch positive control");
-        {
-            auto repository = open(original);
-            git_reference* reference {nullptr};
-            git(git_repository_head(&reference, repository.get()), "fixture branch name");
-            const std::string branch {git_reference_shorthand(reference)};
-            git_reference_free(reference);
-            git_object* target {nullptr};
-            git(git_revparse_single(&target, repository.get(), ("origin/" + branch).c_str()),
-                "fetched target");
-            require(verify(repository.get(), original), "update reset identity");
-            git(git_reset(repository.get(), target, GIT_RESET_HARD, nullptr),
-                "forward update reset");
-            git_object_free(target);
-            require(head(repository.get()) == latest, "update reaches original HEAD");
-            evidence << "PASS: update after=" << head(repository.get()) << '\n';
-        }
+        evidence << "PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n";
         if (!shared && data.find('"') != std::string::npos && data.find('\\') != std::string::npos)
             evidence << "PASS: actual quoted/backslash private Git paths; protected allowlist "
                         "parsed exactly; clone/fetch/reset succeeded\n";
@@ -851,6 +913,7 @@ void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
     running = true;
     fs::rename(request, request + ".running");
     evidence.str("");
+    cloneTraces.clear();
     try {
         const std::string privateRoot {temporary(privateDirectory)};
         const std::string bootstrap {privateRoot + "/bootstrap"};
