@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Real gamelist PDF runtime smoke; no framework.
 import pathlib
+import os
+import pdf_close_probe
 import re
 import shlex
 import struct
@@ -231,6 +233,13 @@ def run(mode, harness):
     node = settings.find("string[@name='MediaDirectory']")
     media = h.external + '/ES-DE-Plus/Manual spaces 🚀'
     node.set('value', media)
+    # Runtime Debug logging includes SDL repeats and Window's blocked-input
+    # state before any early return, and mirrors native logs into logcat.
+    for name, value in [('Debug', 'true'), ('DebugSkipInputLogging', 'false')]:
+        option = settings.find("bool[@name='" + name + "']")
+        if option is None:
+            option = ET.SubElement(settings, 'bool', name=name)
+        option.set('value', value)
     h.user_file('settings/es_settings.xml', settings_xml(settings))
     h.adb('logcat', '-c')
     output_path = h.evidence / ('pdf-' + mode + '-instrumentation.txt')
@@ -380,11 +389,22 @@ def run(mode, harness):
             memory_path.write_text(baseline + '\n' + after + '\n' + memory)
             descriptors(baseline, after)
             rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
+            probe = pdf_close_probe.CloseProbe(h, mode)
+            diagnostic_cycles = int(os.environ.get('ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES', '0'))
             def close_cycle():
-                h.key('KEYCODE_DEL')
-                h.wait_for(lambda: not manual_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
-                           'manual closed before next cycle')
+                return probe.close(manual_visible, diagnostic=diagnostic_cycles > 0)
             close_cycle()
+            # A separate diagnostic session repeats the original expensive
+            # cached-page pause/resume sequence. Normal smoke still runs its
+            # original stress close and ten reopen cycles without any replay.
+            for cycle in range(diagnostic_cycles):
+                open_manual('resume-cycle-' + str(cycle))
+                for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
+                    for _ in range(59): h.key(code)
+                    h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), page),
+                               'diagnostic cached-page endpoint ' + str(page))
+                paused_command('stats', 'diagnostic-resume-' + str(cycle))
+                close_cycle()
             for _ in range(10):
                 open_manual('cycle'); close_cycle()
             stable = paused_command('stats', 'after-cycles')

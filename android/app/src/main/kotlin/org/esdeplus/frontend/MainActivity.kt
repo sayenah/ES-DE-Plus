@@ -5,6 +5,7 @@ package org.esdeplus.frontend
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.content.res.Configuration
@@ -51,6 +52,15 @@ open class MainActivity : SDLActivity() {
         // Re-present a pending startup screen after backgrounding or unlock;
         // user interaction never expires and HOME is still set only by entry.
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+    }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Input dispatch begin uptime=${SystemClock.uptimeMillis()} " +
+            "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} " +
+            "repeat=${event.repeatCount} focus=${hasWindowFocus()} view=${currentFocus?.javaClass?.name}")
+        val handled = super.dispatchKeyEvent(event)
+        if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Input dispatch end uptime=${SystemClock.uptimeMillis()} " +
+            "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} handled=$handled")
+        return handled
     }
     override fun onStart() {
         super.onStart()

@@ -355,6 +355,15 @@ bool InputManager::parseEvent(const SDL_Event& event)
             return true;
         }
         case SDL_KEYDOWN: {
+#if defined(__ANDROID__)
+            if (Settings::getInstance()->getBool("Debug") &&
+                !Settings::getInstance()->getBool("DebugSkipInputLogging")) {
+                LOG(LogDebug) << "Input SDL keydown ticks=" << SDL_GetTicks()
+                              << " eventTime=" << event.key.timestamp
+                              << " key=" << event.key.keysym.sym
+                              << " repeat=" << static_cast<int>(event.key.repeat);
+            }
+#endif
             if (SDL_IsTextInputActive()) {
                 // Paste from clipboard.
 #if defined(__APPLE__)

@@ -258,6 +258,14 @@ void Window::deinit()
 
 void Window::input(InputConfig* config, Input input)
 {
+#if defined(__ANDROID__)
+    if (Settings::getInstance()->getBool("Debug") &&
+        !Settings::getInstance()->getBool("DebugSkipInputLogging")) {
+        LOG(LogDebug) << "Input Window ticks=" << SDL_GetTicks() << " id=" << input.id
+                      << " value=" << input.value << " blocked=" << mBlockInput
+                      << " pdf=" << mRenderPDFViewer;
+    }
+#endif
     if (mBlockInput)
         return;
 
@@ -1054,6 +1062,9 @@ void Window::stopPDFViewer()
     }
 
     mRenderPDFViewer = false;
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF viewer stopped ticks=" << SDL_GetTicks();
+#endif
 }
 
 void Window::displayLaunchScreen(FileData* game)
