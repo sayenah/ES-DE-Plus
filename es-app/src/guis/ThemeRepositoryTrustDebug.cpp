@@ -182,8 +182,15 @@ namespace
         if (!ThemeRepositoryTrust::verify(repository.get(), path))
             return false;
         git_remote* raw {nullptr};
-        if (git_remote_lookup(&raw, repository.get(), "origin") != 0)
+        const int lookup {git_remote_lookup(&raw, repository.get(), "origin")};
+        if (lookup != 0) {
+            const git_error* error {git_error_last()};
+            evidence << "FETCH remote lookup=" << lookup << " path=" << path
+                     << " error=" << (error && error->message ? error->message : "<none>") << '\n'
+                     << "FIXTURE CONFIG BEGIN\n"
+                     << read(path + "/.git/config") << "FIXTURE CONFIG END\n";
             return false;
+        }
         Remote remote(raw, git_remote_free);
         if (!ThemeRepositoryTrust::remote(remote.get(), path))
             return false;
