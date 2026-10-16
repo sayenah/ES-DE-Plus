@@ -95,6 +95,17 @@ def held_restored(records, nodes, pid, old_pid, app):
                n.get('text', '').startswith('Configure ') for n in nodes), nodes
 
 
+def permission_revocation_return(nodes, old_pid, new_pid, logcat, app):
+    # A reset of a stale Settings switch can revoke access, kill its UID and
+    # return to the recoverable configurator. Never infer this from UI alone.
+    return (old_pid.isdigit() and new_pid.isdigit() and old_pid != new_pid and
+            any('Killing ' + old_pid + ':' + app + '/' in line and
+                'MANAGE_EXTERNAL_STORAGE changed.' in line for line in logcat.splitlines()) and
+            any(n.get('package') == app and n.get('resource-id') == app + ':string/grant_access' and
+                n.get('text', '').casefold() == 'grant direct filesystem access' and
+                n.get('clickable') == 'true' for n in nodes))
+
+
 def focus_direction(current, target):
     current_x, current_y = current[0] + current[2], current[1] + current[3]
     target_x, target_y = target[0] + target[2], target[1] + target[3]
@@ -207,6 +218,20 @@ def positive_controls():
     reject('two frontend records', lambda: held_restored([records[0], records[0]], nodes, '200', '100', 'smoke.app'))
     reject('redirect substituted for native host', lambda: held_restored([('FrontendRedirectActivity', '7'), records[1]], nodes, '200', '100', 'smoke.app'))
     reject('stock launcher obscures configuration', lambda: held_restored(records, [], '200', '100', 'smoke.app'))
+    permission_nodes = [{'package': 'smoke.app', 'resource-id': 'smoke.app:string/grant_access',
+                         'text': 'GRANT DIRECT FILESYSTEM ACCESS', 'clickable': 'true'}]
+    killed = 'ActivityManager: Killing 100:smoke.app/u0a1 (adj 100): MANAGE_EXTERNAL_STORAGE changed.'
+    def revocation(nodes=permission_nodes, old='100', new='200', trace=killed):
+        probe_passed('proof' if permission_revocation_return(nodes, old, new, trace, 'smoke.app') else '', 'proof')
+    revocation()
+    reject('revocation needs new process', lambda: revocation(new='100'))
+    reject('revocation needs live process', lambda: revocation(new=''))
+    reject('revocation needs exact killed PID', lambda: revocation(trace=killed.replace('100:', '101:')))
+    reject('revocation needs permission cause', lambda: revocation(trace=killed.replace('MANAGE_EXTERNAL_STORAGE changed.', 'other cause')))
+    for field, wrong in [('package', 'other.app'), ('resource-id', 'smoke.app:string/create_systems'),
+                         ('text', 'Other control'), ('clickable', 'false')]:
+        reject('revocation wrong recovery ' + field,
+               lambda field=field, wrong=wrong: revocation(nodes=[dict(permission_nodes[0], **{field: wrong})]))
     return 'PASS: production smoke assertions reject: ' + ', '.join(rejected) + '.\n'
 
 

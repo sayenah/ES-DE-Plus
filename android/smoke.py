@@ -443,8 +443,7 @@ def grant_from_settings(app_label=None, recipient=False):
             toggle = permission_toggle(app_label)
             x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-    already_granted = permission_toggle(app_label).get('checked') == 'true' and actual_grant()
-    if not already_granted:
+    def focus_switch():
         if television:
             for _ in range(40):
                 row = permission_row(app_label)
@@ -455,12 +454,45 @@ def grant_from_settings(app_label=None, recipient=False):
                 key('KEYCODE_DPAD_DOWN')
             else:
                 raise AssertionError('TV D-pad cannot reach our all-files switch')
+    already_granted = permission_toggle(app_label).get('checked') == 'true' and actual_grant()
+    if not already_granted:
+        focus_switch()
         if permission_toggle(app_label).get('checked') == 'true' and not actual_grant():
             # Settings can retain its checked preference across pm clear or an
             # uninstall/reinstall while the kernel app-op has been reset. Use
             # the real user actions to turn the stale preference off, then on.
+            old_pid = shell('pidof', target_package, check=False).strip()
+            before = set(adb('logcat', '-d', '-v', 'threadtime').splitlines())
             toggle_switch()
-            wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale app switch reset')
+            returned = [False]
+            def reset_observed():
+                toggle = permission_toggle(app_label)
+                if toggle is not None:
+                    return toggle.get('checked') == 'false'
+                if recipient:
+                    return False
+                nodes = hierarchy()
+                output = '\n'.join(line for line in adb('logcat', '-d', '-v', 'threadtime').splitlines()
+                                   if line not in before)
+                returned[0] = smoke_checks.permission_revocation_return(nodes, old_pid,
+                    shell('pidof', app, check=False).strip(), output, app)
+                if returned[0]:
+                    (evidence / 'permission-revocation-return.txt').write_text(output)
+                return returned[0]
+            wait_for(reset_observed, 'stale switch reset or proven permission-revocation recovery')
+            if not recipient:
+                # Complete the user's off -> return -> request -> on flow. A
+                # revoke may kill the app and restore its recoverable screen;
+                # never send the next toggle to that replacement Activity.
+                if not returned[0]:
+                    key('KEYCODE_BACK')
+                    if not any(n.get('package') == app for n in hierarchy()):
+                        key('KEYCODE_BACK')
+                ui('Grant direct filesystem access', dpad=True)
+                wait_for(lambda: permission_toggle(app_label) is not None and
+                         permission_toggle(app_label).get('checked') == 'false',
+                         'fresh Settings switch reflects revoked access')
+                focus_switch()
         toggle_switch()
         wait_for(lambda: permission_toggle(app_label) is not None and
                  permission_toggle(app_label).get('checked') == 'true' and actual_grant(),
@@ -560,7 +592,9 @@ def destroy_held(name):
     (evidence / (name + '-restored-before-scroll-ui.txt')).write_text(
         (evidence / 'latest-ui.txt').read_text())
     ui('Use direct filesystem compatibility', dpad=True, focus_only=True)
-    key('KEYCODE_MOVE_HOME')
+    # The first button has no focusable predecessor: Up scrolls the heading
+    # into view using the same ordinary D-pad path as the rest of this form.
+    key('KEYCODE_DPAD_UP')
     # Never replay task clear or frontend launch, and retain the full existing
     # assertion after ordinary user navigation makes the title visible.
     wait_for(lambda: any(n.get('package') == app and n.get('text', '').startswith('Configure ')

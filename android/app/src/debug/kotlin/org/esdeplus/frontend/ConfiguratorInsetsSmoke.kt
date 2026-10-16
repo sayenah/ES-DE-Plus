@@ -4,6 +4,9 @@ package org.esdeplus.frontend
 
 import android.app.Instrumentation
 import android.app.UiAutomation
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import java.io.File
 import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
@@ -25,18 +28,21 @@ object ConfiguratorInsetsSmoke {
         // rotation operation and require the real display/configuration below.
         // This probe owns its automation; the host never dumps accessibility.
         val automation = test.getUiAutomation(UiAutomation.FLAG_DONT_USE_ACCESSIBILITY)
-        check(automation.setRotation(rotation))
+        val monitor = test.addMonitor(ConfiguratorActivity::class.java.name, null, false)
         try {
-            val activity = test.startActivitySync(Intent(test.targetContext, ConfiguratorActivity::class.java)
+            val initial = test.startActivitySync(Intent(test.targetContext, ConfiguratorActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ConfiguratorActivity
+            // Rotation recreates this Activity. Request it while the real
+            // configurator owns the window, then follow the latest instance.
+            check(automation.setRotation(rotation))
+            fun activity() = monitor.lastActivity as? ConfiguratorActivity
             val evidence = StringBuilder("PASS: inset oracle rejects bar overlap positive controls\n")
             fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
                 (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
             fun stage(name: String) {
                 test.waitForIdleSync()
-                val scroll = views(activity.window.decorView).filterIsInstance<ScrollView>().single()
                 for (edge in listOf(View.FOCUS_UP, View.FOCUS_DOWN)) {
-                    test.runOnMainSync { scroll.fullScroll(edge) }
+                    var positioned: ScrollView? = null
                     // Wait for layout, not an arbitrary animation delay. Keep the
                     // assertion on real geometry; no inset or bounds substitutions.
                     val deadline = SystemClock.uptimeMillis() + 10_000
@@ -44,7 +50,14 @@ object ConfiguratorInsetsSmoke {
                     var record = ""
                     while (!ready && SystemClock.uptimeMillis() < deadline) {
                         test.runOnMainSync {
+                            val activity = activity() ?: return@runOnMainSync
                             val decor = activity.window.decorView
+                            val scroll = views(decor).filterIsInstance<ScrollView>().singleOrNull() ?: return@runOnMainSync
+                            if (scroll !== positioned) {
+                                scroll.fullScroll(edge)
+                                positioned = scroll
+                                return@runOnMainSync
+                            }
                             val insets = decor.rootWindowInsets
                             if (insets != null && scroll.isLaidOut && !scroll.isLayoutRequested) {
                                 val safe = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
@@ -56,24 +69,36 @@ object ConfiguratorInsetsSmoke {
                                 val location = IntArray(2).also { control.getLocationOnScreen(it) }
                                 val actual = Rect(location[0], location[1], location[0] + control.width, location[1] + control.height)
                                 record = "$name edge=$edge orientation=${activity.resources.configuration.orientation} " +
-                                    "rotation=${activity.display?.rotation} expectedRotation=$rotation density=${activity.resources.displayMetrics.density} insets=$safe cutout=${insets.displayCutout} " +
+                                    "rotation=${activity.display?.rotation} expectedRotation=$rotation initialDestroyed=${initial.isDestroyed} " +
+                                    "instance=${System.identityHashCode(activity)} monitorHits=${monitor.hits} focused=${activity.hasWindowFocus()} density=${activity.resources.displayMetrics.density} insets=$safe cutout=${insets.displayCutout} " +
                                     "safe=$bounds control=${control.text} bounds=$actual scrollY=${scroll.scrollY}"
-                                ready = contains(bounds, actual) && activity.display?.rotation == rotation &&
+                                ready = !activity.isDestroyed && activity.hasWindowFocus() && contains(bounds, actual) && activity.display?.rotation == rotation &&
                                     activity.resources.configuration.orientation == (if (rotation == 0) 1 else 2)
                             }
                         }
                         if (!ready) SystemClock.sleep(50)
                     }
-                    check(ready) { "Configurator control overlaps system bars/cutout: $record" }
+                    check(ready) { "Configurator rotation/inset readiness failed: $record" }
                     evidence.appendLine("PASS: $record")
                 }
             }
             stage("permission")
-            test.runOnMainSync { activity.findViewById<Button>(R.string.direct_mode).performClick() }
+            test.runOnMainSync { activity()!!.findViewById<Button>(R.string.direct_mode).performClick() }
             stage("data")
-            test.runOnMainSync { activity.findViewById<Button>(R.string.scoped_mode).performClick() }
+            test.runOnMainSync { activity()!!.findViewById<Button>(R.string.scoped_mode).performClick() }
             stage("scoped-roms")
             return evidence.toString()
-        } finally { check(automation.setRotation(UiAutomation.ROTATION_UNFREEZE)) }
+        } finally {
+            // Capture rotation policy before unfreezing or instrumentation
+            // teardown changes the live evidence. Failure reporting stays hard.
+            try {
+                val dump = automation.executeShellCommand("dumpsys window displays").use {
+                    ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().use { reader -> reader.readText() }
+                }
+                File(test.targetContext.filesDir, "configurator-insets-window.txt").writeText(dump)
+            } catch (error: Exception) { Log.w("ES-DE-Plus", "Inset window diagnostics incomplete", error) }
+            test.removeMonitor(monitor)
+            check(automation.setRotation(UiAutomation.ROTATION_UNFREEZE))
+        }
     }
 }
