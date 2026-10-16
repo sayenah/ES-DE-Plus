@@ -2,8 +2,20 @@
 // ES-DE-Plus — written for ES-DE-Plus. Debug-only scheduling of SDL's real native-return race.
 package org.esdeplus.frontend
 
+import android.app.Activity
+import android.os.Bundle
 import android.os.Looper
 import android.util.Log
+
+// Start the VM without loading SDL or native main, then leave no Activity.
+// Shell/root invokes this private debug component before --no-restart attaches.
+class ForcedRelaunchBootstrapActivity : Activity() {
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        Log.i("ES-DE-Plus-Probe", "ASSETS Java-only instrumentation bootstrap")
+        finish()
+    }
+}
 
 class ForcedRelaunchActivity : MainActivity() {
     private var widened = false
