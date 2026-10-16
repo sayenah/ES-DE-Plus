@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. Original Pixel Plus art (D-016). -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/pixel_plus_background" />
+    <foreground android:drawable="@drawable/pixel_plus_foreground" />
+    <monochrome android:drawable="@drawable/pixel_plus_monochrome" />
+</adaptive-icon>
