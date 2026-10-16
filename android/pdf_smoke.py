@@ -252,6 +252,8 @@ def run(mode, harness):
     process = None
     output = output_path.open('w')
     try:
+        # G-28 instrumentation: remove this log-tag switch/restore with the host
+        # trace when the root cause is found or 20 consecutive main runs lose no first key.
         h.shell('setprop', 'log.tag.ESDE-PDF-CLOSE', 'DEBUG')
         h.private('rm', '-f', 'cache/pdf-result', 'cache/pdf-command')
         process = subprocess.Popen(['adb', 'shell', 'am', 'instrument', '-w', '-e', 'mode', 'pdf-session',
@@ -441,7 +443,9 @@ def run(mode, harness):
         h.key('KEYCODE_FORWARD_DEL'); command('fixture=missing'); h.key('KEYCODE_DPAD_UP')
         closed(frame('missing-after-discovery'))
         command('fixture=valid'); open_manual('missing-recovery'); h.key('KEYCODE_DEL')
-        if h.api in [29, 34]:
+        # Retain the existing API 29 CI check until the Android 12 platform merge;
+        # every supported phone image runs this stress path. TV remains excluded.
+        if not h.television and (h.api == 29 or h.api >= 31):
             command('fixture=stress')
             h.adb('logcat', '-c')
             first_stress = open_manual('stress-first')
@@ -470,7 +474,11 @@ def run(mode, harness):
             probe = pdf_close_probe.CloseProbe(h, mode)
             def close_cycle():
                 return probe.close(manual_visible)
-            close_cycle()
+            polls = close_cycle()
+            if h.api >= 31:
+                if polls != 1:
+                    probe.capture('slow-stress-close')
+                h.launch_checks.equal(polls, 1, 'Cached PDF closes on first poll after resume')
             for _ in range(10):
                 open_manual('cycle'); close_cycle()
             stable = paused_command('stats', 'after-cycles')

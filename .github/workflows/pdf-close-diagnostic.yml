@@ -2,12 +2,15 @@
 # ES-DE-Plus — written for ES-DE-Plus. WO-16 diagnostic evidence only; no APK upload.
 name: Diagnose PDF close
 on:
-  push:
-    branches: [fix/pdf-close-after-resume]
   workflow_dispatch:
     inputs:
+      api_level:
+        description: Phone API level
+        type: choice
+        options: ["31", "34"]
+        default: "34"
       cycles:
-        description: Cached-60-page pause / resume / single-key close cycles (1..20)
+        description: Cached-page resume-close cycles (1..20; 0 runs the full normal PDF-direct suite)
         type: string
         default: "20"
 permissions:
@@ -24,6 +27,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      - name: Verify PDF-close failure propagation
+        run: python3 android/pdf_close_probe_test.py
+      # No reusable Android setup action exists in this repository. Reuse its
+      # dependency scripts and pinned build setup below.
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
@@ -100,10 +107,10 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Generate PDF fixtures
         run: python3 android/pdf-fixtures.py android/evidence/pdf-fixtures
-      - name: API 34 cached-manual resume diagnostics
+      - name: API ${{ inputs.api_level }} cached-manual resume diagnostics
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
-          api-level: 34
+          api-level: ${{ inputs.api_level }}
           arch: x86_64
           target: google_apis
           profile: pixel_2
@@ -122,7 +129,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: pdf-close-api34-attempt${{ github.run_attempt }}
+          name: pdf-close-api${{ inputs.api_level }}-attempt${{ github.run_attempt }}
           path: |
             android/evidence/**/*.txt
             android/evidence/**/*.png

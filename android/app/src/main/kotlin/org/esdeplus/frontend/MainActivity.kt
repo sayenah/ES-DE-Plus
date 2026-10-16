@@ -54,6 +54,8 @@ open class MainActivity : SDLActivity() {
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
     }
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // G-28 instrumentation: remove when its root cause is found or no first-key
+        // loss occurs in 20 consecutive main runs, closing G-28 (D-024 am. 2).
         val traceInput = BuildConfig.DEBUG && Log.isLoggable("ESDE-PDF-CLOSE", Log.DEBUG)
         if (traceInput) Log.d("ES-DE-Plus", "Input dispatch begin uptime=${SystemClock.uptimeMillis()} " +
             "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} " +
