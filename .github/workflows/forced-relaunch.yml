@@ -75,6 +75,25 @@ jobs:
         run: |
           cd android
           ./gradlew --no-daemon -Pandroid.injected.build.abi=x86_64 :app:assembleDebug :stub-emulator:assembleDebug
+      - name: Resolve exact Gradle APK outputs before starting an emulator
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, shutil
+          for module, name in [('app', 'app-debug.apk'), ('stub-emulator', 'stub-emulator-debug.apk')]:
+              root = pathlib.Path('android') / module / 'build/outputs/apk'
+              print('Gradle outputs:', list(root.rglob('*')), flush=True)
+              metadata = list(root.rglob('output-metadata.json'))
+              assert len(metadata) == 1, metadata
+              entries = json.loads(metadata[0].read_text())['elements']
+              assert len(entries) == 1, entries
+              source = metadata[0].parent / entries[0]['outputFile']
+              assert source.is_file() and source.suffix == '.apk', source
+              destination = root / 'debug' / name
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              if source != destination:
+                  shutil.copyfile(source, destination)
+              print(source, '->', destination, hashlib.sha256(destination.read_bytes()).hexdigest())
+          PY
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
