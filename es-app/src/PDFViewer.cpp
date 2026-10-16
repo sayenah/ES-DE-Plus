@@ -462,7 +462,11 @@ void PDFViewer::convertPage(int pageNum)
 #elif (__ANDROID__) || defined(__IOS__)
         ConvertPDF::processFile(mManualPath, "-convert", pageNum, static_cast<int>(page.width),
                                 static_cast<int>(page.height), imageData);
+#if defined(__ANDROID__)
+        page.imageData.swap(imageData);
+#else
         page.imageData.assign(imageData.begin(), imageData.end());
+#endif
 #else
         FILE* commandPipe;
         std::array<char, 4096> buffer {};
