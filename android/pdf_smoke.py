@@ -322,10 +322,17 @@ def run(mode, harness):
             assert h.api >= 31 and not h.television
             command('fixture=stress')
             probe = pdf_close_probe.CloseProbe(h, mode)
+            poll_counts = []
             for cycle in range(diagnostic_cycles):
                 h.adb('logcat', '-c')
-                first = open_manual('diagnostic-first-' + str(cycle))
-                stress_page(first, 1)
+                h.key('KEYCODE_FORWARD_DEL'); h.key('KEYCODE_DPAD_UP')
+                def first_ready():
+                    png = h.adb('exec-out', 'screencap', '-p', binary=True)
+                    if not displayed_page(png, 1):
+                        return False
+                    h.evidence.joinpath('pdf-' + mode + '-diagnostic-first-' + str(cycle) + '.png').write_bytes(png)
+                    return True
+                h.wait_for(first_ready, 'diagnostic actual first page')
                 # Multiple keycodes are ordinary input keyevent presses; no
                 # 0.4 s host sleep per warm-up page. Every page must render.
                 h.shell('input', 'keyevent', *(['KEYCODE_DPAD_RIGHT'] * 59))
@@ -338,13 +345,15 @@ def run(mode, harness):
                 h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), 1),
                            'diagnostic cached-page endpoint 1')
                 paused_command('stats', 'diagnostic-resume-' + str(cycle))
-                probe.close(manual_visible, diagnostic=True, kind='cached-resume')
+                poll_counts.append(probe.close(manual_visible, diagnostic=True, kind='cached-resume'))
             command('end')
             process.wait(timeout=15)
             h.smoke_checks.probe_passed(output_path.read_text(), 'PASS: PDF viewer session completed')
             h.evidence.joinpath('pdf-' + mode + '-diagnostic-summary.txt').write_text(
                 'Diagnostic workload completed: ' + str(diagnostic_cycles) +
-                ' cached-60-page pause/resume single-key closes; see native-stop and poll markers.\n')
+                ' cached-60-page pause/resume single-key closes; polls=' + str(poll_counts) + '\n')
+            if diagnostic_cycles == 20:
+                assert poll_counts == [1] * 20, 'Twenty consecutive native-stop/single-poll closes required: ' + str(poll_counts)
             return
         first = open_manual('first')
         h.launch_checks.equal(manual_visible(first), True, 'Actual manual readiness control')
