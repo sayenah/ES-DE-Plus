@@ -237,12 +237,34 @@ def summary(snapshots, commands, elapsed, status):
                 minimum_host_available_kib=min(available, default=None), commands=costs)
 
 
+def emulator_result(outcome, session):
+    status = session.get('child_status') if session else None
+    if status is not None and status != 0:
+        classification = 'SESSION_FAILURE'
+    elif outcome == 'success' and status == 0:
+        classification = 'PASS'
+    elif status == 0:
+        classification = 'EMULATOR_SHUTDOWN_INFRASTRUCTURE'
+    else:
+        classification = 'EMULATOR_START_OR_SESSION_FAILURE'
+    return dict(outcome=classification, emulator_step_outcome=outcome, child_status=status)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('phase', choices=('core', 'touch', 'lifecycle', 'integration',
-                                         'pdf-direct', 'pdf-scoped', 'self-test'))
+                                         'pdf-direct', 'pdf-scoped', 'self-test', 'emulator-result'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.phase == 'emulator-result':
+        phase, outcome = args.command
+        assert phase in ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped')
+        root = Path('android/evidence')
+        path = root / (phase + '-session-summary.txt')
+        result = emulator_result(outcome, json.loads(path.read_text()) if path.exists() else None)
+        (root / (phase + '-emulator-result.txt')).write_text(json.dumps(result) + '\n')
+        print('EMULATOR_RESULT ' + json.dumps(dict(phase=phase, **result)), flush=True)
+        return 0 if result['outcome'] == 'PASS' else 1
     if args.phase == 'self-test':
         import fresh_session_checks
         controls = fresh_session_checks.controls() + settle_controls()
@@ -263,7 +285,14 @@ def main():
         assert measured['peak_qemu_rss_kib'] == 100 and measured['minimum_host_available_kib'] == 300
         assert measured['commands']['logcat'] == dict(count=2, seconds=5, timeouts=1)
         assert measured['child_status'] == 7 and measured['seconds'] == 9
-        print('PASS: child failures propagate unchanged; command cost classification')
+        for outcome in ('success', 'failure', 'cancelled', 'skipped'):
+            assert emulator_result(outcome, dict(child_status=7))['outcome'] == 'SESSION_FAILURE'
+        assert emulator_result('success', dict(child_status=0))['outcome'] == 'PASS'
+        assert emulator_result('failure', dict(child_status=0))['outcome'] == 'EMULATOR_SHUTDOWN_INFRASTRUCTURE'
+        assert emulator_result('cancelled', dict(child_status=0))['outcome'] == 'EMULATOR_SHUTDOWN_INFRASTRUCTURE'
+        assert emulator_result('failure', None)['outcome'] == 'EMULATOR_START_OR_SESSION_FAILURE'
+        print('PASS: child failures propagate unchanged; command cost classification; '
+              'emulator shutdown failure classified without hiding nonzero child status')
         return 0
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     assert command, 'A smoke command is required'
@@ -329,6 +358,9 @@ def main():
         measured['stock_onboarding_relaunches'] = sum(
             row['outcome'] == 'RELAUNCH_STOCK_ONBOARDING'
             for row in records(startup_record)) if startup_record.exists() else 0
+        font_record = settle_record.parent / 'font-weight-environmental-count.txt'
+        measured['g29_environmental_outcomes'] = (json.loads(font_record.read_text())['g29_environmental_outcomes']
+                                                 if font_record.exists() else 0)
         (root / (args.phase + '-session-summary.txt')).write_text(json.dumps(measured, indent=2) + '\n')
         print('SESSION_SUMMARY ' + json.dumps(dict(phase=args.phase, **measured)), flush=True)
         print(f'SESSION {args.phase}: child exit status {status}', flush=True)

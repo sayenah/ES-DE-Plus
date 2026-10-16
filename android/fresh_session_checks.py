@@ -3,15 +3,35 @@
 # ES-DE-Plus — written for ES-DE-Plus. Forced-relaunch assertions and CI controls.
 import re
 
+import smoke_checks
+
 
 ASSETS_PATHS = 0x80000000
+
+
+def startup_preemption(capture, app, stock_package):
+    # Inspect live focus, never last-ANR snapshots. The caller supplies the
+    # complete log since this start and since the guard's completed dismissal.
+    window = smoke_checks.live_window(capture['focus'])
+    frontend_focused = smoke_checks.package_window_focused(window, app)
+    stock_focused = smoke_checks.package_window_focused(window, stock_package)
+    after = capture['after_dismissal']
+    created = after is not None and any(
+        ('ES-DE-Plus' in line and 'Creating sole SDL activity' in line) or
+        ('wm_on_create_called' in line and app + '.' in line)
+        for line in after.splitlines())
+    allowed = not frontend_focused and (stock_focused or (after is not None and not created))
+    return dict(preemption_proven=allowed, frontend_focused=frontend_focused,
+                stock_home_focused=stock_focused, activity_created_after_dismissal=created,
+                dismissal_marker_present=after is not None)
 
 
 class ReadinessTimeout(AssertionError):
     pass
 
 
-def startup(attempt, dismissals, capture, stop, record, app, is_ready):
+def startup(attempt, dismissals, capture, stop, record, app, is_ready,
+            stock_package='com.google.android.tvlauncher'):
     # A dismissal from an earlier launch cannot authorise this start. Once
     # readiness is observed, every later timeout is a product/test failure.
     before = dismissals()
@@ -24,16 +44,19 @@ def startup(attempt, dismissals, capture, stop, record, app, is_ready):
             attempt(reached_readiness)
         except ReadinessTimeout:
             # Always capture the live state before the caller can clean up.
-            output = capture(number)
+            captured = capture(number)
+            output = captured['logcat']
             ready = ready or is_ready()
             after = dismissals()
             crash = ('FATAL EXCEPTION' in output or 'Fatal signal' in output or
                      re.search(r'ANR in ' + re.escape(app) + r'\b', output))
-            retry = number == 0 and after > before and not ready and not crash
+            proof = startup_preemption(captured, app, stock_package)
+            retry = (number == 0 and after > before and not ready and not crash and
+                     proof['preemption_proven'])
             record(dict(outcome='RELAUNCH_STOCK_ONBOARDING' if retry else 'HARD_TIMEOUT',
                         attempt=number + 1, reached_readiness=ready,
                         dismissals_before=before, dismissals_after=after,
-                        relaunches=number, crash_or_anr=bool(crash)))
+                        relaunches=number, crash_or_anr=bool(crash), **proof))
             if not retry:
                 raise
             stop()
@@ -95,6 +118,34 @@ def font_recovery(before_pid, after_pid, before_task, records, configurator, dra
     frontend = '\n'.join(line for line in output.splitlines() if re.match(
         r'\S+\s+\S+\s+(?:' + re.escape(before_pid) + '|' + re.escape(after_pid) + r')\s+\d+\s', line))
     assert 'FATAL EXCEPTION' not in frontend and 'Fatal signal' not in frontend, frontend
+    # Recovery must leave the replacement host alive as well. Classify its
+    # destroy mask before rejecting a second relaunch (including G-29).
+    second = font_outcome(output, after_pid, before_task)
+    assert not second or second['outcome'] != 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH', (
+        'G-29 SECOND_ASSETS_PATHS_RELAUNCH: replacement SDL host destroyed', second)
+
+
+def font_in_place(output, pid, task):
+    final = font_outcome(output, pid, task)
+    assert final and final['outcome'] == 'IN_PLACE', (
+        'G-29 LATE_ASSETS_PATHS_RELAUNCH: SDL host destroyed after in-place handling', final)
+
+
+def font_subsequent_destroys(output, before_pid, task):
+    for line in output.splitlines():
+        if 'Destroying SDL activity' not in line:
+            continue
+        match = re.match(r'\S+\s+\S+\s+(\d+)\s+\d+\s+[VDIWEF]\s', line)
+        if match and match[1] != before_pid:
+            second = font_outcome(line, match[1], task)
+            raise AssertionError('G-29 SECOND_ASSETS_PATHS_RELAUNCH: replacement SDL host destroyed: ' + str(second))
+
+
+def font_environmental_count(output):
+    # Count each destroy, including one after the original host recovered.
+    return sum(bool(int(match[1], 16) & ASSETS_PATHS) for line in output.splitlines()
+               if 'Destroying SDL activity' in line
+               for match in [re.search(r'configurationChanges=0x(-?[0-9a-fA-F]+)\b', line)] if match)
 
 
 def controls():
@@ -116,6 +167,11 @@ def controls():
     assert font_draft(nodes[:1], app, '/owned/ROMs') != draft
     good = ['4970', '6629', '12', records, True, True, '', app]
     font_recovery(*good)
+    forced = prefix + destruction.format('90000000')
+    assert font_environmental_count(handled) == 0
+    assert font_environmental_count(forced) == 1
+    assert font_environmental_count(forced + '\n' + forced.replace('4970', '6629')) == 2
+    font_in_place(handled, '4970', '12')
     bad = [
         lambda: font_outcome(handled + '\n' + prefix + destruction.format('10000000'), '4970', '12'),
         lambda: font_outcome(prefix + destruction.format('50007fff'), '4970', '12'),
@@ -134,6 +190,22 @@ def controls():
         except AssertionError:
             continue
         raise AssertionError('A forced-relaunch positive control escaped')
+    for label, check in (
+            ('G-29 LATE_ASSETS_PATHS_RELAUNCH', lambda: font_in_place(handled + '\n' + forced, '4970', '12')),
+            ('G-29 SECOND_ASSETS_PATHS_RELAUNCH', lambda: font_recovery(
+                *good[:6], forced + '\n' + forced.replace('4970', '6629'), app)),
+            ('without ASSETS_PATHS', lambda: font_recovery(
+                *good[:6], forced + '\n' + (prefix + destruction.format('10000000')).replace('4970', '6629'), app)),
+            ('G-29 SECOND_ASSETS_PATHS_RELAUNCH', lambda: font_subsequent_destroys(
+                forced + '\n' + forced.replace('4970', '6629'), '4970', '12')),
+            ('without ASSETS_PATHS', lambda: font_subsequent_destroys(
+                forced + '\n' + (prefix + destruction.format('10000000')).replace('4970', '6629'), '4970', '12'))):
+        try:
+            check()
+        except AssertionError as error:
+            assert label in str(error), str(error)
+        else:
+            raise AssertionError('A late/second destroy escaped: ' + label)
     startup_controls()
     assert copy_pid(prefix + 'Resource copy required=true') is None
     assert copy_pid(prefix + 'Installed resource: locale/en_US') is None
@@ -145,12 +217,18 @@ def controls():
             'PASS: positive controls: declared-only/zero masks (even after handled), wrong task/hold; '
             'unchanged/missing PID, changed task, absent configurator, lost draft, ANR and crash rejected.\n'
             'PASS: startup controls: one relaunch after a dismissal during this start; live capture before stop; '
-            'no relaunch without a new dismissal, no second relaunch, none after readiness or a crash/ANR.\n'
+            'no relaunch without a new dismissal, no second relaunch, none after readiness or a crash/ANR; '
+            'created/focused native hang and frontend-focused timeout stay HARD_TIMEOUT.\n'
+            'PASS: late/second G-29 destroys labelled and counted; replacement declared-bits destroy rejected.\n'
             'PASS: copy probe binds its PID only to the actual font-copy event.\n')
 
 
 def startup_controls():
-    def exercise(dismiss=False, initial=0, reached=False, late_ready=False, fail_twice=False, crash=''):
+    app = 'org.esdeplus.frontend'
+    created = 'I ES-DE-Plus: Creating sole SDL activity task=12'
+    stock = 'com.google.android.tvlauncher/.MainActivity'
+    def exercise(dismiss=False, initial=0, reached=False, late_ready=False, fail_twice=False,
+                 crash='', focus=stock, after=''):
         count = [initial]
         events, records = [], []
         def attempt(ready):
@@ -165,7 +243,8 @@ def startup_controls():
             raise ReadinessTimeout('control')
         def capture(number):
             events.append('capture')
-            return crash
+            return dict(logcat=crash, after_dismissal=after if dismiss else None,
+                        focus='WINDOW MANAGER DISPLAY CONTENTS\n mCurrentFocus=Window{aa u0 ' + focus + '}')
         failed = False
         try:
             startup(attempt, lambda: count[0], capture, lambda: events.append('stop'), records.append,
@@ -177,6 +256,12 @@ def startup_controls():
     assert not failed and events == ['start', 'capture', 'stop', 'start']
     assert [r['outcome'] for r in records] == ['RELAUNCH_STOCK_ONBOARDING', 'READY']
     assert records[-1]['relaunches'] == 1
+    # Either live stock HOME focus or a complete post-dismissal log with no
+    # activity creation proves preemption. Frontend focus always vetoes it.
+    for options in (dict(dismiss=True, after=created),
+                    dict(dismiss=True, focus='com.android.systemui/.Other', after='')):
+        events, records, failed = exercise(**options)
+        assert not failed and records[0]['preemption_proven']
     events, records, failed = exercise(dismiss=True, fail_twice=True)
     assert failed and events == ['start', 'capture', 'stop', 'start', 'capture']
     assert records[-1]['outcome'] == 'HARD_TIMEOUT'
@@ -184,7 +269,11 @@ def startup_controls():
                     dict(dismiss=True, late_ready=True),
                     dict(dismiss=True, crash='FATAL EXCEPTION'),
                     dict(dismiss=True, crash='Fatal signal 11'),
-                    dict(dismiss=True, crash='ANR in org.esdeplus.frontend')):
+                    dict(dismiss=True, crash='ANR in org.esdeplus.frontend'),
+                    dict(dismiss=True, focus=app + '/.MainActivity', after=created),
+                    dict(dismiss=True, focus=app + '/.MainActivity'),
+                    dict(dismiss=True, focus='com.android.systemui/.Other', after=created),
+                    dict(dismiss=True, focus='com.android.systemui/.Other', after=None)):
         events, records, failed = exercise(**options)
         assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT'
 

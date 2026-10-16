@@ -48,6 +48,7 @@ onboarding_guard = False
 dismissing_onboarding = False
 last_onboarding_check = 0.0
 onboarding_dismissals = 0
+onboarding_dismissal_marker = ''
 startup_number = 0
 session_settled = False
 
@@ -183,7 +184,8 @@ def launch():
 def capture_startup_failure(name, marker):
     # No transition sleep or cleanup before this live screenshot and state.
     (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
-    (evidence / (name + '-focus.txt')).write_text(focused_window())
+    focus = focused_window()
+    (evidence / (name + '-focus.txt')).write_text(focus)
     (evidence / (name + '-window.txt')).write_text(shell('dumpsys', 'window'))
     (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
     output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime')
@@ -192,7 +194,10 @@ def capture_startup_failure(name, marker):
     save_logs(name)
     capture_frontend_stacks(name)
     assert marker in output, 'Startup marker missing; cannot classify timeout'
-    return output.partition(marker)[2]
+    since_start = output.partition(marker)[2]
+    after_dismissal = (since_start.partition(onboarding_dismissal_marker)[2]
+                       if onboarding_dismissal_marker and onboarding_dismissal_marker in since_start else None)
+    return dict(focus=focus, logcat=since_start, after_dismissal=after_dismissal)
 
 
 def current_startup_ready():
@@ -303,6 +308,7 @@ def node_matches(node, label):
 
 def dismiss_stock_onboarding(force=False):
     global dismissing_onboarding, last_onboarding_check, onboarding_dismissals
+    global onboarding_dismissal_marker
     if not onboarding_guard or dismissing_onboarding:
         return
     if not force and time.monotonic() - last_onboarding_check < 2:
@@ -384,9 +390,12 @@ def dismiss_stock_onboarding(force=False):
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
         if acted:
             onboarding_dismissals += 1
+            onboarding_dismissal_marker = 'ESDE_STOCK_DISMISSED_' + str(time.monotonic_ns())
+            shell('log', '-t', 'ESDE-Smoke', onboarding_dismissal_marker)
             with (evidence / 'tv-onboarding-events.txt').open('a') as output:
                 output.write(f'Completed stock-tutorial dismissal {onboarding_dismissals}; '
-                             f'startup counter={startup_number}; monotonic={time.monotonic():.6f}.\n')
+                             f'startup counter={startup_number}; marker={onboarding_dismissal_marker}; '
+                             f'monotonic={time.monotonic():.6f}.\n')
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion
         # retry is performed here. WO-17's shared startup wrapper has the sole
@@ -1293,6 +1302,7 @@ try:
             assert marker in output, 'Font-weight log marker missing'
             return output.split(marker, 1)[1]
         requested_weight = '300' if previous_weight != '300' else '0'
+        outcome = None
         try:
             shell('settings', 'put', 'secure', 'font_weight_adjustment',
                   requested_weight)
@@ -1314,19 +1324,22 @@ try:
                 wait_for(lambda: bool(shell('pidof', app, check=False).strip()) and
                          shell('pidof', app, check=False).strip() != held_pid,
                          'forced assets-path relaunch has a new frontend PID')
+                recovered_pid = shell('pidof', app).strip()
                 wait_for(lambda: any(n.get('package') == app and n.get('text') == 'Create system folders'
                                      for n in hierarchy()), 'configurator after forced assets-path relaunch')
+            screenshot('font-weight-held')
             after_records = activity_records()[1]
             draft_after = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
             output = font_log()
             if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH':
-                fresh_session_checks.font_recovery(held_pid, shell('pidof', app).strip(), held_task,
+                fresh_session_checks.font_recovery(held_pid, recovered_pid, held_task,
                     after_records, 'ConfiguratorActivity' in focused_window(),
                     draft_after == draft_before, output, app)
+                assert shell('pidof', app).strip() == recovered_pid, 'Forced recovery replaced its new frontend PID'
             else:
                 # Re-read the destroy mask after UI inspection too; a handled
                 # callback must not conceal a subsequent declared-bits relaunch.
-                assert fresh_session_checks.font_outcome(output, held_pid, held_task)['outcome'] == 'IN_PLACE'
+                fresh_session_checks.font_in_place(output, held_pid, held_task)
                 assert shell('pidof', app).strip() == held_pid
                 assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
                     r for r in before_records if r[0] != 'ConfiguratorActivity'), (before_records, after_records)
@@ -1334,16 +1347,28 @@ try:
                 assert draft_after == draft_before, (draft_before, draft_after)
             (evidence / 'font-weight-step-logcat.txt').write_text(output)
             (evidence / 'font-weight-outcome.txt').write_text(json.dumps(dict(
-                **outcome, recovery='PASS', before_pid=held_pid, after_pid=shell('pidof', app).strip(),
+                **outcome, recovery=('PASS' if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH'
+                                    else 'NOT_REQUIRED_IN_PLACE'),
+                before_pid=held_pid, after_pid=shell('pidof', app).strip(),
                 task=held_task, draft=draft_after)) + '\n')
             (evidence / 'font-weight-held-activities.txt').write_text(activity_records()[0])
             save_logs('font-weight-held')
-            screenshot('font-weight-held')
         finally:
-            if previous_weight == 'null':
-                shell('settings', 'delete', 'secure', 'font_weight_adjustment')
-            else:
-                shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
+            try:
+                # Preserve and classify late/second destroys even on a failed
+                # readiness/PID assertion, before restoring the font setting.
+                final_font_log = font_log()
+                (evidence / 'font-weight-step-logcat.txt').write_text(final_font_log)
+                (evidence / 'font-weight-environmental-count.txt').write_text(json.dumps(dict(
+                    g29_environmental_outcomes=fresh_session_checks.font_environmental_count(final_font_log))) + '\n')
+                fresh_session_checks.font_subsequent_destroys(final_font_log, held_pid, held_task)
+                if outcome and outcome['outcome'] == 'IN_PLACE':
+                    fresh_session_checks.font_in_place(final_font_log, held_pid, held_task)
+            finally:
+                if previous_weight == 'null':
+                    shell('settings', 'delete', 'secure', 'font_weight_adjustment')
+                else:
+                    shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
         ui('Create system folders', dpad=True)
     ui('Use app-owned storage', dpad=True)
     ui('Create system folders', dpad=True)

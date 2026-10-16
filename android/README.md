@@ -284,19 +284,33 @@ mask is labelled `ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH` (G-29); it still requires
 a new PID, the same task, a focused configurator with its non-default draft kept,
 and no frontend ANR or crash. Every other relaunch fails immediately. CI's
 `smoke_session.py self-test` runs rejection and acceptance controls for the mask,
-recovery and settle conditions, saved in `fresh-session-controls.txt`.
+recovery and settle conditions, saved in `fresh-session-controls.txt`. A later
+ASSETS_PATHS destroy after in-place handling and a second destroy of the replacement
+host are labelled hard failures. In-place handling records `NOT_REQUIRED_IN_PLACE`
+for recovery; session summaries count every observed ASSETS_PATHS destroy as
+`g29_environmental_outcomes`, including late/second destroys on a failed session.
 
 The shared frontend startup path also records `startup-outcomes.txt`. A startup
 timeout captures the live screenshot, focused window, activity state and logcat
 tail before cleanup. It permits one relaunch only if the shared TV guard actually
 dismissed a stock tutorial during that start and the frontend has never logged
-startup readiness. Readiness is checked again after capture; a crash/ANR in the
-marked start window, a stale dismissal, any timeout after readiness, and a second
+startup readiness. The captured live window must show stock launcher/HOME focus,
+or the complete log after the guard's dismissal marker must show no frontend
+activity creation. Frontend focus at timeout always makes the timeout hard,
+including a created activity with hung native startup. Readiness is checked again
+after capture; a crash/ANR in the marked start window, a stale dismissal, any timeout after readiness, and a second
 timeout stay hard failures. The original 90 s readiness bound applies to each
 attempt. Session summaries count `stock_onboarding_relaunches`, including zero;
 the CI self-test exercises the allowed case and each exclusion. The resource-copy
 interruption probe selects its PID from the real font-copy log event (with a
 matching copy-required event), after waiting for the prior process to stop.
+
+Emulator steps are bounded to 60/40/20/35/35 minutes for core/lifecycle/integration/
+PDF-direct/PDF-scoped. These allow margin above the prior green matrix's maxima
+(45/28/12/22/22 minutes, run 38904895297). An action failure or timeout after the
+child recorded exit 0 is recorded as `EMULATOR_SHUTDOWN_INFRASTRUCTURE` in
+`PHASE-emulator-result.txt`; a nonzero child remains `SESSION_FAILURE`. Either
+failure keeps the job red. This bounds teardown stalls without retrying sessions.
 
 For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
