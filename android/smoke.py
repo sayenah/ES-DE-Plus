@@ -1785,17 +1785,8 @@ try:
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
     # Missing-emulator errors are expected in this phase; startup errors were checked above.
     key('KEYCODE_ENTER')  # Dismiss the existing missing-emulator message.
-    key('KEYCODE_ESCAPE')
-    for _ in range(3):  # SEARCH, SCRAPER, UI SETTINGS, then SOUND SETTINGS.
-        key('KEYCODE_DPAD_DOWN')
-    key('KEYCODE_ENTER')
-    key('KEYCODE_DPAD_DOWN')  # Audio driver, then navigation volume.
-    key('KEYCODE_DPAD_LEFT')
-    screenshot('changed-sound-setting')
-    # Upstream's keyboard Back action is Backspace; Escape maps to Start and
-    # does not close GuiSettings. Closing the settings GUI runs its save funcs.
-    key('KEYCODE_DEL')
-    key('KEYCODE_DEL')
+    import settings_navigation
+    settings_navigation.change_navigation_volume(globals())
     def volume_saved():
         value = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"',
                           shell('cat', settings, check=False))

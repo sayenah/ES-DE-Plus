@@ -282,15 +282,29 @@ Every successful `adb install` also waits for package resource processing before
 returning to its caller. This covers initial installs, lower/higher update builds,
 debug/release reinstalls and the interactive emulator install through the shared
 ADB helpers, including PDF callers. `cmd overlay list --user USER android` and
-the overlay dump identify enabled framework overlay paths; the installed version's
-`dumpsys package` user state must contain those paths and omit known disabled
-framework paths. Two consecutive qualifying samples are required (one-second
+the overlay dump identify enabled framework overlay paths. Only **mutable**
+enabled framework overlays belong in each installed package:
+Android's `OverlayManagerService.updatePackageManagerLocked` requests framework
+paths with `includeImmutableOverlays=false`. TV's enabled framework overlays are
+immutable APK overlays, so its correct per-package set is empty; phone palette
+overlays are mutable and must be present. This is derived from overlay metadata,
+not an image-name exception. `dumpsys package` user state must contain the expected
+paths in `overlay paths` (fabricated) or `legacy overlay paths` (APK/resourceDirs),
+and omit known disabled framework paths. Two consecutive qualifying samples are required (one-second
 poll interval). Stable pre-broadcast state with missing paths cannot qualify.
-An empty enabled set qualifies only with valid package/version/user and overlay
+An empty applicable set qualifies only with valid package/version/user and overlay
 queries. The 120-second deadline records expiry and continues the original test;
 rejected installs do not create a new installed resource state. Raw per-install
 samples are `install-N-settle-samples.txt`; `install-settle-outcomes.txt` and the
 session summary's `install_settles` record each successful install and wait.
+
+The navigation-volume persistence probe uses `settings_navigation.py` and the
+importer's screenshot focus reader. Each menu input is preceded by a fresh
+verified label, including the volume adjustment and Back actions that save it.
+The screenshots and `navigation-volume-focus-trace.txt` retain those observations.
+A dropped key or wrong submenu fails without replay; the persistence assertion
+is unchanged. `SmokeMenuFocus.java` separates label ink from right-hand values,
+recognizes settings labels, and retains its distance and ambiguity thresholds.
 
 The held-host font-weight probe captures activity override configuration, overlays,
 package resources and ApplicationInfo before the change. An ASSETS_PATHS destroy

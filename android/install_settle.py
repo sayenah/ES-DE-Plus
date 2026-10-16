@@ -20,12 +20,17 @@ def processed(snapshot, package, version, user):
         return None
     enabled = set(re.findall(r'^\s*\[x\]\s+(\S+)\s*$', listing, re.M))
     paths = {}
+    mutable = {}
     for match in re.finditer(r'^\s*([^\s{}]+):' + re.escape(user) + r'\s+\{(.*?)^\s*\}',
                              snapshot['overlays']['output'], re.M | re.S):
         target = re.search(r'mTargetPackageName\.*:\s*(\S+)', match[2])
         path = re.search(r'mBaseCodePath\.*:\s*(/\S+)', match[2])
         if target and target[1] == 'android' and path:
             paths[match[1]] = path[1]
+            flag = re.search(r'mIsMutable\.*:\s*(true|false)\b', match[2])
+            if not flag:
+                return None
+            mutable[match[1]] = flag[1] == 'true'
     if not enabled.issubset(paths):
         return None
     if not listing.strip() and paths:
@@ -36,12 +41,17 @@ def processed(snapshot, package, version, user):
     state = re.search(r'^\s*User ' + re.escape(user) + r':([^\n]*)(.*?)(?=^\s*User \d+:|\Z)', dump, re.M | re.S)
     if not state or 'installed=true' not in state[1]:
         return None
-    block = re.search(r'^\s*overlay paths:\n((?:\s*/[^\n]+\n)+)', state[2], re.M)
-    actual = set(block[1].split()) if block else set()
-    expected = {paths[name] for name in enabled}
+    # OMS supplies getEnabledOverlayPaths("android", user, false) to each
+    # package: immutable framework overlays are deliberately excluded. APK
+    # overlays appear as legacy/resourceDirs paths; fabricated paths do not.
+    # AOSP OverlayManagerService.updatePackageManagerLocked / Settings.dumpPackageLPr.
+    blocks = re.findall(r'^\s*(?:legacy )?overlay paths:\n((?:\s*/[^\n]+\n)+)', state[2], re.M)
+    actual = {path for block in blocks for path in block.split()}
+    expected = {paths[name] for name in enabled if mutable[name]}
     if actual.intersection(paths.values()) != expected:
         return None
-    return dict(enabled=sorted(enabled), expected_paths=sorted(expected), applied_paths=sorted(actual))
+    return dict(enabled=sorted(enabled), immutable=sorted(name for name in enabled if not mutable[name]),
+                expected_paths=sorted(expected), applied_paths=sorted(actual))
 
 
 def sample(package, user, remaining):
@@ -114,7 +124,8 @@ def controls():
     def snapshot(applied=True, path='/data/resource-cache/accent.frro'):
         return dict(list=dict(status=0, output='android\n[x] com.android.systemui:accent\n'),
                     overlays=dict(status=0, output='com.android.systemui:accent:0 {\n'
-                        ' mTargetPackageName.....: android\n mBaseCodePath..........: ' + path + '\n}\n'),
+                        ' mTargetPackageName.....: android\n mIsMutable.............: true\n'
+                        ' mBaseCodePath..........: ' + path + '\n}\n'),
                     package=dict(status=0, output='Package [' + package + ']\n versionCode=42\n'
                         ' User 0: installed=true\n' + ('  overlay paths:\n   ' + path + '\n' if applied else '')))
     def exercise(values):
@@ -142,13 +153,28 @@ def controls():
     assert processed(bad, package, '42', '0') is None
     stale = snapshot()
     stale['overlays']['output'] += ('com.android.systemui:old:0 {\n'
-        ' mTargetPackageName.....: android\n mBaseCodePath..........: /old.frro\n}\n')
+        ' mTargetPackageName.....: android\n mIsMutable.............: true\n'
+        ' mBaseCodePath..........: /old.frro\n}\n')
     stale['package']['output'] += '   /old.frro\n'
     assert processed(stale, package, '42', '0') is None
     none = snapshot(False); none['list']['output'] = 'android\n[ ] com.android.systemui:accent\n'
-    assert processed(none, package, '42', '0') == dict(enabled=[], expected_paths=[], applied_paths=[])
+    assert processed(none, package, '42', '0') == dict(enabled=[], immutable=[], expected_paths=[], applied_paths=[])
     none['list']['output'] = ''; none['overlays']['output'] = ''
-    assert processed(none, package, '42', '0') == dict(enabled=[], expected_paths=[], applied_paths=[])
-    return ('PASS: install controls: stable-but-unprocessed package blocked; enabled overlay paths must be applied; '
+    assert processed(none, package, '42', '0') == dict(enabled=[], immutable=[], expected_paths=[], applied_paths=[])
+    immutable = snapshot(False)
+    immutable['overlays']['output'] = immutable['overlays']['output'].replace(': true', ': false')
+    assert exercise([immutable])['outcome'] == 'PROCESSED'
+    mixed = snapshot(False)
+    mixed['list']['output'] += '[x] static.framework\n'
+    mixed['overlays']['output'] += ('static.framework:0 {\n mTargetPackageName.....: android\n'
+        ' mIsMutable.............: false\n mBaseCodePath..........: /static.apk\n}\n')
+    assert processed(mixed, package, '42', '0') is None  # Static state cannot excuse a pending palette.
+    apk = snapshot(path='/mutable.apk')
+    apk['package']['output'] = apk['package']['output'].replace('overlay paths:', 'legacy overlay paths:')
+    assert processed(apk, package, '42', '0')['expected_paths'] == ['/mutable.apk']
+    bad = snapshot(); bad['overlays']['output'] = bad['overlays']['output'].replace(' mIsMutable.............: true\n', '')
+    assert processed(bad, package, '42', '0') is None
+    return ('PASS: install controls: stable-but-unprocessed package blocked; enabled mutable overlay paths must be applied; '
+            'immutable framework overlays excluded; legacy APK paths accepted; '
             'replacement paths reset proof; wrong version/user, missing mapping and failed reads do not qualify; '
             'bounded deadline records expiry without failing.\n')

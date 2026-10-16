@@ -266,9 +266,11 @@ def main():
         print('EMULATOR_RESULT ' + json.dumps(dict(phase=phase, **result)), flush=True)
         return 0 if result['outcome'] == 'PASS' else 1
     if args.phase == 'self-test':
+        import settings_navigation
         import fresh_session_checks
         import install_settle
-        controls = fresh_session_checks.controls() + settle_controls() + install_settle.controls()
+        controls = (fresh_session_checks.controls() + settle_controls() + install_settle.controls() +
+                    settings_navigation.controls())
         root = Path('android/evidence')
         root.mkdir(parents=True, exist_ok=True)
         (root / 'fresh-session-controls.txt').write_text(controls)
