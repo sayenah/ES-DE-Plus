@@ -13,6 +13,7 @@ import smoke_checks
 import launch_checks
 import pdf_smoke
 import emulator_manager_smoke
+import icon_smoke
 import lifecycle_smoke
 import smoke_support
 import smoke_session
@@ -1162,6 +1163,7 @@ try:
     if phase != 'core':
         smoke_phases.run(phase, globals())
         raise SystemExit(0)
+    icon_smoke.capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, television)
     clear_app()
     retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
                      app + '/org.esdeplus.frontend.RuntimeSmoke')
