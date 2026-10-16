@@ -45,7 +45,7 @@ jobs:
   build:
     if: ${{ !inputs.rebuild_run }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
