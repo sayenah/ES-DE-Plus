@@ -500,6 +500,67 @@ int main(int argc, char** argv)
         prettyReadback.save();
         require(tree(read(formatting + "/es_systems.xml")) == tree(indented),
                 "formatting and removal preserve complete unowned XML tree");
+        const std::string opaque {"<opaque xml:space='preserve'><a/> <b/> </opaque>"
+                                  "<mixed>before<a/> <b/>after</mixed>"
+                                  "<unknown><a/> \t<b/></unknown>"
+                                  "<cdata><![CDATA[  x < y\n ]]></cdata>"};
+        auto protectedNodes = [](const std::string& bytes, bool rules, bool whole = false) {
+            pugi::xml_document doc;
+            require(doc.load_buffer(bytes.data(), bytes.size(),
+                                    pugi::parse_full | pugi::parse_ws_pcdata),
+                    "significant text parse");
+            auto parent = rules ? doc.child("ruleList").child("emulator") :
+                                  doc.child("systemList").child("system");
+            require(parent, "significant text parent");
+            std::ostringstream output;
+            if (whole) {
+                parent.print(output, "", pugi::format_raw);
+            }
+            else {
+                for (const auto* name : {"opaque", "mixed", "unknown", "cdata"})
+                    parent.child(name).print(output, "", pugi::format_raw);
+                if (!rules)
+                    parent.child("rule").print(output, "", pugi::format_raw);
+            }
+            return output.str();
+        };
+        for (bool inherited : {false, true}) {
+            const auto significant = root + (inherited ? "/inherited-space" : "/significant");
+            require(mkdir(significant.c_str(), 0700) == 0, "significant scratch");
+            auto withText = source;
+            withText.replace(withText.find("<command>"), 9, "<command label='Original'>");
+            // A familiar tag in an unknown position is still opaque user data.
+            withText.insert(withText.find("</system>"), opaque + "<rule><a/> <b/></rule>");
+            std::string userRules {"<ruleList><emulator name='User'>"
+                                   "<rule type='androidpackage'><entry>org.user/Activity</entry>"
+                                   "</rule>" +
+                                   opaque + "</emulator></ruleList>"};
+            if (inherited) {
+                withText.replace(withText.find("<systemList>"), 12,
+                                 "<systemList xml:space='preserve'> \t");
+                withText.replace(withText.find("<system>"), 8, "<system> \t");
+                userRules.replace(0, 10, "<ruleList xml:space='preserve'> \t");
+            }
+            put(significant + "/es_systems.xml", withText);
+            put(significant + "/es_find_rules.xml", userRules);
+            EmulatorManagerConfig significantConfig {significant, bundle, bundledRules};
+            const auto significantId = significantConfig.add(
+                "test", "Significant", "org.space/Activity", collisionProfile, "", true);
+            significantConfig.save();
+            require(protectedNodes(read(significant + "/es_systems.xml"), false) ==
+                            protectedNodes(withText, false) &&
+                        protectedNodes(read(significant + "/es_find_rules.xml"), true) ==
+                            protectedNodes(userRules, true),
+                    "mixed, opaque, CDATA and xml:space content unchanged on add");
+            EmulatorManagerConfig significantReadback {significant, bundle, bundledRules};
+            significantReadback.remove("test", significantId);
+            significantReadback.save();
+            require(protectedNodes(read(significant + "/es_systems.xml"), false, inherited) ==
+                            protectedNodes(withText, false, inherited) &&
+                        protectedNodes(read(significant + "/es_find_rules.xml"), true, inherited) ==
+                            protectedNodes(userRules, true, inherited),
+                    "complete protected subtrees unchanged after readback/removal");
+        }
         const std::string profileText {
             "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
             "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "
@@ -521,7 +582,7 @@ int main(int argc, char** argv)
             << "PASS: precedence, unlabeled policy, partial failure/retry, preservation, "
                "ownership, external edit, malformed/ambiguous refusal, snapshot/refresh/reset; "
                "exact removal/ambiguous-label refusal; shared stable rules; "
-               "declaration/indent/CRLF readback\n";
+               "declaration/indent/CRLF readback; mixed/opaque/CDATA/xml:space preservation\n";
     }
     catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

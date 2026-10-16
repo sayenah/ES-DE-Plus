@@ -20,6 +20,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -48,22 +49,54 @@ namespace
         return bytes;
     }
 
-    void normalizeXml(pugi::xml_node node)
+    bool layoutContainer(pugi::xml_node node)
     {
-        bool container {false};
+        if (node.type() == pugi::node_document)
+            return true;
+        const std::string_view name {node.name()};
+        const std::string_view parent {node.parent().name()};
+        const bool root {node.parent().type() == pugi::node_document};
+        return ((name == "systemList" || name == "ruleList" || name == "gameList") && root) ||
+               (name == "system" && (root || parent == "systemList")) ||
+               (name == "emulator" && (root || parent == "ruleList")) ||
+               (name == "rule" && (root || parent == "emulator")) ||
+               (name == "game" && (root || parent == "gameList")) ||
+               (name == "alternativeEmulator" && (root || parent == "gameList"));
+    }
+
+    bool characterData(pugi::xml_node node)
+    {
         for (auto child : node.children())
-            container |= child.type() == pugi::node_element || child.type() == pugi::node_comment;
+            if (child.type() == pugi::node_cdata ||
+                (child.type() == pugi::node_pcdata &&
+                 std::string_view(child.value()).find_first_not_of(" \t\r\n") !=
+                     std::string_view::npos))
+                return true;
+        return false;
+    }
+
+    bool preserveSpace(pugi::xml_node node)
+    {
+        const auto space = node.attribute("xml:space");
+        return space && std::string_view(space.value()) != "default";
+    }
+
+    void normalizeXml(pugi::xml_node node, bool preserve = false)
+    {
+        // Only element-only positions in the upstream grammar have layout whitespace.
+        // Unknown subtrees, mixed text and xml:space content remain opaque user data.
+        preserve |= preserveSpace(node) || !layoutContainer(node) || characterData(node);
         for (auto child = node.first_child(); child;) {
             const auto next = child.next_sibling();
             // Empty text and no text are semantically identical. pugixml 1.14
             // drops empty text nodes on readback, whereas newer versions retain them.
             if (child.type() == pugi::node_pcdata &&
                 (std::string(child.value()).empty() ||
-                 (container &&
+                 (!preserve &&
                   std::string(child.value()).find_first_not_of(" \t\r\n") == std::string::npos)))
                 node.remove_child(child);
             else
-                normalizeXml(child);
+                normalizeXml(child, preserve);
             child = next;
         }
     }
@@ -96,6 +129,41 @@ namespace
         return stream.str();
     }
 
+    void prettyXml(std::ostream& stream,
+                   pugi::xml_node node,
+                   const std::string& indent,
+                   size_t depth = 0)
+    {
+        if (node.type() == pugi::node_document) {
+            for (auto child : node.children())
+                prettyXml(stream, child, indent, depth);
+            return;
+        }
+        for (size_t i {0}; i < depth; ++i)
+            stream << indent;
+        if (!layoutContainer(node) || preserveSpace(node) || characterData(node) ||
+            !node.first_child()) {
+            node.print(stream, "", pugi::format_raw, pugi::encoding_utf8);
+            stream << '\n';
+            return;
+        }
+        // Let pugixml escape the opening tag; print opaque children without adding
+        // indentation inside their significant text (including inherited xml:space).
+        pugi::xml_document tag;
+        auto element = tag.append_child(node.name());
+        for (auto attribute : node.attributes())
+            element.append_attribute(attribute.name()).set_value(attribute.value());
+        std::ostringstream opening;
+        element.print(opening, "", pugi::format_raw, pugi::encoding_utf8);
+        const auto text = opening.str();
+        stream << text.substr(0, text.size() - 2) << ">\n";
+        for (auto child : node.children())
+            prettyXml(stream, child, indent, depth + 1);
+        for (size_t i {0}; i < depth; ++i)
+            stream << indent;
+        stream << "</" << node.name() << ">\n";
+    }
+
     std::string formatted(pugi::xml_node source, const std::string& original)
     {
         std::string indent {"    "};
@@ -114,7 +182,7 @@ namespace
         pugi::xml_document copy;
         const auto node = copyXml(copy, source);
         std::ostringstream stream;
-        node.print(stream, indent.c_str(), pugi::format_default, pugi::encoding_utf8);
+        prettyXml(stream, node, indent);
         std::string output = stream.str();
         // XML parsers normalize input newlines. Retain the file's CRLF convention
         // on output where the original consistently used it, including declarations.
