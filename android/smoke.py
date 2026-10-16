@@ -13,6 +13,7 @@ import smoke_checks
 import launch_checks
 import pdf_smoke
 import app_data_smoke
+import icon_smoke
 import lifecycle_smoke
 import smoke_support
 import smoke_session
@@ -1236,6 +1237,7 @@ try:
         app_data_smoke.run(globals())
         (evidence / 'session-result.txt').write_text('PASS: app-data\n')
         raise SystemExit(0)
+    icon_smoke.capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, television)
     clear_app()
     if api == 29:
         shell('pm', 'revoke', app, 'android.permission.READ_EXTERNAL_STORAGE')

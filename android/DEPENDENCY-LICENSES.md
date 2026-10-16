@@ -126,7 +126,7 @@ under the same Apache-2.0 terms.
 | RetroArch-derived scanline shader | tracked `resources/shaders/glsl/scanlines.glsl` | GPL-2.0-or-later | Shipped as its own source text, compiled by the GPU driver at runtime; source/copyright notice is the file itself and is retained in the exact repository archive |
 | Kotlin stdlib | 2.2.21 | Apache-2.0 | Kotlin host runtime; `licenses/Kotlin` |
 | JetBrains annotations (implicit Kotlin stdlib runtime dependency) | 13.0 | Apache-2.0 | Provided by Kotlin’s published runtime dependency graph; no explicit dependency declaration; canonical terms in `licenses/Kotlin` |
-| Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android placeholder splash/icon/TV banner are original MIT assets |
+| Bundled fonts, theme, icons, sounds and CA certificates | tracked resources and linear-es-de | Existing per-asset licenses | Existing `licenses/` notices apply; Android Pixel Plus splash/icon/TV banner are original MIT assets |
 | Mozilla-derived CA bundle | curl PEM conversion 2026-08-13 | MPL-2.0 | Unmodified `resources/certificates/curl-ca-bundle.crt` source in `repository.tar.gz`; attribution, source URLs and licence text in `licenses/Mozilla-CA-bundle` |
 
 NDK prebuilt measurements (D-001(b) am. 2):
