@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import subprocess
+import threading
 import time
 
 
@@ -42,9 +43,13 @@ def run(harness):
     for mode in ('game', 'configurator', 'copy', 'steady'):
         name = 'assets-' + mode
         process = None
+        monitor = None
+        stop_sampling = threading.Event()
+        focus_samples = []
+        focus_errors = []
         h.shell('am', 'force-stop', h.app)
         h.shell('am', 'force-stop', 'org.esdeplus.stub')
-        root_action('cmd', 'overlay', 'disable', overlay)
+        h.shell('cmd', 'overlay', 'disable', overlay)
         h.shell('rm', '-f', '/data/local/tmp/esde-assets-configurator')
         h.adb('logcat', '-c')
         try:
@@ -71,21 +76,32 @@ def run(harness):
                 h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity')
             elif mode == 'configurator':
                 h.shell('touch', '/data/local/tmp/esde-assets-configurator')
-                h.ui('Save and start frontend')
+                h.wait_for(lambda: any(h.node_matches(n, 'Save and start frontend') for n in h.hierarchy()),
+                           name + ' configurator visible', timeout=30)
             if mode in ('game', 'configurator'):
                 h.wait_for(lambda: re.search(r'state=STOPPED', next((s for s in re.split(
                     r'\n\s*\*\s+Hist\s+#\d+:', h.activity_records()[0])
                     if frontend[0][2] in s), '')) is not None, name + ' frontend STOPPED', timeout=30)
             capture(name + '-before-overlay')
 
-            # Use a separate root shell only for this one overlay command; keep
-            # the ordinary-shell sampler running through the whole transition.
-            focus_samples = []
             def game_focus():
                 window = h.focused_window()
                 focus_samples.append(f'{time.monotonic():.3f}: {window}')
                 assert h.smoke_checks.package_window_focused(window, 'org.esdeplus.stub'), window
-            root_action('cmd', 'overlay', 'enable', overlay)
+            if mode == 'game':
+                game_focus()
+                def sample_focus():
+                    try:
+                        while not stop_sampling.is_set():
+                            game_focus()
+                            stop_sampling.wait(0.25)
+                    except Exception as error:
+                        focus_errors.append(str(error))
+                monitor = threading.Thread(target=sample_focus)
+                monitor.start()
+            # Shell can enable an existing overlay; root was only needed for
+            # fabrication before any probe. Focus sampling spans this command.
+            h.shell('cmd', 'overlay', 'enable', overlay)
             (h.evidence / (name + '-overlay.txt')).write_text(h.shell('cmd', 'overlay', 'dump', overlay))
             if mode in ('game', 'configurator'):
                 # A background resource update must remain deferred. Observe
@@ -98,6 +114,11 @@ def run(harness):
                     assert 'Destroying SDL activity' not in h.adb('logcat', '-d'), 'Invisible ASSETS relaunch'
                     time.sleep(0.25)
                 capture(name + '-background-negative')
+                stop_sampling.set()
+                if monitor is not None:
+                    monitor.join(timeout=30)
+                    assert not monitor.is_alive(), 'Focus sampler stuck'
+                    assert not focus_errors, focus_errors
                 (h.evidence / (name + '-recipient-focus.txt')).write_text('\n'.join(focus_samples) + '\n')
                 if mode == 'game':
                     h.key('KEYCODE_BACK')  # User returns to the existing task, no app launch retry.
@@ -129,6 +150,7 @@ def run(harness):
                 h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
                            name + ' helper restoration', timeout=15)
                 logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
                 assert 'Frontend restart decision requested=true' in old_lines, old_lines
                 assert 'configured=true' in old_lines and 'helperStarted=true' in old_lines, old_lines
                 assert re.search(r'START .*FrontendRestartActivity', logs), logs
@@ -144,6 +166,10 @@ def run(harness):
             capture(name + '-failure')
             failures.append(name + ': ' + str(error))
         finally:
+            stop_sampling.set()
+            if monitor is not None:
+                monitor.join(timeout=30)
+                (h.evidence / (name + '-recipient-focus.txt')).write_text('\n'.join(focus_samples) + '\n')
             h.shell('am', 'force-stop', h.app)
             if process is not None:
                 if process.poll() is None:

@@ -61,6 +61,8 @@ jobs:
         run: tools/Android_dependencies_build.sh x86_64
         env:
           JOBS: '4'
+      - name: Restore generated headers after cached installs
+        run: tools/Android_dependencies_setup.sh
       - name: Assemble debug host and test recipient
         run: |
           cd android
