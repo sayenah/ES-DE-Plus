@@ -310,8 +310,10 @@ namespace
             &parsed)};
         git_config_free(protectedConfig);
         git(parsedResult, "parse actual safe.directory entries");
-        const std::set<std::string> expected {themes + "/themes-list", original, themes + "/second",
-                                              themes + "/pending"};
+        const std::string canonicalThemes {fs::canonical(themes).string()};
+        const std::set<std::string> expected {
+            canonicalThemes + "/themes-list", canonicalThemes + "/original",
+            canonicalThemes + "/second", canonicalThemes + "/pending"};
         require(parsed.size() == expected.size() &&
                     std::set<std::string>(parsed.begin(), parsed.end()) == expected,
                 "actual allowlist preserves exact path bytes");
@@ -425,9 +427,12 @@ namespace
             }
         }
         evidence << "PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n";
-        if (!shared && data.find('"') != std::string::npos && data.find('\\') != std::string::npos)
+        const std::string canonicalData {fs::canonical(data).string()};
+        if (!shared && canonicalData.find('"') != std::string::npos &&
+            canonicalData.find('\\') != std::string::npos)
             evidence << "PASS: actual quoted/backslash private Git paths; protected allowlist "
-                        "parsed exactly; clone/fetch/reset succeeded\n";
+                        "parsed exactly; clone/fetch/reset succeeded; canonical path="
+                     << canonicalData << '\n';
 
         const std::string canary {privateRoot + "/canary"};
         fs::copy(source, canary, fs::copy_options::recursive);
@@ -950,7 +955,9 @@ void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
 #endif
         const std::string quotedPrivate {privateRoot + "/scoped # ; \" \\ caf\xc3\xa9"};
         fs::create_directory(quotedPrivate);
-        suite(quotedPrivate, privateRoot + "/scoped-config", source, false);
+        const std::string scopedAlias {privateRoot + "/scoped-alias"};
+        fs::create_directory_symlink(quotedPrivate, scopedAlias);
+        suite(scopedAlias, privateRoot + "/scoped-config", source, false);
         evidence
             << "RESIDUAL: shared writers can race initialization and later filesystem operations. "
                "The callback gates remote/fetch/checkout; it is not storage isolation (D-012 am. "
