@@ -10,6 +10,14 @@ import time
 import sys
 
 
+def frontend_stopped(dump, record):
+    sections = re.split(r'\n\s*\*\s+Hist\s+#\d+:', dump)
+    # The previous task can mention this same record in mLastPausedActivity.
+    # Only the matching Hist header owns the state we are checking.
+    return any(section.lstrip().startswith('ActivityRecord{' + record + '}') and
+               re.search(r'\bstate=STOPPED\b', section) for section in sections[1:])
+
+
 def destruction_evidence(logs, old):
     old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
     destruction = next((line for line in old_lines.splitlines() if 'Destroying SDL activity' in line), '')
@@ -50,10 +58,35 @@ def controls():
             pass
         else:
             raise AssertionError('Incomplete/mismatched restore chain escaped')
-    return 'PASS: eleven broken restore chains rejected; no recovery or action retry\n'
+    dump = ('mLastPausedActivity: ActivityRecord{frontend}\n'
+            ' * Hist #0: ActivityRecord{game}\n state=RESUMED\n'
+            ' mLastPausedActivity: ActivityRecord{frontend}\n'
+            ' * Hist #0: ActivityRecord{frontend}\n state=STOPPED\n')
+    assert frontend_stopped(dump, 'frontend')
+    assert not frontend_stopped(dump.replace('state=STOPPED', 'state=RESUMED'), 'frontend')
+    assert not frontend_stopped(dump, 'game')
+    return ('PASS: eleven broken restore chains rejected; matching Hist state checked; '
+            'no recovery or action retry\n')
 
 
 def run(harness):
+    h = type('Harness', (), harness)
+    # The emulator images support adbd root but do not all ship su. Keep one
+    # connection through overlay delivery so focus sampling and --no-restart
+    # instrumentation are uninterrupted. Applications still run under their own
+    # UIDs; the game cases have no instrumentation/background-start grant.
+    h.adb('root')
+    h.adb('wait-for-device')
+    try:
+        h.wait_for(lambda: h.shell('id', '-u').strip() == '0', 'overlay-manager root', timeout=10)
+        run_rooted(harness)
+    finally:
+        h.adb('unroot')
+        h.adb('wait-for-device')
+        h.wait_for(lambda: h.shell('id', '-u').strip() == '2000', 'ordinary shell restored', timeout=10)
+
+
+def run_rooted(harness):
     h = type('Harness', (), harness)
     baseline = os.environ.get('ESDE_ASSETS_UNFIXED') == 'true'
     overlay = 'com.android.shell:esde_wo18'
@@ -66,14 +99,9 @@ def run(harness):
         (h.evidence / (name + '-activities.txt')).write_text(h.activity_records()[0])
         (h.evidence / (name + '-window.txt')).write_text(h.focused_window())
 
-    def root_action(*args):
-        # Emulator userdebug su scopes root to this command. Keep adbd and
-        # concurrent focus sampling/instrumentation connected as ordinary shell.
-        return h.shell('su', '0', *args)
-
     # ThemeResources is Android's public palette overlayable on these images.
     # No APK, dependency or platform source is added for the trigger.
-    root_action('cmd', 'overlay', 'fabricate', '--target', 'android', '--target-name', 'ThemeResources',
+    h.shell('cmd', 'overlay', 'fabricate', '--target', 'android', '--target-name', 'ThemeResources',
                 '--name', 'esde_wo18', 'android:color/system_neutral1_500', '0x1c', '0xff123456')
     (h.evidence / 'assets-overlay-created.txt').write_text(h.shell('cmd', 'overlay', 'dump', overlay))
 
@@ -86,17 +114,17 @@ def run(harness):
         focus_errors = []
         h.shell('am', 'force-stop', h.app)
         h.shell('am', 'force-stop', 'org.esdeplus.stub')
-        root_action('cmd', 'overlay', 'disable', overlay)
+        h.shell('cmd', 'overlay', 'disable', overlay)
         h.shell('rm', '-f', '/data/local/tmp/esde-assets-configurator')
         h.adb('logcat', '-c')
         try:
             if mode in ('copy', 'configurator'):
                 # AOSP's ordinary instrumentation cleanup force-stops the
                 # whole package when the parent dies, removing the helper.
-                # Attach without restart to a Java-only VM instead. Root is
-                # used only for the private debug bootstrap and overlay manager,
-                # never for game focus or product restoration.
-                root_action('am', 'start', '-W', '-n',
+                # Attach without restart to a Java-only VM instead. Root can
+                # enter this private debug component; product restoration is
+                # performed by the frontend under its own UID.
+                h.shell('am', 'start', '-W', '-n',
                             h.app + '/org.esdeplus.frontend.ForcedRelaunchBootstrapActivity')
                 assert 'Running main function' not in h.adb('logcat', '-d'), 'Bootstrap started native main'
                 output = (h.evidence / (name + '-instrumentation.txt')).open('w')
@@ -125,9 +153,8 @@ def run(harness):
                 h.wait_for(lambda: any(h.node_matches(n, 'Save and start frontend') for n in h.hierarchy()),
                            name + ' configurator visible', timeout=30)
             if mode in ('game', 'configurator'):
-                h.wait_for(lambda: re.search(r'state=STOPPED', next((s for s in re.split(
-                    r'\n\s*\*\s+Hist\s+#\d+:', h.activity_records()[0])
-                    if frontend[0][2] in s), '')) is not None, name + ' frontend STOPPED', timeout=30)
+                h.wait_for(lambda: frontend_stopped(h.activity_records()[0], frontend[0][2]),
+                           name + ' frontend STOPPED', timeout=30)
             capture(name + '-before-overlay')
 
             def game_focus():
@@ -147,7 +174,7 @@ def run(harness):
                 monitor.start()
             # ThemeResources requires root for activation as well as fabrication.
             # Focus sampling spans delivery; no adbd restart interrupts it.
-            root_action('cmd', 'overlay', 'enable', overlay)
+            h.shell('cmd', 'overlay', 'enable', overlay)
             (h.evidence / (name + '-overlay.txt')).write_text(h.shell('cmd', 'overlay', 'dump', overlay))
             if mode in ('game', 'configurator'):
                 # A background resource update must remain deferred. Observe
