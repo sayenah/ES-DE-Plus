@@ -355,7 +355,7 @@ jobs:
         run: |
           python3 - <<'PYCODE'
           import os, pathlib, subprocess, tempfile
-          compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
+          compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang++'
           with tempfile.TemporaryDirectory() as temporary:
               source = pathlib.Path(temporary) / 'InputOverlay.cpp'
               source.write_text('#warning ES-DE-Plus native-warnings positive control\n')
