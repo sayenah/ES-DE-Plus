@@ -19,7 +19,9 @@ def frontend_stopped(dump, record):
 
 
 def destruction_evidence(logs, old):
-    old_lines = '\n'.join(line for line in logs.splitlines() if re.search(r'\s' + old + r'\s', line))
+    # Bind the PID column of logcat threadtime, never a TID or a payload number.
+    prefix = r'^\S+\s+\S+\s+' + re.escape(old) + r'\s+\d+\s+[VDIWEF]\s'
+    old_lines = '\n'.join(line for line in logs.splitlines() if re.match(prefix, line))
     destruction = next((line for line in old_lines.splitlines() if 'Destroying SDL activity' in line), '')
     assert 'held=false' in destruction, 'Held-host outcome is not G-30: ' + destruction
     assert 'changingConfigurations=true' in destruction and 'finishing=false' in destruction, destruction
@@ -31,17 +33,23 @@ def destruction_evidence(logs, old):
 def restoration_evidence(logs, old):
     old_lines = destruction_evidence(logs, old)
     assert 'Frontend restart decision requested=true configured=true helperStarted=true' in old_lines, old_lines
-    assert re.search(r'START .*FrontendRestartActivity', logs), 'Missing helper START'
-    assert f'SDL process {old} retired; restarting entry' in logs, 'Missing observed old-process retirement'
+    decision_line = next((line for line in old_lines.splitlines() if
+                         'Frontend restart decision requested=true configured=true ' in line), '')
+    decision = logs.find(decision_line) if decision_line else -1
+    helper = re.search(r'START .*FrontendRestartActivity', logs)
+    retirement = logs.find(f'SDL process {old} retired; restarting entry')
+    assert decision >= 0 and helper and retirement >= 0, 'Missing decision, helper START or observed old-process retirement'
+    assert decision < helper.start() < retirement, 'Restore chain is out of order'
 
 
 def controls():
-    logs = (' I 123 124 Running main function\n'
-            ' I 123 123 Destroying SDL activity held=false finishing=false changingConfigurations=true '
+    logs = ('01-01 00:00:00.000 123 124 V SDL: Running main function\n'
+            '01-01 00:00:00.001 123 123 I ES-DE-Plus: Destroying SDL activity held=false finishing=false changingConfigurations=true '
             'configurationChanges=0x-80000000\n'
-            ' I 123 123 Frontend restart decision requested=true configured=true helperStarted=true\n'
-            ' I 456 456 START cmp=FrontendRestartActivity\n'
-            ' I 789 789 SDL process 123 retired; restarting entry\n')
+            '01-01 00:00:00.002 123 123 I ES-DE-Plus: Frontend restart decision requested=true configured=true helperStarted=false\n'
+            '01-01 00:00:00.003 456 456 I ActivityTaskManager: START cmp=FrontendRestartActivity\n'
+            '01-01 00:00:00.004 123 123 I ES-DE-Plus: Frontend restart decision requested=true configured=true helperStarted=true\n'
+            '01-01 00:00:00.005 789 789 I ES-DE-Plus: SDL process 123 retired; restarting entry\n')
     restoration_evidence(logs, '123')
     mutants = [logs.replace(token, replacement) for token, replacement in (
         ('requested=true', 'requested=false'), ('configured=true', 'configured=false'),
@@ -50,7 +58,12 @@ def controls():
         ('configurationChanges=0x-80000000', 'configurationChanges=0x10000000'),
         ('finishing=false', 'finishing=true'), ('changingConfigurations=true', 'changingConfigurations=false'))]
     mutants.append(logs.replace('held=false', 'held=true'))
-    mutants += [logs + ' I 123 124 Running main function\n', logs.replace(' I 123 ', ' I 999 ')]
+    mutants += [logs + '01-01 00:00:00.006 123 124 V SDL: Running main function\n',
+                logs.replace(' 123 ', ' 999 '),
+                logs.replace('123 123 I ES-DE-Plus: Destroying', '999 123 I ES-DE-Plus: Destroying')]
+    lines = logs.splitlines(keepends=True)
+    mutants += [''.join(lines[:2] + [lines[3], lines[2]] + lines[4:]),
+                ''.join(lines[:3] + [lines[5], lines[3], lines[4]])]
     for mutant in mutants:
         try:
             restoration_evidence(mutant, '123')
@@ -65,7 +78,7 @@ def controls():
     assert frontend_stopped(dump, 'frontend')
     assert not frontend_stopped(dump.replace('state=STOPPED', 'state=RESUMED'), 'frontend')
     assert not frontend_stopped(dump, 'game')
-    return ('PASS: eleven broken restore chains rejected; matching Hist state checked; '
+    return (f'PASS: {len(mutants)} broken restore chains rejected; matching Hist state checked; '
             'no recovery or action retry\n')
 
 

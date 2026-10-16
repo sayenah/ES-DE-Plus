@@ -57,10 +57,10 @@ open class MainActivity : SDLActivity() {
         visibleForRestart = true
     }
     override fun onStop() {
-        // Framework relaunch sets changingConfigurations before stopping a
-        // visible activity. Retain that pre-relaunch visibility, but clear it
-        // on an ordinary stop behind a game; later background relaunch must
-        // leave the game in front until the user enters the frontend again.
+        // Retain pre-relaunch visibility, but clear it on an ordinary stop.
+        // onDestroy separately recognises a deferred ASSETS_PATHS relaunch
+        // when Android makes a stopped frontend visible. A zero-mask local
+        // relaunch while stopped must leave the game in front.
         if (!isChangingConfigurations) visibleForRestart = false
         super.onStop()
     }
@@ -86,19 +86,25 @@ open class MainActivity : SDLActivity() {
         val visible = visibleForRestart
         val held = ConfiguratorSession.configuring
         val terminal = !held && !SDLActivity.mBrokenLibraries
-        restartRequested = terminal && visible && changing && !finishing
+        // AOSP defers server-side asset changes until a stopped activity is
+        // made visible. Client-local relaunches can remain invisible and carry
+        // a zero mask, so visibility is still required for those. The hidden
+        // ActivityInfo.CONFIG_ASSETS_PATHS bit is the sign bit on Android 12+.
+        val assetsPathsChanged = (changes and Int.MIN_VALUE) != 0
+        val requested = terminal && (visible || assetsPathsChanged) && changing && !finishing
         val destruction = "Destroying SDL activity held=$held " +
             "finishing=$finishing changingConfigurations=$changing " +
             "configurationChanges=0x${changes.toString(16)} task=$taskId " +
-            "visibleForRestart=$visible"
+            "visibleForRestart=$visible assetsPathsChanged=$assetsPathsChanged"
         if (BuildConfig.DEBUG) Log.i("ES-DE-Plus", destruction, Throwable("SDL destruction caller"))
         else Log.i("ES-DE-Plus", destruction)
-        // A visible activity's non-finishing relaunch retains a foreground
-        // owner while this process retires. The private Java activity waits for
+        // A visible or returning activity's non-finishing relaunch retains a
+        // foreground owner while this process retires. The Java activity waits for
         // actual process death; it cannot conceal a native quit/join stall.
-        prepareRestart()
-        Log.i("ES-DE-Plus", "Frontend restart decision requested=$restartRequested " +
+        Log.i("ES-DE-Plus", "Frontend restart decision requested=$requested " +
             "configured=$configured helperStarted=${restartPrepared.get()}")
+        restartRequested = requested
+        prepareRestart()
         destroying = true
         // Task clear can destroy the root before pausing the configurator.
         // Save its scalar snapshot without calling a retained Activity.
@@ -131,6 +137,9 @@ open class MainActivity : SDLActivity() {
     }
     private fun prepareRestart() {
         if (restartRequested && configured && restartPrepared.compareAndSet(false, true)) {
+            // Configuration can become ready on the native thread after the
+            // initial decision. Record that decision before requesting START.
+            Log.i("ES-DE-Plus", "Frontend restart decision requested=true configured=true helperStarted=false")
             FrontendRestartActivity.prepare(applicationContext, ConfiguratorSession.restartEntry())
             Log.i("ES-DE-Plus", "Frontend restart decision requested=true configured=true helperStarted=true")
         }

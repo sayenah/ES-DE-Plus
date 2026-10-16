@@ -6,6 +6,11 @@ on:
     branches: ['fix/forced-relaunch-restore']
     paths: ['android/**', '.github/workflows/forced-relaunch.yml']
   workflow_dispatch:
+    inputs:
+      unfixed:
+        description: Pin the original main host for the G-30 positive controls
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -22,16 +27,20 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
-      ESDE_ASSETS_UNFIXED: 'true'
+      ESDE_ASSETS_UNFIXED: ${{ inputs.unfixed || false }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-      - name: Pin unfixed production host for positive controls
+      - name: Record candidate host or pin unfixed positive control
         run: |
           mkdir -p android/evidence
-          git show 899f98cf0444408cb00b60175dc4d606aaadc65d:android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt > android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt
-          echo 'Unfixed host: main 899f98cf0444408cb00b60175dc4d606aaadc65d; probe files from the run SHA' > android/evidence/assets-host-source.txt
+          if [[ "$ESDE_ASSETS_UNFIXED" == true ]]; then
+            git show 899f98cf0444408cb00b60175dc4d606aaadc65d:android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt > android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt
+            echo 'Unfixed host: main 899f98cf0444408cb00b60175dc4d606aaadc65d; probe files from the run SHA' > android/evidence/assets-host-source.txt
+          else
+            echo "Candidate host: $GITHUB_SHA" > android/evidence/assets-host-source.txt
+          fi
           sha256sum android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt >> android/evidence/assets-host-source.txt
       - name: Verify restore-chain rejection controls
         run: python3 android/forced_relaunch_smoke.py self-test

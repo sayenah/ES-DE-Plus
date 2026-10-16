@@ -6,7 +6,7 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "org.esdeplus.relaunchprobe"
-        minSdk = 29
+        minSdk = 31
         targetSdk = 36
         versionCode = 1
         versionName = "WO-18-probe"
