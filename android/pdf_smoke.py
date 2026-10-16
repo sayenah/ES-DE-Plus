@@ -235,7 +235,7 @@ def run(mode, harness):
     node.set('value', media)
     # Runtime Debug logging includes SDL repeats and Window's blocked-input
     # state before any early return, and mirrors native logs into logcat.
-    for name, value in [('Debug', 'true'), ('DebugSkipInputLogging', 'false')]:
+    for name, value in [('DebugMode', 'true'), ('DebugSkipInputLogging', 'false')]:
         option = settings.find("bool[@name='" + name + "']")
         if option is None:
             option = ET.SubElement(settings, 'bool', name=name)
