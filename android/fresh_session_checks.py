@@ -68,12 +68,15 @@ def startup_native_ready(chains, native, pid, before, after):
 
 def startup_restart(output, app, current_pid='', ready=None):
     lines = output.splitlines()
+    # UTC logcat adds an explicit timezone column on Android; ordinary
+    # threadtime captures omit it. Both carry the same PID/TID fields.
+    thread = r'\S+\s+\S+\s+(?:[+-]\d{4}\s+)?(\d+)\s'
     chains = []
     seen = set()
     for index, line in enumerate(lines):
         if 'Destroying SDL activity' not in line or 'changingConfigurations=true' not in line:
             continue
-        pid = re.match(r'\S+\s+\S+\s+(\d+)\s', line)[1]
+        pid = re.match(thread, line)[1]
         if pid in seen:
             continue
         seen.add(pid)
@@ -92,7 +95,7 @@ def startup_restart(output, app, current_pid='', ready=None):
                         'SDL process ' + pid + ' retired; restarting entry' in text), None)
         creation = next((text for n, text in enumerate(later)
                          if retired is not None and n > retired and 'Creating sole SDL activity' in text), None)
-        new = re.match(r'\S+\s+\S+\s+(\d+)\s', creation)[1] if creation else None
+        new = re.match(thread, creation)[1] if creation else None
         complete = requested is not None and started is not None and retired is not None and new not in (None, pid)
         if ready is not None and (not complete or 'Application startup time:' not in ready or 'Error:' in ready):
             raise HostStartupFailure('G-30 INCOMPLETE_RESTART_CHAIN: PID ' + pid + ' -> ' + str(new))
@@ -374,9 +377,9 @@ def startup_controls():
     assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT'
 
 
-def startup_restart_controls():
+def startup_restart_controls(zone=''):
     app = 'org.esdeplus.frontend'
-    prefix = '2026-10-16 10:00:00.000000 '
+    prefix = '2026-10-16 10:00:00.000000 ' + zone
     lines = [prefix + '2001 2001 I ES-DE-Plus: Destroying SDL activity changingConfigurations=true',
              prefix + '551 551 I ActivityTaskManager: START u0 {cmp=' + app + '/.FrontendRestartActivity}',
              prefix + '551 551 I ActivityManager: Process ' + app + ' (pid 2001) has died: fg TOP',
@@ -426,6 +429,8 @@ def startup_restart_controls():
     trace = startup_trace(marker + '\n'.join(dead) + '\n' + later,
                           marker + '\n'.join(dead) + '\n' + later, 'later-marker')
     assert startup_restart(trace, app) == []
+    if not zone:
+        startup_restart_controls('+0000 ')
 
 
 if __name__ == '__main__':
