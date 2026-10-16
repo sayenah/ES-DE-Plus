@@ -208,8 +208,11 @@ internal object AppDataSmoke {
                     check(denial?.errno == android.system.OsConstants.EACCES)
                     check(scoped.validate(configuration) == scopedROMs)
                     android.system.Os.chmod(scopedData.path, 0x140)
-                    try { rejected { scoped.validate(configuration) } }
-                    finally { android.system.Os.chmod(scopedData.path, 0x1c0) }
+                    try {
+                        val dataDenial = try { scoped.validate(configuration); null }
+                            catch (error: android.system.ErrnoException) { error }
+                        check(dataDenial?.errno == android.system.OsConstants.EACCES)
+                    } finally { android.system.Os.chmod(scopedData.path, 0x1c0) }
                 } finally { android.system.Os.chmod(scopedROMs.path, 0x1c0); check(scopedData.delete()); check(scopedROMs.delete()) }
             } finally { check(alias.delete()); check(target.delete()); check(aliases.delete()) }
 

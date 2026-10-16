@@ -32,7 +32,7 @@ def prepare(harness, mode):
         h.ui('Confirm and use this data folder', dpad=True)
         h.select_data_root('/sdcard/ES-DE-Plus')
         h.settings = harness['settings']
-        h.ui('Absolute shared ROM folder path', dpad=h.television)
+        h.ui('Absolute shared ROM folder path', dpad=True)
         h.shell('input', 'text', h.shared)
         h.key('KEYCODE_BACK')
         h.ui('Use typed folder path', dpad=True)

@@ -550,8 +550,19 @@ def destroy_held(name):
     # _exit ends the entire process, including the pending UI join; a post-join
     # Java callback is not claimed on this path. Normal quits still assert it.
     start_entry('HomeEntry', 'android.intent.category.HOME')
-    # Wait on observable readiness, then evaluate the full product assertion
-    # once. Never replay the task clear or the frontend launch on a timeout.
+    # Restored focus can correctly scroll a tall form below its title. Wait
+    # for actual app-owned controls, capture that restored state, then navigate
+    # to the top without activating a choice. Keep the title/task/PID oracle.
+    wait_for(lambda: any(n.get('package') == app and
+                         n.get('resource-id', '').startswith(app + ':string/') for n in hierarchy()) and
+                         len(activity_records()[1]) == 2,
+             'restored configurator controls on the new host')
+    (evidence / (name + '-restored-before-scroll-ui.txt')).write_text(
+        (evidence / 'latest-ui.txt').read_text())
+    ui('Use direct filesystem compatibility', dpad=True, focus_only=True)
+    key('KEYCODE_MOVE_HOME')
+    # Never replay task clear or frontend launch, and retain the full existing
+    # assertion after ordinary user navigation makes the title visible.
     wait_for(lambda: any(n.get('package') == app and n.get('text', '').startswith('Configure ')
                          for n in hierarchy()) and len(activity_records()[1]) == 2,
              'held configuration restored on a new host in the same task')
@@ -1308,7 +1319,7 @@ try:
     assert private('test', '!', '-f', 'shared_prefs/storage.xml') == '', 'Draft became accepted storage'
     screenshot('confirmed-application-data-before-roms')
     # Real editable field and focus survive an Activity resume/re-render.
-    ui('Absolute shared ROM folder path', dpad=television)
+    ui('Absolute shared ROM folder path', dpad=True)
     if television:
         (evidence / 'tv-path-ime.txt').write_text(shell('dumpsys', 'input_method'))
         screenshot('tv-path-ime-open')
