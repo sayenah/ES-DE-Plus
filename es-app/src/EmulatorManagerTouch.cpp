@@ -143,8 +143,9 @@ void EmulatorManagerTouch::updateTargets(GuiComponent& gui, bool reportButtonFoc
         if (reportButtonFocus) {
             if (auto grid = dynamic_cast<ComponentGrid*>(&component)) {
                 auto selected = grid->getSelectedComponent();
-                if (auto button = dynamic_cast<ButtonComponent*>(selected.get()))
+                if (auto button = dynamic_cast<ButtonComponent*>(selected.get())) {
                     LOG(LogDebug) << "Emulator manager dialog focus: " << button->getText();
+                }
             }
         }
         if (auto list = dynamic_cast<ComponentList*>(&component)) {

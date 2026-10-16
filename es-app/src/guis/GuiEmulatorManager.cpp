@@ -762,9 +762,10 @@ void GuiEmulatorManager::update(int deltaTime)
             const auto& entry = list->getTouchRowData(cursor);
             if (!entry.elements.empty()) {
                 auto label = dynamic_cast<TextComponent*>(entry.elements.front().component.get());
-                if (label)
+                if (label) {
                     LOG(LogDebug) << "Emulator manager focus: " << static_cast<int>(mPage) << "\t"
                                   << cursor << "\t" << label->getValue();
+                }
             }
         }
     }
