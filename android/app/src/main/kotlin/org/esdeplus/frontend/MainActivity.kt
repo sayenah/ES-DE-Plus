@@ -5,6 +5,7 @@ package org.esdeplus.frontend
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.content.res.Configuration
@@ -66,6 +67,18 @@ open class MainActivity : SDLActivity() {
         prepareRestart()
         recreate()
         return true
+    }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // G-28 instrumentation: remove when its root cause is found or no first-key
+        // loss occurs in 20 consecutive main runs, closing G-28 (D-024 am. 2).
+        val traceInput = BuildConfig.DEBUG && Log.isLoggable("ESDE-PDF-CLOSE", Log.DEBUG)
+        if (traceInput) Log.d("ES-DE-Plus", "Input dispatch begin uptime=${SystemClock.uptimeMillis()} " +
+            "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} " +
+            "repeat=${event.repeatCount} focus=${hasWindowFocus()} view=${currentFocus?.javaClass?.name}")
+        val handled = super.dispatchKeyEvent(event)
+        if (traceInput) Log.d("ES-DE-Plus", "Input dispatch end uptime=${SystemClock.uptimeMillis()} " +
+            "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} handled=$handled")
+        return handled
     }
     override fun onStart() {
         super.onStart()

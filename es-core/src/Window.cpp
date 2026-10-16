@@ -1054,6 +1054,9 @@ void Window::stopPDFViewer()
     }
 
     mRenderPDFViewer = false;
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF viewer stopped ticks=" << SDL_GetTicks();
+#endif
 }
 
 void Window::displayLaunchScreen(FileData* game)
