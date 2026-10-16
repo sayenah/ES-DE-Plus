@@ -228,6 +228,7 @@ def run(mode, harness):
     h = type('Harness', (), harness)
     diagnostic_cycles = int(os.environ.get('ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES', '0'))
     assert 0 <= diagnostic_cycles <= 20, 'PDF diagnostic cycles must be 0..20'
+    input_trace_level = h.shell('getprop', 'log.tag.ESDE-PDF-CLOSE').strip()
     h.evidence.joinpath('pdf-assertion-positive-controls.txt').write_text(controls())
     h.shell('am', 'force-stop', h.app)
     original = h.shell('cat', h.settings)
@@ -249,6 +250,7 @@ def run(mode, harness):
     process = None
     output = output_path.open('w')
     try:
+        h.shell('setprop', 'log.tag.ESDE-PDF-CLOSE', 'DEBUG')
         h.private('rm', '-f', 'cache/pdf-result', 'cache/pdf-command')
         process = subprocess.Popen(['adb', 'shell', 'am', 'instrument', '-w', '-e', 'mode', 'pdf-session',
                                     h.app + '/org.esdeplus.frontend.RuntimeSmoke'], stdout=output, stderr=subprocess.STDOUT)
@@ -525,6 +527,7 @@ def run(mode, harness):
         output.close()
         h.shell('am', 'force-stop', h.app)
         h.user_file('settings/es_settings.xml', original)
+        h.shell('setprop', 'log.tag.ESDE-PDF-CLOSE', input_trace_level)
     # The inherited warm-alias checks expect a live HOME session, just as
     # launch_contract_probes restores after its standalone gamelist probes.
     h.wait_for(lambda: not h.shell('pidof', h.app, check=False).strip(), 'PDF frontend stopped before restoring HOME')

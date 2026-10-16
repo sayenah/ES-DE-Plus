@@ -54,11 +54,12 @@ open class MainActivity : SDLActivity() {
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
     }
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Input dispatch begin uptime=${SystemClock.uptimeMillis()} " +
+        val traceInput = BuildConfig.DEBUG && Log.isLoggable("ESDE-PDF-CLOSE", Log.DEBUG)
+        if (traceInput) Log.d("ES-DE-Plus", "Input dispatch begin uptime=${SystemClock.uptimeMillis()} " +
             "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} " +
             "repeat=${event.repeatCount} focus=${hasWindowFocus()} view=${currentFocus?.javaClass?.name}")
         val handled = super.dispatchKeyEvent(event)
-        if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Input dispatch end uptime=${SystemClock.uptimeMillis()} " +
+        if (traceInput) Log.d("ES-DE-Plus", "Input dispatch end uptime=${SystemClock.uptimeMillis()} " +
             "eventTime=${event.eventTime} action=${event.action} code=${event.keyCode} handled=$handled")
         return handled
     }
