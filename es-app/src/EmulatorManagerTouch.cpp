@@ -52,8 +52,7 @@ namespace
     }
 } // namespace
 
-bool EmulatorManagerTouch::handle(
-    GuiComponent& gui, int type, int64_t finger, float x, float y, const std::string& entryLabel)
+bool EmulatorManagerTouch::handle(GuiComponent& gui, int type, int64_t finger, float x, float y)
 {
     mDirty = true;
     const float screenX = x * Renderer::getScreenWidth();
@@ -88,9 +87,6 @@ bool EmulatorManagerTouch::handle(
     if (mMoved || !target.component)
         return true;
     if (auto button = dynamic_cast<ButtonComponent*>(target.component)) {
-        if (!entryLabel.empty() && button->getText() != entryLabel &&
-            button->getText() != _("BACK"))
-            return true;
         auto action = button->getPressedFunc();
         if (action)
             action();
@@ -100,14 +96,6 @@ bool EmulatorManagerTouch::handle(
         const int cursor = list->getTouchRow(target.y);
         if (cursor < 0 || cursor >= list->size())
             return true;
-        if (!entryLabel.empty()) {
-            const auto& row = list->getTouchRowData(cursor);
-            if (row.elements.empty())
-                return true;
-            auto text = dynamic_cast<TextComponent*>(row.elements.front().component.get());
-            if (!text || text->getValue() != entryLabel)
-                return true;
-        }
         list->moveCursor(cursor - list->getCursorId());
         list->onFocusGained();
         auto config = InputManager::getInstance().getInputConfigByDevice(DEVICE_TOUCH);
@@ -119,7 +107,7 @@ bool EmulatorManagerTouch::handle(
     return true;
 }
 
-void EmulatorManagerTouch::updateTargets(GuiComponent& gui, const std::string& entryLabel)
+void EmulatorManagerTouch::updateTargets(GuiComponent& gui)
 {
     if (!mDirty)
         return;
@@ -145,16 +133,14 @@ void EmulatorManagerTouch::updateTargets(GuiComponent& gui, const std::string& e
                 if (row.elements.empty())
                     continue;
                 auto text = dynamic_cast<TextComponent*>(row.elements.front().component.get());
-                if (text && (entryLabel.empty() || text->getValue() == entryLabel))
+                if (text)
                     report(text->getValue(), transform, list->getSize().x / 2.0f, y);
             }
             return;
         }
         if (auto button = dynamic_cast<ButtonComponent*>(&component)) {
-            if (entryLabel.empty() || button->getText() == entryLabel ||
-                button->getText() == _("BACK"))
-                report(button->getText(), transform, button->getSize().x / 2.0f,
-                       button->getSize().y / 2.0f);
+            report(button->getText(), transform, button->getSize().x / 2.0f,
+                   button->getSize().y / 2.0f);
         }
         for (unsigned int i {0}; i < component.getChildCount(); ++i)
             visit(*component.getChild(i), transform);

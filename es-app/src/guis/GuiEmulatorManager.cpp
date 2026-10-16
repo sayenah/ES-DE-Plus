@@ -137,6 +137,7 @@ void GuiEmulatorManager::rebuild()
     LOG(LogDebug) << "Emulator manager page: " << pages[static_cast<int>(mPage)]
                   << "; system: " << mSystemName;
     mRebuild = false;
+    mFocusPending = true;
     mTouch.invalidate();
     if (mMenu)
         removeChild(mMenu.get());
@@ -707,6 +708,7 @@ void GuiEmulatorManager::back()
 
 bool GuiEmulatorManager::input(InputConfig* config, Input input)
 {
+    mFocusPending = true;
     mTouch.invalidate();
     if (input.value && config->isMappedTo("b", input)) {
         back();
@@ -741,6 +743,20 @@ void GuiEmulatorManager::update(int deltaTime)
     }
     GuiComponent::update(deltaTime);
     mTouch.updateTargets(*this);
+    if (mFocusPending && mWindow->peekGui() == this) {
+        mFocusPending = false;
+        const auto list = mMenu->getList();
+        const int cursor = list->getCursorId();
+        if (list->getTouchFocused() && cursor >= 0 && cursor < list->size()) {
+            const auto& entry = list->getTouchRowData(cursor);
+            if (!entry.elements.empty()) {
+                auto label = dynamic_cast<TextComponent*>(entry.elements.front().component.get());
+                if (label)
+                    LOG(LogDebug) << "Emulator manager focus: " << static_cast<int>(mPage) << "\t"
+                                  << cursor << "\t" << label->getValue();
+            }
+        }
+    }
 }
 
 std::vector<HelpPrompt> GuiEmulatorManager::getHelpPrompts()

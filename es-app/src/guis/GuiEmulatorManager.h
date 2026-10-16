@@ -76,6 +76,7 @@ private:
     Page mPage {Page::SYSTEMS};
     Page mNext {Page::SYSTEMS};
     bool mRebuild {true};
+    bool mFocusPending {true};
     bool mApply {false};
     bool mTest {false};
     bool mClose {false};

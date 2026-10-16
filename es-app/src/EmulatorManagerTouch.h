@@ -3,7 +3,7 @@
 //  ES-DE-Plus
 //  EmulatorManagerTouch.h
 //
-//  Written for ES-DE-Plus. Direct touch for emulator-manager entry rows and dialogs.
+//  Written for ES-DE-Plus. Direct touch inside emulator-manager dialogs.
 //
 
 #ifndef ES_APP_EMULATOR_MANAGER_TOUCH_H
@@ -17,14 +17,9 @@
 class EmulatorManagerTouch
 {
 public:
-    bool handle(GuiComponent& gui,
-                int type,
-                int64_t finger,
-                float x,
-                float y,
-                const std::string& entryLabel = "");
+    bool handle(GuiComponent& gui, int type, int64_t finger, float x, float y);
 
-    void updateTargets(GuiComponent& gui, const std::string& entryLabel = "");
+    void updateTargets(GuiComponent& gui);
     void invalidate() { mDirty = true; }
 
 private:
@@ -48,24 +43,6 @@ public:
     bool nativeTouch(int type, int64_t finger, float x, float y) override
     {
         return mTouch.handle(*this, type, finger, x, y);
-    }
-
-private:
-    EmulatorManagerTouch mTouch;
-};
-
-class GuiEmulatorManagerEntry : public GuiMsgBox
-{
-public:
-    using GuiMsgBox::GuiMsgBox;
-    void update(int deltaTime) override
-    {
-        GuiMsgBox::update(deltaTime);
-        mTouch.updateTargets(*this, _("EMULATORS"));
-    }
-    bool nativeTouch(int type, int64_t finger, float x, float y) override
-    {
-        return mTouch.handle(*this, type, finger, x, y, _("EMULATORS"));
     }
 
 private:

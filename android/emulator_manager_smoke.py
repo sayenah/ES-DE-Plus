@@ -3,9 +3,82 @@
 # ES-DE-Plus — written for ES-DE-Plus. Drives the actual native GUI, including minified builds.
 import hashlib
 import json
+import importer_navigation
 import re
 import xml.etree.ElementTree as ET
 
+
+
+def navigate_menus(read, key):
+    # Observe transitions without replaying inputs. Re-capture focus immediately
+    # before every Down/A; a stale, unknown or unsafe row never authorizes A.
+    label = importer_navigation.wait_selection(read)
+    assert label == 'SEARCH', 'Manager main menu did not focus SEARCH: ' + label
+    seen = set()
+    while label != 'OTHER SETTINGS':
+        assert label in importer_navigation.MAIN_ROWS and label not in seen, label
+        seen.add(label)
+        fresh = importer_navigation.wait_selection(read)
+        assert fresh == label, f'Manager focus changed before Down: {label!r} -> {fresh!r}'
+        key('KEYCODE_DPAD_DOWN')
+        label = importer_navigation.wait_selection(read, previous=label)
+    for expected in ('OTHER SETTINGS', 'ALTERNATIVE EMULATORS', 'EMULATOR MANAGER'):
+        fresh = importer_navigation.wait_selection(read)
+        importer_navigation.activate(fresh, expected, key)
+        if expected != 'EMULATOR MANAGER':
+            importer_navigation.wait_selection(read, previous=expected)
+
+
+def navigation_controls():
+    rows = ['SEARCH', 'SCRAPER', 'UI SETTINGS', 'SOUND SETTINGS', 'INPUT DEVICE SETTINGS',
+            'GAME COLLECTION SETTINGS', 'OTHER SETTINGS', 'ALTERNATIVE EMULATORS', 'EMULATOR MANAGER']
+    def control(replacement=None):
+        state = [0]
+        actions = []
+        def read():
+            return replacement if replacement and state[0] == 7 else rows[state[0]]
+        def key(value):
+            actions.append((rows[state[0]], value))
+            state[0] += 1
+        try:
+            navigate_menus(read, key)
+        except AssertionError:
+            assert replacement and all(row not in rows[7:] for row, _ in actions), actions
+        else:
+            assert not replacement, 'Unverified manager menu activated'
+            assert actions[-3:] == [(label, 'KEYCODE_ENTER') for label in rows[-3:]], actions
+        return actions
+    control()
+    for label in ('QUIT ES-DE', 'SEARCH', 'EMULATOR MANAGER'):
+        control(label)
+    return 'PASS: manager entry verifies fresh focus before every Down/A; QUIT, wrong and stale submenu labels send no A.\n'
+
+
+def open_manager(h, mode):
+    with (h.evidence / 'emulator-manager-navigation-sequence.txt').open('a+') as sequence:
+        sequence.seek(0)
+        name = f'emulator-manager-navigation-{mode}-{len(sequence.readlines()) + 1}'
+        sequence.write(name + '\n')
+    trace = h.evidence / (name + '-focus-trace.txt')
+    pid = h.shell('pidof', h.app).strip()
+    step = 0
+    def read():
+        nonlocal step
+        assert pid and h.shell('pidof', h.app, check=False).strip() == pid, 'Frontend process changed during manager navigation'
+        assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'Frontend lost focus during manager navigation'
+        frame = h.evidence / f'{name}-step{step}.png'
+        frame.write_bytes(h.adb('exec-out', 'screencap', '-p', binary=True))
+        result = importer_navigation.read_label(frame)
+        with trace.open('a') as output:
+            output.write(f'{step}: {frame.name}: exit={result.returncode} label={result.stdout.strip()!r} {result.stderr.strip()}\n')
+        step += 1
+        return result.stdout.strip() if result.returncode == 0 else None
+    try:
+        h.key('KEYCODE_ESCAPE')
+        navigate_menus(read, h.key)
+    except Exception:
+        importer_navigation.capture_failure(h, name + '-failure')
+        raise
 
 def run(mode, harness, minified=False):
     h = type('Harness', (), harness)
@@ -59,12 +132,43 @@ def run(mode, harness, minified=False):
                 read('gamelists/ps3/gamelist.xml'))
     def controls(expected, actual, label):
         h.launch_checks.equal(actual, expected, label)
+    current_page = None
+    focus_step = 0
     def page(name):
+        nonlocal current_page
         marker = 'Emulator manager page: ' + name + ';'
         h.wait_for(lambda: marker in h.adb('logcat', '-d'), 'manager page ' + name, timeout=30)
+        current_page = name
+    def focus(expected):
+        nonlocal focus_step
+        pages = ['systems', 'system', 'draft', 'apps', 'profiles', 'extras', 'extra', 'files', 'defaults']
+        def selected():
+            assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), 'Manager lost frontend focus'
+            matches = re.findall(r'Emulator manager focus: (\d+)\t(\d+)\t([^\r\n]+)', h.adb('logcat', '-d'))
+            if not matches:
+                return False
+            page_id, row, label = matches[-1]
+            assert pages[int(page_id)] == current_page, (current_page, page_id, row, label)
+            assert int(row) == expected and label.strip(), (expected, row, label)
+            return label
+        h.wait_for(selected, 'fresh manager focus row ' + str(expected), timeout=15)
+        label = selected()
+        with (h.evidence / ('emulator-manager-' + mode + '-row-focus-trace.txt')).open('a') as output:
+            output.write(f'{focus_step}: page={current_page} row={expected} label={label!r}\n')
+        focus_step += 1
     def pick(index):
+        h.adb('logcat', '-c')
         h.key('KEYCODE_MOVE_HOME')
-        for _ in range(index): h.key('KEYCODE_DPAD_DOWN')
+        focus(0)
+        for row in range(index):
+            # The preceding capture verified the actual focused row. Clear it
+            # before sending one Down, then require a new focus observation.
+            h.adb('logcat', '-c')
+            h.key('KEYCODE_DPAD_DOWN')
+            focus(row + 1)
+        h.evidence.joinpath(f'emulator-manager-{mode}-row{focus_step}.png').write_bytes(
+            h.adb('exec-out', 'screencap', '-p', binary=True))
+        focus(index)
         h.adb('logcat', '-c')
         h.key('KEYCODE_ENTER')
     def text(value, erase=0):
@@ -91,10 +195,9 @@ def run(mode, harness, minified=False):
         start_native(0, 'fresh no-recognised-games fixture startup')
         if any(n.get('text') == 'Got it' for n in h.hierarchy()): h.ui('Got it')
         h.screenshot('emulator-manager-' + mode + '-no-games')
-        if h.api != 36:
-            tap('EMULATORS')
-        else:
-            h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
+        # D-018 (3): entry uses controller/keyboard until the frontend overlay
+        # lands; touch coverage starts inside the manager's own dialogs.
+        h.key('KEYCODE_DPAD_RIGHT'); h.key('KEYCODE_ENTER')
         page('systems')
         pick(1); page('system')
         pick(0); page('draft')
@@ -117,9 +220,8 @@ def run(mode, harness, minified=False):
         h.shell('input', 'tap', str(round(display_x)), str(round(display_y)))
         h.time.sleep(0.5)
     def manager():
-        h.key('KEYCODE_ESCAPE')
-        for _ in range(6): h.key('KEYCODE_DPAD_DOWN')
-        h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); h.key('KEYCODE_ENTER'); page('systems')
+        open_manager(h, mode)
+        page('systems')
         pick(1); page('system')
     def restart_games():
         start_native(2, 'fresh startup manager configuration')

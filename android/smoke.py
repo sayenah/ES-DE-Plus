@@ -36,6 +36,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 (evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
+(evidence / 'emulator-manager-navigation-controls.txt').write_text(emulator_manager_smoke.navigation_controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
