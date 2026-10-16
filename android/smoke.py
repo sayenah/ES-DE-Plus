@@ -17,6 +17,7 @@ import lifecycle_smoke
 import smoke_support
 import smoke_session
 import fresh_session_checks
+import install_settle
 import smoke_phases
 import network_smoke
 import importer_navigation
@@ -50,6 +51,8 @@ last_onboarding_check = 0.0
 onboarding_dismissals = 0
 onboarding_dismissal_marker = ''
 startup_number = 0
+startup_log_marker = ''
+startup_monitoring = False
 session_settled = False
 
 
@@ -86,12 +89,26 @@ def adb(*args, check=True, binary=False):
     if check and result.returncode:
         print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
         result.check_returncode()
+    if args[:1] == ('install',) and result.returncode == 0:
+        install_settle.after_install(args, result.stdout, evidence)
     return result.stdout
 
 
 def shell(*args, check=True):
     # adb shell joins arguments without escaping, including arguments to sh -c.
+    if args[:2] == ('am', 'start') and any(
+            flag in ('-n', '-p', '--component', '--package') and
+            (value == app or value.startswith(app + '/')) for flag, value in zip(args, args[1:])):
+        begin_startup()
     return adb('shell', shlex.join(args), check=check)
+
+
+def begin_startup():
+    global startup_log_marker, startup_monitoring
+    startup_monitoring = True
+    startup_log_marker = 'ESDE_STARTUP_' + str(time.monotonic_ns())
+    adb('shell', shlex.join(('log', '-t', 'ESDE-Smoke', startup_log_marker)))
+    return startup_log_marker
 
 
 def focused_window():
@@ -122,6 +139,8 @@ def instrument_with_ui(*arguments, install=False):
             errors.seek(0)
             result = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
             result.check_returncode()
+            if install:
+                install_settle.after_install(arguments, result.stdout, evidence)
             return result.stdout
         finally:
             if process.poll() is None:
@@ -151,6 +170,13 @@ def wait_for(condition, description, timeout=90):
         time.sleep(0.25)
     with (evidence / 'readiness-waits.txt').open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
+    if startup_monitoring and startup_log_marker:
+        captured = capture_startup_failure('timeout-' + startup_log_marker, startup_log_marker)
+        try:
+            fresh_session_checks.startup_restart(captured['logcat'], app)
+        except fresh_session_checks.HostStartupFailure as failure:
+            (evidence / ('timeout-' + startup_log_marker + '-outcome.txt')).write_text(str(failure) + '\n')
+            raise
     raise fresh_session_checks.ReadinessTimeout('Timed out: ' + description)
 
 
@@ -168,8 +194,7 @@ def launch():
     global startup_number
     startup_number += 1
     name = f'startup-{startup_number}'
-    marker = 'ESDE_STARTUP_' + str(time.monotonic_ns())
-    shell('log', '-t', 'ESDE-Smoke', marker)
+    marker = begin_startup()
     def record(result):
         result.update(start=name, readiness_deadline_seconds=90)
         with (evidence / 'startup-outcomes.txt').open('a') as output:
@@ -202,12 +227,30 @@ def capture_startup_failure(name, marker):
 
 def current_startup_ready():
     current = log()
-    return current != startup_baseline and 'Application startup time:' in current
+    if current == startup_baseline or 'Application startup time:' not in current:
+        return False
+    if not startup_monitoring:
+        return True
+    output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime')
+    assert startup_log_marker and startup_log_marker in output, 'Startup marker missing at readiness'
+    try:
+        chains = fresh_session_checks.startup_restart(output.partition(startup_log_marker)[2], app,
+            shell('pidof', app, check=False).strip(), ready=current)
+    except fresh_session_checks.HostStartupFailure as failure:
+        capture_startup_failure('host-startup-' + startup_log_marker, startup_log_marker)
+        (evidence / ('host-startup-' + startup_log_marker + '-outcome.txt')).write_text(str(failure) + '\n')
+        raise
+    if chains:
+        assert 'Error:' not in current, current
+        with (evidence / 'startup-restart-chains.txt').open('a') as record:
+            record.write(json.dumps(dict(marker=startup_log_marker, chains=chains,
+                                         application_startup_time=True)) + '\n')
+    return True
 
 
 def launch_attempt(reached_readiness):
     # Each stopped-process restart must produce new startup evidence.
-    global startup_baseline
+    global startup_baseline, startup_monitoring
     startup_baseline = log()
     shell('am', 'start', '-n', activity)
     wait_for(current_startup_ready, 'fresh frontend startup/system loading')
@@ -230,6 +273,9 @@ def launch_attempt(reached_readiness):
         raise
     if any(node.get('text') == 'Got it' for node in hierarchy()):
         ui('Got it')
+    if not current_startup_ready():
+        raise fresh_session_checks.ReadinessTimeout('Startup readiness lost before startup UI completed')
+    startup_monitoring = False
 
 
 def save_logs(name):
@@ -419,6 +465,8 @@ def ui(label, dpad=False, exact=False):
         for _ in range(50):
             nodes = hierarchy()
             if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
+                if label == 'Save and start frontend':
+                    begin_startup()
                 key('KEYCODE_DPAD_CENTER')
                 return
             focused = next((n for n in nodes if n.get('focused') == 'true'), None)
@@ -441,6 +489,8 @@ def ui(label, dpad=False, exact=False):
     matches = [n for n in nodes if smoke_checks.exact_label(n, label)]
     node = matches[0] if matches else next(n for n in nodes if node_matches(n, label))
     x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
+    if label == 'Save and start frontend':
+        begin_startup()
     shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(1)
 
@@ -733,7 +783,8 @@ def clear_app():
 
 
 def configured_system(name):
-    wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
+    global startup_monitoring
+    wait_for(current_startup_ready, 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
     def focused():
@@ -762,6 +813,10 @@ def configured_system(name):
         ui('Got it')
     screenshot(name)
     save_logs(name)
+    if not current_startup_ready():
+        capture_startup_failure(name + '-readiness-lost', startup_log_marker)
+        raise fresh_session_checks.ReadinessTimeout('Configured frontend lost startup readiness')
+    startup_monitoring = False
 
 
 def launch_contract_probes(mode):

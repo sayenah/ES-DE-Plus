@@ -267,7 +267,8 @@ def main():
         return 0 if result['outcome'] == 'PASS' else 1
     if args.phase == 'self-test':
         import fresh_session_checks
-        controls = fresh_session_checks.controls() + settle_controls()
+        import install_settle
+        controls = fresh_session_checks.controls() + settle_controls() + install_settle.controls()
         root = Path('android/evidence')
         root.mkdir(parents=True, exist_ok=True)
         (root / 'fresh-session-controls.txt').write_text(controls)
@@ -361,6 +362,8 @@ def main():
         font_record = settle_record.parent / 'font-weight-environmental-count.txt'
         measured['g29_environmental_outcomes'] = (json.loads(font_record.read_text())['g29_environmental_outcomes']
                                                  if font_record.exists() else 0)
+        installs = settle_record.parent / 'install-settle-outcomes.txt'
+        measured['install_settles'] = records(installs) if installs.exists() else []
         (root / (args.phase + '-session-summary.txt')).write_text(json.dumps(measured, indent=2) + '\n')
         print('SESSION_SUMMARY ' + json.dumps(dict(phase=args.phase, **measured)), flush=True)
         print(f'SESSION {args.phase}: child exit status {status}', flush=True)

@@ -30,6 +30,43 @@ class ReadinessTimeout(AssertionError):
     pass
 
 
+class HostStartupFailure(AssertionError):
+    pass
+
+
+def startup_restart(output, app, current_pid='', ready=None):
+    lines = output.splitlines()
+    chains = []
+    for index, line in enumerate(lines):
+        if 'Destroying SDL activity' not in line or 'changingConfigurations=true' not in line:
+            continue
+        pid = re.match(r'\S+\s+\S+\s+(\d+)\s', line)[1]
+        later = lines[index + 1:]
+        died = any(re.search(r'Process ' + re.escape(app) + r' \(pid ' + pid + r'\) has died', text) or
+                   re.search(r'am_proc_died.*\[\d+,\s*' + pid + r',\s*' + re.escape(app) + r'[,\]]', text)
+                   for text in later)
+        helper = re.escape(app) + r'/(?:\.|' + re.escape(app) + r'\.)FrontendRestartActivity\b'
+        requested = next((n for n, text in enumerate(later) if re.search(r'\bSTART u\d+ .*cmp=' + helper, text)), None)
+        if died and requested is None:
+            raise HostStartupFailure('G-30 CONFIGURATION_DESTROY_WITHOUT_HELPER: PID ' + pid + ': ' + line)
+        started = next((n for n, text in enumerate(later) if requested is not None and n >= requested and
+                        'FrontendRestartActivity' in text and any(token in text for token in
+                        ('Start proc ', 'Displayed ', 'wm_on_create_called', 'wm_on_resume_called'))), None)
+        retired = next((n for n, text in enumerate(later) if started is not None and n >= started and
+                        'SDL process ' + pid + ' retired; restarting entry' in text), None)
+        new = next((re.match(r'\S+\s+\S+\s+(\d+)\s', text)[1] for n, text in enumerate(later)
+                    if retired is not None and n > retired and 'Creating sole SDL activity' in text), None)
+        complete = requested is not None and started is not None and retired is not None and new not in (None, pid)
+        if ready is not None and (not complete or 'Application startup time:' not in ready or 'Error:' in ready):
+            raise HostStartupFailure('G-30 INCOMPLETE_RESTART_CHAIN: PID ' + pid + ' -> ' + str(new))
+        chains.append(dict(old_pid=pid, restart_requested=requested is not None,
+                           helper_started=started is not None, retired=retired is not None,
+                           new_pid=new, complete=complete))
+    if ready is not None and chains and current_pid != chains[-1]['new_pid']:
+        raise HostStartupFailure('G-30 RESTART_PID_NOT_LIVE: ' + current_pid)
+    return chains
+
+
 def startup(attempt, dismissals, capture, stop, record, app, is_ready,
             stock_package='com.google.android.tvlauncher'):
     # A dismissal from an earlier launch cannot authorise this start. Once
@@ -42,17 +79,25 @@ def startup(attempt, dismissals, capture, stop, record, app, is_ready,
     for number in range(2):
         try:
             attempt(reached_readiness)
-        except ReadinessTimeout:
+        except (ReadinessTimeout, HostStartupFailure) as failure:
             # Always capture the live state before the caller can clean up.
             captured = capture(number)
             output = captured['logcat']
-            ready = ready or is_ready()
             after = dismissals()
+            try:
+                chains = startup_restart(output, app)
+            except HostStartupFailure as host:
+                record(dict(outcome='HARD_HOST_FAILURE', label=str(host), attempt=number + 1))
+                raise
+            if isinstance(failure, HostStartupFailure):
+                record(dict(outcome='HARD_HOST_FAILURE', label=str(failure), attempt=number + 1))
+                raise
+            ready = ready or is_ready()
             crash = ('FATAL EXCEPTION' in output or 'Fatal signal' in output or
                      re.search(r'ANR in ' + re.escape(app) + r'\b', output))
             proof = startup_preemption(captured, app, stock_package)
             retry = (number == 0 and after > before and not ready and not crash and
-                     proof['preemption_proven'])
+                     proof['preemption_proven'] and not chains)
             record(dict(outcome='RELAUNCH_STOCK_ONBOARDING' if retry else 'HARD_TIMEOUT',
                         attempt=number + 1, reached_readiness=ready,
                         dismissals_before=before, dismissals_after=after,
@@ -207,6 +252,7 @@ def controls():
         else:
             raise AssertionError('A late/second destroy escaped: ' + label)
     startup_controls()
+    startup_restart_controls()
     assert copy_pid(prefix + 'Resource copy required=true') is None
     assert copy_pid(prefix + 'Installed resource: locale/en_US') is None
     copying = prefix + 'Resource copy required=true\n'
@@ -220,6 +266,8 @@ def controls():
             'no relaunch without a new dismissal, no second relaunch, none after readiness or a crash/ANR; '
             'created/focused native hang and frontend-focused timeout stay HARD_TIMEOUT.\n'
             'PASS: late/second G-29 destroys labelled and counted; replacement declared-bits destroy rejected.\n'
+            'PASS: G-30 destroy/death without helper stays hard even after stock dismissal; '
+            'restart needs request, helper start, retirement, new live PID and native startup; missing links rejected.\n'
             'PASS: copy probe binds its PID only to the actual font-copy event.\n')
 
 
@@ -249,7 +297,7 @@ def startup_controls():
         try:
             startup(attempt, lambda: count[0], capture, lambda: events.append('stop'), records.append,
                     'org.esdeplus.frontend', lambda: late_ready)
-        except ReadinessTimeout:
+        except (ReadinessTimeout, HostStartupFailure):
             failed = True
         return events, records, failed
     events, records, failed = exercise(dismiss=True)
@@ -276,6 +324,37 @@ def startup_controls():
                     dict(dismiss=True, focus='com.android.systemui/.Other', after=None)):
         events, records, failed = exercise(**options)
         assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT'
+    g30 = ('10-16 10:00:00.000 2001 2001 I ES-DE-Plus: Destroying SDL activity '
+           'held=false finishing=false changingConfigurations=true configurationChanges=0x-80000000 task=8\n'
+           '10-16 10:00:00.100 551 551 I ActivityManager: Process org.esdeplus.frontend (pid 2001) has died: fg TOP')
+    events, records, failed = exercise(dismiss=True, crash=g30)
+    assert failed and events == ['start', 'capture']
+    assert records[0]['outcome'] == 'HARD_HOST_FAILURE' and 'G-30' in records[0]['label']
+    events, records, failed = exercise(dismiss=True, crash=g30.splitlines()[0])
+    assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT'
+
+
+def startup_restart_controls():
+    app = 'org.esdeplus.frontend'
+    prefix = '10-16 10:00:00.000 '
+    lines = [prefix + '2001 2001 I ES-DE-Plus: Destroying SDL activity changingConfigurations=true',
+             prefix + '551 551 I ActivityTaskManager: START u0 {cmp=' + app + '/.FrontendRestartActivity}',
+             prefix + '551 551 I ActivityManager: Process ' + app + ' (pid 2001) has died: fg TOP',
+             prefix + '551 551 I ActivityTaskManager: Displayed ' + app + '/.FrontendRestartActivity',
+             prefix + '2002 2002 I ES-DE-Plus: SDL process 2001 retired; restarting entry',
+             prefix + '2003 2003 I ES-DE-Plus: Creating sole SDL activity task=8']
+    native = 'Application startup time: 0.5s'
+    assert startup_restart('\n'.join(lines), app, '2003', native)[0]['complete']
+    bad = [(lines[:index] + lines[index + 1:], '2003', native) for index in (1, 3, 4, 5)]
+    bad.extend((lines, pid, text) for pid, text in [('2001', native), ('', native),
+                                                  ('2003', ''), ('2003', native + '\nError: failed')])
+    for log, pid, text in bad:
+        try:
+            startup_restart('\n'.join(log), app, pid, text)
+        except HostStartupFailure as failure:
+            assert 'G-30' in str(failure)
+        else:
+            raise AssertionError('Incomplete host restart escaped')
 
 
 if __name__ == '__main__':

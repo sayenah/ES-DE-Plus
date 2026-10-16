@@ -278,6 +278,20 @@ and each phase's session summary record the outcome and elapsed time. A continuo
 `PHASE-session-logcat.txt` preserves all buffers from session start, including
 before older checks clear their assertion buffers.
 
+Every successful `adb install` also waits for package resource processing before
+returning to its caller. This covers initial installs, lower/higher update builds,
+debug/release reinstalls and the interactive emulator install through the shared
+ADB helpers, including PDF callers. `cmd overlay list --user USER android` and
+the overlay dump identify enabled framework overlay paths; the installed version's
+`dumpsys package` user state must contain those paths and omit known disabled
+framework paths. Two consecutive qualifying samples are required (one-second
+poll interval). Stable pre-broadcast state with missing paths cannot qualify.
+An empty enabled set qualifies only with valid package/version/user and overlay
+queries. The 120-second deadline records expiry and continues the original test;
+rejected installs do not create a new installed resource state. Raw per-install
+samples are `install-N-settle-samples.txt`; `install-settle-outcomes.txt` and the
+session summary's `install_settles` record each successful install and wait.
+
 The held-host font-weight probe captures activity override configuration, overlays,
 package resources and ApplicationInfo before the change. An ASSETS_PATHS destroy
 mask is labelled `ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH` (G-29); it still requires
@@ -304,6 +318,17 @@ attempt. Session summaries count `stock_onboarding_relaunches`, including zero;
 the CI self-test exercises the allowed case and each exclusion. The resource-copy
 interruption probe selects its PID from the real font-copy log event (with a
 matching copy-required event), after waiting for the prior process to stop.
+
+A configuration destroy followed by frontend process death without a helper
+START is a hard `G-30 CONFIGURATION_DESTROY_WITHOUT_HELPER`, even after a stock
+tutorial dismissal with HOME focused. An existing host relaunch also vetoes the
+harness's onboarding relaunch. Startup readiness after a host restart requires
+the framework's helper START request, evidence that the helper actually started,
+the helper's old-PID-retired record, creation of a new live frontend PID, and
+`Application startup time:` without `Error:`. Missing links fail; the harness
+never supplies the absent restart. Start markers include configurator Save/start
+and explicit frontend entries, and timeout evidence precedes caller cleanup.
+CI controls replay the G-30 exclusion and reject each missing restart link.
 
 Emulator steps are bounded to 60/40/20/35/35 minutes for core/lifecycle/integration/
 PDF-direct/PDF-scoped. These allow margin above the prior green matrix's maxima
