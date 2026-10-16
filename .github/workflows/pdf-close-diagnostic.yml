@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       cycles:
-        description: Additional stress / pause / resume / single-key close cycles
+        description: Cached-60-page pause / resume / single-key close cycles (1..20)
         type: string
-        default: "5"
+        default: "20"
 permissions:
   contents: read
 jobs:
@@ -19,7 +19,7 @@ jobs:
     env:
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
-      ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES: ${{ inputs.cycles || '5' }}
+      ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES: ${{ inputs.cycles || '20' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

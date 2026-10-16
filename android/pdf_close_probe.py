@@ -3,6 +3,7 @@
 # ES-DE-Plus — written for ES-DE-Plus. Observe single-key PDF closes without replay.
 import datetime
 import json
+import re
 import shlex
 import time
 
@@ -63,10 +64,10 @@ class CloseProbe:
                 state += '\nLAYER ' + layer + '\n' + h.shell('dumpsys', 'SurfaceFlinger', '--latency', layer)
         (h.evidence / (name + '-surface.txt')).write_text(layers + '\n' + state)
 
-    def close(self, visible, diagnostic=False):
+    def close(self, visible, diagnostic=False, kind='reopen'):
         self.sequence += 1
-        self.record(event='cycle-begin')
-        self.key('single-close')
+        self.record(event='cycle-begin', kind=kind)
+        stops_before = len(re.findall(r'PDF viewer stopped ticks=', self.h.log()))
         polls = 0
 
         def closed():
@@ -74,22 +75,29 @@ class CloseProbe:
             polls += 1
             png = self.h.adb('exec-out', 'screencap', '-p', binary=True)
             opened = visible(png)
-            self.record(event='poll', poll=polls, manual_visible=opened)
+            stopped = len(re.findall(r'PDF viewer stopped ticks=', self.h.log())) > stops_before
+            self.record(event='poll', poll=polls, manual_visible=opened, native_stopped=stopped)
             if polls == 1 or not opened:
                 (self.h.evidence / (self.prefix + '-' + str(self.sequence) +
                                     '-poll-' + str(polls) + '.png')).write_bytes(png)
-            return not opened
+            # A black/transition frame can lack all manual markers while the
+            # viewer is still inside stopPDFViewer. Require actual native stop.
+            return stopped and not opened
 
         try:
+            self.key('single-close')
             self.h.wait_for(closed, 'manual closed before next cycle')
         except Exception:
             self.capture('timeout')
             if diagnostic:
                 # This second key can only diagnose the already failed cycle.
                 # It never satisfies the original assertion or changes its result.
-                self.key('diagnostic-second-key')
-                self.record(event='second-key-result', closed=closed())
-                self.h.save_logs(self.prefix + '-' + str(self.sequence) + '-second-key')
+                try:
+                    self.key('diagnostic-second-key')
+                    self.record(event='second-key-result', closed=closed())
+                    self.h.save_logs(self.prefix + '-' + str(self.sequence) + '-second-key')
+                except Exception as error:
+                    self.record(event='second-key-error', error=str(error))
             raise
         self.h.save_logs(self.prefix + '-' + str(self.sequence))
         self.record(event='cycle-end', polls=polls)

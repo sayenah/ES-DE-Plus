@@ -226,6 +226,8 @@ def session_acknowledged(result, value, finished, diagnostic):
 
 def run(mode, harness):
     h = type('Harness', (), harness)
+    diagnostic_cycles = int(os.environ.get('ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES', '0'))
+    assert 0 <= diagnostic_cycles <= 20, 'PDF diagnostic cycles must be 0..20'
     h.evidence.joinpath('pdf-assertion-positive-controls.txt').write_text(controls())
     h.shell('am', 'force-stop', h.app)
     original = h.shell('cat', h.settings)
@@ -313,6 +315,37 @@ def run(mode, harness):
             manual_image(png)
             return png
         h.key('KEYCODE_ENTER')
+        if diagnostic_cycles:
+            # This is a separate, focused diagnostic workload. The normal
+            # PR-D smoke below remains complete. Keep the existing total
+            # instrumentation deadline and per-close timeout unchanged.
+            assert h.api >= 31 and not h.television
+            command('fixture=stress')
+            probe = pdf_close_probe.CloseProbe(h, mode)
+            for cycle in range(diagnostic_cycles):
+                h.adb('logcat', '-c')
+                first = open_manual('diagnostic-first-' + str(cycle))
+                stress_page(first, 1)
+                # Multiple keycodes are ordinary input keyevent presses; no
+                # 0.4 s host sleep per warm-up page. Every page must render.
+                h.shell('input', 'keyevent', *(['KEYCODE_DPAD_RIGHT'] * 59))
+                h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), 60),
+                           'diagnostic cached-page endpoint 60')
+                logs = h.adb('logcat', '-d')
+                for page in range(1, 61):
+                    h.smoke_checks.probe_passed(logs, 'PDF rendered page=' + str(page) + ' size=')
+                h.key('KEYCODE_MOVE_HOME')
+                h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), 1),
+                           'diagnostic cached-page endpoint 1')
+                paused_command('stats', 'diagnostic-resume-' + str(cycle))
+                probe.close(manual_visible, diagnostic=True, kind='cached-resume')
+            command('end')
+            process.wait(timeout=15)
+            h.smoke_checks.probe_passed(output_path.read_text(), 'PASS: PDF viewer session completed')
+            h.evidence.joinpath('pdf-' + mode + '-diagnostic-summary.txt').write_text(
+                'Diagnostic workload completed: ' + str(diagnostic_cycles) +
+                ' cached-60-page pause/resume single-key closes; see native-stop and poll markers.\n')
+            return
         first = open_manual('first')
         h.launch_checks.equal(manual_visible(first), True, 'Actual manual readiness control')
         rejects('stale page', lambda: closed(first))
@@ -390,21 +423,9 @@ def run(mode, harness):
             descriptors(baseline, after)
             rejects('descriptor leak', lambda: descriptors(baseline, 'fd=' + str(int(re.search(r'fd=(\d+)', baseline)[1]) + 1)))
             probe = pdf_close_probe.CloseProbe(h, mode)
-            diagnostic_cycles = int(os.environ.get('ESDE_PDF_CLOSE_DIAGNOSTIC_CYCLES', '0'))
             def close_cycle():
-                return probe.close(manual_visible, diagnostic=diagnostic_cycles > 0)
+                return probe.close(manual_visible)
             close_cycle()
-            # A separate diagnostic session repeats the original expensive
-            # cached-page pause/resume sequence. Normal smoke still runs its
-            # original stress close and ten reopen cycles without any replay.
-            for cycle in range(diagnostic_cycles):
-                open_manual('resume-cycle-' + str(cycle))
-                for code, page in [('KEYCODE_DPAD_RIGHT', 60), ('KEYCODE_DPAD_LEFT', 1)]:
-                    for _ in range(59): h.key(code)
-                    h.wait_for(lambda: displayed_page(h.adb('exec-out', 'screencap', '-p', binary=True), page),
-                               'diagnostic cached-page endpoint ' + str(page))
-                paused_command('stats', 'diagnostic-resume-' + str(cycle))
-                close_cycle()
             for _ in range(10):
                 open_manual('cycle'); close_cycle()
             stable = paused_command('stats', 'after-cycles')

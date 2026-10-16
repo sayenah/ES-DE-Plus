@@ -221,14 +221,32 @@ bool PDFViewer::startPDFViewer(FileData* game)
 
 void PDFViewer::stopPDFViewer()
 {
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF stop begin ticks=" << SDL_GetTicks() << " pages=" << mPages.size();
+#endif
     if (!mLaunchedMediaViewer)
         Scripting::fireEvent("mediaviewer-stop");
 
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF stop scripts done ticks=" << SDL_GetTicks();
+#endif
     NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF stop sound done ticks=" << SDL_GetTicks();
+#endif
     ViewController::getInstance()->startViewVideos();
 
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF stop videos done ticks=" << SDL_GetTicks();
+#endif
     mPages.clear();
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF stop pages freed ticks=" << SDL_GetTicks();
+#endif
     mPageImage.reset();
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF stop image freed ticks=" << SDL_GetTicks();
+#endif
 }
 
 void PDFViewer::launchMediaViewer()
