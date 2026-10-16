@@ -56,7 +56,12 @@ private:
         float width;
         float height;
         std::string orientation;
+#if defined(__ANDROID__)
+        // Binary strings avoid libc++'s per-byte vector destruction at -O0.
+        std::string imageData;
+#else
         std::vector<char> imageData;
+#endif
     };
 
     Renderer* mRenderer;
