@@ -337,7 +337,8 @@ def main():
         # Keep a continuous copy even when an older suite clears its own
         # assertion buffer. Start before installation/settling; never clear it.
         with (root / (args.phase + '-session-logcat.txt')).open('w') as session_log:
-            follower = subprocess.Popen(['adb', 'logcat', '-b', 'all', '-v', 'threadtime'],
+            follower = subprocess.Popen(['adb', 'logcat', '-b', 'all', '-v', 'threadtime',
+                                         '-v', 'year', '-v', 'UTC', '-v', 'usec'],
                                         stdout=session_log, stderr=subprocess.STDOUT)
             try:
                 status = run_child(command, env, observe)

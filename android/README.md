@@ -329,6 +329,12 @@ the helper's old-PID-retired record, creation of a new live frontend PID, and
 never supplies the absent restart. Start markers include configurator Save/start
 and explicit frontend entries, and timeout evidence precedes caller cleanup.
 CI controls replay the G-30 exclusion and reject each missing restart link.
+Classification merges the kept session stream with the live capture, so buffer
+clears or eviction cannot hide a destroy. UTC/year/microsecond timestamps preserve order.
+For a replacement PID, readiness also requires a stable inode/size/mtime sample
+around reading `es_log`, with a modification after that host's creation. Native
+`Log::init` rotates the old file before writing a new one; a stale old startup
+line cannot satisfy this condition. No native logfile or logging setting is changed.
 
 Emulator steps are bounded to 60/40/20/35/35 minutes for core/lifecycle/integration/
 PDF-direct/PDF-scoped. These allow margin above the prior green matrix's maxima

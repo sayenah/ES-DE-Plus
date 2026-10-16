@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Forced-relaunch assertions and CI controls.
+import datetime
 import re
 
 import smoke_checks
@@ -34,13 +35,48 @@ class HostStartupFailure(AssertionError):
     pass
 
 
+def startup_trace(kept, snapshot, marker):
+    source = kept if marker in kept else snapshot
+    assert marker and marker in source, 'Startup marker missing; cannot classify timeout'
+    prefix, _, tail = source.rpartition(marker)
+    marker_line = prefix.splitlines()[-1]
+    assert re.match(r'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6} ', marker_line), 'Startup timestamp format missing'
+    cutoff = marker_line[:26]
+    fresh = snapshot.rpartition(marker)[2] if marker in snapshot else snapshot
+    lines = dict.fromkeys((tail + '\n' + fresh).splitlines())
+    # UTC/year timestamps retain causal order across buffer clears/evictions;
+    # stable sorting preserves the stream's order for equal timestamps.
+    return '\n'.join(sorted((line for line in lines if re.match(r'\d{4}-\d\d-\d\d ', line)
+                             and line[:26] >= cutoff), key=lambda line: line[:26]))
+
+
+def startup_native_ready(chains, native, pid, before, after):
+    if (not chains or not all(row['complete'] for row in chains) or
+            pid != chains[-1]['new_pid'] or before != after or
+            'Application startup time:' not in native or 'Error:' in native):
+        return False
+    try:
+        # Log::init rotates the old logfile before a new process writes. A
+        # stable file written after replacement creation cannot be the old
+        # PID's leftover readiness marker. No native log is modified here.
+        modified = datetime.datetime.fromisoformat(before.split('|')[2].replace(' +', '+').replace(' -', '-'))
+        created = datetime.datetime.fromisoformat(chains[-1]['new_host_created']).replace(tzinfo=datetime.timezone.utc)
+        return modified.tzinfo is not None and modified >= created
+    except (IndexError, KeyError, ValueError):
+        return False
+
+
 def startup_restart(output, app, current_pid='', ready=None):
     lines = output.splitlines()
     chains = []
+    seen = set()
     for index, line in enumerate(lines):
         if 'Destroying SDL activity' not in line or 'changingConfigurations=true' not in line:
             continue
         pid = re.match(r'\S+\s+\S+\s+(\d+)\s', line)[1]
+        if pid in seen:
+            continue
+        seen.add(pid)
         later = lines[index + 1:]
         died = any(re.search(r'Process ' + re.escape(app) + r' \(pid ' + pid + r'\) has died', text) or
                    re.search(r'am_proc_died.*\[\d+,\s*' + pid + r',\s*' + re.escape(app) + r'[,\]]', text)
@@ -54,14 +90,16 @@ def startup_restart(output, app, current_pid='', ready=None):
                         ('Start proc ', 'Displayed ', 'wm_on_create_called', 'wm_on_resume_called'))), None)
         retired = next((n for n, text in enumerate(later) if started is not None and n >= started and
                         'SDL process ' + pid + ' retired; restarting entry' in text), None)
-        new = next((re.match(r'\S+\s+\S+\s+(\d+)\s', text)[1] for n, text in enumerate(later)
-                    if retired is not None and n > retired and 'Creating sole SDL activity' in text), None)
+        creation = next((text for n, text in enumerate(later)
+                         if retired is not None and n > retired and 'Creating sole SDL activity' in text), None)
+        new = re.match(r'\S+\s+\S+\s+(\d+)\s', creation)[1] if creation else None
         complete = requested is not None and started is not None and retired is not None and new not in (None, pid)
         if ready is not None and (not complete or 'Application startup time:' not in ready or 'Error:' in ready):
             raise HostStartupFailure('G-30 INCOMPLETE_RESTART_CHAIN: PID ' + pid + ' -> ' + str(new))
         chains.append(dict(old_pid=pid, restart_requested=requested is not None,
                            helper_started=started is not None, retired=retired is not None,
-                           new_pid=new, complete=complete))
+                           new_pid=new, new_host_created=' '.join(creation.split()[:2]) if creation else None,
+                           complete=complete))
     if ready is not None and chains and current_pid != chains[-1]['new_pid']:
         raise HostStartupFailure('G-30 RESTART_PID_NOT_LIVE: ' + current_pid)
     return chains
@@ -268,6 +306,8 @@ def controls():
             'PASS: late/second G-29 destroys labelled and counted; replacement declared-bits destroy rejected.\n'
             'PASS: G-30 destroy/death without helper stays hard even after stock dismissal; '
             'restart needs request, helper start, retirement, new live PID and native startup; missing links rejected.\n'
+            'PASS: kept startup trace survives circular-buffer eviction; stale/unstable native logfile '
+            'cannot prove readiness for a replacement PID.\n'
             'PASS: copy probe binds its PID only to the actual font-copy event.\n')
 
 
@@ -336,7 +376,7 @@ def startup_controls():
 
 def startup_restart_controls():
     app = 'org.esdeplus.frontend'
-    prefix = '10-16 10:00:00.000 '
+    prefix = '2026-10-16 10:00:00.000000 '
     lines = [prefix + '2001 2001 I ES-DE-Plus: Destroying SDL activity changingConfigurations=true',
              prefix + '551 551 I ActivityTaskManager: START u0 {cmp=' + app + '/.FrontendRestartActivity}',
              prefix + '551 551 I ActivityManager: Process ' + app + ' (pid 2001) has died: fg TOP',
@@ -344,7 +384,20 @@ def startup_restart_controls():
              prefix + '2002 2002 I ES-DE-Plus: SDL process 2001 retired; restarting entry',
              prefix + '2003 2003 I ES-DE-Plus: Creating sole SDL activity task=8']
     native = 'Application startup time: 0.5s'
-    assert startup_restart('\n'.join(lines), app, '2003', native)[0]['complete']
+    chains = startup_restart('\n'.join(lines), app, '2003', native)
+    assert chains[0]['complete']
+    assert len(startup_restart('\n'.join(lines[:2] + [lines[0]] + lines[2:]), app, '2003', native)) == 1
+    stamp = '123|100|2026-10-16 10:00:00.100000000 +0000'
+    assert startup_native_ready(chains, native, '2003', stamp, stamp)
+    old = '122|100|2026-10-16 09:59:59.900000000 +0000'
+    assert not startup_native_ready(chains, native, '2003', old, old)
+    assert not startup_native_ready(chains, native, '2003', old, stamp)
+    assert not startup_native_ready(chains, native, '2001', stamp, stamp)
+    assert not startup_native_ready(chains, native, '2003', '', '')
+    malformed = '123|100|2026-10-16 10:00:00.100000000'
+    assert not startup_native_ready(chains, native, '2003', malformed, malformed)
+    assert not startup_native_ready(chains, '', '2003', stamp, stamp)
+    assert not startup_native_ready(chains, native + '\nError: failed', '2003', stamp, stamp)
     bad = [(lines[:index] + lines[index + 1:], '2003', native) for index in (1, 3, 4, 5)]
     bad.extend((lines, pid, text) for pid, text in [('2001', native), ('', native),
                                                   ('2003', ''), ('2003', native + '\nError: failed')])
@@ -355,6 +408,24 @@ def startup_restart_controls():
             assert 'G-30' in str(failure)
         else:
             raise AssertionError('Incomplete host restart escaped')
+    marker = prefix + '551 551 I ESDE-Smoke: control-marker\n'
+    trace = startup_trace(marker + '\n'.join(lines), marker + '\n'.join(lines), 'control-marker')
+    assert startup_restart(trace, app, '2003', native)[0]['complete']
+    dead = [lines[0], lines[2]]
+    # Buffer eviction may retain the shell marker while losing app lines.
+    trace = startup_trace(marker + '\n'.join(dead), marker + dead[-1], 'control-marker')
+    try:
+        startup_restart(trace, app)
+    except HostStartupFailure as failure:
+        assert 'CONFIGURATION_DESTROY_WITHOUT_HELPER' in str(failure)
+    else:
+        raise AssertionError('Kept G-30 destroy was lost to buffer eviction')
+    trace = startup_trace(marker + '\n'.join(dead), dead[-1], 'control-marker')
+    assert 'Destroying SDL activity' in trace
+    later = '2026-10-16 10:00:10.000000 551 551 I ESDE-Smoke: later-marker\n'
+    trace = startup_trace(marker + '\n'.join(dead) + '\n' + later,
+                          marker + '\n'.join(dead) + '\n' + later, 'later-marker')
+    assert startup_restart(trace, app) == []
 
 
 if __name__ == '__main__':

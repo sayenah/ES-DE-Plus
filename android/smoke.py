@@ -53,6 +53,7 @@ onboarding_dismissal_marker = ''
 startup_number = 0
 startup_log_marker = ''
 startup_monitoring = False
+startup_ready_pid = ''
 session_settled = False
 
 
@@ -213,29 +214,45 @@ def capture_startup_failure(name, marker):
     (evidence / (name + '-focus.txt')).write_text(focus)
     (evidence / (name + '-window.txt')).write_text(shell('dumpsys', 'window'))
     (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
-    output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime')
+    output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime', '-v', 'year', '-v', 'UTC', '-v', 'usec')
     (evidence / (name + '-logcat-tail.txt')).write_text('\n'.join(output.splitlines()[-1000:]) + '\n')
     (evidence / (name + '-all-logcat.txt')).write_text(output)
     save_logs(name)
     capture_frontend_stacks(name)
-    assert marker in output, 'Startup marker missing; cannot classify timeout'
-    since_start = output.partition(marker)[2]
+    since_start = startup_trace(marker, output)
+    (evidence / (name + '-startup-trace.txt')).write_text(since_start)
     after_dismissal = (since_start.partition(onboarding_dismissal_marker)[2]
                        if onboarding_dismissal_marker and onboarding_dismissal_marker in since_start else None)
     return dict(focus=focus, logcat=since_start, after_dismissal=after_dismissal)
 
 
+def startup_trace(marker, snapshot):
+    path = pathlib.Path('android/evidence') / (phase + '-session-logcat.txt')
+    kept = path.read_text(errors='replace') if path.exists() else ''
+    kept = ''.join(line for line in kept.splitlines(keepends=True) if line.endswith('\n'))
+    return fresh_session_checks.startup_trace(kept, snapshot, marker)
+
+
 def current_startup_ready():
+    global startup_ready_pid
     current = log()
     if current == startup_baseline or 'Application startup time:' not in current:
         return False
-    if not startup_monitoring:
+    pid = shell('pidof', app, check=False).strip()
+    if not startup_monitoring and pid and pid == startup_ready_pid:
         return True
-    output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime')
-    assert startup_log_marker and startup_log_marker in output, 'Startup marker missing at readiness'
+    output = startup_trace(startup_log_marker, adb('logcat', '-d', '-b', 'all', '-v', 'threadtime',
+                                                '-v', 'year', '-v', 'UTC', '-v', 'usec'))
     try:
-        chains = fresh_session_checks.startup_restart(output.partition(startup_log_marker)[2], app,
-            shell('pidof', app, check=False).strip(), ready=current)
+        chains = fresh_session_checks.startup_restart(output, app)
+        if chains:
+            before = shell('stat', '-c', '%i|%s|%y', logpath, check=False).strip()
+            current = log()
+            after = shell('stat', '-c', '%i|%s|%y', logpath, check=False).strip()
+            pid = shell('pidof', app, check=False).strip()
+            if not fresh_session_checks.startup_native_ready(chains, current, pid, before, after):
+                return False
+            chains = fresh_session_checks.startup_restart(output, app, pid, ready=current)
     except fresh_session_checks.HostStartupFailure as failure:
         capture_startup_failure('host-startup-' + startup_log_marker, startup_log_marker)
         (evidence / ('host-startup-' + startup_log_marker + '-outcome.txt')).write_text(str(failure) + '\n')
@@ -244,7 +261,10 @@ def current_startup_ready():
         assert 'Error:' not in current, current
         with (evidence / 'startup-restart-chains.txt').open('a') as record:
             record.write(json.dumps(dict(marker=startup_log_marker, chains=chains,
-                                         application_startup_time=True)) + '\n')
+                                         application_startup_time=True, native_log_stat=after)) + '\n')
+    if not pid.isdigit():
+        return False
+    startup_ready_pid = pid
     return True
 
 
