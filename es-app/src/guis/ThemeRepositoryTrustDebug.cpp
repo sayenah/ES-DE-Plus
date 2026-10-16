@@ -246,6 +246,27 @@ namespace
         };
         prepare();
 
+        // Parse the actual protected file through libgit2, independently of
+        // app-owned repositories passing ownership without an exception.
+        git_config* protectedConfig {nullptr};
+        git(git_config_open_ondisk(&protectedConfig, (privateRoot + "/libgit2/.gitconfig").c_str()),
+            "read actual protected allowlist");
+        std::vector<std::string> parsed;
+        const int parsedResult {git_config_get_multivar_foreach(
+            protectedConfig, "safe.directory", nullptr,
+            [](const git_config_entry* entry, void* payload) {
+                static_cast<std::vector<std::string>*>(payload)->emplace_back(entry->value);
+                return 0;
+            },
+            &parsed)};
+        git_config_free(protectedConfig);
+        git(parsedResult, "parse actual safe.directory entries");
+        const std::set<std::string> expected {themes + "/themes-list", original, themes + "/second",
+                                              themes + "/pending"};
+        require(parsed.size() == expected.size() &&
+                    std::set<std::string>(parsed.begin(), parsed.end()) == expected,
+                "actual allowlist preserves exact path bytes");
+
         git(clone(url, themes + "/themes-list"), "themes-list clone callback positive control");
         git(clone(url, original), "theme clone callback positive control");
         git(clone(url, themes + "/second"), "second admitted clone positive control");
@@ -342,6 +363,9 @@ namespace
             require(head(repository.get()) == latest, "update reaches original HEAD");
             evidence << "PASS: update after=" << head(repository.get()) << '\n';
         }
+        if (!shared && data.find('"') != std::string::npos && data.find('\\') != std::string::npos)
+            evidence << "PASS: actual quoted/backslash private Git paths; protected allowlist "
+                        "parsed exactly; clone/fetch/reset succeeded\n";
 
         const std::string canary {privateRoot + "/canary"};
         fs::copy(source, canary, fs::copy_options::recursive);
@@ -850,9 +874,8 @@ void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
         while (!normalized.empty() && normalized.back() == '/')
             normalized.pop_back();
         const std::string temporaryRoot {temporary(fs::path(normalized).parent_path().string())};
-        // Shared-storage filename restrictions must not prevent the independent
-        // ownership/identity/remote controls from reaching libgit2. The full
-        // quoted selected-folder case remains a separate runtime acceptance test.
+        // D-012 am. 5: quotes are refused in shared data paths; actual quoted
+        // Git paths and their protected allowlist are tested in private storage.
         const std::string sharedRoot {temporaryRoot + " # ; caf\xc3\xa9"};
         fs::rename(temporaryRoot, sharedRoot);
 #if defined(__ANDROID__)
@@ -862,8 +885,9 @@ void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
         // ownership evidence is mandatory separately on the Android runtime targets.
         suite(sharedRoot, privateRoot + "/direct-config", source, false);
 #endif
-        fs::create_directory(privateRoot + "/scoped");
-        suite(privateRoot + "/scoped", privateRoot + "/scoped-config", source, false);
+        const std::string quotedPrivate {privateRoot + "/scoped # ; \" \\ caf\xc3\xa9"};
+        fs::create_directory(quotedPrivate);
+        suite(quotedPrivate, privateRoot + "/scoped-config", source, false);
         evidence
             << "RESIDUAL: shared writers can race initialization and later filesystem operations. "
                "The callback gates remote/fetch/checkout; it is not storage isolation (D-012 am. "

@@ -84,6 +84,7 @@ internal object AppDataSmoke {
             val contents = "<string name=\"ROMDirectory\" value=\"/conflicting-roms\" />\n" +
                 "<string name=\"MediaDirectory\" value=\"\" />\n"
             settings.writeText(contents)
+            observe(sandbox)
             observe(candidate)
             observe(settings.parentFile!!)
             // Watch the file itself as well: the shared-storage mount need not
@@ -118,6 +119,7 @@ internal object AppDataSmoke {
             check(hash(candidate) != originalHash) { "Tree hash positive control did not detect a write" }
             settings.writeText(contents)
             val before = hash(candidate)
+            val sandboxBefore = hash(sandbox)
             drain()
             events.clear()
             // Accessibility window publication is asynchronous even after the
@@ -136,8 +138,20 @@ internal object AppDataSmoke {
             }
             configurator = probe.startActivitySync(Intent(context, ConfiguratorActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as ConfiguratorActivity
+            val quoted = File(sandbox, "shared \" data")
             probe.runOnMainSync {
                 configurator!!.findViewById<Button>(R.string.change_data_folder).performClick()
+                configurator!!.findViewById<EditText>(R.string.data_path_hint).setText(quoted.path)
+                configurator!!.findViewById<Button>(R.string.confirm_data_folder).performClick()
+            }
+            probe.waitForIdleSync()
+            val quoteMessage = context.getString(R.string.shared_data_quote_refused)
+            windowWithText(quoteMessage)
+            check(storage.load() == accepted) { "Quoted path changed accepted configuration" }
+            val quotedResume = try { storage.validate(accepted.copy(data = quoted.path)); null }
+                catch (error: IOException) { error }
+            check(quotedResume?.message == quoteMessage) { "Quoted saved path did not give actionable recovery" }
+            probe.runOnMainSync {
                 configurator!!.findViewById<EditText>(R.string.data_path_hint).setText(candidate.path)
                 configurator!!.findViewById<Button>(R.string.confirm_data_folder).performClick()
             }
@@ -158,6 +172,7 @@ internal object AppDataSmoke {
             observers.forEach { it.stopWatching() }
             noAccess(beforeHash)
             check(hash(candidate) == before) { "Cancelling changed the destination tree" }
+            check(hash(sandbox) == sandboxBefore) { "Refused quote or cancellation changed the sandbox" }
             check(storage.load() == accepted) { "Cancel changed accepted configuration" }
             probe.runOnMainSync { configurator!!.finish() }
             configurator = null
@@ -275,6 +290,7 @@ internal object AppDataSmoke {
                 "both positive controls; accepted configuration unchanged; renamed/legacy destinations, " +
                 "flat/wrapped and legacy-root settings, conflicting ROM, media overrides, missing media/root, " +
                 "obstructed themes, unavailable volume and overlap guards.\n" +
+                "PASS: quoted shared data refused in real configurator and resume validation; actionable error, no access/mutation/fallback; valid destination review positive control passed.\n" +
                 "Settings read rejected by no-access assertion: $readEvents\n" +
                 "Directory enumeration rejected by no-access assertion: $enumerationEvents\n"
         } finally {

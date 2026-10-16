@@ -40,9 +40,9 @@ def mainloop_input(before, after):
 
 
 def root_destinations(api, removable_roots):
-    # Keep the full Git-config escaping case on emulated shared storage. SDK
-    # removable-card images use FAT32, whose filenames cannot contain quotes.
-    result = [('/sdcard/ESDEPlus trust # ; " café', 'escaping')] if api == 34 else []
+    # Shared names use legal special characters. Actual quoted/backslash Git
+    # paths are exercised on private storage by the native debug controls.
+    result = [('/sdcard/ESDEPlus trust # ; café', 'escaping')] if api == 34 else []
     if removable_roots:
         result.append((removable_roots[0] + '/ESDEPlus removable café', 'removable'))
     return result
@@ -168,14 +168,15 @@ def controls():
     destinations = root_destinations(34, ['/storage/0000-0000'])
     assert len(destinations) == 2
     assert destinations[0][1] == 'escaping' and destinations[0][0].startswith('/sdcard/')
-    assert all(character in destinations[0][0] for character in ['#', ';', '"', ' ', 'é'])
+    assert all(character in destinations[0][0] for character in ['#', ';', ' ', 'é'])
+    assert '"' not in destinations[0][0]
     assert destinations[1][1] == 'removable'
     assert not any(character in pathlib.PurePosixPath(destinations[1][0]).name
                    for character in '<>:"/\\|?*')
     assert root_destinations(31, []) == [] and root_destinations(36, []) == []
     assert len(root_destinations(34, [])) == 1
     assert all(root_destinations(api, ['/storage/card'])[0][1] == 'removable' for api in (31, 36))
-    reports.append('PASS: API34 full escaping fixture remains on emulated storage even with a card; '
+    reports.append('PASS: API34 legal special-character fixture remains on emulated storage even with a card; '
                    'removable clone/load fixture uses a portable filename; absence is explicit.')
     for api in (31, 34, 36):
         ticks = [0]

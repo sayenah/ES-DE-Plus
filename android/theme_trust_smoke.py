@@ -28,6 +28,7 @@ def collect(h):
                      'between-precheck-fetch', 'substituted transport calls=0',
                      'fail-closed mode=direct prior=1', 'fail-closed mode=scoped prior=0',
                      'admission failure with prior allowlist', 'clone boundary clone-before-init',
+                     'actual quoted/backslash private Git paths; protected allowlist parsed exactly',
                      'clone boundary clone-after-init', 'three shutdown/reinitialize/open cycles']:
         assert required in report, (required, report)
     print('PASS: native theme trust controls; app UID/stat, identity, remotes, failures, clone barriers',

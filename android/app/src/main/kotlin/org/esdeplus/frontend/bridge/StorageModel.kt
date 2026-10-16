@@ -107,6 +107,7 @@ class StorageModel(private val context: Context) {
         if (parts.size != 2 || parts[0].isEmpty()) throw failure(R.string.invalid_tree)
         val relative = parts[1]
         val segments = relative.split('/')
+        if (data && relative.contains('"')) throw failure(R.string.shared_data_quote_refused)
         if (relative.isEmpty() || segments.any { it.isEmpty() || it == "." || it == ".." ||
                 it.contains('\\') || it.contains('\u0000') })
             throw failure(R.string.tree_root_refused)

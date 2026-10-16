@@ -74,6 +74,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="private_location_unavailable">The previous private location is currently unavailable. No private data is copied; it is deleted on uninstall. Restore that volume to access it, or explicitly choose another mounted volume for shared data.</string>
     <string name="private_data_warning">Application-data folder: %1$s. This private data, including settings, media and themes, is deleted on uninstall.</string>
     <string name="data_folder_required">Choose and confirm the application-data folder before continuing. Your existing ROM selection is kept.</string>
+    <string name="shared_data_quote_refused">Shared application-data folder names cannot contain double quotation marks. Choose a folder without double quotation marks, then review it again.</string>
     <string name="overlapping_folders">Application-data and ROM folders must be separate; neither may contain the other.</string>
     <string name="media_override">Existing MediaDirectory override: %1$s. Media stays there; the selected ROM folder remains authoritative.</string>
     <string name="media_unavailable">MediaDirectory points to inaccessible storage: %1$s. Restore this folder or correct MediaDirectory in es_settings.xml, then retry. No replacement media folder will be selected.</string>

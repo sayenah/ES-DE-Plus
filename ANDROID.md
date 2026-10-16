@@ -39,6 +39,8 @@ Apart from this there are numerous options for the touch overlay, like the abili
 
 In ES-DE Plus, files in a selected shared application data folder survive uninstall, including downloaded themes under its `themes/` directory. App-private data and ROMs are deleted on uninstall. Changing folders never automatically copies, moves or deletes data between roots; back up and close other frontends before adopting shared data.
 
+Shared application data folder names cannot contain double quotation marks: Android refuses file renames through those paths. The configurator asks you to choose another folder instead.
+
 ES-DE Plus trusts shared theme repositories by their exact paths, alongside the settings and custom event scripts in that folder. Other apps with all-files access and USB/MTP writers can change those contents. The downloader keeps libgit2 ownership validation enabled, uses an app-private allowlist, validates repository names and workdir/gitdir identities, and checks the actual remote URL before fetching. Failed trust setup stops operations, including cleanup, with a recoverable error. These checks do not isolate the app from shared-folder writers: initialization writes metadata before its post-initialization check, so concurrent redirection can race those writes into other app-accessible locations; later filesystem operations can also race. Close other writers and back up the folder before adoption. This path-based trust and its residual races were accepted by the Founder (D-012 amendments 3–4).
 
 ## Emulation on Android in general
