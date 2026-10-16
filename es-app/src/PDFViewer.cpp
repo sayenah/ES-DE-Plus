@@ -16,6 +16,10 @@
 #include "utils/StringUtil.h"
 #include "views/ViewController.h"
 
+#if defined(__ANDROID__)
+#include <SDL_timer.h>
+#endif
+
 #include <array>
 
 #if defined(_WIN64)
