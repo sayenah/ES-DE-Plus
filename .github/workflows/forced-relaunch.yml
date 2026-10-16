@@ -66,7 +66,9 @@ jobs:
           key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
       - name: Build dependencies on cache miss
         if: steps.deps.outputs.cache-hit != 'true'
-        run: tools/Android_dependencies_build.sh x86_64
+        run: |
+          tools/Android_dependencies_build.sh arm64-v8a
+          tools/Android_dependencies_build.sh x86_64
         env:
           JOBS: '4'
       - name: Restore generated headers after cached installs
@@ -74,26 +76,12 @@ jobs:
       - name: Assemble debug host and test recipient
         run: |
           cd android
-          ./gradlew --no-daemon -Pandroid.injected.build.abi=x86_64 :app:assembleDebug :stub-emulator:assembleDebug
-      - name: Resolve exact Gradle APK outputs before starting an emulator
+          ./gradlew --no-daemon :app:assembleDebug :stub-emulator:assembleDebug
+      - name: Require the ordinary Gradle APK outputs before emulator startup
         run: |
-          python3 - <<'PY'
-          import hashlib, json, pathlib, shutil
-          for module, name in [('app', 'app-debug.apk'), ('stub-emulator', 'stub-emulator-debug.apk')]:
-              root = pathlib.Path('android') / module / 'build/outputs/apk'
-              print('Gradle outputs:', list(root.rglob('*')), flush=True)
-              metadata = list(root.rglob('output-metadata.json'))
-              assert len(metadata) == 1, metadata
-              entries = json.loads(metadata[0].read_text())['elements']
-              assert len(entries) == 1, entries
-              source = metadata[0].parent / entries[0]['outputFile']
-              assert source.is_file() and source.suffix == '.apk', source
-              destination = root / 'debug' / name
-              destination.parent.mkdir(parents=True, exist_ok=True)
-              if source != destination:
-                  shutil.copyfile(source, destination)
-              print(source, '->', destination, hashlib.sha256(destination.read_bytes()).hexdigest())
-          PY
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          test -s android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk > android/evidence/assets-apk-hashes.txt
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
