@@ -95,6 +95,16 @@ def held_restored(records, nodes, pid, old_pid, app):
                n.get('text', '').startswith('Configure ') for n in nodes), nodes
 
 
+def storage_configurator_returned(nodes, app):
+    # Small viewports can show the data-stage heading while its folder controls
+    # are below the fold. Require the app's title and stage, not a hidden button.
+    texts = [n.get('text', '').casefold() for n in nodes if n.get('package') == app]
+    return (any(text.startswith('configure ') for text in texts) and
+            any(text in {'choose shared rom folder', 'choose application-data folder',
+                         '2. choose the application-data folder before the rom folder.'}
+                for text in texts))
+
+
 def permission_revocation_return(nodes, old_pid, new_pid, logcat, app):
     # A reset of a stale Settings switch can revoke access, kill its UID and
     # return to the recoverable configurator. Never infer this from UI alone.
@@ -218,6 +228,15 @@ def positive_controls():
     reject('two frontend records', lambda: held_restored([records[0], records[0]], nodes, '200', '100', 'smoke.app'))
     reject('redirect substituted for native host', lambda: held_restored([('FrontendRedirectActivity', '7'), records[1]], nodes, '200', '100', 'smoke.app'))
     reject('stock launcher obscures configuration', lambda: held_restored(records, [], '200', '100', 'smoke.app'))
+    returned = [{'package': 'smoke.app', 'text': 'Configure ES-DE Plus'},
+                {'package': 'smoke.app', 'text': '2. Choose the application-data folder before the ROM folder.'}]
+    def storage_return(nodes=returned):
+        probe_passed('returned' if storage_configurator_returned(nodes, 'smoke.app') else '', 'returned')
+    storage_return()
+    reject('return needs configurator title', lambda: storage_return(returned[1:]))
+    reject('return needs storage stage', lambda: storage_return(returned[:1]))
+    reject('return rejects Settings or another app', lambda: storage_return(
+        [dict(node, package='com.android.settings') for node in returned]))
     permission_nodes = [{'package': 'smoke.app', 'resource-id': 'smoke.app:string/grant_access',
                          'text': 'GRANT DIRECT FILESYSTEM ACCESS', 'clickable': 'true'}]
     killed = 'ActivityManager: Killing 100:smoke.app/u0a1 (adj 100): MANAGE_EXTERNAL_STORAGE changed.'

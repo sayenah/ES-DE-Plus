@@ -506,8 +506,7 @@ def grant_from_settings(app_label=None, recipient=False):
         return
     if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
-    wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') or
-                             node_matches(n, 'Choose application-data folder') for n in hierarchy()),
+    wait_for(lambda: smoke_checks.storage_configurator_returned(hierarchy(), app),
              'configurator returned from all-files Settings')
 
 
