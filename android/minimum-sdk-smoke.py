@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 apk = sys.argv[1]
-aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt2'
+aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt'
 badging = subprocess.check_output([str(aapt), 'dump', 'badging', apk], text=True)
 assert "sdkVersion:'31'" in badging and "targetSdkVersion:'36'" in badging, badging
 assert subprocess.check_output(
