@@ -325,6 +325,10 @@ def main():
                            time.monotonic() - began, status)
         settle_record = Path(env.get('ESDE_SMOKE_EVIDENCE', str(root))) / 'session-settle-summary.txt'
         measured['settle'] = json.loads(settle_record.read_text()) if settle_record.exists() else None
+        startup_record = settle_record.parent / 'startup-outcomes.txt'
+        measured['stock_onboarding_relaunches'] = sum(
+            row['outcome'] == 'RELAUNCH_STOCK_ONBOARDING'
+            for row in records(startup_record)) if startup_record.exists() else 0
         (root / (args.phase + '-session-summary.txt')).write_text(json.dumps(measured, indent=2) + '\n')
         print('SESSION_SUMMARY ' + json.dumps(dict(phase=args.phase, **measured)), flush=True)
         print(f'SESSION {args.phase}: child exit status {status}', flush=True)

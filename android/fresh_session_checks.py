@@ -7,6 +7,56 @@ import re
 ASSETS_PATHS = 0x80000000
 
 
+class ReadinessTimeout(AssertionError):
+    pass
+
+
+def startup(attempt, dismissals, capture, stop, record, app, is_ready):
+    # A dismissal from an earlier launch cannot authorise this start. Once
+    # readiness is observed, every later timeout is a product/test failure.
+    before = dismissals()
+    ready = False
+    def reached_readiness():
+        nonlocal ready
+        ready = True
+    for number in range(2):
+        try:
+            attempt(reached_readiness)
+        except ReadinessTimeout:
+            # Always capture the live state before the caller can clean up.
+            output = capture(number)
+            ready = ready or is_ready()
+            after = dismissals()
+            crash = ('FATAL EXCEPTION' in output or 'Fatal signal' in output or
+                     re.search(r'ANR in ' + re.escape(app) + r'\b', output))
+            retry = number == 0 and after > before and not ready and not crash
+            record(dict(outcome='RELAUNCH_STOCK_ONBOARDING' if retry else 'HARD_TIMEOUT',
+                        attempt=number + 1, reached_readiness=ready,
+                        dismissals_before=before, dismissals_after=after,
+                        relaunches=number, crash_or_anr=bool(crash)))
+            if not retry:
+                raise
+            stop()
+        else:
+            record(dict(outcome='READY', attempt=number + 1, reached_readiness=ready,
+                        dismissals_before=before, dismissals_after=dismissals(), relaunches=number))
+            return
+
+
+def copy_pid(output):
+    # Bind the interruption to the real font-copy event, after Android has
+    # initialised the process, rather than two early process-name snapshots.
+    copying = set()
+    for line in output.splitlines():
+        match = re.match(r'\S+\s+\S+\s+(\d+)\s+\d+\s+I\s+ES-DE-Plus\s*:\s+(.*)', line)
+        if match:
+            if match[2].startswith('Resource copy required=true'):
+                copying.add(match[1])
+            if match[1] in copying and match[2].startswith('Installed resource: fonts/'):
+                return match[1]
+    return None
+
+
 def font_draft(nodes, app, scoped_path):
     fields = [(n.get('text'), n.get('checked')) for n in nodes
               if n.get('package') == app and n.get('checkable') == 'true']
@@ -84,9 +134,59 @@ def controls():
         except AssertionError:
             continue
         raise AssertionError('A forced-relaunch positive control escaped')
+    startup_controls()
+    assert copy_pid(prefix + 'Resource copy required=true') is None
+    assert copy_pid(prefix + 'Installed resource: locale/en_US') is None
+    copying = prefix + 'Resource copy required=true\n'
+    assert copy_pid(prefix + 'Installed resource: fonts/DejaVuSans.ttf') is None
+    assert copy_pid(copying + prefix.replace('4970', '6629') + 'Installed resource: fonts/DejaVuSans.ttf') is None
+    assert copy_pid(copying + prefix + 'Installed resource: fonts/DejaVuSans.ttf') == '4970'
     return ('PASS: negative controls: in-place handling; signed/unsigned ASSETS_PATHS masks; complete recovery.\n'
             'PASS: positive controls: declared-only/zero masks (even after handled), wrong task/hold; '
-            'unchanged/missing PID, changed task, absent configurator, lost draft, ANR and crash rejected.\n')
+            'unchanged/missing PID, changed task, absent configurator, lost draft, ANR and crash rejected.\n'
+            'PASS: startup controls: one relaunch after a dismissal during this start; live capture before stop; '
+            'no relaunch without a new dismissal, no second relaunch, none after readiness or a crash/ANR.\n'
+            'PASS: copy probe binds its PID only to the actual font-copy event.\n')
+
+
+def startup_controls():
+    def exercise(dismiss=False, initial=0, reached=False, late_ready=False, fail_twice=False, crash=''):
+        count = [initial]
+        events, records = [], []
+        def attempt(ready):
+            events.append('start')
+            if events.count('start') == 2 and not fail_twice:
+                ready()
+                return
+            if dismiss:
+                count[0] += 1
+            if reached:
+                ready()
+            raise ReadinessTimeout('control')
+        def capture(number):
+            events.append('capture')
+            return crash
+        failed = False
+        try:
+            startup(attempt, lambda: count[0], capture, lambda: events.append('stop'), records.append,
+                    'org.esdeplus.frontend', lambda: late_ready)
+        except ReadinessTimeout:
+            failed = True
+        return events, records, failed
+    events, records, failed = exercise(dismiss=True)
+    assert not failed and events == ['start', 'capture', 'stop', 'start']
+    assert [r['outcome'] for r in records] == ['RELAUNCH_STOCK_ONBOARDING', 'READY']
+    assert records[-1]['relaunches'] == 1
+    events, records, failed = exercise(dismiss=True, fail_twice=True)
+    assert failed and events == ['start', 'capture', 'stop', 'start', 'capture']
+    assert records[-1]['outcome'] == 'HARD_TIMEOUT'
+    for options in (dict(), dict(initial=1), dict(dismiss=True, reached=True),
+                    dict(dismiss=True, late_ready=True),
+                    dict(dismiss=True, crash='FATAL EXCEPTION'),
+                    dict(dismiss=True, crash='Fatal signal 11'),
+                    dict(dismiss=True, crash='ANR in org.esdeplus.frontend')):
+        events, records, failed = exercise(**options)
+        assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT'
 
 
 if __name__ == '__main__':

@@ -286,6 +286,18 @@ and no frontend ANR or crash. Every other relaunch fails immediately. CI's
 `smoke_session.py self-test` runs rejection and acceptance controls for the mask,
 recovery and settle conditions, saved in `fresh-session-controls.txt`.
 
+The shared frontend startup path also records `startup-outcomes.txt`. A startup
+timeout captures the live screenshot, focused window, activity state and logcat
+tail before cleanup. It permits one relaunch only if the shared TV guard actually
+dismissed a stock tutorial during that start and the frontend has never logged
+startup readiness. Readiness is checked again after capture; a crash/ANR in the
+marked start window, a stale dismissal, any timeout after readiness, and a second
+timeout stay hard failures. The original 90 s readiness bound applies to each
+attempt. Session summaries count `stock_onboarding_relaunches`, including zero;
+the CI self-test exercises the allowed case and each exclusion. The resource-copy
+interruption probe selects its PID from the real font-copy log event (with a
+matching copy-required event), after waiting for the prior process to stop.
+
 For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
 including PDF fixtures; set `RUNNER_TEMP` to a temporary directory outside the

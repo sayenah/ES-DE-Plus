@@ -46,6 +46,8 @@ stock_package = 'com.google.android.tvlauncher'
 onboarding_guard = False
 dismissing_onboarding = False
 last_onboarding_check = 0.0
+onboarding_dismissals = 0
+startup_number = 0
 session_settled = False
 
 
@@ -147,7 +149,7 @@ def wait_for(condition, description, timeout=90):
         time.sleep(0.25)
     with (evidence / 'readiness-waits.txt').open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
-    raise AssertionError('Timed out: ' + description)
+    raise fresh_session_checks.ReadinessTimeout('Timed out: ' + description)
 
 
 def log():
@@ -161,11 +163,49 @@ def screenshot(name):
 
 
 def launch():
+    global startup_number
+    startup_number += 1
+    name = f'startup-{startup_number}'
+    marker = 'ESDE_STARTUP_' + str(time.monotonic_ns())
+    shell('log', '-t', 'ESDE-Smoke', marker)
+    def record(result):
+        result.update(start=name, readiness_deadline_seconds=90)
+        with (evidence / 'startup-outcomes.txt').open('a') as output:
+            output.write(json.dumps(result) + '\n')
+        print('STARTUP_OUTCOME ' + json.dumps(result), flush=True)
+    fresh_session_checks.startup(
+        launch_attempt, lambda: onboarding_dismissals,
+        lambda number: capture_startup_failure(f'{name}-attempt-{number + 1}-failure', marker),
+        lambda: shell('am', 'force-stop', app), record, app, current_startup_ready)
+
+
+def capture_startup_failure(name, marker):
+    # No transition sleep or cleanup before this live screenshot and state.
+    (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
+    (evidence / (name + '-focus.txt')).write_text(focused_window())
+    (evidence / (name + '-window.txt')).write_text(shell('dumpsys', 'window'))
+    (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
+    output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime')
+    (evidence / (name + '-logcat-tail.txt')).write_text('\n'.join(output.splitlines()[-1000:]) + '\n')
+    (evidence / (name + '-all-logcat.txt')).write_text(output)
+    save_logs(name)
+    capture_frontend_stacks(name)
+    assert marker in output, 'Startup marker missing; cannot classify timeout'
+    return output.partition(marker)[2]
+
+
+def current_startup_ready():
+    current = log()
+    return current != startup_baseline and 'Application startup time:' in current
+
+
+def launch_attempt(reached_readiness):
     # Each stopped-process restart must produce new startup evidence.
     global startup_baseline
     startup_baseline = log()
     shell('am', 'start', '-n', activity)
-    wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh frontend startup/system loading')
+    wait_for(current_startup_ready, 'fresh frontend startup/system loading')
+    reached_readiness()
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
     # Startup logging precedes the render loop's first frame/texture uploads.
@@ -261,7 +301,7 @@ def node_matches(node, label):
 
 
 def dismiss_stock_onboarding(force=False):
-    global dismissing_onboarding, last_onboarding_check
+    global dismissing_onboarding, last_onboarding_check, onboarding_dismissals
     if not onboarding_guard or dismissing_onboarding:
         return
     if not force and time.monotonic() - last_onboarding_check < 2:
@@ -272,6 +312,7 @@ def dismiss_stock_onboarding(force=False):
     if not smoke_checks.stock_onboarding_focused(window, stock_package):
         return
     dismissing_onboarding = True
+    acted = False
     try:
         # The stock launcher can present a multi-page Live TV/Shop tutorial.
         # Each page gets its exact negative action once, and must visibly
@@ -305,6 +346,7 @@ def dismiss_stock_onboarding(force=False):
                         n.get('text') == action and n.get('clickable') == 'true')
             x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+            acted = True
             time.sleep(1)
             nodes = hierarchy()
             window = focused_window()
@@ -339,9 +381,15 @@ def dismiss_stock_onboarding(force=False):
                 key('KEYCODE_DPAD_CENTER')
         wait_for(stock_ui_clear, 'external TV onboarding dismissal completed')
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
+        if acted:
+            onboarding_dismissals += 1
+            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                output.write(f'Completed stock-tutorial dismissal {onboarding_dismissals}; '
+                             f'startup counter={startup_number}; monotonic={time.monotonic():.6f}.\n')
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion
-        # retry is performed. The original condition still has to pass.
+        # retry is performed here. WO-17's shared startup wrapper has the sole
+        # exception: one recorded relaunch before readiness after this dismissal.
     finally:
         dismissing_onboarding = False
 
@@ -1568,27 +1616,28 @@ try:
              'process-death configurator return starts recorded HOME entry on one SDL host')
     save_logs('scoped-save-releases-grants')
     shell('am', 'force-stop', app)
+    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'previous copy-probe process stopped')
     # Resource installation is uncommitted on a fresh start; remove resources
     # solely to guarantee a real copy for the interruption probe.
     private('rm', '-rf', 'files/resources', 'files/themes', 'files/resources-installed')
     # Interrupt an actual first-run copy through ActivityManager. Inspect the
     # partial installation after the process is stopped, never before it.
     adb('logcat', '-c')
-    shell('am', 'start', '-n', activity)
-    wait_for(lambda: shell('pidof', app, check=False).strip().isdigit(), 'copy-probe process started')
-    copy_pid = shell('pidof', app).strip()
-    # PID filtering also excludes messages already buffered by the prior
-    # configurator process; clearing logcat alone does not bind this probe.
-    follower = subprocess.Popen(['adb', 'logcat', '--pid=' + copy_pid, '-v', 'brief', 'ES-DE-Plus:I', '*:S'],
+    # Start following before launch, and select the PID from the actual copy
+    # event. A newborn process's name can be transient while it initialises;
+    # two pidof samples are neither an atomic observation nor a copy barrier.
+    follower = subprocess.Popen(['adb', 'logcat', '-v', 'threadtime', 'ES-DE-Plus:I', '*:S'],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     deadline = time.monotonic() + 60
     observed = b''
     try:
+        shell('am', 'start', '-n', activity)
         while time.monotonic() < deadline:
             readable, _, _ = select.select([follower.stdout], [], [], 1)
             if readable:
                 observed += follower.stdout.read1(65536)
-                if b'Installed resource: fonts/' in observed:
+                copy_pid = fresh_session_checks.copy_pid(observed.decode(errors='replace'))
+                if copy_pid:
                     assert shell('pidof', app).strip() == copy_pid, 'Copy-probe process changed'
                     shell('am', 'force-stop', app)
                     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'resource-copy process stopped')
@@ -1600,7 +1649,7 @@ try:
     finally:
         follower.terminate()
         follower.wait(timeout=10)
-    (evidence / 'interrupted-copy-logcat.txt').write_text(observed.decode(errors='replace'))
+        (evidence / 'interrupted-copy-logcat.txt').write_text(observed.decode(errors='replace'))
     print('PASS: killed during real copy, partial fonts exist, marker absent', flush=True)
     adb('logcat', '-c')
     launch()
