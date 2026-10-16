@@ -591,10 +591,12 @@ def destroy_held(name):
              'restored configurator controls on the new host')
     (evidence / (name + '-restored-before-scroll-ui.txt')).write_text(
         (evidence / 'latest-ui.txt').read_text())
-    ui('Use direct filesystem compatibility', dpad=True, focus_only=True)
-    # The first button has no focusable predecessor: Up scrolls the heading
-    # into view using the same ordinary D-pad path as the rest of this form.
-    key('KEYCODE_DPAD_UP')
+    if not any(n.get('package') == app and n.get('text', '').startswith('Configure ')
+               for n in hierarchy()):
+        ui('Use direct filesystem compatibility', dpad=True, focus_only=True)
+        # The first button has no focusable predecessor: Up scrolls the heading.
+        # Short recovery forms already expose it and have no storage-mode row.
+        key('KEYCODE_DPAD_UP')
     # Never replay task clear or frontend launch, and retain the full existing
     # assertion after ordinary user navigation makes the title visible.
     wait_for(lambda: any(n.get('package') == app and n.get('text', '').startswith('Configure ')
