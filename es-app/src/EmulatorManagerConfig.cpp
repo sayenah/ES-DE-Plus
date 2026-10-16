@@ -48,18 +48,22 @@ namespace
         return bytes;
     }
 
-    void removeIndent(pugi::xml_node node)
+    void normalizeXml(pugi::xml_node node)
     {
         bool container {false};
         for (auto child : node.children())
             container |= child.type() == pugi::node_element || child.type() == pugi::node_comment;
         for (auto child = node.first_child(); child;) {
             const auto next = child.next_sibling();
-            if (container && child.type() == pugi::node_pcdata &&
-                std::string(child.value()).find_first_not_of(" \t\r\n") == std::string::npos)
+            // Empty text and no text are semantically identical. pugixml 1.14
+            // drops empty text nodes on readback, whereas newer versions retain them.
+            if (child.type() == pugi::node_pcdata &&
+                (std::string(child.value()).empty() ||
+                 (container &&
+                  std::string(child.value()).find_first_not_of(" \t\r\n") == std::string::npos)))
                 node.remove_child(child);
             else
-                removeIndent(child);
+                normalizeXml(child);
             child = next;
         }
     }
@@ -75,7 +79,7 @@ namespace
         else {
             node = copy.append_copy(source);
         }
-        removeIndent(node);
+        normalizeXml(node);
         if (node.type() == pugi::node_document)
             for (auto child : node.children())
                 if (child.type() == pugi::node_declaration && child.attribute("encoding"))
