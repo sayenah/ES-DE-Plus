@@ -355,9 +355,9 @@ def classify_stall(h, name, pid, logs, reloads, setups, size):
     cpu = cpu_sample(1)
     started = time.monotonic()
     time.sleep(5)
+    later = capture_stacks(h, prefix + '-2', pid)
     later_cpu = cpu_sample(2)
     elapsed = time.monotonic() - started
-    later = capture_stacks(h, prefix + '-2', pid)
     interval = logs()
     (h.evidence / (prefix + '-logcat.txt')).write_text(interval)
     current = h.log()
