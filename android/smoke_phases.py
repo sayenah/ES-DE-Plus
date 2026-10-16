@@ -62,6 +62,10 @@ def run(phase, harness):
     elif phase == 'integration':
         h.network_smoke.run(harness)
     else:
+        if phase == 'pdf-scoped':
+            # The same fresh, genuinely scoped session also exercises ordinary
+            # downloader clone/update with ownership validation still enabled.
+            h.network_smoke.run(harness, scoped=True)
         h.pdf_smoke.run('scoped' if phase == 'pdf-scoped' else 'direct', harness)
         if phase == 'pdf-scoped':
             # The unchanged Unicode/minified probe consumes the real fixtures

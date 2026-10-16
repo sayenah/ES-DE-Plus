@@ -1208,7 +1208,7 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
-    if phase == 'integration' and device_api in (29, 34):
+    if phase == 'integration' and device_api in (31, 34):
         import update_smoke
         update_record = pathlib.Path('android/evidence/update-identity.txt')
         if update_record.resolve() != (evidence / update_record.name).resolve():

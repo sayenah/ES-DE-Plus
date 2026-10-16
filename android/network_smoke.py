@@ -156,7 +156,7 @@ def controls():
                   'SSL peer certificate cannot be authenticated']:
         assert not scraper_reply(value), value
     reports = []
-    for api in (29, 34, 36):
+    for api in (31, 34, 36):
         ticks = [0]
         attempts = []
         recoveries = []
@@ -271,12 +271,13 @@ def controls():
     return '\n'.join(reports) + '\n'
 
 
-def run(harness):
+def run(harness, scoped=False):
     with wall_budget(90 * 60, 'network checks (90 minutes)'):
-        run_checks(harness)
+        run_checks(harness, scoped)
 
 
-def run_checks(harness):
+def run_checks(harness, scoped=False):
+    import theme_trust_smoke
     h = type('Harness', (), harness)
     h.evidence.joinpath('network-assertion-positive-controls.txt').write_text(controls())
     subprocess.run([sys.executable, 'android/network-control.py', '--self-test'], check=True)
@@ -297,15 +298,26 @@ def run_checks(harness):
         node.set('value', value)
     configured = '<?xml version="1.0"?>\n' + ''.join(ET.tostring(n, encoding='unicode') for n in document)
     h.user_file('settings/es_settings.xml', configured)
+    volumes = h.shell('am', 'instrument', '-w', '-e', 'mode', 'theme-volumes',
+                      h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+    h.smoke_checks.probe_passed(volumes, 'PASS: app-context storage volumes')
+    removable_roots = [line.split('directory=', 1)[1].strip() for line in volumes.splitlines()
+                       if 'removable=true' in line and 'state=mounted ' in line and 'directory=/' in line]
+    h.evidence.joinpath('theme-storage-volumes.txt').write_text(
+        'mode=' + ('scoped' if scoped else 'direct') + '\n' + volumes +
+        ('\nNo writable mounted removable volume reported by the SDK; raw states are recorded above.\n' if not removable_roots else '\nRemovable volume will run the clone/load path.\n'))
     control = pathlib.Path('android/.deps/network/no-internet.apk')
     attempts = {}
     active = ['network-setup']
+    trust_controls_complete = False
+    owner_leftover = False
 
     def begin(operation):
         attempts[operation] = attempts.get(operation, 0) + 1
         active[0] = f'network-{operation}-attempt{attempts[operation]}'
 
     def record(message):
+        message += ' [mode=' + ('scoped' if scoped else 'direct') + ']'
         print(message, flush=True)
         with h.evidence.joinpath('network-result.txt').open('a') as output:
             output.write(message + '\n')
@@ -484,11 +496,22 @@ def run_checks(harness):
         h.launch()  # Ordinary startup stays a hard, single-attempt assertion.
 
     def theme_list(negative):
+        nonlocal trust_controls_complete, owner_leftover
         begin(('control' if negative else 'fixed') + '-theme-list')
         permission(not negative)
-        h.shell('test', '!', '-e', theme_path('themes-list'))
+        recovering = owner_leftover and not negative
+        if recovering:
+            h.shell('test', '-d', theme_path('themes-list/.git'))
+        else:
+            h.shell('test', '!', '-e', theme_path('themes-list'))
         before = h.log()
+        controls = not scoped and not negative and not trust_controls_complete
+        if controls:
+            theme_trust_smoke.request(h)
         downloader()
+        if controls:
+            theme_trust_smoke.collect(h)
+            trust_controls_complete = True
         capture('network-' + ('control' if negative else 'fixed') + '-first-use')
         h.key('KEYCODE_ENTER')  # Real first-use PROCEED, never bypassed.
         output = request_result(before,
@@ -496,6 +519,11 @@ def run_checks(harness):
             lambda s: "Couldn't clone repository" in s,
             'frontend themes-list HTTPS clone completed', 300,
             lambda s: 'GuiThemeDownloader: Creating initial themes list repository clone' in s, negative)
+        if recovering and 'Renaming directory ' + theme_path('themes-list') in output:
+            owner_leftover = False
+            assert output.count('Renaming directory ' + theme_path('themes-list')) == 1, output
+            h.shell('test', '-d', theme_path('themes-list_CORRUPT_DISABLED/.git'))
+            record('PASS: half-initialized list explicitly recovered once; old metadata retained until next visit.')
         capture('network-' + ('control' if negative else 'fixed') + '-theme-list')
         if negative:
             assert '"themes-list"' in output and resolve_error(output), output
@@ -513,7 +541,9 @@ def run_checks(harness):
             raise AssertionError(output)
         raw = h.shell('cat', theme_path('themes-list/themes.json'))
         themes = json.loads(raw)
-        entries = sorted(themes['themes'] + themes.get('themesAndroid', []), key=lambda t: t['name'].upper())
+        names = theme_trust_smoke.allowlist(h)
+        entries = sorted([entry for entry in themes['themes'] + themes.get('themesAndroid', [])
+                          if entry['reponame'] in names], key=lambda t: t['name'].upper())
         assert entries and h.shell('cat', theme_path('themes-list/.git/HEAD')).strip()
         h.evidence.joinpath(active[0] + '-themes-list-head.txt').write_text(
             h.shell('cat', theme_path('themes-list/.git/HEAD')) +
@@ -523,11 +553,44 @@ def run_checks(harness):
             h.key('KEYCODE_ENTER')  # Upstream's compatibility warning, captured above.
         return entries
 
-    def download_theme(entries):
-        # HOME is upstream's first-row action. Use the real fetched row.
-        selected = entries[0]
+    def owner_positive_control():
+        nonlocal owner_leftover
+        baseline = pathlib.Path('android/.deps/theme-owner/prefix.apk')
+        if scoped or h.api not in (31, 34) or not baseline.is_file():
+            return  # TV36 already has the required historical 438bf5927 evidence.
+        begin('historical-owner-control')
+        h.shell('test', '!', '-e', theme_path('themes-list'))
+        h.shell('am', 'force-stop', h.app)
+        h.adb('install', '-r', '-d', str(baseline))
+        h.launch()
+        before = h.log()
+        downloader()
+        capture('historical-owner-first-use')
+        h.key('KEYCODE_ENTER')
+        output = request_result(before, lambda text: "Couldn't clone repository" in text,
+            lambda text: 'parseThemesList(): Parsed ' in text,
+            '438bf5927 ownership rejection positive control', 120,
+            lambda text: 'Creating initial themes list repository clone' in text)
+        h.evidence.joinpath('theme-owner-control.txt').write_text(output)
+        assert 'error code: -36' in output and 'not owned by current user' in output, output
+        h.shell('test', '-d', theme_path('themes-list/.git'))
+        capture('historical-owner-error')
+        record('PASS: exact pre-fix 438bf5927 rejects direct themes-list clone with GIT_EOWNER -36; partial metadata retained.')
+        h.shell('am', 'force-stop', h.app)
+        h.adb('install', '-r', str(h.apk))
+        owner_leftover = True
+
+    def download_theme(entries, extended=True):
+        nonlocal owner_leftover
+        # TV's accepted timing criterion needs a large repository. Select its
+        # actual fetched row; other targets use the first admitted theme.
+        selected = next(entry for entry in entries if entry['reponame'] == 'art-book-next-es-de') if h.television else entries[0]
+        def select_theme_row():
+            h.key('KEYCODE_MOVE_HOME')
+            for _ in range(entries.index(selected)):
+                h.key('KEYCODE_DPAD_DOWN')
         repository = selected['reponame']
-        assert re.fullmatch(r'[A-Za-z0-9_-]+', repository), repository
+        assert re.fullmatch(r'[A-Za-z0-9._-]+', repository) and not repository.startswith('.'), repository
         assert selected['url'].startswith('https://') and not selected.get('deprecated')
         downloaded = f'Downloaded theme "{repository}"'
         before = ''
@@ -536,7 +599,7 @@ def run_checks(harness):
             begin('fixed-theme-download')
             permission(True)
             h.shell('test', '!', '-e', theme_path(repository))
-            h.key('KEYCODE_MOVE_HOME')
+            select_theme_row()
             capture('network-theme-selected')
             before = h.log()
             h.key('KEYCODE_ENTER')
@@ -575,21 +638,46 @@ def run_checks(harness):
                 h.key('KEYCODE_ENTER')  # Completed remote error OK; selection retained.
         clone_began = time.monotonic()
         remote_attempts(attempt, recover, record, 'theme')
-        record(f'PASS: shared-data theme clone seconds={time.monotonic() - clone_began:.3f} path={theme_path(repository)}')
-        if h.api == 34:
-            # Fetch an installed repository through the same upstream UI. A
-            # clean up-to-date result is successful update work over shared FUSE.
+        size_kib = int(h.shell('du', '-sk', theme_path(repository)).split()[0])
+        if h.television:
+            assert size_kib >= 50 * 1024, ('TV large-theme control must exceed 50 MiB', size_kib)
+        record(f'PASS: shared-data theme clone seconds={time.monotonic() - clone_began:.3f} KiB={size_kib} path={theme_path(repository)}')
+        if extended and h.api in (31, 34, 36):
+            # Reopen the actual downloader; its admission hook makes this run's
+            # newly cloned theme exactly one commit behind before inventory.
+            h.key('KEYCODE_DEL')
+            theme_trust_smoke.request_rewind(h, repository)
+            begin('shared-theme-update-list')
+            before_list = h.log()
+            h.key('KEYCODE_ENTER')
+            request_result(before_list,
+                lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                lambda text: "Couldn't fetch" in text,
+                'shared-data list refreshed before real update', 300,
+                lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('rewind-list-start', required=True))))
+            rewind = theme_trust_smoke.rewind_result(h)
+            h.shell('test', '!', '-e', theme_path('themes-list_CORRUPT_DISABLED'))
+            if 'Not running the most current application release' in delta(before_list):
+                h.key('KEYCODE_ENTER')
+            select_theme_row()
             begin('shared-theme-update')
             before_update = h.log()
             update_began = time.monotonic()
             h.key('KEYCODE_ENTER')
             updated = request_result(before_update,
-                lambda text: f'Repository "{repository}" already up to date' in text,
+                lambda text: f'Performing fast-forward of repository "{repository}"' in text,
                 lambda text: "Couldn't fetch" in text,
                 'shared-data theme update', 300,
                 lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('update-start', required=True))))
             assert "Couldn't fetch" not in updated, updated
-            record(f'PASS: shared-data theme update seconds={time.monotonic() - update_began:.3f}')
+            h.wait_for(lambda: h.shell('cat', theme_path(repository + '/.git/' + rewind['reference'])).strip()
+                       == rewind['latest'], 'actual theme fast-forward HEAD reaches original commit', 90)
+            h.shell('test', '!', '-e', theme_path(repository + '_DISABLED'))
+            assert 'contains local changes' not in delta(before_update), delta(before_update)
+            record(f'PASS: shared-data theme update seconds={time.monotonic() - update_began:.3f}; '
+                   f'HEAD {rewind["previous"]} -> {rewind["latest"]}; '
+                   f'core.filemode={rewind["core.filemode"]}; no spurious local changes or disabled rename')
+        if extended and h.api == 34 and not scoped:
             # Model a manual download using only this run's new clone. Preserve
             # its metadata and authored marker in the directory being renamed.
             h.key('KEYCODE_DEL')
@@ -608,7 +696,7 @@ def run_checks(harness):
             assert "Couldn't fetch" not in listed, listed
             if 'Not running the most current application release' in listed:
                 h.key('KEYCODE_ENTER')
-            h.key('KEYCODE_MOVE_HOME')
+            select_theme_row()
             h.key('KEYCODE_ENTER')  # Manual-download confirmation; no filesystem rename by the harness.
             capture('shared-theme-reset-confirmation')
             begin('shared-theme-reset')
@@ -638,6 +726,204 @@ def run_checks(harness):
                    'downloaded theme selected and loaded through UI')
         saved = h.shell('cat', h.settings)
         assert h.launch_checks.settings_fragment(saved).find("string[@name='Theme']").get('value') == repository, saved
+        for cycle in range(2 if extended else 0):
+            begin('same-process-downloader-reopen')
+            pid = h.shell('pidof', h.app).strip()
+            reopened_before = h.log()
+            downloader()
+            refreshed = request_result(reopened_before,
+                lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                lambda text: "Couldn't fetch" in text,
+                'same-process downloader reopen and real themes-list update', 300,
+                lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('reopen-start', required=True))))
+            assert 'owner validation=1; config=' in refreshed, refreshed
+            assert h.shell('pidof', h.app).strip() == pid, 'Downloader reopen restarted the app'
+            if 'Not running the most current application release' in refreshed:
+                h.key('KEYCODE_ENTER')
+            theme_trust_smoke.allowlist(h)
+            if cycle == 0 and h.api == 34 and not scoped:
+                h.shell('test', '!', '-e', theme_path(repository + '_DISABLED'))
+            h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
+            record(f'PASS: downloader reopen cycle={cycle + 1}; same PID={pid}; configuration rebuilt; list fetched')
+        faults = [('temporary', 'Injected temporary config creation failure'),
+                                  ('replace', 'Cannot atomically replace the private Git config'),
+                                  ('search', 'Injected search-path setup failure')]
+        for fault, diagnostic in (faults if extended else []):
+            begin('recoverable-trust-failure-' + fault)
+            paths = [repository + '/theme.xml', repository + '/.git/HEAD', repository + '/.git/config']
+            hashes = {path: h.shell('sha256sum', theme_path(path)).split()[0] for path in paths}
+            failed_before = h.log()
+            theme_trust_smoke.request_failure(h, fault)
+            downloader()
+            h.wait_for(lambda: diagnostic in delta(failed_before), 'recoverable downloader trust error: ' + fault)
+            capture('recoverable-trust-' + fault)
+            h.key('KEYCODE_ENTER')  # Actual recoverable error OK, then downloader CLOSE.
+            h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
+            failed = delta(failed_before)
+            for forbidden in ['Creating initial themes list repository clone', 'Performing fast-forward',
+                              'Renaming directory', 'Removing disabled theme directory', 'parseThemesList(): Parsed']:
+                assert forbidden not in failed, (fault, failed)
+            assert {path: h.shell('sha256sum', theme_path(path)).split()[0] for path in paths} == hashes
+            retry_before = h.log()
+            downloader()
+            retry = request_result(retry_before,
+                lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                lambda text: "Couldn't fetch" in text,
+                'successful retry after restoring trust prerequisite', 300,
+                lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('retry-start', required=True))))
+            assert 'owner validation=1; config=' in retry, retry
+            if 'Not running the most current application release' in retry:
+                h.key('KEYCODE_ENTER')
+            h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
+            record(f'PASS: actual downloader {fault} failure showed recoverable UI; no repository operations; restored retry fetched successfully')
+        for subject in (('themes-list', repository) if extended else ()):
+            begin('actual-worker-origin-race-' + subject)
+            theme_trust_smoke.request_remote_race(h, subject)
+            raced_before = h.log()
+            downloader()
+            if subject != 'themes-list':
+                listed = request_result(raced_before,
+                    lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                    lambda text: "Couldn't fetch" in text,
+                    'valid list before per-theme worker origin race', 300,
+                    lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('origin-race-list', required=True))))
+                if 'Not running the most current application release' in listed:
+                    h.key('KEYCODE_ENTER')
+                select_theme_row()
+                h.key('KEYCODE_ENTER')
+            h.wait_for(lambda: 'Theme fetch trust check failed' in delta(raced_before),
+                       'actual fetch rejects origin changed after precheck', 90)
+            raced = delta(raced_before)
+            assert 'Actual fetch remote differs from the admitted URL' in raced, raced
+            proof = h.shell('run-as', h.app, 'cat', 'files/theme-trust.remote-race-result')
+            assert 'PASS: worker changed origin after precheck and before lookup' in proof, proof
+            h.evidence.joinpath('theme-worker-origin-race-' + subject + '.txt').write_text(proof + '\n' + raced)
+            capture('actual-worker-origin-rejected-' + subject)
+            assert h.shell('pidof', h.app).strip(), 'Origin rejection killed the frontend'
+            h.shell('am', 'force-stop', h.app)
+            restored = h.shell('am', 'instrument', '-w', '-e', 'mode', 'theme-remote-restore',
+                               h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+            h.smoke_checks.probe_passed(restored, 'PASS: actual theme origin fixture restored under app UID')
+            h.launch()
+            retry_before = h.log()
+            downloader()
+            retried = request_result(retry_before,
+                lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                lambda text: "Couldn't fetch" in text,
+                'restored actual origin positive control', 300,
+                lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('origin-restored-list', required=True))))
+            if 'Not running the most current application release' in retried:
+                h.key('KEYCODE_ENTER')
+            if subject != 'themes-list':
+                select_theme_row()
+                before_theme_retry = h.log()
+                h.key('KEYCODE_ENTER')
+                request_result(before_theme_retry,
+                    lambda text: f'Repository "{repository}" already up to date' in text,
+                    lambda text: "Couldn't fetch" in text,
+                    'restored actual theme fetch positive control', 300,
+                    lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('origin-restored-theme', required=True))))
+            h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
+            record(f'PASS: actual {subject} origin changed in worker after precheck and before lookup; URL gate stopped fetch; restored UI fetch passed')
+        if extended and not scoped and h.api in (34, 36):
+            retained = [repository + '/theme.xml', repository + '/.git/HEAD',
+                        repository + '/.git/config']
+            symbolic = h.shell('cat', theme_path(repository + '/.git/HEAD')).strip()
+            assert symbolic.startswith('ref: refs/heads/') and '..' not in symbolic.split('/'), symbolic
+            retained.append(repository + '/.git/' + symbolic.removeprefix('ref: '))
+            hashes = {path: h.shell('sha256sum', theme_path(path)).split()[0] for path in retained}
+            begin('shared-theme-real-uninstall')
+            assert 'Success' in h.adb('uninstall', h.app)
+            assert 'Success' in h.adb('install', str(h.apk))
+            h.start_entry('HomeEntry', 'android.intent.category.HOME')
+            h.ui('Use direct filesystem compatibility', dpad=True)
+            h.ui('Grant direct filesystem access', dpad=True)
+            h.grant_from_settings()
+            h.ui('Review application-data folder', dpad=True)
+            h.ui('Confirm and use this data folder', dpad=True)
+            h.ui('Absolute shared ROM folder path', dpad=True)
+            h.shell('input', 'text', h.shared)
+            h.key('KEYCODE_BACK')
+            h.ui('Use typed folder path', dpad=True)
+            h.ui('Create system folders', dpad=True)
+            h.ui('Save and start frontend', dpad=True)
+            h.configured_system('shared-theme-after-real-uninstall-reselect')
+            assert f'Finished loading theme "{repository}"' in h.log(), h.log()
+            assert {path: h.shell('sha256sum', theme_path(path)).split()[0] for path in retained} == hashes
+            h.evidence.joinpath('shared-theme-uninstall-hashes.txt').write_text(json.dumps(hashes, indent=2))
+            before_reinstall_update = h.log()
+            downloader()
+            refreshed = request_result(before_reinstall_update,
+                lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                lambda text: "Couldn't fetch" in text,
+                'retained themes inventory after real uninstall', 300,
+                lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('reinstall-list-start', required=True))))
+            if 'Not running the most current application release' in refreshed:
+                h.key('KEYCODE_ENTER')
+            select_theme_row()
+            before_retained_update = h.log()
+            h.key('KEYCODE_ENTER')
+            updated = request_result(before_retained_update,
+                lambda text: f'Repository "{repository}" already up to date' in text,
+                lambda text: "Couldn't fetch" in text or "Couldn't clone" in text,
+                'retained installed theme update after real uninstall', 300,
+                lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('reinstall-update-start', required=True))))
+            assert f'Repository "{repository}" already up to date' in updated, updated
+            h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL'); h.key('KEYCODE_DEL')
+            record('PASS: real uninstall without -k; reselected shared data; theme hashes/HEAD retained, theme loaded, installed inventory and update passed')
+        if extended and not scoped and (h.api == 34 or removable_roots):
+            # Real root re-selection, using ordinary EditText paste for Unicode.
+            old_root = h.data_root
+            new_root = (removable_roots[0] if removable_roots else '/sdcard') + '/ESDEPlus trust # ; " café'
+            saved_root = old_root + '.prf-theme-root-saved'
+            h.shell('am', 'force-stop', h.app)
+            h.shell('test', '!', '-e', saved_root)
+            h.shell('mv', old_root, saved_root)
+            try:
+                pasted = h.shell('am', 'instrument', '-w', '-e', 'mode', 'theme-path-clipboard',
+                                 '-e', 'path', new_root, h.app + '/org.esdeplus.frontend.RuntimeSmoke')
+                h.smoke_checks.probe_passed(pasted, 'PASS: fixture path clipboard prepared')
+                h.start_entry('HomeEntry', 'android.intent.category.HOME')
+                h.ui('Absolute application-data folder path', dpad=True)
+                current = next(node.get('text', '') for node in h.hierarchy()
+                               if node.get('class') == 'android.widget.EditText')
+                h.key('KEYCODE_MOVE_END')
+                if current:
+                    h.shell('input', 'keyevent', *(['KEYCODE_DEL'] * len(current)))
+                h.key('KEYCODE_PASTE')
+                assert any(node.get('class') == 'android.widget.EditText' and
+                           node.get('package') == h.app and node.get('text') == new_root
+                           for node in h.hierarchy()), 'Unicode paste lost path characters'
+                h.key('KEYCODE_BACK')
+                h.ui('Review application-data folder', dpad=True)
+                h.ui('Confirm and use this data folder', dpad=True)
+                h.select_data_root(new_root)
+                h.data_root = new_root
+                h.settings = new_root + '/settings/es_settings.xml'
+                h.ui('Use typed folder path', dpad=True)
+                h.ui('Save and start frontend', dpad=True)
+                h.configured_system('theme-unicode-root-reselected')
+            finally:
+                h.shell('test', '!', '-e', old_root)
+                h.shell('mv', saved_root, old_root)
+            fresh_settings = h.launch_checks.settings_fragment(h.shell('cat', h.settings))
+            debug = fresh_settings.find("bool[@name='DebugMode']")
+            if debug is None:
+                debug = ET.SubElement(fresh_settings, 'bool', name='DebugMode')
+            debug.set('value', 'true')
+            h.user_file('settings/es_settings.xml', '<?xml version="1.0"?>\n' +
+                        ''.join(ET.tostring(node, encoding='unicode') for node in fresh_settings))
+            h.launch()
+            owner_leftover = False
+            unicode_entries = remote_attempts(lambda: theme_list(False), recover_list, record, 'Unicode-root list')
+            download_theme(unicode_entries, extended=False)
+            contents = h.shell('run-as', h.app, 'cat', 'files/libgit2/.gitconfig')
+            paths = [json.loads(line.split(' = ', 1)[1]) for line in contents.splitlines()
+                     if line.startswith('\tdirectory = ')]
+            expected_parent = h.shell('readlink', '-f', new_root + '/themes').strip()
+            assert all(str(pathlib.PurePosixPath(path).parent) == expected_parent for path in paths), contents
+            h.evidence.joinpath('theme-root-reselection-allowlist.txt').write_text(contents)
+            record('PASS: real root re-selection with # ; quote space and é; HTTPS list/theme cloned, selected and loaded; allowlist contains only new root; removable=' + str(bool(removable_roots)))
         capture('network-theme-applied')
         record(f'PASS: real downloaded {repository} is selectable, saved and loaded through the UI.')
 
@@ -677,7 +963,7 @@ def run_checks(harness):
         record(f'Network UI probes: API {h.api}; TV={h.television}; maximum three attempts per remote operation '
                '(clone 300s, scraper 90s, backoff 5s); total work budget 90 minutes, failure evidence 1 minute, '
                'cleanup 5 minutes; no frontend/permission/TLS retries.')
-        if h.api == 34:
+        if h.api == 34 and not scoped:
             begin('control-startup')
             assert control.is_file(), 'Missing built no-INTERNET APK'
             h.adb('install', '-r', str(control))
@@ -691,7 +977,11 @@ def run_checks(harness):
             h.shell('test', '!', '-e', theme_path('themes-list'))
         begin('fixed-startup')
         permission(True)
+        owner_positive_control()
         h.launch()
+        if not scoped and h.api == 36:
+            h.shell('mkdir', '-p', theme_path('themes-list/.git'))
+            owner_leftover = True
         begin('liveness-control')
         responsive(h.shell('pidof', h.app, check=False).strip())
         with wall_budget(120, 'native diagnostic control'):

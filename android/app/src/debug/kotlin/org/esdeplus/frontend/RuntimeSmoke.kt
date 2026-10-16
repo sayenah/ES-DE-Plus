@@ -18,12 +18,14 @@ class RuntimeSmoke : Instrumentation() {
     private var insetRotation = 0
     private var userFileArguments: Bundle? = null
     private var importedTarget = ""
+    private var themeFixturePath = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         if (arguments?.getString("mode") == "pdf-session") pdfArguments = arguments
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
         followupMode = arguments?.getString("mode")
+        if (followupMode == "theme-path-clipboard") themeFixturePath = arguments?.getString("path").orEmpty()
         insetRotation = arguments?.getString("rotation")?.toIntOrNull() ?: 0
         if (followupMode in listOf("write-user-file", "remove-user-file")) userFileArguments = arguments
         if (followupMode == "cleanup-importer") importedTarget = arguments?.getString("file").orEmpty()
@@ -36,6 +38,15 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode in listOf("theme-volumes", "theme-path-clipboard", "theme-remote-restore")) {
+                result.putString("stream", when (followupMode) {
+                    "theme-volumes" -> ThemeTrustSmoke.volumes(targetContext)
+                    "theme-remote-restore" -> ThemeTrustSmoke.restoreOrigin(targetContext)
+                    else -> ThemeTrustSmoke.clipboard(targetContext, themeFixturePath)
+                })
+                finish(-1, result)
+                return
+            }
             if (followupMode in listOf("pdf-unicode-prepare", "pdf-unicode-restore")) {
                 result.putString("stream", PdfSmoke.unicodeFixture(targetContext, followupMode == "pdf-unicode-restore"))
                 finish(-1, result)

@@ -55,7 +55,7 @@ D-013 am. 2. A compromise stops publication for a Founder ruling on rotation,
 which requires another uninstall. Release signing is a separate Founder decision
 and cannot reuse this arrangement without a fresh ruling.
 
-CI proves replacement on API 29/34 with two version codes and one throwaway key:
+CI proves replacement on API 31/34 with two version codes and one throwaway key:
 `adb install -r` retains settings, accepted storage configuration and app data,
 then launches the higher build. Stable-key custody, real release API publication
 and retries, and continuity across two stable-key publications require real
@@ -71,7 +71,7 @@ gamelists, collections, downloaded themes, scripts and `custom_systems`.
   The default takes a create/use confirmation; every other destination takes an
   adoption warning **before the app inspects or writes anything there**. An existing
   `ES-DE` or `.emulationstation` folder can be used in place after that warning.
-  Existing settings and custom event scripts take effect; normal writes and upstream
+  Existing settings, theme repositories and custom event scripts take effect; normal writes and upstream
   migrations happen. Back up first and close the other frontend: concurrent use can
   lose or corrupt changes. The app never automatically copies, moves or deletes
   data between roots. The previous private location is shown and is deleted on
@@ -82,6 +82,20 @@ gamelists, collections, downloaded themes, scripts and `custom_systems`.
   games, enable USB debugging, authorize a computer with Android platform tools,
   then use `adb push your-ROM-folder/. <displayed-ROM-path>/`, with system folders
   such as `nes`. SAF import is deferred.
+
+Shared-folder writers (including other all-files-access apps and USB/MTP) control
+theme contents, settings and event scripts. The downloader retains libgit2 owner
+validation and manages exact `safe.directory` entries in app-private
+`files/libgit2/.gitconfig`; it checks name admission, repository identity at open
+and clone initialization, and the actual remote immediately before fetch. Failed
+configuration/admission blocks all downloader operations, including cleanup, and
+permits a later retry. This is path-based trust, accepted in D-012 amendments 3–4,
+not isolation from shared writers. Initialization writes metadata before its final
+identity check; concurrent redirection can race those writes into other app-accessible
+locations, and later filesystem operations can also race; URL equality does not authenticate local contents, and non-HTTPS URLs
+have no TLS protection. Close other writers and back up shared data before adoption.
+Every libgit2 upgrade must recheck the protected config levels, exact canonical
+workdir matching, quoting and search-path reinitialization used by this policy.
 
 Data and ROM folders must be separate folders on verified current-user volumes,
 not volume roots or volume-relative `Android/` paths. ROM selection also refuses
@@ -144,8 +158,8 @@ installs. Exact Gradle cache hits resolve offline. Dispatch
 
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
-then drives real configurator/permission screens on API 29, API 34 and Android TV
-API 36 x86_64. API 34 runs last on its own runner, after the API 29 and TV legs pass. After
+then drives real configurator/permission screens on API 31, API 34 and Android TV
+API 36 x86_64. API 34 runs last on its own runner, after the API 31 and TV legs pass. After
 same-commit Linux success and all Android checks, CI uploads and validates the
 source artefact on both dry-run and publication paths. Only an eligible
 `publish: true` dispatch then uploads the exact smoked debug APK; every other
@@ -220,7 +234,7 @@ When the emulator presents Play Protect's older-Android-target warning, CI uses
 the visible installation confirmation for this pinned APK. Package verification
 stays enabled and the APK is not modified.
 Under D-010 am. 1, the pinned stable RetroArch exact-ROM receipt gates on the
-API 29 and API 34 phone images. It still runs on TV as a clearly labelled
+API 31 and API 34 phone images. It still runs on TV as a clearly labelled
 non-gating diagnostic, with outcome, live logs and backtrace capability gaps
 in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
@@ -230,7 +244,7 @@ The network smoke opens the real theme downloader, clones the canonical HTTPS
 themes list with the bundled CA bundle, downloads and selects one live theme,
 and submits a real ScreenScraper HTTPS search without an account. A result or
 service-level reply proves scraper reachability. API 34 gates these checks;
-API 29 and TV record exhausted remote failures as non-gating diagnostics.
+API 31 and TV record exhausted remote failures as non-gating diagnostics.
 Each remote operation has at most three attempts with 5 seconds between attempts:
 300 seconds per clone and 90 seconds per scraper request, plus UI, health-check
 and evidence-capture time. During a request the same process must remain alive,
@@ -274,7 +288,7 @@ deadline the harness captures evidence, rechecks health, stops that healthy
 process and removes only the incomplete clone whose destination it verified
 absent before the attempt. It then starts the frontend once and issues the next
 request through the UI. Successful lists/downloads are preserved. A failed
-startup during recovery fails the leg, including the known API 29 lifecycle stall.
+startup during recovery fails the leg.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
@@ -282,8 +296,8 @@ CI runs six gating smoke phases, each in a distinct cold AVD: `app-data`
 (consent, adoption, root recovery and retained data after uninstall), `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
-(update continuity on API 29/34 and network checks), `pdf-direct`, and
-`pdf-scoped` (including minified PDF/Unicode). The same built APK is installed
+(update continuity on API 31/34 and network checks), `pdf-direct`, and
+`pdf-scoped` (including scoped theme clone/update and minified PDF/Unicode). The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass
 `--phase PHASE`; every phase is required for the complete CI regression suite.
@@ -292,6 +306,15 @@ verifies a clean guest and distinct boot identity, and records read-only QEMU
 RSS, host available memory and wrapped-ADB command counts/durations. Each
 phase's evidence is uploaded before the next AVD starts; publication still
 requires every phase and all existing D-020 gates.
+
+Theme trust controls run in the integration session under the app UID, using
+ES-DE-Plus-authored Git/JSON fixtures, explicit failure injection and clone/worker
+barriers. API 31/34 additionally build the exact historical `438bf5927` ownership
+control on the runner; no control APK is uploaded. The framework-free policy and
+Git operation target runs on Linux with:
+`cmake -S tests/theme-repository-trust -B build/theme-trust -DCMAKE_BUILD_TYPE=Release -DTHEME_TRUST_RUNTIME=ON`,
+`cmake --build build/theme-trust`, then
+`ctest --test-dir build/theme-trust --output-on-failure`.
 
 For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),

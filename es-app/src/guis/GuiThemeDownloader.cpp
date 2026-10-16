@@ -4,9 +4,15 @@
 //  GuiThemeDownloader.cpp
 //
 //  Theme downloader.
+//  Android repository trust hooks written for ES-DE-Plus.
 //
 
 #include "guis/GuiThemeDownloader.h"
+
+#if defined(__ANDROID__)
+#include "guis/ThemeRepositoryTrust.h"
+#include "utils/PlatformUtilAndroid.h"
+#endif
 
 #include "ApplicationVersion.h"
 #include "ThemeData.h"
@@ -171,7 +177,7 @@ GuiThemeDownloader::GuiThemeDownloader(std::function<void()> updateCallback)
 
     git_libgit2_init();
 
-#if defined(USE_BUNDLED_CERTIFICATES)
+#if defined(USE_BUNDLED_CERTIFICATES) && !defined(__ANDROID__)
     git_libgit2_opts(
         GIT_OPT_SET_SSL_CERT_LOCATIONS,
         ResourceManager::getInstance().getResourcePath(":/certificates/curl-ca-bundle.crt").c_str(),
@@ -213,6 +219,24 @@ GuiThemeDownloader::GuiThemeDownloader(std::function<void()> updateCallback)
 
     if (mThemeDirectory.back() != '/')
         mThemeDirectory.append("/");
+#if defined(__ANDROID__)
+    ThemeRepositoryTrust::configure(
+        mThemeDirectory, AndroidVariables::sInternalDataDirectory, [this] {
+            mGrid.removeEntry(mCenterGrid);
+            mGrid.setCursorTo(mButtons);
+            Window::getInstance()->pushGui(
+                new GuiMsgBox(_("COULDN'T VALIDATE THE THEME REPOSITORY. CHECK ACCESS TO THE "
+                                "APPLICATION-DATA FOLDER, "
+                                "THEN CLOSE AND REOPEN THE THEME DOWNLOADER."),
+                              _("OK"), [] { return; }));
+        });
+#if defined(USE_BUNDLED_CERTIFICATES)
+    git_libgit2_opts(
+        GIT_OPT_SET_SSL_CERT_LOCATIONS,
+        ResourceManager::getInstance().getResourcePath(":/certificates/curl-ca-bundle.crt").c_str(),
+        nullptr);
+#endif
+#endif
 }
 
 GuiThemeDownloader::~GuiThemeDownloader()
@@ -220,6 +244,9 @@ GuiThemeDownloader::~GuiThemeDownloader()
     if (mFetchThread.joinable())
         mFetchThread.join();
 
+#if defined(__ANDROID__)
+    ThemeRepositoryTrust::close();
+#endif
     git_libgit2_shutdown();
 
     if (mHasThemeUpdates) {
@@ -251,12 +278,20 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
 
     try {
         mFetching = true;
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::permit(path))
+            throw std::runtime_error("Theme storage is unavailable, ");
+#endif
         errorCode = git_repository_open(&repository, &path[0]);
 
         if (errorCode != 0) {
             mRepositoryError = RepositoryError::NOT_A_REPOSITORY;
             throw std::runtime_error("Couldn't open local repository, ");
         }
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::verify(repository, path))
+            throw std::runtime_error("Theme repository identity check failed, ");
+#endif
         errorCode = git_remote_lookup(&gitRemote, repository, "origin");
         if (errorCode != 0) {
             mRepositoryError = RepositoryError::INVALID_ORIGIN;
@@ -272,11 +307,20 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
         // Prune branches that are no longer present on remote.
         fetchOptions.prune = GIT_FETCH_PRUNE;
 
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::verify(repository, path) ||
+            !ThemeRepositoryTrust::remote(gitRemote, path))
+            throw std::runtime_error("Theme fetch trust check failed, ");
+#endif
         errorCode = git_remote_fetch(gitRemote, nullptr, &fetchOptions, nullptr);
 
         if (errorCode != 0)
             throw std::runtime_error("Couldn't fetch latest commits for \"" + repositoryName +
                                      "\", ");
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::verify(repository, path))
+            throw std::runtime_error("Theme repository changed during fetch, ");
+#endif
 
         git_annotated_commit* annotated {nullptr};
         git_object* object {nullptr};
@@ -329,6 +373,13 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
             if (allowReset) {
                 LOG(LogWarning) << "GuiThemeDownloader: Repository \"" << repositoryName
                                 << "\" has diverged from origin, performing hard reset";
+#if defined(__ANDROID__)
+                if (!ThemeRepositoryTrust::verify(repository, path)) {
+                    git_object_free(object);
+                    git_annotated_commit_free(annotated);
+                    throw std::runtime_error("Theme reset trust check failed, ");
+                }
+#endif
                 git_object* objectHead {nullptr};
                 errorCode = git_revparse_single(&objectHead, repository, "HEAD");
                 errorCode = git_reset(repository, objectHead, GIT_RESET_HARD, nullptr);
@@ -356,6 +407,13 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
                 mHasThemeUpdates = true;
         }
 
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::verify(repository, path)) {
+            git_object_free(object);
+            git_annotated_commit_free(annotated);
+            throw std::runtime_error("Theme checkout trust check failed, ");
+        }
+#endif
         if (mergeAnalysis & GIT_MERGE_ANALYSIS_UP_TO_DATE) {
             LOG(LogInfo) << "GuiThemeDownloader: Repository \"" << repositoryName
                          << "\" already up to date";
@@ -529,6 +587,10 @@ bool GuiThemeDownloader::checkDivergedRepository(git_repository* repository)
 
 void GuiThemeDownloader::resetRepository(git_repository* repository)
 {
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::verify(repository))
+        return;
+#endif
     git_object* objectHead {nullptr};
     if (git_revparse_single(&objectHead, repository, "HEAD") == 0)
         git_reset(repository, objectHead, GIT_RESET_HARD, nullptr);
@@ -551,6 +613,13 @@ void GuiThemeDownloader::makeInventory()
         theme.hasLocalChanges = false;
         theme.isCloned = false;
 
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::permit(path) || !ThemeRepositoryTrust::permit(path + "-main") ||
+            !ThemeRepositoryTrust::permit(path + "-master")) {
+            ThemeRepositoryTrust::reportFailure();
+            return;
+        }
+#endif
         if (Utils::FileSystem::exists(path + "-main")) {
             theme.manuallyDownloaded = true;
             theme.manualExtension = "-main";
@@ -566,11 +635,25 @@ void GuiThemeDownloader::makeInventory()
 
             errorCode = git_repository_open(&repository, &path[0]);
             if (errorCode != 0) {
+#if defined(__ANDROID__)
+                if (!ThemeRepositoryTrust::corrupt(errorCode, path)) {
+                    git_repository_free(repository);
+                    ThemeRepositoryTrust::reportFailure();
+                    return;
+                }
+#endif
                 theme.invalidRepository = true;
                 git_repository_free(repository);
                 continue;
             }
 
+#if defined(__ANDROID__)
+            if (!ThemeRepositoryTrust::verify(repository, path)) {
+                theme.invalidRepository = true;
+                git_repository_free(repository);
+                continue;
+            }
+#endif
             if (git_repository_is_shallow(repository)) {
                 theme.shallowRepository = true;
                 git_repository_free(repository);
@@ -593,6 +676,14 @@ void GuiThemeDownloader::makeInventory()
 
             git_remote* gitRemote {nullptr};
             if (git_remote_lookup(&gitRemote, repository, "origin") == 0) {
+#if defined(__ANDROID__)
+                if (!ThemeRepositoryTrust::remote(gitRemote, path)) {
+                    theme.wrongUrl = true;
+                    git_remote_free(gitRemote);
+                    git_repository_free(repository);
+                    continue;
+                }
+#endif
                 const std::string clonedUrl {git_remote_url(gitRemote)};
                 git_remote_free(gitRemote);
                 if (theme.url != clonedUrl) {
@@ -631,11 +722,26 @@ void GuiThemeDownloader::makeInventory()
 
 bool GuiThemeDownloader::renameDirectory(const std::string& path, const std::string& extension)
 {
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::permit(path)) {
+        ThemeRepositoryTrust::reportFailure();
+        return true;
+    }
+#endif
     LOG(LogInfo) << "Renaming directory " << path;
     int index {1};
     bool renameStatus {false};
 
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::permit(path + extension)) {
+        ThemeRepositoryTrust::reportFailure();
+        return true;
+    }
+#endif
     if (!Utils::FileSystem::exists(path + extension)) {
+#if defined(__ANDROID__)
+        ThemeRepositoryTrust::retainUntilNextVisit(path + extension);
+#endif
         renameStatus = Utils::FileSystem::renameFile(path, path + extension, false);
     }
     else {
@@ -643,12 +749,28 @@ bool GuiThemeDownloader::renameDirectory(const std::string& path, const std::str
         // downloaded manually multiple times and the theme downloader has been ran multiple times
         // as well.
         for (; index < 10; ++index) {
+#if defined(__ANDROID__)
+            if (!ThemeRepositoryTrust::permit(path + "_" + std::to_string(index) + extension)) {
+                ThemeRepositoryTrust::reportFailure();
+                return true;
+            }
+#endif
             if (!Utils::FileSystem::exists(path + "_" + std::to_string(index) + extension)) {
+#if defined(__ANDROID__)
+                ThemeRepositoryTrust::retainUntilNextVisit(path + "_" + std::to_string(index) +
+                                                           extension);
+#endif
                 renameStatus = Utils::FileSystem::renameFile(
                     path, path + "_" + std::to_string(index) + extension, false);
                 break;
             }
         }
+#if defined(__ANDROID__)
+        if (index == 10) {
+            ThemeRepositoryTrust::reportFailure();
+            return true;
+        }
+#endif
     }
 
     if (renameStatus) {
@@ -665,6 +787,12 @@ bool GuiThemeDownloader::renameDirectory(const std::string& path, const std::str
 
 void GuiThemeDownloader::parseThemesList()
 {
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::permit(mThemeDirectory + "themes-list")) {
+        ThemeRepositoryTrust::reportFailure();
+        return;
+    }
+#endif
 #if (LOCAL_TESTING_FILE)
     LOG(LogWarning) << "GuiThemeDownloader: Using local \"themes.json\" testing file";
 
@@ -698,6 +826,14 @@ void GuiThemeDownloader::parseThemesList()
         return;
     }
 
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::admit(doc)) {
+        ThemeRepositoryTrust::reportFailure();
+        return;
+    }
+    removeDisabledRepositories();
+#endif
+
     if (doc.HasMember("latestStableRelease") && doc["latestStableRelease"].IsString()) {
         const int latestStableRelease {std::stoi(doc["latestStableRelease"].GetString())};
         if (latestStableRelease > PROGRAM_RELEASE_NUMBER) {
@@ -722,6 +858,10 @@ void GuiThemeDownloader::parseThemesList()
             for (int i {0}; i < static_cast<int>(themes.Size()); ++i) {
                 ThemeEntry themeEntry;
                 const rapidjson::Value& theme {themes[i]};
+#if defined(__ANDROID__)
+                if (!ThemeRepositoryTrust::admitted(theme))
+                    continue;
+#endif
 
                 if (theme.HasMember("name") && theme["name"].IsString())
                     themeEntry.name = theme["name"].GetString();
@@ -797,6 +937,12 @@ void GuiThemeDownloader::parseThemesList()
         }
     }
 
+#if defined(__ANDROID__)
+    if (mThemes.empty()) {
+        ThemeRepositoryTrust::reportFailure();
+        return;
+    }
+#endif
     std::sort(std::begin(mThemes), std::end(mThemes), [](ThemeEntry a, ThemeEntry b) {
         if (Utils::String::toUpper(a.name) < Utils::String::toUpper(b.name))
             return true;
@@ -1179,7 +1325,11 @@ void GuiThemeDownloader::update(int deltaTime)
 {
     if (!mAttemptedFetch) {
 #if defined(__ANDROID__)
-        removeDisabledRepositories();
+        if (!ThemeRepositoryTrust::ready()) {
+            mAttemptedFetch = true;
+            ThemeRepositoryTrust::reportFailure();
+            return;
+        }
 #endif
         // We need to run this here instead of from the constructor so that GuiMsgBox will be
         // on top of the GUI stack if it needs to be displayed.
@@ -1405,6 +1555,12 @@ bool GuiThemeDownloader::input(InputConfig* config, Input input)
                 const std::string themeDirectory {mThemeDirectory +
                                                   mThemes[mList->getCursorId()].reponame};
 #endif
+#if defined(__ANDROID__)
+                if (!ThemeRepositoryTrust::permit(themeDirectory)) {
+                    ThemeRepositoryTrust::reportFailure();
+                    return;
+                }
+#endif
                 LOG(LogInfo) << "Deleting theme directory \"" << themeDirectory << "\"";
                 if (!Utils::FileSystem::removeDirectory(themeDirectory, true)) {
                     mWindow->pushGui(new GuiMsgBox(
@@ -1457,12 +1613,20 @@ std::vector<HelpPrompt> GuiThemeDownloader::getHelpPrompts()
 
 void GuiThemeDownloader::removeDisabledRepositories()
 {
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::ready())
+        return;
+#endif
     const Utils::FileSystem::StringList& dirContent {
         Utils::FileSystem::getDirContent(mThemeDirectory)};
 
     std::vector<std::string> disabledDirs;
 
     for (auto& directory : dirContent) {
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::disabled(directory))
+            continue;
+#endif
         if (Utils::FileSystem::isRegularFile(directory))
             continue;
         if (Utils::FileSystem::getFileName(directory).length() > 9) {
@@ -1477,6 +1641,10 @@ void GuiThemeDownloader::removeDisabledRepositories()
     for (auto& directory : disabledDirs) {
         LOG(LogInfo) << "GuiThemeDownloader: Removing disabled theme directory \"" << directory
                      << "\"";
+#if defined(__ANDROID__)
+        if (!ThemeRepositoryTrust::disabled(directory))
+            continue;
+#endif
         Utils::FileSystem::removeDirectory(directory, true);
     }
 }
@@ -1487,10 +1655,25 @@ bool GuiThemeDownloader::fetchThemesList()
     const std::string url {"https://gitlab.com/es-de/themes/themes-list.git"};
     const std::string path {mThemeDirectory + "themes-list"};
 
+#if defined(__ANDROID__)
+    if (!ThemeRepositoryTrust::expectList(url) || !ThemeRepositoryTrust::permit(path)) {
+        ThemeRepositoryTrust::reportFailure();
+        return true;
+    }
+#endif
+
     if (Utils::FileSystem::exists(path)) {
         git_repository* repository {nullptr};
         int errorCode {git_repository_open(&repository, &path[0])};
 
+#if defined(__ANDROID__)
+        if ((errorCode != 0 && !ThemeRepositoryTrust::corrupt(errorCode, path)) ||
+            (errorCode == 0 && !ThemeRepositoryTrust::verify(repository, path))) {
+            git_repository_free(repository);
+            ThemeRepositoryTrust::reportFailure();
+            return true;
+        }
+#endif
         if (errorCode != 0 || checkCorruptRepository(repository)) {
             mWindow->pushGui(new GuiMsgBox(
                 _("IT SEEMS AS IF THE THEMES LIST REPOSITORY IS CORRUPT, WHICH COULD HAVE BEEN "
@@ -1523,6 +1706,17 @@ bool GuiThemeDownloader::fetchThemesList()
                      0.50f * (1.778f / mRenderer->getScreenAspectRatio()))));
         }
         else {
+#if defined(__ANDROID__)
+            git_remote* origin {nullptr};
+            const bool trusted {git_remote_lookup(&origin, repository, "origin") == 0 &&
+                                ThemeRepositoryTrust::remote(origin, path)};
+            git_remote_free(origin);
+            if (!trusted) {
+                git_repository_free(repository);
+                ThemeRepositoryTrust::reportFailure();
+                return true;
+            }
+#endif
             // We always hard reset the themes list as it should never contain any local changes.
             resetRepository(repository);
 
@@ -1615,6 +1809,16 @@ bool GuiThemeDownloader::cloneRepository(const std::string& repositoryName, cons
     mResolveDeltaProgress = 0.0f;
 
     mFetching = true;
+#if defined(__ANDROID__)
+    cloneOptions.repository_cb = ThemeRepositoryTrust::create;
+    cloneOptions.remote_cb = ThemeRepositoryTrust::createRemote;
+    if (!ThemeRepositoryTrust::permit(path)) {
+        mRepositoryError = RepositoryError::CLONE_ERROR;
+        mMessage = "Theme repository admission or storage access failed";
+        mPromise.set_value(true);
+        return true;
+    }
+#endif
     errorCode = git_clone(&repository, &url[0], &path[0], &cloneOptions);
     git_repository_free(repository);
 
