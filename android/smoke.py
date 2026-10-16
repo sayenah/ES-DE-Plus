@@ -1307,6 +1307,7 @@ try:
     ui('Create system folders', dpad=True)
     destroy_held('destroy-initial-held')
     ui('How to add games')
+    ui('Create system folders', dpad=True, focus_only=True)
     assert any(n.get('text') == 'Create system folders' and n.get('checked') == 'false' for n in hierarchy())
     ui('Create system folders', dpad=True)
     ui('Use direct filesystem compatibility', dpad=True)
