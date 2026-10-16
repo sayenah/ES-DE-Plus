@@ -1324,9 +1324,11 @@ try:
                 wait_for(lambda: bool(shell('pidof', app, check=False).strip()) and
                          shell('pidof', app, check=False).strip() != held_pid,
                          'forced assets-path relaunch has a new frontend PID')
-                recovered_pid = shell('pidof', app).strip()
                 wait_for(lambda: any(n.get('package') == app and n.get('text') == 'Create system folders'
                                      for n in hierarchy()), 'configurator after forced assets-path relaunch')
+                # The visible configurator proves binding has completed; early
+                # process-name snapshots can transiently miss a live process.
+                recovered_pid = shell('pidof', app).strip()
             screenshot('font-weight-held')
             after_records = activity_records()[1]
             draft_after = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
