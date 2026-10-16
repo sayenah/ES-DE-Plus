@@ -167,32 +167,67 @@ namespace TouchOverlay
         mSafe = {v.x + side, v.y + top, v.w - 2 * side, v.h - top - bottom};
         const float requested {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity) *
                                options.size};
-        // Fit the whole size family to the largest safe diameter. Reserve a 10%
-        // step for each remaining size instead of clamping three choices to one
-        // portrait ceiling. The 48 dp hit floor still limits the smallest diamond.
+        // Reserve a 10% step for each size. A small diameter can violate the
+        // size-independent corner exclusion even when larger controls fit, so
+        // find a feasible deck before refining its upper diameter bound.
         const int steps {options.size < 0.8f  ? 3 :
                          options.size < 0.95f ? 2 :
                          options.size < 1.1f  ? 1 :
                                                 0};
         const float minimum {48 * mDensity / (std::sqrt(2.0f) * 1.05f)};
-        layout(minimum);
-        if (fits()) {
-            float low {minimum};
-            float high {84 * 1.2f * mDensity};
-            for (int i {0}; i < 24; ++i) {
-                const float middle {(low + high) / 2};
-                layout(middle);
-                if (fits())
-                    low = middle;
-                else
-                    high = middle;
-            }
-            const float largest {
-                std::min(low, std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity) * 1.2f)};
-            if (largest >= minimum * 1.331f) {
-                layout(std::min(requested, largest / std::pow(1.1f, static_cast<float>(steps))));
+        const float maximum {84 * 1.2f * mDensity};
+        constexpr std::array<float, 4> factors {0.7f, 0.85f, 1.0f, 1.2f};
+        // The symmetric inset is an alternate normal deck for tall panes whose
+        // fixed corner zones exclude the outer D-pad anchor.
+        for (bool insetPad : {false, true}) {
+            for (float probe {maximum};; probe = std::max(minimum, probe * 0.97f)) {
+                layout(probe, insetPad);
+                if (!fits()) {
+                    if (probe == minimum)
+                        break;
+                    continue;
+                }
+                float low {probe};
+                float high {std::min(maximum, probe / 0.97f)};
+                for (int i {0}; i < 24; ++i) {
+                    const float middle {(low + high) / 2};
+                    layout(middle, insetPad);
+                    if (fits())
+                        low = middle;
+                    else
+                        high = middle;
+                }
+                const float upper {low};
+                std::array<float, 4> family {};
+                bool valid {true};
+                const float base {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity)};
+                for (int i {0}; i < 4; ++i) {
+                    family[i] = std::min(base * factors[i],
+                                         upper / std::pow(1.1f, static_cast<float>(3 - i)));
+                    layout(family[i], insetPad);
+                    valid = valid && fits() && family[i] <= 84 * mDensity * factors[i] + 0.01f &&
+                            (i == 0 || family[i] + 0.01f >= family[i - 1] * 1.1f);
+                }
+                if (valid) {
+                    layout(family[3 - steps], insetPad);
+                    mSupported = true;
+                    break;
+                }
+                // A narrow fitting interval can constrain spacing at the 48 dp hit
+                // floor. Retain that safe normal deck for the whole family and scale
+                // only its artwork, rather than replacing it with a compact grid.
+                layout(upper, insetPad);
+                const float scale {family[3 - steps] / upper};
+                for (auto& button : mButtons) {
+                    button.width *= scale;
+                    button.height *= scale;
+                }
+                mDiameter = family[3 - steps];
                 mSupported = fits();
+                break;
             }
+            if (mSupported)
+                break;
         }
         if (!mSupported) {
             mCompact = true;
@@ -213,7 +248,7 @@ namespace TouchOverlay
         return result;
     }
 
-    void Model::layout(float d)
+    void Model::layout(float d, bool insetPad)
     {
         mDiameter = d;
         const float hit {std::max(1.15f * d, 48 * mDensity)};
@@ -222,7 +257,7 @@ namespace TouchOverlay
         const float pillH {std::max(0.66f * d * 1.15f, 48 * mDensity)};
         const float shoulderH {std::max(0.5f * d * 1.15f, 48 * mDensity)};
         const float shoulderW {std::max(1.3f * d * 1.15f, 48 * mDensity)};
-        const float left {mSafe.x + radius};
+        const float left {mSafe.x + (insetPad ? 1.15f : 1.0f) * radius};
         const float right {mSafe.x + mSafe.w - 1.15f * radius};
         const auto visible {mGeometry.visible()};
         const bool landscape {visible.w >= visible.h};
@@ -344,7 +379,7 @@ namespace TouchOverlay
         }
         // Sector capture regions, not just the arm circles, must remain disjoint.
         if (!mCompact) {
-            const float r {1.05f * mDiameter + mButtons[0].hit.w / 2};
+            const float r {(mButtons[1].centre.y - mButtons[0].centre.y + mButtons[0].hit.w) / 2};
             if (mButtons[4].centre.x - mButtons[0].centre.x < 2.15f * r + 0.15f * mDiameter)
                 return false;
         }
@@ -356,7 +391,8 @@ namespace TouchOverlay
         if (!mSafe.contains(p))
             return -1;
         if (!mCompact) {
-            const float radius {1.05f * mDiameter + mButtons[0].hit.w / 2};
+            const float radius {(mButtons[1].centre.y - mButtons[0].centre.y + mButtons[0].hit.w) /
+                                2};
             const Point pad {mButtons[0].centre.x, mButtons[2].centre.y};
             const Point face {mButtons[4].centre.x, mButtons[5].centre.y};
             if (distance(p, pad) <= radius)
@@ -378,7 +414,7 @@ namespace TouchOverlay
             const int i {mCompact ? cluster : cluster + 6};
             return mButtons[i].hit.contains(p, held == i ? 1.15f : 1.0f) ? i : -1;
         }
-        const float radius {1.05f * mDiameter + mButtons[0].hit.w / 2};
+        const float radius {(mButtons[1].centre.y - mButtons[0].centre.y + mButtons[0].hit.w) / 2};
         if (cluster == 0) {
             const Point pad {mButtons[0].centre.x, mButtons[2].centre.y};
             const float d {distance(p, pad)};

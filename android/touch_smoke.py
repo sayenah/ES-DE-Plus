@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 
 import pdf_smoke
 import smoke_support
+import touch_startup
 
 IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101]
 MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
@@ -265,39 +266,20 @@ def run(namespace):
         with tempfile.TemporaryFile(mode='w+t') as output, tempfile.TemporaryFile(mode='w+t') as errors:
             process = subprocess.Popen(['adb', 'shell', shlex.join(arguments)], stdout=output, stderr=errors)
             deadline = time.monotonic() + 90
-            tutorial_events = h.evidence / 'tv-onboarding-events.txt'
-            previous_events = tutorial_events.stat().st_size if tutorial_events.exists() else 0
-            refocused = False
-            def finished():
-                nonlocal refocused
-                if time.monotonic() > deadline:
-                    return False
-                if process.poll() is not None:
-                    return True
-                # The shared guard runs before this predicate. Only a proven
-                # external tutorial dismissal may recover initial task ownership.
-                if not refocused and tutorial_events.exists() and tutorial_events.stat().st_size > previous_events:
-                    owner = h.private('cat', 'cache/touch-startup-owner', check=False).strip()
-                    if re.fullmatch(r'\d+ \d+', owner) and h.smoke_checks.package_window_focused(
-                            h.focused_window(), h.stock_package):
-                        pid, task = owner.split()
-                        assert h.shell('pidof', h.app).strip() == pid, 'Startup owner process changed'
-                        h.shell('am', 'start', '-n', h.activity, '-f', '0x10020000')
-                        assert h.shell('pidof', h.app).strip() == pid, 'Recovery restarted the native process'
-                        refocused = True
-                        with (h.evidence / 'touch-startup-ownership.txt').open('a') as proof:
-                            proof.write(f'{name}: existing pid={pid} task={task}; before stream; external tutorial dismissed\n')
-                return False
+            ownership = touch_startup.StartupOwnership(h, process, deadline, name)
             try:
-                h.wait_for(finished, name + ' SDK pointer stream', timeout=90)
+                h.wait_for(ownership.finished, name + ' SDK pointer stream', timeout=90)
                 output.seek(0); errors.seek(0)
                 completed = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
                 completed.check_returncode()
                 result = completed.stdout
             finally:
-                if process.poll() is None:
-                    process.terminate()
-                    process.wait(timeout=5)
+                try:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=5)
+                finally:
+                    ownership.report()
         (h.evidence / (name + '-injected.txt')).write_text(result)
         assert 'PASS: complete Android multi-pointer stream injected' in result and 'FAIL:' not in result, result
         current = record(name)

@@ -7,6 +7,7 @@
 //
 
 #include "InputOverlayModel.h"
+#include "layout_baseline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -395,6 +396,93 @@ static void sizeRegressions()
     std::puts("PASS: distinct sizes at 288..800 dp, four logical densities");
 }
 
+static void normalDeckRegressions()
+{
+    for (const auto viewport : {Point {800, 1280}, Point {560, 1392}, Point {560, 1369},
+                                Point {577, 1392}, Point {564, 1393}, Point {587, 1393}}) {
+        for (float density : {0.75f, 1.0f, 2.625f, 4.0f}) {
+            float previous {0};
+            for (auto size : {"x-small", "small", "medium", "large"}) {
+                Model m;
+                m.rebuild(geometry(static_cast<int>(std::ceil(viewport.x * density)),
+                                   static_cast<int>(std::ceil(viewport.y * density))),
+                          Options::parse(size, "normal", 6, false), density * 160);
+                require(m.supported() && !m.compact(), "tall portrait keeps normal deck");
+                require(m.diameter() + 0.01f >= previous * 1.1f,
+                        "tall portrait keeps four distinct sizes");
+                previous = m.diameter();
+            }
+        }
+    }
+    int cases {0}, normal {0};
+    std::size_t run {0};
+    unsigned short remaining {NORMAL_LAYOUT_RUNS[0]};
+    bool historicalNormal {false};
+    for (float density : {0.75f, 1.0f, 1.5f, 2.0f, 2.625f, 2.75f, 3.0f, 3.5f, 4.0f})
+        for (int w {288}; w <= 1400; w += 17)
+            for (int h {288}; h <= 1400; h += 23)
+                for (int rotation : {0, 90}) {
+                    float previous {0};
+                    for (auto size : {"x-small", "small", "medium", "large"}) {
+                        if (!remaining) {
+                            require(++run < NORMAL_LAYOUT_RUNS.size(), "baseline covers sweep");
+                            remaining = NORMAL_LAYOUT_RUNS[run];
+                            historicalNormal = !historicalNormal;
+                        }
+                        --remaining;
+                        Model m;
+                        const auto g {geometry(static_cast<int>(std::ceil(w * density)),
+                                               static_cast<int>(std::ceil(h * density)), rotation)};
+                        const auto options {Options::parse(size, "normal", 6, false)};
+                        m.rebuild(g, options, density * 160);
+                        require(m.supported(), "full sweep viewport supported");
+                        require(!historicalNormal || !m.compact(),
+                                "41590bc75 normal deck never regresses to compact");
+                        require(m.diameter() + 0.01f >= previous * 1.1f,
+                                "full sweep retains four 10 percent steps");
+                        require(m.diameter() <= 84 * density * options.size + 0.01f,
+                                "full sweep visual cap");
+                        previous = m.diameter();
+                        for (int i {0}; i < 14; ++i) {
+                            const auto& b {m.buttons()[i]};
+                            const auto& safe {m.safeArea()};
+                            require(b.hit.w + 0.01f >= 48 * density &&
+                                        b.hit.h + 0.01f >= 48 * density,
+                                    "full sweep 48 dp targets");
+                            require(b.hit.x + 0.01f >= safe.x && b.hit.y + 0.01f >= safe.y &&
+                                        b.hit.x + b.hit.w <= safe.x + safe.w + 0.01f &&
+                                        b.hit.y + b.hit.h <= safe.y + safe.h + 0.01f,
+                                    "full sweep safe bounds");
+                            for (int j {0}; j < i; ++j) {
+                                const auto& a {m.buttons()[j]};
+                                if (a.circle && b.circle)
+                                    require(std::hypot(a.centre.x - b.centre.x,
+                                                       a.centre.y - b.centre.y) +
+                                                    0.01f >=
+                                                (a.hit.w + b.hit.w) / 2,
+                                            "full sweep disjoint circles");
+                                else
+                                    require(a.hit.x + a.hit.w <= b.hit.x + 0.01f ||
+                                                b.hit.x + b.hit.w <= a.hit.x + 0.01f ||
+                                                a.hit.y + a.hit.h <= b.hit.y + 0.01f ||
+                                                b.hit.y + b.hit.h <= a.hit.y + 0.01f,
+                                            "full sweep disjoint rectangles");
+                            }
+                            expected(m.input(Event::DOWN, 1, position(m, i)), {{IDS[i], 1}});
+                            expected(m.input(Event::UP, 1, {}), {{IDS[i], 0}});
+                        }
+                        normal += historicalNormal;
+                        ++cases;
+                    }
+                }
+    require(cases == 232848 && normal == 210241 && run + 1 == NORMAL_LAYOUT_RUNS.size() &&
+                remaining == 0,
+            "complete historical oracle consumed");
+    std::printf(
+        "PASS: %d sweep cases; %d historical normal cases; 0 normal-to-compact regressions\n",
+        cases, normal);
+}
+
 static void outwardDrift()
 {
     Model m;
@@ -526,6 +614,7 @@ int main()
     boundaries();
     layouts();
     sizeRegressions();
+    normalDeckRegressions();
     outwardDrift();
     fading();
     generated();

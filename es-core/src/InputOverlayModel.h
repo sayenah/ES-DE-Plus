@@ -135,7 +135,7 @@ namespace TouchOverlay
             int cluster {-1};
             int held {-1};
         };
-        void layout(float diameter);
+        void layout(float diameter, bool insetPad = false);
         void compactLayout(float diameter);
         bool fits() const;
         int capture(Point p) const;

@@ -40,6 +40,16 @@ class TouchSmoke : Instrumentation() {
     class SurfaceGeometry : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val activity = SDLActivity.getContext() as? MainActivity
+            if (intent.getBooleanExtra("startupTask", false)) {
+                if (activity == null) {
+                    resultData = "FAIL: no startup activity"
+                    return
+                }
+                File(context.cacheDir, "touch-startup-task")
+                    .writeText("${android.os.Process.myPid()} ${activity.taskId}")
+                resultData = "PASS: startup task recorded"
+                return
+            }
             val surface = activity?.let { findSurface(it.window.decorView) }
             if (activity == null || surface == null || !activity.hasWindowFocus() ||
                 surface.width <= 0 || surface.height <= 0) {

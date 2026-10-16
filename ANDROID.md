@@ -36,7 +36,7 @@ Apart from this there are numerous options for the touch overlay, like the abili
 
 ES-DE Plus provides fourteen controls with fixed A/B/X/Y glyphs; changing the controller type does not change these glyphs. Button swapping changes their actions. Thumbstick clicks and analog sticks are not provided. A fully faded overlay consumes the entire first touch gesture to wake; use a second, non-launch control to dismiss a screensaver. On Android TV automatic startup/resume wakes stay hidden unless fade-out is zero; explicit touch or menu changes show the controls.
 
-The four size choices grow by at least 10% per step. When a controller layout cannot fit the whole size range, the compact grid keeps the sizes distinct while preserving the hit targets.
+The four size choices grow by at least 10% per step. Where the 48 dp target floor constrains spacing, the normal deck keeps its safe hit areas while its artwork changes size. The compact grid is used only when the normal deck cannot fit.
 
 Controls use SDL's Android logical density and the visible renderer viewport, with a compact grid when the normal deck cannot fit. If SDL cannot report logical density, the shorter visible dimension divided by 411 is used as a logged estimate of pixels per dp. The supported visible viewport is at least 288 dp on each dimension; smaller panes have no overlay. Every supported hit target is at least 48 dp. Conservative fixed margins are not window-inset data: cutouts, rounded corners and gesture-navigation edges still need device validation in both orientations. No inset-safety guarantee is made by this implementation.
 
