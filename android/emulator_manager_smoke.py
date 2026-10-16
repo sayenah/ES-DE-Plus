@@ -296,7 +296,11 @@ def run(mode, harness, minified=False):
         cancel_notice()
         page('draft')
         pick(4); text('.zip .ZIP'); page('draft')
-        pick(15); page('files'); pick(0); text(fixture_data['file']); page('draft')
+        pick(15); page('files'); pick(0); text('relative.zip')
+        h.wait_for(lambda: 'Select an existing absolute test file' in h.adb('logcat', '-d'), 'invalid typed path is actionable before discovery')
+        controls(before, current(), 'invalid typed test path preserves configuration')
+        accept_notice('OK')
+        pick(0); text(fixture_data['file']); page('draft')
         # Configure a supported typed extra in the GUI and exercise its validation.
         pick(11); page('extras'); pick(2); page('extra')
         pick(2); text('2147483648', erase=1); page('extra')

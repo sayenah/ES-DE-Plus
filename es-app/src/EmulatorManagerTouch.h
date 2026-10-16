@@ -20,10 +20,16 @@ public:
     bool handle(GuiComponent& gui, int type, int64_t finger, float x, float y);
 
     void updateTargets(GuiComponent& gui, bool reportButtonFocus = false);
-    void invalidate() { mDirty = true; }
+    void invalidate()
+    {
+        mDirty = true;
+        mFinger = -1;
+        mTarget = nullptr;
+    }
 
 private:
     bool mDirty {true};
+    GuiComponent* mTarget {nullptr};
     float mStartX {0.0f};
     int64_t mFinger {-1};
     float mStartY {0.0f};

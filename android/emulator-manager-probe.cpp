@@ -11,6 +11,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -32,6 +33,14 @@ namespace
         std::ofstream out {path};
         out << text;
         require(out.good(), "fixture write");
+    }
+    std::string tree(const std::string& bytes)
+    {
+        pugi::xml_document document;
+        require(document.load_buffer(bytes.data(), bytes.size(), pugi::parse_full), "tree parse");
+        std::ostringstream output;
+        document.print(output, "", pugi::format_raw);
+        return output.str();
     }
     template <typename F> void refused(F action)
     {
@@ -217,9 +226,17 @@ int main(int argc, char** argv)
         refused([&] { copiedDraft.save(); });
         put(systems, collisionSystem);
         // A later edit to a tracked command is preserved and not removed by ownership guessing.
-        auto editedCommand = collisionSystem;
-        auto commandPosition = editedCommand.find("%EMULATOR_" + collisionId + "%");
-        editedCommand.insert(commandPosition, "hand-edited ");
+        pugi::xml_document editedTree;
+        require(editedTree.load_string(collisionSystem.c_str(),
+                                       pugi::parse_full | pugi::parse_ws_pcdata),
+                "hand-edit fixture parse");
+        auto editedNode = editedTree.child("systemList")
+                              .child("system")
+                              .find_child_by_attribute("command", "label", "Collision");
+        editedNode.text().set((std::string {"hand-edited "} + editedNode.text().get()).c_str());
+        std::ostringstream editedOutput;
+        editedTree.print(editedOutput, "", pugi::format_raw);
+        const auto editedCommand = editedOutput.str();
         put(systems, editedCommand);
         EmulatorManagerConfig ownedEdit {root, bundle, bundledRules};
         refused([&] { ownedEdit.remove("test", collisionId); });
@@ -345,6 +362,144 @@ int main(int argc, char** argv)
         require(read(aliasDirectory + "/es_systems.xml") == aliasSystemsBefore &&
                     read(aliasDirectory + "/es_find_rules.xml") == aliasRulesBefore,
                 "invalid components leave both override files unchanged");
+        // Exact ownership must survive neighbouring user nodes. Ambiguous labels
+        // refuse the operation before any configuration or selection repair is saved.
+        const auto ownership = root + "/ownership";
+        require(mkdir(ownership.c_str(), 0700) == 0, "ownership scratch");
+        put(ownership + "/es_systems.xml", source);
+        EmulatorManagerConfig owned {ownership, bundle, bundledRules};
+        const auto firstId =
+            owned.add("test", "First", "org.first/Activity", collisionProfile, "", true);
+        const auto secondId =
+            owned.add("test", "Second", "org.second/Activity", collisionProfile, "", true);
+        owned.save();
+        const auto ownedBytes = read(ownership + "/es_systems.xml");
+        const auto ownedRules = read(ownership + "/es_find_rules.xml");
+        for (bool before : {true, false}) {
+            pugi::xml_document doc;
+            require(doc.load_string(ownedBytes.c_str(), pugi::parse_full), "duplicate fixture");
+            auto system = doc.child("systemList").child("system");
+            auto target = system.find_child_by_attribute("command", "label", "First");
+            auto user = before ? system.insert_child_before("command", target.previous_sibling()) :
+                                 system.insert_child_after("command", target);
+            user.append_attribute("label").set_value("First");
+            user.text().set("%EMULATOR_EXISTING% %ACTION%=user.choice");
+            if (before) {
+                auto neighbour = system.insert_child_before("command", user);
+                neighbour.append_attribute("label").set_value("User neighbour");
+                neighbour.text().set("%EMULATOR_EXISTING% %ACTION%=keep.neighbour");
+                system.insert_child_before(pugi::node_comment, neighbour)
+                    .set_value("user neighbour");
+            }
+            else {
+                system.insert_child_before(pugi::node_comment, user).set_value("user neighbour");
+            }
+            std::ostringstream out;
+            doc.print(out, "", pugi::format_raw);
+            put(ownership + "/es_systems.xml", out.str());
+            EmulatorManagerConfig ambiguous {ownership, bundle, bundledRules};
+            refused([&] { ambiguous.remove("test", firstId); });
+            ambiguous.save();
+            require(tree(read(ownership + "/es_systems.xml")) == tree(out.str()) &&
+                        tree(read(ownership + "/es_find_rules.xml")) == tree(ownedRules),
+                    "same-label user command before/after: complete trees preserved on refusal");
+        }
+        for (bool userComment : {false, true}) {
+            pugi::xml_document doc;
+            require(doc.load_string(ownedBytes.c_str(), pugi::parse_full), "owned fixture");
+            auto system = doc.child("systemList").child("system");
+            auto target = system.find_child_by_attribute("command", "label", "First");
+            auto marker = target.previous_sibling();
+            if (userComment)
+                system.insert_child_before(pugi::node_comment, target)
+                    .set_value("keep immediately before addition");
+            std::ostringstream input;
+            doc.print(input, "", pugi::format_raw);
+            put(ownership + "/es_systems.xml", input.str());
+            system.remove_child(marker);
+            system.remove_child(target);
+            std::ostringstream expected;
+            doc.print(expected, "", pugi::format_raw);
+            EmulatorManagerConfig removal {ownership, bundle, bundledRules};
+            removal.remove("test", firstId);
+            removal.save();
+            require(tree(read(ownership + "/es_systems.xml")) == tree(expected.str()) &&
+                        tree(read(ownership + "/es_find_rules.xml")) == tree(ownedRules),
+                    "only exact owned command and marker removed; other addition/user comment "
+                    "untouched");
+            require(EmulatorManagerConfig(ownership, bundle, bundledRules)
+                            .system("test")
+                            .commands.back()
+                            .addition == secondId,
+                    "second manager addition retains independent ownership");
+        }
+        const auto cycles = root + "/rule-cycles";
+        require(mkdir(cycles.c_str(), 0700) == 0, "cycle scratch");
+        std::string stable;
+        std::string stableRules;
+        for (int cycle {0}; cycle < 6; ++cycle) {
+            EmulatorManagerConfig addition {cycles, bundle, bundledRules};
+            const auto id =
+                addition.add("test", "Repeat", "org.repeat/Activity", collisionProfile, "", true);
+            addition.save();
+            if (cycle == 0) {
+                stable = id;
+                stableRules = read(cycles + "/es_find_rules.xml");
+            }
+            require(id == stable && tree(read(cycles + "/es_find_rules.xml")) == tree(stableRules),
+                    "add/remove/reset cycles reuse identical stable rule without suffix growth");
+            EmulatorManagerConfig cleanup {cycles, bundle, bundledRules};
+            if (cycle % 2)
+                cleanup.reset("test");
+            else
+                cleanup.remove("test", id);
+            cleanup.save();
+        }
+        EmulatorManagerConfig sharedRule {cycles, bundle, bundledRules};
+        const auto sharedFirst = sharedRule.add("test", "Shared first", "org.repeat/Activity",
+                                                collisionProfile, "", true);
+        const auto sharedSecond = sharedRule.add("test", "Shared second", "org.repeat/Activity",
+                                                 collisionProfile, "", true);
+        require(sharedFirst != sharedSecond, "shared rule keeps distinct ownership identities");
+        sharedRule.save();
+        require(tree(read(cycles + "/es_find_rules.xml")) == tree(stableRules),
+                "new labels reuse identical recipient rule without accumulation");
+        sharedRule.remove("test", sharedFirst);
+        sharedRule.save();
+        const auto sharedSurvivor =
+            EmulatorManagerConfig(cycles, bundle, bundledRules).system("test");
+        require(sharedSurvivor.commands.back().addition == sharedSecond &&
+                    sharedRule.profileTargets(sharedSurvivor.commands.back().value) ==
+                        std::vector<std::string> {"org.repeat/Activity"} &&
+                    tree(read(cycles + "/es_find_rules.xml")) == tree(stableRules),
+                "removal preserves shared rule and other addition identity");
+        const auto formatting = root + "/formatting";
+        require(mkdir(formatting.c_str(), 0700) == 0, "formatting scratch");
+        auto indented = source;
+        indented.replace(indented.find("<command>"), 9, "<command label='Original'>");
+        indented.replace(indented.find("<system>"), 8, "\r\n  <system>");
+        indented.replace(indented.find("</systemList>"), 13, "\r\n</systemList>\r\n");
+        indented = "<?xml version='1.0' encoding='UTF-8'?>\r\n" + indented;
+        put(formatting + "/es_systems.xml", indented);
+        EmulatorManagerConfig pretty {formatting, bundle, bundledRules};
+        const auto prettyId =
+            pretty.add("test", "Pretty", "org.pretty/Activity", collisionProfile, "", true);
+        pretty.save();
+        const auto output = read(formatting + "/es_systems.xml");
+        require(output.find("?>\r\n<systemList>") != std::string::npos &&
+                    output.find("\r\n  <system>") != std::string::npos &&
+                    output.find("\r\n    <command label=\"Pretty\"") != std::string::npos,
+                "declaration newline and surrounding two-space indentation retained for new nodes");
+        for (size_t i {0}; i < output.size(); ++i)
+            require(output[i] != '\n' || (i > 0 && output[i - 1] == '\r'),
+                    "uniform CRLF preserved");
+        EmulatorManagerConfig prettyReadback {formatting, bundle, bundledRules};
+        require(prettyReadback.system("test").commands.back().addition == prettyId,
+                "ownership survives pretty-printed whitespace");
+        prettyReadback.remove("test", prettyId);
+        prettyReadback.save();
+        require(tree(read(formatting + "/es_systems.xml")) == tree(indented),
+                "formatting and removal preserve complete unowned XML tree");
         const std::string profileText {
             "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
             "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "
@@ -364,7 +519,9 @@ int main(int argc, char** argv)
         refused([&] { EmulatorLaunchProfile::fromCommand("%EMULATOR_X% %UNKNOWN%=value"); });
         std::cout
             << "PASS: precedence, unlabeled policy, partial failure/retry, preservation, "
-               "ownership, external edit, malformed/ambiguous refusal, snapshot/refresh/reset\n";
+               "ownership, external edit, malformed/ambiguous refusal, snapshot/refresh/reset; "
+               "exact removal/ambiguous-label refusal; shared stable rules; "
+               "declaration/indent/CRLF readback\n";
     }
     catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

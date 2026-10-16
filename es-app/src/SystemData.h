@@ -116,7 +116,12 @@ public:
                SystemEnvironmentData* envData,
                const std::string& themeFolder,
                bool CollectionSystem = false,
-               bool CustomCollectionSystem = false);
+               bool CustomCollectionSystem = false
+#if defined(__ANDROID__)
+               ,
+               bool managerTransient = false
+#endif
+    );
 
     ~SystemData();
 
@@ -209,6 +214,9 @@ private:
 
     bool mSymlinkMaxDepthReached;
     bool mIsCollectionSystem;
+#if defined(__ANDROID__)
+    bool mManagerTransient; // Owns its environment and needs no theme.
+#endif
     bool mIsCustomCollectionSystem;
     bool mIsGroupedCustomCollectionSystem;
     bool mIsGameSystem;

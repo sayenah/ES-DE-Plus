@@ -28,14 +28,16 @@ namespace
 {
     std::unique_ptr<SystemData> shell(const EmulatorManagerConfig::System& definition)
     {
-        auto env = new SystemEnvironmentData;
+        auto env = std::make_unique<SystemEnvironmentData>();
         env->mStartPath = EmulatorManagerRuntime::path(definition);
         env->mSearchExtensions = Utils::String::delimitedStringToVector(definition.extensions, " ");
         for (auto cmd : definition.commands)
             env->mLaunchCommands.emplace_back(cmd.value, cmd.label);
         // A virtual structure avoids scanning, parsing or saving a library for an unsaved test.
-        auto system = std::make_unique<SystemData>(definition.name, definition.fullName,
-                                                   definition.name, env, definition.name, true);
+        auto system =
+            std::make_unique<SystemData>(definition.name, definition.fullName, definition.name,
+                                         env.get(), definition.name, true, false, true);
+        env.release(); // The transient SystemData owns even an empty-path environment.
         return system;
     }
 

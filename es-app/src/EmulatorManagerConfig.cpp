@@ -48,15 +48,88 @@ namespace
         return bytes;
     }
 
-    std::string xml(pugi::xml_node node)
+    void removeIndent(pugi::xml_node node)
     {
+        bool container {false};
+        for (auto child : node.children())
+            container |= child.type() == pugi::node_element || child.type() == pugi::node_comment;
+        for (auto child = node.first_child(); child;) {
+            const auto next = child.next_sibling();
+            if (container && child.type() == pugi::node_pcdata &&
+                std::string(child.value()).find_first_not_of(" \t\r\n") == std::string::npos)
+                node.remove_child(child);
+            else
+                removeIndent(child);
+            child = next;
+        }
+    }
+
+    pugi::xml_node copyXml(pugi::xml_document& copy, pugi::xml_node source)
+    {
+        pugi::xml_node node;
+        if (source.type() == pugi::node_document) {
+            for (auto child : source.children())
+                copy.append_copy(child);
+            node = copy;
+        }
+        else {
+            node = copy.append_copy(source);
+        }
+        removeIndent(node);
         if (node.type() == pugi::node_document)
             for (auto child : node.children())
                 if (child.type() == pugi::node_declaration && child.attribute("encoding"))
                     child.attribute("encoding").set_value("UTF-8");
+        return node;
+    }
+
+    std::string xml(pugi::xml_node source)
+    {
+        pugi::xml_document copy;
+        const auto node = copyXml(copy, source);
         std::ostringstream stream;
         node.print(stream, "", pugi::format_raw, pugi::encoding_utf8);
         return stream.str();
+    }
+
+    std::string formatted(pugi::xml_node source, const std::string& original)
+    {
+        std::string indent {"    "};
+        bool found {false};
+        for (size_t line = original.find('\n'); line != std::string::npos;
+             line = original.find('\n', line + 1)) {
+            const auto end = original.find_first_not_of(" \t", line + 1);
+            if (end != std::string::npos && end > line + 1 && original[end] == '<') {
+                auto candidate = original.substr(line + 1, end - line - 1);
+                if (!found || candidate.size() < indent.size()) {
+                    indent = candidate;
+                    found = true;
+                }
+            }
+        }
+        pugi::xml_document copy;
+        const auto node = copyXml(copy, source);
+        std::ostringstream stream;
+        node.print(stream, indent.c_str(), pugi::format_default, pugi::encoding_utf8);
+        std::string output = stream.str();
+        // XML parsers normalize input newlines. Retain the file's CRLF convention
+        // on output where the original consistently used it, including declarations.
+        if (original.find("\r\n") != std::string::npos) {
+            bool crlf {true};
+            for (size_t i {0}; i < original.size(); ++i)
+                if (original[i] == '\n' && (i == 0 || original[i - 1] != '\r'))
+                    crlf = false;
+            if (crlf) {
+                for (size_t i {0}; (i = output.find('\n', i)) != std::string::npos; i += 2)
+                    output.insert(i, 1, '\r');
+            }
+        }
+        pugi::xml_document readback;
+        if (!readback.load_buffer(output.data(), output.size(),
+                                  pugi::parse_full | pugi::parse_ws_pcdata) ||
+            xml(readback) != xml(source))
+            throw std::runtime_error(_("Cannot preserve the configuration while formatting XML"));
+        return output;
     }
 
     std::vector<std::string> words(const std::string& value)
@@ -152,23 +225,54 @@ namespace
         return result;
     }
 
+    pugi::xml_node additionMarker(pugi::xml_node command)
+    {
+        for (auto previous = command.previous_sibling(); previous;
+             previous = previous.previous_sibling()) {
+            if (previous.type() == pugi::node_pcdata && words(previous.value()).empty())
+                continue;
+            if (previous.type() != pugi::node_comment)
+                break;
+            if (std::string(previous.value()).find(additionPrefix) != 0)
+                continue;
+            const auto fields = words(std::string(previous.value()).substr(additionPrefix.size()));
+            if (fields.size() != 2)
+                throw std::runtime_error(_("Invalid addition metadata"));
+            return fields[1] == EmulatorManagerConfig::fingerprint(xml(command)) ?
+                       previous :
+                       pugi::xml_node {};
+        }
+        return {};
+    }
+
+    void uniqueLabels(pugi::xml_node system)
+    {
+        std::set<std::string> labels;
+        for (auto command : system.children("command"))
+            if (!labels.insert(command.attribute("label").value()).second)
+                throw std::runtime_error(
+                    _("Duplicate command labels: repair them before changing emulators"));
+    }
+
     std::string baseline(pugi::xml_node node, const std::string& originalExtensions)
     {
         pugi::xml_document copy;
         auto base = copy.append_copy(node);
+        for (auto command = base.child("command"); command;) {
+            auto next = command.next_sibling("command");
+            auto marker = additionMarker(command);
+            if (marker) {
+                base.remove_child(marker);
+                base.remove_child(command);
+            }
+            command = next;
+        }
         for (auto child = base.first_child(); child;) {
-            auto next = child.next_sibling();
+            const auto next = child.next_sibling();
             if (child.type() == pugi::node_comment &&
                 (std::string(child.value()).find(snapshotPrefix) == 0 ||
-                 std::string(child.value()).find(additionPrefix) == 0)) {
-                if (std::string(child.value()).find(additionPrefix) == 0 &&
-                    std::string(next.name()) == "command") {
-                    auto after = next.next_sibling();
-                    base.remove_child(next);
-                    next = after;
-                }
+                 std::string(child.value()).find(additionPrefix) == 0))
                 base.remove_child(child);
-            }
             child = next;
         }
         base.child("extension").text().set(originalExtensions.c_str());
@@ -323,15 +427,9 @@ EmulatorManagerConfig::System EmulatorManagerConfig::system(const std::string& n
                    false};
     for (auto cmd : node.children("command")) {
         std::string addition;
-        auto previous = cmd.previous_sibling();
-        if (previous.type() == pugi::node_comment &&
-            std::string(previous.value()).find(additionPrefix) == 0) {
-            auto fields = words(std::string(previous.value()).substr(additionPrefix.size()));
-            if (fields.size() != 2)
-                throw std::runtime_error(_("Invalid addition metadata"));
-            if (fields[1] == fingerprint(xml(cmd)))
-                addition = fields[0];
-        }
+        auto marker = additionMarker(cmd);
+        if (marker)
+            addition = words(std::string(marker.value()).substr(additionPrefix.size()))[0];
         result.commands.push_back({cmd.attribute("label").value(), cmd.text().get(), addition});
     }
     auto fields = snapshot(node);
@@ -447,14 +545,72 @@ std::string EmulatorManagerConfig::add(const std::string& name,
     }
     const auto key = fingerprint(name + "\n" + label + "\n" + component + "\n" + profile);
     std::string id {"ESDEPLUS_" + key};
-    auto collision = [&](const std::string& value) {
-        return named(mRules.child("ruleList"), "emulator", value, true) ||
-               named(mBundleRules.child("ruleList"), "emulator", value, true);
+    auto matches = [&](pugi::xml_node emulator) {
+        // Compare the complete supported rule shape; comments/unknown structure
+        // are left alone rather than assumed to describe an equivalent recipient.
+        for (auto attribute : emulator.attributes())
+            if (std::string(attribute.name()) != "name")
+                return false;
+        size_t rules {0};
+        for (auto rule : emulator.children()) {
+            if (rule.type() == pugi::node_pcdata && words(rule.value()).empty())
+                continue;
+            if (std::string(rule.name()) != "rule" ||
+                std::string(rule.attribute("type").value()) != "androidpackage")
+                return false;
+            for (auto attribute : rule.attributes())
+                if (std::string(attribute.name()) != "type")
+                    return false;
+            ++rules;
+            size_t entries {0};
+            for (auto entry : rule.children()) {
+                if (entry.type() == pugi::node_pcdata && words(entry.value()).empty())
+                    continue;
+                if (std::string(entry.name()) != "entry" || entry.text().get() != component ||
+                    entry.first_attribute() || !entry.first_child() ||
+                    entry.first_child().type() != pugi::node_pcdata ||
+                    entry.first_child().next_sibling())
+                    return false;
+                ++entries;
+            }
+            if (entries != 1)
+                return false;
+        }
+        return rules == 1;
     };
+    std::set<std::string> additionIds;
+    for (auto system : mSystems.child("systemList").children("system"))
+        for (auto child : system.children())
+            if (child.type() == pugi::node_comment &&
+                std::string(child.value()).find(additionPrefix) == 0) {
+                const auto fields = words(std::string(child.value()).substr(additionPrefix.size()));
+                if (fields.size() == 2)
+                    additionIds.insert(fields[0]);
+            }
     unsigned int suffix {0};
-    while (collision(id))
+    while (true) {
+        auto existing = named(mRules.child("ruleList"), "emulator", id, true);
+        if (!existing)
+            existing = named(mBundleRules.child("ruleList"), "emulator", id, true);
+        if (!additionIds.count(id) && (!existing || matches(existing)))
+            break;
         id = "ESDEPLUS_" + key + "_" + std::to_string(++suffix);
-    const std::string command = replaceEmulator(profile, id);
+    }
+    // Ownership IDs stay distinct even when several additions share one equivalent
+    // find rule. Reuse does not edit or prune any existing (possibly user-owned) rule.
+    std::string ruleId {id};
+    bool reuse {false};
+    for (auto rule : mRules.child("ruleList").children("emulator"))
+        if (std::string(rule.attribute("name").value()).find("ESDEPLUS_") == 0 && matches(rule)) {
+            ruleId = rule.attribute("name").value();
+            reuse = true;
+            break;
+        }
+    if (!reuse) {
+        auto existing = named(mBundleRules.child("ruleList"), "emulator", ruleId, true);
+        reuse = existing && matches(existing);
+    }
+    const std::string command = replaceEmulator(profile, ruleId);
     auto node = editable(name);
     if (labels.count("")) {
         std::string original {_("Original emulator")};
@@ -470,10 +626,12 @@ std::string EmulatorManagerConfig::add(const std::string& name,
                                .c_str());
         }
     }
-    auto rule = mRules.child("ruleList").append_child("emulator");
-    rule.append_attribute("name").set_value(id.c_str());
-    rule.append_child("rule").append_attribute("type").set_value("androidpackage");
-    rule.child("rule").append_child("entry").text().set(component.c_str());
+    if (!reuse) {
+        auto rule = mRules.child("ruleList").append_child("emulator");
+        rule.append_attribute("name").set_value(id.c_str());
+        rule.append_child("rule").append_attribute("type").set_value("androidpackage");
+        rule.child("rule").append_child("entry").text().set(component.c_str());
+    }
     auto cmd = node.append_child("command");
     cmd.append_attribute("label").set_value(label.c_str());
     cmd.text().set(command.c_str());
@@ -501,23 +659,27 @@ std::string EmulatorManagerConfig::add(const std::string& name,
 
 void EmulatorManagerConfig::remove(const std::string& name, const std::string& addition)
 {
-    auto current = system(name);
-    for (const auto& cmd : current.commands) {
-        if (cmd.addition == addition && !addition.empty()) {
-            auto node = editable(name);
-            for (auto entry : node.children("command")) {
-                if (std::string(entry.attribute("label").value()) == cmd.label) {
-                    node.remove_child(entry.previous_sibling());
-                    node.remove_child(entry);
-                    // Keep the rule: later hand edits may reference it. An unused rule is safe.
-                    // Extensions remain available to other commands and existing games.
-                    return;
-                }
-            }
+    auto node = named(mSystems.child("systemList"), "system", name);
+    uniqueLabels(node);
+    pugi::xml_node owned;
+    pugi::xml_node marker;
+    for (auto command : node.children("command")) {
+        auto candidate = additionMarker(command);
+        if (candidate && !addition.empty() &&
+            words(std::string(candidate.value()).substr(additionPrefix.size()))[0] == addition) {
+            if (owned)
+                throw std::runtime_error(_("Ambiguous manager metadata"));
+            owned = command;
+            marker = candidate;
         }
     }
-    throw std::runtime_error(_("This addition has been edited or is no longer manager-owned; "
-                               "preserve it and repair manually"));
+    if (!owned)
+        throw std::runtime_error(_("This addition has been edited or is no longer manager-owned; "
+                                   "preserve it and repair manually"));
+    // Node identity, never label lookup: intervening user comments and all other
+    // commands survive. An identical rule is reused if this addition is added again.
+    node.remove_child(marker);
+    node.remove_child(owned);
 }
 
 void EmulatorManagerConfig::reset(const std::string& name)
@@ -551,9 +713,8 @@ void EmulatorManagerConfig::refresh(const std::string& name)
     pugi::xml_document additions;
     auto retained = additions.append_child("system");
     for (auto cmd : node.children("command")) {
-        auto marker = cmd.previous_sibling();
-        if (marker.type() == pugi::node_comment &&
-            std::string(marker.value()).find(additionPrefix) == 0) {
+        auto marker = additionMarker(cmd);
+        if (marker) {
             auto parts = words(std::string(marker.value()).substr(additionPrefix.size()));
             if (parts.size() != 2 || parts[1] != fingerprint(xml(cmd)))
                 throw std::runtime_error(_("Hand-edited addition: refresh refused"));
@@ -643,7 +804,7 @@ void EmulatorManagerConfig::clearSelections(const std::string& path,
         }
     if (changed)
         replaceFile(
-            path, xml(doc),
+            path, formatted(doc, original),
             [&] {
                 if (read(path) != original)
                     throw std::runtime_error(
@@ -671,8 +832,8 @@ void EmulatorManagerConfig::save()
             throw std::runtime_error(
                 _("Configuration changed outside the manager; reopen it before applying"));
     };
-    const auto systemsBytes = xml(mSystems);
-    const auto rulesBytes = xml(mRules);
+    const auto systemsBytes = formatted(mSystems, mSystemsBytes);
+    const auto rulesBytes = formatted(mRules, mRulesBytes);
     unchanged();
     // Also retry a directory sync if the previous attempt renamed a file but
     // could not confirm its durability. Never publish commands before that succeeds.

@@ -60,15 +60,28 @@ bool EmulatorManagerTouch::handle(GuiComponent& gui, int type, int64_t finger, f
     const float screenY = y * Renderer::getScreenHeight();
     if (type == SDL_FINGERDOWN) {
         if (mFinger != -1)
-            return true;
+            return finger == mFinger;
+        const auto target = hit(gui, glm::mat4 {1.0f}, screenX, screenY);
+        if (!target.component)
+            return false;
+        if (auto button = dynamic_cast<ButtonComponent*>(target.component))
+            if (!button->getPressedFunc())
+                return false;
+        if (auto list = dynamic_cast<ComponentList*>(target.component)) {
+            const int row = list->getTouchRow(target.y);
+            if (row < 0 || row >= list->size() ||
+                (!list->getTouchRowData(row).inputHandler && list->size() < 2))
+                return false;
+        }
+        mTarget = target.component;
         mFinger = finger;
         mStartX = screenX;
         mStartY = mLastY = screenY;
         mMoved = false;
         return true;
     }
-    if (finger != mFinger)
-        return true;
+    if (finger != mFinger || mFinger == -1)
+        return false;
     auto target = hit(gui, glm::mat4 {1.0f}, screenX, screenY);
     if (type == SDL_FINGERMOTION) {
         auto list = dynamic_cast<ComponentList*>(target.component);
@@ -85,7 +98,9 @@ bool EmulatorManagerTouch::handle(GuiComponent& gui, int type, int64_t finger, f
     if (type != SDL_FINGERUP)
         return false;
     mFinger = -1;
-    if (mMoved || !target.component)
+    const bool sameTarget = target.component == mTarget;
+    mTarget = nullptr;
+    if (mMoved || !sameTarget || !target.component)
         return true;
     if (auto button = dynamic_cast<ButtonComponent*>(target.component)) {
         auto action = button->getPressedFunc();

@@ -99,6 +99,11 @@ void GuiEmulatorManager::edit(const std::string& title, std::string& value)
 
 void GuiEmulatorManager::discover()
 {
+    if (!mTestPath.empty() && (!Utils::FileSystem::isAbsolute(mTestPath) ||
+                               !Utils::FileSystem::isRegularFile(mTestPath))) {
+        error(_("Select an existing absolute test file, or clear the test path before discovery"));
+        return;
+    }
     auto state = std::make_shared<Discovery>();
     mDiscovery = state;
     mAppFilter.clear();
@@ -476,7 +481,14 @@ void GuiEmulatorManager::rebuild()
                     mWindow->pushGui(new GuiEmulatorManagerKeyboard(
                         0.0f, _("TEST FILE PATH"), mTestPath,
                         [this](const std::string& path) {
-                            mTestPath = Utils::String::trim(path);
+                            const auto file = Utils::String::trim(path);
+                            if (!file.empty() && (!Utils::FileSystem::isAbsolute(file) ||
+                                                  !Utils::FileSystem::isRegularFile(file))) {
+                                error(_("Select an existing absolute test file, or clear the test "
+                                        "path before discovery"));
+                                return;
+                            }
+                            mTestPath = file;
                             page(Page::DRAFT);
                         },
                         false));
@@ -601,12 +613,11 @@ void GuiEmulatorManager::remove(const EmulatorManagerConfig::Command& command)
         mConfig->verifyCurrent();
         auto config = *mConfig;
         const auto system = config.system(mSystemName);
-        std::vector<std::string> retained;
-        for (const auto& candidate : system.commands)
-            if (candidate.addition != command.addition)
-                retained.push_back(candidate.label);
-        EmulatorManagerRuntime::checkSelections(system, retained);
         config.remove(mSystemName, command.addition);
+        std::vector<std::string> retained;
+        for (const auto& candidate : config.system(mSystemName).commands)
+            retained.push_back(candidate.label);
+        EmulatorManagerRuntime::checkSelections(system, retained);
         config.save();
         mApply = true;
     }

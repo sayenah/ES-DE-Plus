@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-14 12:33-0500\n"
+"POT-Creation-Date: 2026-10-16 06:15-0500\n"
 "PO-Revision-Date: 2026-09-10 12:02+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: 繁體中文 <info@es-de.org>\n"
@@ -192,6 +192,9 @@ msgstr ""
 msgid "Cannot finish reading "
 msgstr ""
 
+msgid "Cannot preserve the configuration while formatting XML"
+msgstr ""
+
 msgid "Invalid snapshot metadata"
 msgstr ""
 
@@ -214,6 +217,12 @@ msgid "Missing or duplicate entry name"
 msgstr ""
 
 msgid "Ambiguous manager metadata"
+msgstr ""
+
+msgid "Invalid addition metadata"
+msgstr ""
+
+msgid "Duplicate command labels: repair them before changing emulators"
 msgstr ""
 
 msgid "Cannot sync configuration directory"
@@ -241,9 +250,6 @@ msgid "Cannot replace "
 msgstr ""
 
 msgid "System no longer exists in effective configuration"
-msgstr ""
-
-msgid "Invalid addition metadata"
 msgstr ""
 
 msgid "Profile must contain exactly one emulator find rule"
@@ -324,12 +330,6 @@ msgstr ""
 
 msgid ""
 "The configuration change would invalidate a system or game emulator selection"
-msgstr ""
-
-msgid "BACK"
-msgstr "返回"
-
-msgid "EMULATORS"
 msgstr ""
 
 msgctxt "theme"
@@ -526,6 +526,9 @@ msgstr "平台, 降序"
 
 msgid "ALTERNATIVE EMULATORS"
 msgstr "備用模擬器"
+
+msgid "BACK"
+msgstr "返回"
 
 msgid "back"
 msgstr "返回"
@@ -756,7 +759,15 @@ msgstr ""
 msgid "NONE"
 msgstr "無"
 
+msgid ""
+"Select an existing absolute test file, or clear the test path before "
+"discovery"
+msgstr ""
+
 msgid "FIND SYSTEM"
+msgstr ""
+
+msgid "EMULATORS"
 msgstr ""
 
 msgid "ADD EMULATOR"
