@@ -1,0 +1,207 @@
+// SPDX-License-Identifier: MIT
+// ES-DE-Plus — written for ES-DE-Plus. CI-only platform lifecycle probe; no native injection.
+package org.esdeplus.stub
+
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.Intent
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
+import android.content.res.AssetManager
+import android.os.Bundle
+import android.os.Process
+import android.os.Looper
+import android.os.Handler
+import android.util.Log
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+class LifecycleProbe : Instrumentation() {
+    private var mode = ""
+    private var resumeParent = 0
+    @Volatile private var earlyTriggered = false
+    override fun onCreate(arguments: Bundle?) {
+        super.onCreate(arguments)
+        mode = arguments?.getString("mode").orEmpty()
+        resumeParent = arguments?.getString("parentPid")?.toIntOrNull() ?: 0
+        start()
+    }
+
+    private fun destroyAtBarrier(activity: Activity) {
+        earlyTriggered = true
+        val released = CountDownLatch(1)
+        Thread({
+            val deadline = System.nanoTime() + 20_000_000_000L
+            while (System.nanoTime() < deadline) {
+                val frames = Looper.getMainLooper().thread.stackTrace
+                if (frames.any { it.className == "java.lang.Thread" && it.methodName == "join" } &&
+                    frames.any { it.methodName == "onDestroy" && it.className in listOf(
+                        "org.libsdl.app.SDLActivity", "org.esdeplus.frontend.MainActivity") }) {
+                    Log.i("ES-DE-Plus-Probe", "Lifecycle startup barrier released after destruction quit/join")
+                    released.countDown()
+                    return@Thread
+                }
+                Thread.sleep(5)
+            }
+            Log.e("ES-DE-Plus-Probe", "FAIL: lifecycle startup barrier timed out")
+            released.countDown()
+        }, "LifecycleStartupBarrier").start()
+        Handler(Looper.getMainLooper()).post {
+            Log.i("ES-DE-Plus-Probe", "Lifecycle probe triggering $mode pid=${Process.myPid()}")
+            activity.recreate()
+        }
+        check(released.await(20, TimeUnit.SECONDS)) { "Startup barrier did not release" }
+    }
+
+    override fun newActivity(loader: ClassLoader, className: String, intent: Intent): Activity {
+        if (mode == "recreate-startup" && className == "org.esdeplus.frontend.MainActivity") {
+            val type = loader.loadClass("org.esdeplus.frontend.StartupProbeActivity")
+            type.getField("beforeDeviceInfo").set(null, java.util.function.Consumer<Activity> { activity ->
+                if (!earlyTriggered) {
+                    val bridge = activity.javaClass.superclass!!.getDeclaredMethod("getBridge")
+                        .apply { isAccessible = true }.invoke(activity)
+                    val storage = bridge.javaClass.getDeclaredField("storage").apply { isAccessible = true }.get(bridge)
+                    val preferences = storage.javaClass.declaredFields.single {
+                        SharedPreferences::class.java.isAssignableFrom(it.type)
+                    }.apply { isAccessible = true }.get(storage) as SharedPreferences
+                    val saved = preferences.all
+                    destroyAtBarrier(activity)
+                    check(preferences.all == saved) { "Persisted storage selection changed" }
+                    Log.i("ES-DE-Plus-Probe", "Lifecycle installed-resource selection preserved")
+                }
+            })
+            return type.getDeclaredConstructor().newInstance() as Activity
+        }
+        return super.newActivity(loader, className, intent)
+    }
+
+    override fun callActivityOnCreate(activity: Activity, state: Bundle?) {
+        super.callActivityOnCreate(activity, state)
+        if (mode !in listOf("recreate-early", "recreate-preconfiguration") ||
+            activity.javaClass.name != "org.esdeplus.frontend.MainActivity") return
+        if (earlyTriggered) return
+        // Forward every real SDK result. Delay one resource or configuration
+        // call, then release it after SDL sends quit and joins. Captured
+        // stacks are after this test barrier is released.
+        val bridge = activity.javaClass.getDeclaredMethod("getBridge").apply { isAccessible = true }
+            .invoke(activity)
+        if (mode == "recreate-preconfiguration") {
+            val storage = bridge.javaClass.getDeclaredField("storage").apply { isAccessible = true }.get(bridge)
+            // Locate by the public SDK type so R8's private field names do not
+            // need production keep rules. Every preference result is real.
+            val preferences = storage.javaClass.declaredFields.single {
+                SharedPreferences::class.java.isAssignableFrom(it.type)
+            }.apply { isAccessible = true }
+            val original = preferences.get(storage) as SharedPreferences
+            val saved = original.all
+            preferences.set(storage, object : SharedPreferences by original {
+                override fun contains(key: String?): Boolean {
+                    if (!earlyTriggered && key == "mode" && Thread.currentThread().name == "SDLThread") {
+                        destroyAtBarrier(activity)
+                        check(original.all == saved) { "Persisted storage selection changed" }
+                        Log.i("ES-DE-Plus-Probe", "Lifecycle preconfiguration selection preserved")
+                    }
+                    return original.contains(key)
+                }
+            })
+            return
+        }
+        val storage = bridge.javaClass.getDeclaredField("storage").apply { isAccessible = true }.get(bridge)
+        val preferences = storage.javaClass.declaredFields.single {
+            SharedPreferences::class.java.isAssignableFrom(it.type)
+        }.apply { isAccessible = true }.get(storage) as SharedPreferences
+        val saved = preferences.all
+        val field = bridge.javaClass.getDeclaredField("context").apply { isAccessible = true }
+        val original = field.get(bridge) as Context
+        field.set(bridge, object : ContextWrapper(original) {
+            override fun getAssets(): AssetManager {
+                if (!earlyTriggered && Thread.currentThread().name == "SDLThread" &&
+                    Thread.currentThread().stackTrace.any { it.methodName == "setupResources" &&
+                        it.className == "org.esdeplus.frontend.NativeBridge" }) {
+                    destroyAtBarrier(activity)
+                    check(preferences.all == saved) { "Persisted storage selection changed" }
+                    Log.i("ES-DE-Plus-Probe", "Lifecycle resource selection preserved")
+                }
+                return super.getAssets()
+            }
+        })
+    }
+
+    override fun callActivityOnStop(activity: Activity) {
+        super.callActivityOnStop(activity)
+        if (activity.javaClass.name == "org.esdeplus.frontend.MainActivity")
+            Log.i("ES-DE-Plus-Probe", "Lifecycle frontend stopped mode=$mode")
+    }
+
+    override fun onStart() {
+        val result = Bundle()
+        try {
+            check(mode in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup", "recreate-running", "finish-running", "recreate-background", "restart-wait", "restart-timeout", "restart-resume"))
+            val command = File("/data/local/tmp/esde-lifecycle-command")
+            if (mode in listOf("restart-wait", "restart-timeout", "restart-resume")) {
+                // Isolated helper probes use a live parent for timeout/retry
+                // or a retired shell process for late resume. They do not
+                // exercise or change the native destruction timing gate.
+                val entry = Intent(Intent.ACTION_MAIN).setClassName(targetContext.packageName,
+                    "org.esdeplus.frontend.MainActivity").addCategory(Intent.CATEGORY_LAUNCHER)
+                val parent = if (mode == "restart-resume") resumeParent.also { check(it > 0) }
+                    else Process.myPid()
+                val helper = Intent().setClassName(targetContext.packageName,
+                    "org.esdeplus.frontend.FrontendRestartActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra("parentPid", parent).putExtra("entry", entry)
+                targetContext.startActivity(helper)
+                Log.i("ES-DE-Plus-Probe", "Lifecycle slow restart parent pid=$parent")
+                if (mode == "restart-resume") {
+                    val deadline = System.nanoTime() + 160_000_000_000L
+                    while (!command.isFile) {
+                        check(System.nanoTime() < deadline) { "Helper resume command not reached" }
+                        Thread.sleep(20)
+                    }
+                    // Bring back the existing helper without replacing its
+                    // instance or resetting its real two-minute deadline.
+                    targetContext.startActivity(Intent(helper).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+                }
+                // Instrumentation death makes ActivityManager remove every
+                // activity of the target package, including the helper. Keep
+                // this isolated, Java-only parent alive for the visibility
+                // checks; ordinary framework cases verify actual restoration.
+                Thread.sleep(180_000)
+                error("Isolated helper visibility control did not complete")
+            }
+            if (mode == "recreate-early") {
+                // Generated packaged content, not user data. Its real repair
+                // enters setupResources after the native window exists.
+                val certificate = File(targetContext.filesDir, "resources/certificates/curl-ca-bundle.crt")
+                check(!certificate.exists() || certificate.delete()) { "Cannot prepare actual resource repair" }
+            }
+            val activity = startActivitySync(Intent(Intent.ACTION_MAIN)
+                .setClassName(targetContext.packageName, "org.esdeplus.frontend.MainActivity")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            check(activity.javaClass.name == if (mode == "recreate-startup")
+                "org.esdeplus.frontend.StartupProbeActivity" else "org.esdeplus.frontend.MainActivity")
+            Log.i("ES-DE-Plus-Probe", "Lifecycle probe ready mode=$mode pid=${Process.myPid()}")
+            val deadline = System.nanoTime() + 60_000_000_000L
+            if (mode !in listOf("recreate-early", "recreate-preconfiguration", "recreate-startup")) {
+                while (!command.isFile) {
+                    check(System.nanoTime() < deadline) { "External running-frontend barrier not reached" }
+                    Thread.sleep(20)
+                }
+                runOnMainSync {
+                    check(!activity.isFinishing && !activity.isDestroyed)
+                    Log.i("ES-DE-Plus-Probe", "Lifecycle probe triggering $mode pid=${Process.myPid()}")
+                    if (mode == "finish-running") activity.finish() else activity.recreate()
+                }
+            }
+            // Host destruction must end this process, including the probe.
+            // Keep it alive so instrumentation completion cannot hide a stall.
+            Thread.sleep(30_000)
+            error("Host process survived destruction")
+        } catch (error: Throwable) {
+            result.putString("stream", "FAIL: lifecycle probe $mode: $error\n")
+            finish(0, result)
+        }
+    }
+}
