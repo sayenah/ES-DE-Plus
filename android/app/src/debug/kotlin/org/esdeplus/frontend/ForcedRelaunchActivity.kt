@@ -8,7 +8,7 @@ import android.os.Looper
 import android.util.Log
 
 // Start the VM without loading SDL or native main, then leave no Activity.
-// Shell/root invokes this private debug component before --no-restart attaches.
+// Shell invokes this DUMP-protected debug component before --no-restart attaches.
 class ForcedRelaunchBootstrapActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)

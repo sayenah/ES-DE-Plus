@@ -71,25 +71,8 @@ def controls():
 
 def run(harness):
     h = type('Harness', (), harness)
-    # The emulator images support adbd root but do not all ship su. Keep one
-    # connection through overlay delivery so focus sampling and --no-restart
-    # instrumentation are uninterrupted. Applications still run under their own
-    # UIDs; the game cases have no instrumentation/background-start grant.
-    h.adb('root')
-    h.adb('wait-for-device')
-    try:
-        h.wait_for(lambda: h.shell('id', '-u').strip() == '0', 'overlay-manager root', timeout=10)
-        run_rooted(harness)
-    finally:
-        h.adb('unroot')
-        h.adb('wait-for-device')
-        h.wait_for(lambda: h.shell('id', '-u').strip() == '2000', 'ordinary shell restored', timeout=10)
-
-
-def run_rooted(harness):
-    h = type('Harness', (), harness)
     baseline = os.environ.get('ESDE_ASSETS_UNFIXED') == 'true'
-    overlay = 'com.android.shell:esde_wo18'
+    overlay = 'org.esdeplus.relaunchprobe'
     failures = []
     outcomes = []
     (h.evidence / 'assets-chain-controls.txt').write_text(controls())
@@ -99,11 +82,11 @@ def run_rooted(harness):
         (h.evidence / (name + '-activities.txt')).write_text(h.activity_records()[0])
         (h.evidence / (name + '-window.txt')).write_text(h.focused_window())
 
-    # ThemeResources is Android's public palette overlayable on these images.
-    # No APK, dependency or platform source is added for the trigger.
-    h.shell('cmd', 'overlay', 'fabricate', '--target', 'android', '--target-name', 'ThemeResources',
-                '--name', 'esde_wo18', 'android:color/system_neutral1_500', '0x1c', '0xff123456')
-    (h.evidence / 'assets-overlay-created.txt').write_text(h.shell('cmd', 'overlay', 'dump', overlay))
+    # The debug-only target's public policy allows shell to toggle this test
+    # RRO on production TV images too. It changes only the frontend's asset
+    # paths, leaving the game and system palette untouched. No root is used.
+    assert h.shell('id', '-u').strip() == '2000', 'Probe requires ordinary shell'
+    (h.evidence / 'assets-overlay-installed.txt').write_text(h.shell('cmd', 'overlay', 'dump', overlay))
 
     for mode in ('game', 'configurator', 'copy', 'steady'):
         name = 'assets-' + mode
@@ -121,9 +104,9 @@ def run_rooted(harness):
             if mode in ('copy', 'configurator'):
                 # AOSP's ordinary instrumentation cleanup force-stops the
                 # whole package when the parent dies, removing the helper.
-                # Attach without restart to a Java-only VM instead. Root can
-                # enter this private debug component; product restoration is
-                # performed by the frontend under its own UID.
+                # Attach without restart to a Java-only VM instead. The debug
+                # bootstrap requires shell's DUMP permission; game cases remain
+                # uninstrumented and receive no background-start grant.
                 h.shell('am', 'start', '-W', '-n',
                             h.app + '/org.esdeplus.frontend.ForcedRelaunchBootstrapActivity')
                 assert 'Running main function' not in h.adb('logcat', '-d'), 'Bootstrap started native main'
@@ -172,7 +155,6 @@ def run_rooted(harness):
                         focus_errors.append(str(error))
                 monitor = threading.Thread(target=sample_focus)
                 monitor.start()
-            # ThemeResources requires root for activation as well as fabrication.
             # Focus sampling spans delivery; no adbd restart interrupts it.
             h.shell('cmd', 'overlay', 'enable', overlay)
             (h.evidence / (name + '-overlay.txt')).write_text(h.shell('cmd', 'overlay', 'dump', overlay))

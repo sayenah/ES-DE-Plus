@@ -76,12 +76,13 @@ jobs:
       - name: Assemble debug host and test recipient
         run: |
           cd android
-          ./gradlew --no-daemon :app:assembleDebug :stub-emulator:assembleDebug
+          ./gradlew --no-daemon :app:assembleDebug :stub-emulator:assembleDebug :forced-relaunch-overlay:assembleDebug
       - name: Require the ordinary Gradle APK outputs before emulator startup
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           test -s android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk
-          sha256sum android/app/build/outputs/apk/debug/app-debug.apk android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk > android/evidence/assets-apk-hashes.txt
+          test -s android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk > android/evidence/assets-apk-hashes.txt
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
@@ -103,6 +104,7 @@ jobs:
           ram-size: 4096M
           script: |
             python3 android/smoke_support.py boot
+            adb install -r android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk
             python3 android/smoke_session.py assets -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase assets
       - name: Upload evidence only
         if: always()
