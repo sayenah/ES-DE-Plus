@@ -86,6 +86,7 @@ for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
+assert ('Lorg/esdeplus/frontend/StartupProbeActivity;' in classes) != release
 required_methods = {
     ('checkConfigurationNeeded', '()Z'),
     ('checkEmulatorInstalled', '(Ljava/lang/String;Ljava/lang/String;)Z'),
@@ -282,6 +283,10 @@ def integer_attribute(node, name):
 activities = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity'}
 main = activities['org.esdeplus.frontend.MainActivity']
 configurator = activities['org.esdeplus.frontend.ConfiguratorActivity']
+restart = activities['org.esdeplus.frontend.FrontendRestartActivity']
+assert integer_attribute(restart, 'exported') == 0, 'Lifecycle restart must be private'
+assert string_attribute(restart, 'process') == ':lifecycle', 'Lifecycle restart must survive the SDL process exit'
+assert not restart['children'], 'Lifecycle restart must have no public intent filters'
 assert 'taskAffinity' not in configurator['attributes'], 'Configurator must share the SDL task affinity'
 assert integer_attribute(main, 'launchMode') == 2, 'SDL activity must be singleTask'
 assert integer_attribute(main, 'exported') == 0xffffffff
