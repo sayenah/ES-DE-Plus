@@ -17,7 +17,7 @@
 #include "views/ViewController.h"
 
 #if defined(__ANDROID__)
-#include <SDL_timer.h>
+#include <SDL2/SDL_timer.h>
 #endif
 
 #include <array>
