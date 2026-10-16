@@ -836,7 +836,10 @@ void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
         while (!normalized.empty() && normalized.back() == '/')
             normalized.pop_back();
         const std::string temporaryRoot {temporary(fs::path(normalized).parent_path().string())};
-        const std::string sharedRoot {temporaryRoot + " # ; \" caf\xc3\xa9"};
+        // Shared-storage filename restrictions must not prevent the independent
+        // ownership/identity/remote controls from reaching libgit2. The full
+        // quoted selected-folder case remains a separate runtime acceptance test.
+        const std::string sharedRoot {temporaryRoot + " # ; caf\xc3\xa9"};
         fs::rename(temporaryRoot, sharedRoot);
 #if defined(__ANDROID__)
         suite(sharedRoot, privateRoot + "/direct-config", source, true);
