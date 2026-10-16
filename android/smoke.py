@@ -14,18 +14,23 @@ import launch_checks
 import pdf_smoke
 import lifecycle_smoke
 import smoke_support
+import smoke_session
+import smoke_phases
 import network_smoke
 import importer_navigation
 import json
 import os
 import tempfile
 
+phase = sys.argv[3] if len(sys.argv) == 4 and sys.argv[2] == '--phase' else 'core'
+assert sys.argv[2:] == [] or (len(sys.argv) == 4 and sys.argv[2] == '--phase' and
+                              phase in smoke_phases.PHASES), 'Usage: smoke.py APK [--phase PHASE]'
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
            if line.startswith('esde.applicationId='))
 activity = app + '/org.esdeplus.frontend.MainActivity'
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
-evidence = pathlib.Path('android/evidence')
+evidence = pathlib.Path(os.environ.get('ESDE_SMOKE_EVIDENCE', 'android/evidence'))
 evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
@@ -47,8 +52,14 @@ def adb(*args, check=True, binary=False):
     # Only identified transport errors on read-only diagnostics can be replayed.
     # Product actions/assertions and ordinary command failures never qualify.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
-        result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=not binary, timeout=90)
+        command_started = time.monotonic()
+        try:
+            result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=not binary, timeout=90)
+        except subprocess.TimeoutExpired:
+            smoke_session.record_command(args, time.monotonic() - command_started, 'timeout')
+            raise
+        smoke_session.record_command(args, time.monotonic() - command_started, result.returncode)
         if not result.returncode or not smoke_support.transport_error(
                 result.stderr.decode(errors='replace') if binary else result.stderr):
             break
@@ -1131,12 +1142,23 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
-    if device_api in (29, 34):
+    if phase == 'integration' and device_api in (29, 34):
         import update_smoke
+        update_record = pathlib.Path('android/evidence/update-identity.txt')
+        if update_record.resolve() != (evidence / update_record.name).resolve():
+            (evidence / update_record.name).write_bytes(update_record.read_bytes())
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
+    api = device_api
+    shared = '/sdcard/ESDEPlusSmoke'
+    if api == 29:
+        shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
+    (evidence / 'image.txt').write_text(shell('getprop'))
+    if phase != 'core':
+        smoke_phases.run(phase, globals())
+        raise SystemExit(0)
     clear_app()
     retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
                      app + '/org.esdeplus.frontend.RuntimeSmoke')
@@ -1145,12 +1167,8 @@ try:
         'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
     clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
-    if api == 29:
-        shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
-    (evidence / 'image.txt').write_text(shell('getprop'))
     # Genuine shared files, accessible to users through file transfer; no settings
     # or preferences are written by the host-side automation.
-    shared = '/sdcard/ESDEPlusSmoke'
     shell('mkdir', '-p', shared + '/nes')
     dummy = evidence / 'dummy.nes'
     dummy.write_bytes(b'\x00')
@@ -1309,8 +1327,6 @@ try:
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
-    lifecycle_smoke.run(globals())
-    network_smoke.run(globals())
     launch_contract_probes('direct')
     shell('am', 'force-stop', app)
     revoked_tree = shell('am', 'instrument', '-w', '-e', 'mode', 'revoke-tree',
@@ -1333,7 +1349,6 @@ try:
             'CAPABILITY: real typed-path selection already has no persisted tree')
         configured_system('direct-typed-path-system')
     launch_contract_probes('direct-typed')
-    pdf_smoke.run('direct', globals())
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
@@ -1689,12 +1704,12 @@ try:
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
                      native_shutdown(relaunched_pid), 'relaunch quits cleanly')
-    pdf_smoke.run('scoped', globals())
     real_retroarch_flow()
-    pdf_smoke.release(globals())
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
+except SystemExit:
+    raise
 except BaseException:
     save_logs('failure')
     screenshot('failure')

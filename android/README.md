@@ -252,7 +252,21 @@ startup during recovery fails the leg, including the known API 29 lifecycle stal
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-For a local API 34 smoke, use a full-history checkout at the commit being tested.
+CI runs five gating smoke phases, each in a distinct cold AVD: `core`
+(configurator, storage, held destruction, process death, launch/importer and
+RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
+(update continuity on API 29/34 and network checks), `pdf-direct`, and
+`pdf-scoped` (including minified PDF/Unicode). The same built APK is installed
+in each fresh guest; configuration and grants are established through the UI.
+The default `smoke.py APK` command runs core only. For another phase, pass
+`--phase PHASE`; every phase is required for the complete CI regression suite.
+`smoke_session.py PHASE -- COMMAND` preserves the command's exit status,
+verifies a clean guest and distinct boot identity, and records read-only QEMU
+RSS, host available memory and wrapped-ADB command counts/durations. Each
+phase's evidence is uploaded before the next AVD starts; publication still
+requires every phase and all existing D-020 gates.
+
+For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
 including PDF fixtures; set `RUNNER_TEMP` to a temporary directory outside the
 checkout for throwaway signing material. The network/signing sequence, from the
@@ -267,7 +281,7 @@ cp android/app/build/outputs/apk/debug/app-debug.apk android/.deps/update/lower-
 android/gradlew -p android --no-daemon :app:assembleDebug
 python3 android/network-control.py
 python3 android/test_signing.py fixtures
-python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+python3 android/smoke_session.py integration -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase integration
 ```
 
 The signing fixture re-signs both smoke variants and the control with the same
