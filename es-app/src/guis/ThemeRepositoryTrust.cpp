@@ -537,6 +537,8 @@ int ThemeRepositoryTrust::create(git_repository** out, const char* path, int bar
     git_repository* repository {nullptr};
     int result {git_repository_init_ext(&repository, path, &options)};
 #ifndef NDEBUG
+    if (Testing::barrier)
+        Testing::barrier("clone-init-finished", path);
     if (result == 0 && Testing::barrier)
         Testing::barrier("clone-after-init", path);
 #endif

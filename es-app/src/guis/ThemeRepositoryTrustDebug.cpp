@@ -696,10 +696,18 @@ namespace
                 return files;
             };
             const auto beforeFiles {snapshot()};
+            auto afterInitFiles {beforeFiles};
             uint64_t injected {0};
+            uint64_t afterInitTarget {0};
+            bool measuredInit {false};
             bool initialized {false};
             bool remoteReached {false};
             Testing::barrier = [&](const std::string& stage, const std::string& path) {
+                if (stage == "clone-init-finished") {
+                    afterInitFiles = snapshot();
+                    afterInitTarget = fingerprint(path);
+                    measuredInit = true;
+                }
                 if (stage == "clone-after-init")
                     initialized = true;
                 if (stage == "clone-before-remote")
@@ -721,31 +729,45 @@ namespace
             require(clone(url, pending) != 0,
                     "during-init redirection cannot reach remote/fetch/checkout");
             Testing::barrier = {};
+            require(measuredInit, "initialization and failure cleanup measured separately");
             require(!remoteReached, "creation callback failure precedes the remote callback");
             require(!fs::exists(pending + "/theme.xml"), "during-init boundary precedes checkout");
+            const auto afterCleanupFiles {snapshot()};
+            const bool initPrivateChanged {afterInitFiles != beforeFiles};
+            const bool cleanupPrivateChanged {afterCleanupFiles != afterInitFiles};
             if (attack == "reinit")
-                require(fingerprint(pending) == injected && fingerprint(canary) == before,
+                require(fingerprint(pending) == injected && fingerprint(canary) == before &&
+                            !initPrivateChanged && !cleanupPrivateChanged,
                         "NO_REINIT leaves injected repository and private canary unchanged");
-            const bool privateChanged {fingerprint(canary) != before};
+            const bool privateChanged {initPrivateChanged || cleanupPrivateChanged};
             evidence << (privateChanged ? "RESIDUAL: " : "PASS: ") << "clone after-precheck "
                      << attack << "; callback refused before remote/fetch/checkout; "
-                     << "cleanup=none; init-returned-success=" << initialized
+                     << "init-returned-success=" << initialized
                      << "; injected-tree-changed=" << (fingerprint(pending) != injected)
-                     << "; private-canary-changed=" << (fingerprint(canary) != before) << '\n';
-            if (privateChanged) {
-                auto afterFiles {snapshot()};
+                     << "; private-canary-changed=" << privateChanged
+                     << "; init-target-changed=" << (afterInitTarget != injected)
+                     << "; cleanup-target-changed=" << (fingerprint(pending) != afterInitTarget)
+                     << "; init-private-changed=" << initPrivateChanged
+                     << "; cleanup-private-changed=" << cleanupPrivateChanged << '\n';
+            auto changes = [&](const std::string& phase, const auto& beforeFiles,
+                               const auto& afterFiles) {
                 for (const auto& entry : beforeFiles)
                     if (!afterFiles.count(entry.first))
-                        evidence << "INIT PRIVATE DELETE " << entry.first.substr(canary.size())
+                        evidence << phase << " PRIVATE DELETE " << entry.first.substr(canary.size())
                                  << '\n';
                 for (const auto& entry : afterFiles) {
                     const auto old {beforeFiles.find(entry.first)};
                     if (old == beforeFiles.end() || old->second != entry.second)
-                        evidence << "INIT PRIVATE WRITE " << entry.first.substr(canary.size())
+                        evidence << phase << " PRIVATE WRITE " << entry.first.substr(canary.size())
                                  << '\n';
                 }
-                evidence << "RESIDUAL: initialization wrote through a commondir inserted after the "
-                            "precheck; "
+            };
+            changes("INIT", beforeFiles, afterInitFiles);
+            changes("CLEANUP", afterInitFiles, afterCleanupFiles);
+            if (privateChanged) {
+                evidence << "RESIDUAL: "
+                         << (initPrivateChanged ? "initialization" : "failure cleanup")
+                         << " wrote through a commondir inserted after the precheck; "
                             "the post-init gate stopped later clone operations (D-012 am. 4).\n";
             }
             fs::remove_all(pending);
