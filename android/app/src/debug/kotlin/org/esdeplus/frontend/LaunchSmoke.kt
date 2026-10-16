@@ -124,11 +124,15 @@ object LaunchSmoke {
         val configuration = storage.load()!!
         val directories = listOf(File(configuration.roms), storage.appData())
         val writes = AtomicInteger()
+        val romWrites = AtomicInteger()
         val barrier = AtomicReference<CountDownLatch>()
         val observers = directories.map { directory ->
             object : FileObserver(directory, FileObserver.CREATE or FileObserver.DELETE) {
                 override fun onEvent(event: Int, path: String?) {
-                    if (event and FileObserver.CREATE != 0 && path?.startsWith(".esdeplus-access-") == true) writes.incrementAndGet()
+                    if (event and FileObserver.CREATE != 0 && path?.startsWith(".esdeplus-access-") == true) {
+                        writes.incrementAndGet()
+                        if (directory == directories.first()) romWrites.incrementAndGet()
+                    }
                     if (event and FileObserver.DELETE != 0 && path == ".esdeplus-observer-barrier") barrier.get()?.countDown()
                 }
             }.apply { startWatching() }
@@ -146,7 +150,8 @@ object LaunchSmoke {
         try {
             storage.validate(configuration)
             drain()
-            equal(writes.get() >= directories.size, true, "Observer detects full-validator write positive control")
+            equal(writes.get() > 0, true, "Observer detects data-validator write positive control")
+            equal(romWrites.get(), 0, "Startup/resume validator never write-probes ROMs")
             writes.set(0)
             val transport = RomTransport(context)
             equal(transport.root(), File(configuration.roms).canonicalFile, "Read root preserves selection")

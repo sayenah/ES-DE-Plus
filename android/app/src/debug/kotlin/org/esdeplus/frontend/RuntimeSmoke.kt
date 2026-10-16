@@ -78,6 +78,11 @@ class RuntimeSmoke : Instrumentation() {
                 finish(-1, result)
                 return
             }
+            if (followupMode == "configurator-insets") {
+                result.putString("stream", ConfiguratorInsetsSmoke.run(this))
+                finish(-1, result)
+                return
+            }
             if (followupMode == "app-data-probe") {
                 result.putString("stream", AppDataSmoke.run(this))
                 finish(-1, result)

@@ -136,11 +136,13 @@ class ConfiguratorActivity : Activity() {
         state.putParcelable("entry", entry)
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
     private fun text(value: String) {
         content.addView(TextView(this).apply {
             text = value
             textSize = 18f
-            setPadding(0, 8, 0, 8)
+            setPadding(0, dp(8), 0, dp(8))
         })
     }
     private fun button(label: Int, action: () -> Unit): Button = Button(this).also {
@@ -165,9 +167,22 @@ class ConfiguratorActivity : Activity() {
         pathInput = null
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 20, 32, 20)
+            setPadding(dp(32), dp(20), dp(32), dp(20))
         }
-        setContentView(ScrollView(this).apply { addView(content) })
+        setContentView(ScrollView(this).apply {
+            // Apply padding to the viewport so even its first/last controls stay
+            // inside bars/cutouts after scrolling, including edge-to-edge SDK 35+.
+            setOnApplyWindowInsetsListener { view, insets ->
+                val safe = if (Build.VERSION.SDK_INT >= 30)
+                    insets.getInsets(android.view.WindowInsets.Type.systemBars() or
+                        android.view.WindowInsets.Type.displayCutout())
+                else @Suppress("DEPRECATION") insets.systemWindowInsets
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
+            addView(content)
+            requestApplyInsets()
+        })
         text(getString(R.string.configure_title, getString(R.string.app_name)))
         message?.let(::text)
         if (resourceError) {
@@ -197,7 +212,7 @@ class ConfiguratorActivity : Activity() {
             guarded {
                 dataPath = storage.verifyDirectory(storage.privateData(), true).path
                 dataConsent = dataPath
-                val owned = storage.verifyDirectory(storage.ownedROMs(), true).path
+                val owned = storage.verifyDirectory(storage.ownedROMs(), true, readOnly = true).path
                 mode = "scoped"
                 pathInput = null
                 step = "roms"

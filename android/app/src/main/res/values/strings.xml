@@ -29,7 +29,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="retry">Retry startup</string>
     <string name="owned_storage_unavailable">App-owned storage is unavailable. Reconnect the storage and retry.</string>
     <string name="volume_unavailable">The selected current-user volume is unavailable.</string>
-    <string name="volume_not_mounted">The selected volume is not mounted for read/write access.</string>
+    <string name="volume_not_mounted">The selected volume is not mounted with the required access.</string>
     <string name="volume_user_unverified">Cannot verify this volume for the current Android user.</string>
     <string name="volume_mount_changed">The selected volume mount has changed.</string>
     <string name="local_provider_required">Choose a local folder from the external-storage provider on this device.</string>
@@ -39,7 +39,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="android_folder_refused">Choose a folder outside the volume\'s Android directory.</string>
     <string name="tree_escape_refused">Folder escapes the selected volume.</string>
     <string name="direct_not_granted">Direct filesystem access has not been granted.</string>
-    <string name="persistent_access_required">The picker did not grant persistent read/write access.</string>
+    <string name="persistent_access_required">The picker did not grant persistent read access.</string>
     <string name="tree_access_revoked">Folder access was revoked. Choose the folder again.</string>
     <string name="absolute_path_required">Enter an absolute folder path.</string>
     <string name="unknown_volume">Unknown storage volume.</string>
@@ -53,6 +53,7 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="storage_choice_required">Choose how to store games before continuing.</string>
     <string name="configuration_save_failed">Could not save configuration. Retry.</string>
     <string name="directory_create_failed">Cannot create %1$s. Restore access and retry.</string>
+    <string name="directory_read_failed">Cannot read %1$s. Restore access and retry.</string>
     <string name="directory_access_failed">Cannot read and write %1$s. Restore access and retry.</string>
     <string name="directory_probe_failed">Read/write check failed: %1$s</string>
     <string name="directory_probe_remove_failed">Cannot remove access check: %1$s</string>
@@ -77,4 +78,6 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="media_override">Existing MediaDirectory override: %1$s. Media stays there; the selected ROM folder remains authoritative.</string>
     <string name="media_unavailable">MediaDirectory points to inaccessible storage: %1$s. Restore this folder or correct MediaDirectory in es_settings.xml, then retry. No replacement media folder will be selected.</string>
     <string name="invalid_adopted_settings">Cannot read the selected settings file. Correct es_settings.xml or select another data folder.</string>
+    <string name="frontend_restart_waiting">Waiting for the frontend to close before restarting…</string>
+    <string name="frontend_restart_recovery">The frontend could not restart yet. Retry after it closes, or return to your home screen and open the app again. Your games and settings are kept.</string>
 </resources>

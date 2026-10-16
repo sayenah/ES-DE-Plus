@@ -200,9 +200,14 @@ internal object AppDataSmoke {
                     val scoped = StorageModel(object : ContextWrapper(context) {
                         override fun getExternalFilesDir(type: String?): File? = alias
                     })
-                    check(scoped.validate(StorageModel.Configuration("scoped", scopedROMs.path, "", false,
-                        scopedData.path)) == scopedROMs)
-                } finally { check(scopedData.delete()); check(scopedROMs.delete()) }
+                    val configuration = StorageModel.Configuration("scoped", scopedROMs.path, "", false, scopedData.path)
+                    android.system.Os.chmod(scopedROMs.path, 0x140) // 0500: real read/search, no write.
+                    check(!android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK))
+                    check(scoped.validate(configuration) == scopedROMs)
+                    android.system.Os.chmod(scopedData.path, 0x140)
+                    try { rejected { scoped.validate(configuration) } }
+                    finally { android.system.Os.chmod(scopedData.path, 0x1c0) }
+                } finally { android.system.Os.chmod(scopedROMs.path, 0x1c0); check(scopedData.delete()); check(scopedROMs.delete()) }
             } finally { check(alias.delete()); check(target.delete()); check(aliases.delete()) }
 
             storage.confirmData(candidate.path)

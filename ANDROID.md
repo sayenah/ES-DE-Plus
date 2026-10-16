@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus Android data-folder passages adapted from this upstream MIT document. -->
 # ES-DE Frontend - Android documentation
 
 This document contains information specific to the Android release, for more general ES-DE documentation refer to the [User guide](USERGUIDE.md) as well as the general [FAQ](FAQ.md).
@@ -14,7 +15,7 @@ Table of contents:
 
 When you first start ES-DE you will be greeted by a welcome screen, this is part of the _configurator_, the ES-DE onboarding interface. The configurator is easy to use and will guide you through the necessary setup steps.
 
-As a first step you need to give ES-DE the required storage access permission or it will not be able to function. Just enable the setting and the configurator will proceed to the next step. Next you will need to define an application data directory where your settings, scraped media, custom collections and so on will be stored. By default this will be placed in the _ES-DE_ directory in the root of your device's internal storage, and this directory will be created for you automatically.
+In ES-DE Plus the configurator asks for storage permission first (full file access is recommended), then the application data folder, then the ROM folder. The default data folder is _ES-DE-Plus_ at the root of the current user's primary storage, created only after confirmation. Every other destination, including an existing _ES-DE_ folder, requires the adoption warning before any inspection. App-private storage is the secondary option and is deleted on uninstall. Settings, scraped media, gamelists, collections, downloaded themes and custom systems use the selected data folder; valid media overrides remain authoritative.
 
 After this step you need to select a ROMs directory where your game files will be stored, by default this will be named _ROMs_ and will be located in the root of you device's internal storage. You can however choose to place this on an SD card if you want to, just change the path using the Android file selector GUI. If you do change the path to the SD card you will however need to manually create the ROMs directory as well as to delete the empty directory that was created for you on the built-in storage.
 
@@ -24,7 +25,7 @@ This is basically the onboarding process, and ES-DE should now start up. Just be
 
 Also note that ES-DE does not install any emulators, you need to install those separately. There is more information about that topic later in this document.
 
-If you need to re-run the configurator for some reason then the easiest way is to go into the Android Apps setting screen and revoke the storage access permissions under _Special app access_. This will make the configurator run automatically next time you start ES-DE. Another way to force it to start is to clear the app's storage under _Storage & cache_ but this is normally not recommended as it also deletes all themes you have downloaded using the theme downloader. A third option would be to rename either the ES-DE or ROMs directory as this will also trigger the configurator on next app startup.
+If you need to re-run the configurator for some reason then the easiest way is to go into the Android Apps setting screen and revoke the storage access permissions under _Special app access_. This will make the configurator run automatically next time you start ES-DE. Another way to force it to start is to clear the app's storage under _Storage & cache_ but this deletes private data and the accepted folder selections; shared data and its downloaded themes remain in the selected folder. A third option would be to rename either the ES-DE or ROMs directory as this will also trigger the configurator on next app startup.
 
 ## Touch input overlay
 
@@ -36,7 +37,7 @@ Apart from this there are numerous options for the touch overlay, like the abili
 
 ## Retention of files and data
 
-Almost all files saved and used by ES-DE are kept in the shared storage on either the device's built-in storage or on the SD card. This means that uninstalling the ES-DE app will not remove any of that data. The only thing that will be deleted are themes that have been downloaded using the built-in theme downloader, as it's not possible to store these in the ES-DE application data directory for technical reasons.
+In ES-DE Plus, files in a selected shared application data folder survive uninstall, including downloaded themes under its `themes/` directory. App-private data and ROMs are deleted on uninstall. Changing folders never automatically copies, moves or deletes data between roots; back up and close other frontends before adopting shared data.
 
 ## Emulation on Android in general
 

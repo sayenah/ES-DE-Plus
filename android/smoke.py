@@ -13,20 +13,29 @@ import smoke_checks
 import launch_checks
 import pdf_smoke
 import app_data_smoke
+import lifecycle_smoke
 import smoke_support
+import smoke_session
+import smoke_phases
+import network_smoke
+import importer_navigation
 import json
 import os
 import tempfile
 
+phase = sys.argv[3] if len(sys.argv) == 4 and sys.argv[2] == '--phase' else 'core'
+assert sys.argv[2:] == [] or (len(sys.argv) == 4 and sys.argv[2] == '--phase' and
+                              phase in smoke_phases.PHASES), 'Usage: smoke.py APK [--phase PHASE]'
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
            if line.startswith('esde.applicationId='))
 activity = app + '/org.esdeplus.frontend.MainActivity'
 label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@name='app_name']").text
-evidence = pathlib.Path('android/evidence')
+evidence = pathlib.Path(os.environ.get('ESDE_SMOKE_EVIDENCE', 'android/evidence'))
 evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
+(evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 data_root = external + '/ES-DE-Plus'
@@ -45,8 +54,14 @@ def adb(*args, check=True, binary=False):
     # Only identified transport errors on read-only diagnostics can be replayed.
     # Product actions/assertions and ordinary command failures never qualify.
     for attempt in range(3 if args[:2] == ('logcat', '-d') else 1):
-        result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=not binary, timeout=90)
+        command_started = time.monotonic()
+        try:
+            result = subprocess.run(['adb', *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=not binary, timeout=90)
+        except subprocess.TimeoutExpired:
+            smoke_session.record_command(args, time.monotonic() - command_started, 'timeout')
+            raise
+        smoke_session.record_command(args, time.monotonic() - command_started, result.returncode)
         if not result.returncode or not smoke_support.transport_error(
                 result.stderr.decode(errors='replace') if binary else result.stderr):
             break
@@ -165,6 +180,7 @@ def launch():
         save_logs('frontend-readiness-failure')
         (evidence / 'frontend-readiness-failure-window.txt').write_text(shell('dumpsys', 'window'))
         (evidence / 'frontend-readiness-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        capture_frontend_stacks('frontend-readiness-failure')
         raise
     if any(node.get('text') == 'Got it' for node in hierarchy()):
         ui('Got it')
@@ -172,7 +188,39 @@ def launch():
 
 def save_logs(name):
     (evidence / (name + '-es_log.txt')).write_text(log())
+    (evidence / (name + '-es_log.txt.bak.txt')).write_text(shell('cat', logpath + '.bak', check=False))
     (evidence / (name + '-logcat.txt')).write_text(adb('logcat', '-d', '-v', 'threadtime'))
+
+
+def capture_frontend_stacks(name):
+    # Diagnose the live blocked process before caller cleanup. This never
+    # restarts the app or replays a product action/assertion.
+    pid = shell('pidof', app, check=False).strip()
+    if not pid.isdigit():
+        return
+    (evidence / (name + '-events.txt')).write_text(adb('logcat', '-d', '-b', 'events', '-v', 'threadtime'))
+    stacks = shell('sh', '-c', 'debuggerd -b ' + shlex.quote(pid) + ' 2>&1', check=False)
+    if not re.search(r'#00\s+pc\s', stacks):
+        root = adb('root', check=False)
+        adb('wait-for-device')
+        if 'cannot run as root' in root:
+            stacks += '\nCAPABILITY GAP: privileged frontend backtrace unavailable: ' + root
+        else:
+            try:
+                wait_for(lambda: shell('id', '-u', check=False).strip() == '0',
+                         'privileged frontend diagnostic shell', timeout=10)
+                stacks += '\nPrivileged backtrace:\n' + shell('sh', '-c',
+                    'debuggerd -b ' + shlex.quote(pid) + ' 2>&1', check=False)
+                shell('kill', '-3', pid, check=False)
+                time.sleep(2)
+                stacks += '\nJava trace files:\n' + shell('sh', '-c',
+                    'cat /data/anr/* 2>/dev/null', check=False)
+            finally:
+                adb('unroot', check=False)
+                adb('wait-for-device')
+            wait_for(lambda: shell('id', '-u', check=False).strip() == '2000',
+                     'ordinary shell after frontend diagnostics', timeout=10)
+    (evidence / (name + '-stacks.txt')).write_text(stacks)
 
 
 def key(code):
@@ -858,11 +906,7 @@ def gamelist_recipient_flow(mode):
         if api == 29:
             shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
         start_custom()
-        key('KEYCODE_ESCAPE')
-        for _ in range(7):
-            key('KEYCODE_DPAD_DOWN')
-        key('KEYCODE_ENTER')  # UTILITIES
-        key('KEYCODE_ENTER')  # GAME IMPORTER
+        importer_navigation.open_importer(globals(), mode)
         screenshot('importer-' + mode)
         key('KEYCODE_INSERT')  # real Y/start importer action
         temp_files = data_root + '/importer_temp/files'
@@ -897,6 +941,7 @@ def gamelist_recipient_flow(mode):
         wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(app) + r'/', focused_window()), 'imported app returns to frontend')
         screenshot('imported-app-return-' + mode)
     except Exception:
+        importer_navigation.capture_failure(type('Harness', (), globals()), mode + '-importer-flow-failure')
         screenshot(mode + '-gamelist-failure')
         save_logs(mode + '-gamelist-failure')
         raise
@@ -1115,25 +1160,35 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
+    if phase == 'integration' and device_api in (29, 34):
+        import update_smoke
+        update_record = pathlib.Path('android/evidence/update-identity.txt')
+        if update_record.resolve() != (evidence / update_record.name).resolve():
+            (evidence / update_record.name).write_bytes(update_record.read_bytes())
+        update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
-    api = int(shell('getprop', 'ro.build.version.sdk').strip())
+    api = device_api
+    shared = '/sdcard/ESDEPlusSmoke'
     if api == 29:
         shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
     (evidence / 'image.txt').write_text(shell('getprop'))
+    if phase not in ('core', 'app-data'):
+        smoke_phases.run(phase, globals())
+        raise SystemExit(0)
+    api = int(shell('getprop', 'ro.build.version.sdk').strip())
     # Genuine shared files, accessible to users through file transfer; no settings
     # or preferences are written by the host-side automation.
-    shared = '/sdcard/ESDEPlusSmoke'
     shell('mkdir', '-p', shared + '/nes')
     dummy = evidence / 'dummy.nes'
     dummy.write_bytes(b'\x00')
     for name in ['Smoke Alpha.nes', 'Smoke Beta.nes']:
         adb('push', str(dummy), shared + '/nes/' + name)
-    # Exercise the new feature before the long inherited regression sequence.
-    # Its real uninstall/reinstall and shared-root selection are then reset to
-    # the same fresh private app/denied-permission state the regressions expect.
-    app_data_smoke.run(globals())
+    if phase == 'app-data':
+        app_data_smoke.run(globals())
+        (evidence / 'session-result.txt').write_text('PASS: app-data\n')
+        raise SystemExit(0)
     clear_app()
     if api == 29:
         shell('pm', 'revoke', app, 'android.permission.READ_EXTERNAL_STORAGE')
@@ -1337,7 +1392,6 @@ try:
             'CAPABILITY: real typed-path selection already has no persisted tree')
         configured_system('direct-typed-path-system')
     launch_contract_probes('direct-typed')
-    pdf_smoke.run('direct', globals())
     # Cold/warm entry semantics: each alias reuses the SDL activity and updates
     # HOME only through the HOME entry. No preference or native flag injection.
     pid = shell('pidof', app).strip()
@@ -1694,12 +1748,12 @@ try:
             key('KEYCODE_BACK')
             wait_for(lambda: not shell('pidof', app, check=False).strip() and
                      native_shutdown(relaunched_pid), 'relaunch quits cleanly')
-    pdf_smoke.run('scoped', globals())
     real_retroarch_flow()
-    pdf_smoke.release(globals())
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
+except SystemExit:
+    raise
 except BaseException:
     save_logs('failure')
     screenshot('failure')

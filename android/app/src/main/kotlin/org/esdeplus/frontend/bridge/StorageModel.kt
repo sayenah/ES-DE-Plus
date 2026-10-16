@@ -22,7 +22,7 @@ class StorageModel(private val context: Context) {
     data class Configuration(val mode: String, val roms: String, val tree: String,
                              val createSystems: Boolean, val data: String = "")
     private val preferences = context.getSharedPreferences("storage", Context.MODE_PRIVATE)
-    private val grants = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    private val grants = Intent.FLAG_GRANT_READ_URI_PERMISSION
 
     private fun failure(id: Int, vararg values: Any) = IOException(context.getString(id, *values))
 
@@ -62,7 +62,7 @@ class StorageModel(private val context: Context) {
         val canonical = directory.canonicalFile
         val access = OsConstants.R_OK or OsConstants.X_OK or (if (readOnly) 0 else OsConstants.W_OK)
         if (!canonical.isDirectory || !Os.access(canonical.path, access) || canonical.list() == null)
-            throw failure(R.string.directory_access_failed, directory)
+            throw failure(if (readOnly) R.string.directory_read_failed else R.string.directory_access_failed, directory)
         if (readOnly) return canonical
         val probe = File.createTempFile(".esdeplus-access-", ".tmp", canonical)
         try {
@@ -184,28 +184,28 @@ class StorageModel(private val context: Context) {
         return directory
     }
 
-    fun validateDataContents(directory: File, readOnly: Boolean = false): String? {
+    fun validateDataContents(directory: File): String? {
         for (name in listOf("settings", "logs", "gamelists", "collections", "themes",
                 "custom_systems", "scripts", "screensavers", "screensavers/custom_slideshow", "controllers")) {
             val child = File(directory, name)
-            if (child.exists()) verifyDirectory(child, readOnly = readOnly)
+            if (child.exists()) verifyDirectory(child)
         }
         for (name in listOf("settings/es_settings.xml", "es_settings.xml", "settings/es_input.xml", "es_input.xml",
                 "logs/es_log.txt", "logs/es_log.txt.bak", "controllers/es_controller_mappings.cfg",
                 "es_controller_mappings.cfg")) {
             val child = File(directory, name)
             if (child.exists() && (!child.isFile || !Os.access(child.path,
-                    OsConstants.R_OK or (if (readOnly) 0 else OsConstants.W_OK))))
+                    OsConstants.R_OK or OsConstants.W_OK)))
                 throw failure(R.string.directory_access_failed, child)
         }
         val media = try { AdoptedSettings.mediaDirectory(directory) }
             catch (error: Exception) { throw failure(R.string.invalid_adopted_settings) }
         if (media == null) {
             val defaultMedia = File(directory, "downloaded_media")
-            if (defaultMedia.exists()) verifyDirectory(defaultMedia, readOnly = readOnly)
+            if (defaultMedia.exists()) verifyDirectory(defaultMedia)
             return null
         }
-        try { verifyDirectory(media, readOnly = readOnly) }
+        try { verifyDirectory(media) }
         catch (error: Exception) { throw failure(R.string.media_unavailable, media) }
         return media.path
     }
@@ -214,7 +214,7 @@ class StorageModel(private val context: Context) {
         if (!broadAccess()) throw failure(R.string.direct_not_granted)
         if ((flags and grants) != grants || flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0)
             throw failure(R.string.persistent_access_required)
-        val directory = verifyDirectory(inspectedPath(resolveTree(uri).path))
+        val directory = verifyDirectory(inspectedPath(resolveTree(uri, readOnly = true).path, readOnly = true), readOnly = true)
         try {
             context.contentResolver.takePersistableUriPermission(uri, flags and grants)
             verifyGrant(uri)
@@ -227,14 +227,14 @@ class StorageModel(private val context: Context) {
 
     private fun verifyGrant(uri: Uri) {
         if (context.contentResolver.persistedUriPermissions.none {
-                it.uri == uri && it.isReadPermission && it.isWritePermission })
+                it.uri == uri && it.isReadPermission })
             throw failure(R.string.tree_access_revoked)
     }
 
     // Missing picker fallback is an explicitly typed path, still resolved through
     // the same current-user volume list and access checks. Never invent a URI grant.
-    fun acceptPath(path: String, readOnly: Boolean = false): File {
-        return verifyDirectory(inspectedPath(path, readOnly = readOnly), readOnly = readOnly)
+    fun acceptPath(path: String): File {
+        return verifyDirectory(inspectedPath(path, readOnly = true), readOnly = true)
     }
 
     fun load(): Configuration? {
@@ -274,36 +274,41 @@ class StorageModel(private val context: Context) {
         Log.i("ES-DE-Plus", "Persisted tree grant count=${context.contentResolver.persistedUriPermissions.size}")
     }
 
-    fun validate(configuration: Configuration, readOnly: Boolean = false): File {
+    fun validate(configuration: Configuration): File {
         // Validation never creates a missing root or substitutes another root.
         if (configuration.mode == "direct" && !broadAccess()) throw failure(R.string.direct_access_revoked)
         val selectedData = dataDirectory(configuration)
-        val data = if (configuration.mode == "direct") inspectedPath(selectedData.path, data = true,
-            readOnly = readOnly) else selectedData.canonicalFile
+        val data = if (configuration.mode == "direct") inspectedPath(selectedData.path, data = true) else selectedData.canonicalFile
         if (data.path != configuration.data) throw failure(R.string.selected_folder_changed)
-        verifyDirectory(data, readOnly = readOnly)
-        validateDataContents(data, readOnly)
-        val roms = when (configuration.mode) {
+        verifyDirectory(data)
+        validateDataContents(data)
+        val roms = validateROMs(configuration)
+        verifyDisjoint(data, roms)
+        return roms
+    }
+
+    // Launch transports need reads only. Keep this separate from data-folder
+    // preflight, which must always prove writability at startup and resume.
+    fun validateROMs(configuration: Configuration): File {
+        return when (configuration.mode) {
             "scoped" -> {
                 if (configuration.roms != ownedROMs().canonicalPath || configuration.tree.isNotEmpty())
                     throw failure(R.string.owned_location_changed)
-                verifyDirectory(ownedROMs(), readOnly = readOnly)
+                verifyDirectory(ownedROMs(), readOnly = true)
             }
             "direct" -> {
-                if (configuration.tree.isEmpty()) acceptPath(configuration.roms, readOnly)
+                if (configuration.tree.isEmpty()) acceptPath(configuration.roms)
                 else {
                     if (!broadAccess()) throw failure(R.string.direct_access_revoked)
                     val uri = Uri.parse(configuration.tree)
                     verifyGrant(uri)
-                    val mapped = inspectedPath(resolveTree(uri, readOnly).path, readOnly = readOnly)
+                    val mapped = inspectedPath(resolveTree(uri, readOnly = true).path, readOnly = true)
                     if (mapped.path != configuration.roms) throw failure(R.string.selected_folder_changed)
-                    verifyDirectory(mapped, readOnly = readOnly)
+                    verifyDirectory(mapped, readOnly = true)
                 }
             }
             else -> throw failure(R.string.storage_mode_required)
         }
-        verifyDisjoint(data, roms)
-        return roms
     }
 
     fun problem(): String? = try {
