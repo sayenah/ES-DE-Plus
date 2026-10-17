@@ -1298,6 +1298,8 @@ try:
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
+    if phase == 'assets':
+        print(adb('install', '-r', 'android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     api = device_api
     shared = '/sdcard/ESDEPlusSmoke'

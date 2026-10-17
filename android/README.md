@@ -253,11 +253,16 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs five gating smoke phases, each in a distinct cold AVD: `core`
+CI runs six gating smoke phases, each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
-(update continuity on API 31/34 and network checks), `pdf-direct`, and
-`pdf-scoped` (including minified PDF/Unicode). The same built APK is installed
+(update continuity on API 31/34 and network checks), `pdf-direct`,
+`pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
+relaunches plus predictive-back cancellation on API 34). A stopped frontend's
+asset relaunch waits for a resumed, focused entry before using the existing
+restart helper; a back preview never starts another native main. Predictive
+back is absent on API 31 and edge gestures are not a TV navigation mode.
+The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass
 `--phase PHASE`; every phase is required for the complete CI regression suite.
@@ -291,7 +296,9 @@ also gets its own startup marker before activation, just like explicit starts.
 Every successful `adb install` also waits for package resource processing before
 returning to its caller. This covers initial installs, lower/higher update builds,
 debug/release reinstalls and the interactive emulator install through the shared
-ADB helpers, including PDF callers. `cmd overlay list --user USER android` and
+ADB helpers, including PDF callers and the assets session's test overlay. Both
+assets workflows install that overlay inside the session so its wait and logcat
+are recorded before the first frontend start. `cmd overlay list --user USER android` and
 the overlay dump identify enabled framework overlay paths. Only mutable framework
 overlays belong in per-package state. Android 12/13 filters immutable framework
 entries in `OverlayManagerSettings`; Android 14+ requests
@@ -362,9 +369,10 @@ around reading `es_log`, with a modification after that host's creation. Native
 `Log::init` rotates the old file before writing a new one; a stale old startup
 line cannot satisfy this condition. No native logfile or logging setting is changed.
 
-Emulator steps are bounded to 60/40/20/35/35 minutes for core/lifecycle/integration/
-PDF-direct/PDF-scoped. These allow margin above the prior green matrix's maxima
-(45/28/12/22/22 minutes, run 38904895297). An action failure or timeout after the
+Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
+PDF-direct/PDF-scoped/assets. These allow margin above the prior green matrix's maxima
+(45/28/12/22/22 minutes, run 38904895297), and the assets maximum of 9 minutes
+10 seconds in run 39005159816. An action failure or timeout after the
 child recorded exit 0 is recorded as `EMULATOR_SHUTDOWN_INFRASTRUCTURE` in
 `PHASE-emulator-result.txt`; a nonzero child remains `SESSION_FAILURE`. Either
 failure keeps the job red. This bounds teardown stalls without retrying sessions.

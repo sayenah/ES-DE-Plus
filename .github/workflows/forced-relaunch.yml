@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. Isolated WO-18 controls; evidence only, never APK uploads.
+name: Forced relaunch
+on:
+  workflow_dispatch:
+    inputs:
+      unfixed:
+        description: Pin the original main host for the G-30 positive controls
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - {name: api31, api: 31, target: google_apis, profile: pixel_2}
+          - {name: api34, api: 34, target: google_apis, profile: pixel_2}
+          - {name: tv36, api: 36, target: android-tv, profile: tv_1080p}
+    env:
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+      GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
+      ESDE_ASSETS_UNFIXED: ${{ inputs.unfixed || false }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Record candidate host or pin unfixed positive control
+        run: |
+          mkdir -p android/evidence
+          if [[ "$ESDE_ASSETS_UNFIXED" == true ]]; then
+            git show 899f98cf0444408cb00b60175dc4d606aaadc65d:android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt > android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt
+            echo 'Unfixed host: main 899f98cf0444408cb00b60175dc4d606aaadc65d; probe files from the run SHA' > android/evidence/assets-host-source.txt
+          else
+            echo "Candidate host: $GITHUB_SHA" > android/evidence/assets-host-source.txt
+          fi
+          sha256sum android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt >> android/evidence/assets-host-source.txt
+      - name: Verify restore-chain rejection controls
+        run: python3 android/forced_relaunch_smoke.py self-test
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ${{ env.GRADLE_USER_HOME }}/wrapper
+            ${{ env.GRADLE_USER_HOME }}/caches
+          key: android-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/*') }}
+      - name: Install pinned tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.31.5'
+          echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: android/.deps/downloads
+          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh', 'android/distribution.py') }}
+      - name: Prepare source and headers
+        run: tools/Android_dependencies_setup.sh
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: deps
+        with:
+          path: |
+            android/.deps/install
+            android/libs
+          key: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+      - name: Build dependencies on cache miss
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          tools/Android_dependencies_build.sh arm64-v8a
+          tools/Android_dependencies_build.sh x86_64
+        env:
+          JOBS: '4'
+      - name: Restore generated headers after cached installs
+        run: tools/Android_dependencies_setup.sh
+      - name: Assemble debug host and test recipient
+        run: |
+          cd android
+          ./gradlew --no-daemon :app:assembleDebug :stub-emulator:assembleDebug :forced-relaunch-overlay:assembleDebug
+      - name: Require the ordinary Gradle APK outputs before emulator startup
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          test -s android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk
+          test -s android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk > android/evidence/assets-apk-hashes.txt
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: ${{ matrix.image.name }} ASSETS-only control
+        id: smoke-assets
+        timeout-minutes: 20
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.image.api }}
+          target: ${{ matrix.image.target }}
+          profile: ${{ matrix.image.profile }}
+          arch: x86_64
+          avd-name: esde-assets
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            python3 android/smoke_session.py assets -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase assets
+      - name: Record assets emulator result
+        if: always()
+        run: python3 android/smoke_session.py emulator-result assets "${{ steps.smoke-assets.outcome }}"
+      - name: Upload evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forced-relaunch-${{ matrix.image.name }}-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
+          retention-days: 7
