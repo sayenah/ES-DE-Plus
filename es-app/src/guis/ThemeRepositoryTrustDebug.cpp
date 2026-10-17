@@ -963,6 +963,59 @@ namespace
     }
 } // namespace
 
+void ThemeRepositoryTrust::Testing::initialFailure(const std::string& path,
+                                                   const std::map<std::string, std::string>& values,
+                                                   bool parsed,
+                                                   int fd,
+                                                   int64_t firstSize)
+{
+    // Only explicit, ES-DE-Plus-authored control suites collect this evidence.
+    // Record interpretation and bytes without logging arbitrary config values.
+    if (!running)
+        return;
+    const git_error* error {git_error_last()};
+    evidence << "METADATA path=" << path << '\n'
+             << "INIT-FAIL parsed=" << parsed << " error-class=" << (error ? error->klass : -1)
+             << " keys=" << values.size() << " first-fstat-size=" << firstSize << '\n';
+    for (const auto& entry : values) {
+        if (entry.first.compare(0, 5, "core.") == 0 && entry.first.size() < 80 &&
+            entry.first.find_first_not_of("abcdefghijklmnopqrstuvwxyz.-_") == std::string::npos)
+            evidence << "INIT-KEY " << entry.first << "="
+                     << (entry.second == "true" || entry.second == "false" || entry.second == "0" ?
+                             entry.second :
+                             "<other>")
+                     << '\n';
+        else
+            evidence << "INIT-KEY non-core; value omitted\n";
+    }
+    struct stat info {
+    };
+    if (fd < 0 || fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)) {
+        evidence << "INIT-VIEW unavailable errno=" << errno << '\n';
+        return;
+    }
+    // Observe the original held descriptor before its close can refresh a
+    // cached view; this never reopens or retries the failed clone.
+    if (lseek(fd, 0, SEEK_SET) < 0) {
+        evidence << "INIT-VIEW seek failed errno=" << errno << '\n';
+        return;
+    }
+    std::string bytes;
+    char buffer[4096];
+    ssize_t count;
+    while ((count = ::read(fd, buffer, sizeof(buffer))) > 0 && bytes.size() < 65536)
+        bytes.append(buffer, count);
+    evidence << "INIT-VIEW dev=" << info.st_dev << " inode=" << info.st_ino
+             << " size=" << info.st_size << " read=" << bytes.size() << " read-status=" << count;
+    git_oid hash;
+    if (count == 0 && git_odb_hash(&hash, bytes.data(), bytes.size(), GIT_OBJECT_BLOB) == 0) {
+        char hex[GIT_OID_HEXSZ + 1];
+        git_oid_tostr(hex, sizeof(hex), &hash);
+        evidence << " blob-sha1=" << hex;
+    }
+    evidence << '\n';
+}
+
 void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
                                                    const std::string& privateDirectory)
 {

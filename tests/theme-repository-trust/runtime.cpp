@@ -47,6 +47,33 @@ int main(int argc, char** argv)
     std::cout << result;
     if (result.find("PASS: app-context theme trust controls\n") == std::string::npos)
         return 1;
+    std::string diagnosticRoot {root + "/diagnostic-boundary.XXXXXX"};
+    if (!mkdtemp(diagnosticRoot.data()))
+        return 1;
+    std::filesystem::create_directories(diagnosticRoot + "/private");
+    std::filesystem::create_directories(diagnosticRoot + "/data");
+    std::ofstream(diagnosticRoot + "/private/theme-trust.request")
+        << "ES-DE-Plus theme trust controls\n";
+    ThemeRepositoryTrust::Testing::barrier = [](const std::string& stage, const std::string& path) {
+        if (stage == "clone-after-init")
+            std::ofstream(path + "/.git/config")
+                << "[core]\n bare=false\n repositoryformatversion=0\n"
+                   " secret=diagnostic-sentinel-not-a-secret\n";
+    };
+    ThemeRepositoryTrust::configure(diagnosticRoot + "/data/themes", diagnosticRoot + "/private");
+    ThemeRepositoryTrust::Testing::barrier = {};
+    std::ifstream captured(diagnosticRoot + "/private/theme-trust.result");
+    const std::string diagnostic {std::istreambuf_iterator<char>(captured),
+                                  std::istreambuf_iterator<char>()};
+    if (diagnostic.find("INIT-FAIL parsed=0") == std::string::npos ||
+        diagnostic.find("METADATA path=") == std::string::npos ||
+        diagnostic.find("blob-sha1=") == std::string::npos ||
+        diagnostic.find("FAIL:") == std::string::npos ||
+        diagnostic.find("diagnostic-sentinel-not-a-secret") != std::string::npos) {
+        std::cerr << "FAIL: init refusal diagnostic did not preserve redacted evidence\n";
+        return 1;
+    }
+    std::cout << "PASS: expected init refusal retains metadata/hash evidence and redacts values\n";
     std::string cleanupRoot {root + "/cleanup-boundary.XXXXXX"};
     if (!mkdtemp(cleanupRoot.data()))
         return 1;

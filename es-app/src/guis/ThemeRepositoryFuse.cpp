@@ -89,12 +89,14 @@ namespace
 #endif
     }
 
-    bool configValues(int fd, ThemeRepositoryFuse::Values& values)
+    bool configValues(int fd, ThemeRepositoryFuse::Values& values, struct stat* first = nullptr)
     {
         struct stat info {
         };
         if (fd < 0 || fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || lseek(fd, 0, SEEK_SET) < 0)
             return failed("Clone init config is not a readable regular file");
+        if (first)
+            *first = info;
 #if defined(__APPLE__)
         const std::string descriptor {"/dev/fd/" + std::to_string(fd)};
 #else
@@ -149,8 +151,23 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
                                  const std::function<bool()>& identity,
                                  Values& initial)
 {
-    if (!identity() || !readConfig(path + "/.git/config", initial) || !initKeys(initial))
-        return failed("Clone init keys differ from the ES-DE-Plus init-key table");
+    if (!identity())
+        return failed("Clone identity is unavailable before config retirement");
+    {
+        Descriptor source {
+            open((path + "/.git/config").c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)};
+        struct stat first {
+        };
+        first.st_size = -1;
+        const bool parsed {configValues(source.value, initial, &first)};
+        if (!parsed || !initKeys(initial)) {
+#ifndef NDEBUG
+            ThemeRepositoryTrust::Testing::initialFailure(path, initial, parsed, source.value,
+                                                          first.st_size);
+#endif
+            return failed("Clone init keys differ from the ES-DE-Plus init-key table");
+        }
+    }
     Descriptor parent {open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)};
     Descriptor directory {
         parent.value < 0 ?

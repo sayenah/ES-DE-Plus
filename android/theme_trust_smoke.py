@@ -23,17 +23,21 @@ def collect(h):
     finally:
         h.evidence.joinpath('theme-trust-controls.txt').write_text(result())
     report = result()
-    if ('FAIL: actual update fetch positive control' in report or
-            'FAIL: T-4 config changed' in report):
+    if 'FAIL:' in report:
         # Observe the failed fixture later from the same UID, without retrying
         # the operation or changing its failed result. This distinguishes a
         # persistent missing origin from a transient shared-filesystem view.
         root = h.shell('readlink', '-f', h.data_root, check=False).strip()
-        allowed = re.escape(root) + r'/theme-trust\.[^/\n]+/themes/original'
+        allowed = re.escape(root) + r'/theme-trust\.[^/\n]+/themes/(?:original|pending|themes-list)'
         paths = set(re.findall(r'^FETCH remote lookup=.*? path=(.*?) error=', report, re.M))
         paths.update(re.findall(r'^METADATA path=(.*?)$', report, re.M))
         for path in paths:
             if not root.startswith('/') or not re.fullmatch(allowed, path):
+                continue
+            resolved = h.shell('run-as', h.app, 'readlink', '-f', path + '/.git/config', check=False).strip()
+            if resolved != path + '/.git/config':
+                h.evidence.joinpath('theme-trust-failed-config-identity.txt').write_text(
+                    'Refused diagnostic traversal through a redirected config: ' + path + '\n')
                 continue
             observation = ('run-as UID=' + h.shell('run-as', h.app, 'id', '-u', check=False) +
                            '\nstat uid/gid/mode/inode/size=' +
