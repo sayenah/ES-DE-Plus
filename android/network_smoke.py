@@ -305,6 +305,7 @@ def run(harness, scoped=False):
 
 def run_checks(harness, scoped=False):
     import theme_trust_smoke
+    import theme_fuse_smoke
     h = type('Harness', (), harness)
     h.evidence.joinpath('network-assertion-positive-controls.txt').write_text(controls())
     subprocess.run([sys.executable, 'android/network-control.py', '--self-test'], check=True)
@@ -558,9 +559,11 @@ def run_checks(harness, scoped=False):
         controls = not scoped and not negative and not trust_controls_complete
         if controls:
             theme_trust_smoke.request(h)
+            theme_fuse_smoke.request(h)
         downloader()
         if controls:
             theme_trust_smoke.collect(h)
+            theme_fuse_smoke.collect(h)
             trust_controls_complete = True
         capture('network-' + ('control' if negative else 'fixed') + '-first-use')
         # Debug prerequisites have their own result and may mention arbitrary

@@ -144,9 +144,9 @@ elseif(WIN32)
 elseif(ANDROID)
     # Android-only shared theme repository trust hooks written for ES-DE-Plus.
     list(APPEND ES_SOURCES src/guis/ThemeRepositoryTrust.cpp
-         src/guis/ThemeRepositoryTrustDebug.cpp)
+         src/guis/ThemeRepositoryTrustDebug.cpp src/guis/ThemeRepositoryFuse.cpp)
     list(APPEND ES_HEADERS src/guis/ThemeRepositoryTrust.h
-         src/guis/ThemeRepositoryTrustDebug.h)
+         src/guis/ThemeRepositoryTrustDebug.h src/guis/ThemeRepositoryFuse.h)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_library(main MODULE ${ES_SOURCES} ${ES_HEADERS})
     target_link_libraries(main PRIVATE ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS}

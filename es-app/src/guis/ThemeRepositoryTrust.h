@@ -51,6 +51,7 @@ namespace ThemeRepositoryTrust
     bool verify(git_repository* repository);
     bool remote(git_remote* remote, const std::string& path);
     bool corrupt(int error, const std::string& path);
+    bool cloneComplete(const std::string& path);
     int create(git_repository** out, const char* path, int bare, void* payload);
     int createRemote(git_remote** out,
                      git_repository* repository,

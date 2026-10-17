@@ -17,12 +17,21 @@ namespace ThemeRepositoryTrust::Testing
         NONE,
         TEMPORARY,
         REPLACE,
-        SEARCH
+        SEARCH,
+        RETIRE_WRITE,
+        RETIRE_RENAME,
+        RETIRE_CLEANUP
     };
     extern Fault fault;
+    extern bool retireEnabled;
     extern std::function<void(const std::string&, const std::string&)> barrier;
     void runIfRequested(const std::string& themes, const std::string& privateDirectory);
     void afterAdmission(const std::string& themes, const std::string& privateDirectory);
+    void preservingSession(const std::function<void()>& operation);
+    void fuseIfRequested(
+        const std::string& themes,
+        const std::string& privateDirectory,
+        const std::function<bool(const std::string&, const std::string&, int)>& operation);
     void changeBeforeLookup(git_repository* repository,
                             const std::string& path,
                             const std::string& privateDirectory,

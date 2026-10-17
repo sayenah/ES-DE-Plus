@@ -18,3 +18,10 @@ Material completed build facts (protocol §6). One line each.
 2026-10-16 | PR #14 / a0ffd4721 (merge cdd85365a), push run 38881575505 (all legs green), PR run 38881580057, Linux 38881579904 | Pixel Plus app icon (D-016 am. 1): adaptive icon with monochrome layer, round icon, TV banner, configurator mark; packaged-resource audit gating. PR-run TV PDF-scoped red ruled stock-onboarding preemption (D-016 am. 2). Dry-run only; no APK published.
 2026-10-16 | PR #23 / 9d0057d17 (merge 64be69c90), push run 38920984549 attempts 1–2, Linux 38920992299, dispatch 38920983141 | PDF manual closes on the first key after resume (WO-16, G-28): binary-string page cache (stop 0.1–0.25 s instead of 5.9 s in debug builds), harness waits for the logged input-block release, first-poll closes asserted on API 31+ phones; 20/20 closes and resumed opens on API 34. API 34 integration red in attempt 2 = forced relaunch of the held host (G-29/G-30 family, D-024 am. 6). Dry-run only; no APK published.
 2026-10-16 | PR #22 / fde8e223a (merge on main), run 38974691187, Linux 38974691278 | Android 12 (API 31) minimum (D-023): minSdk 31, native dependencies for API 31, CI phone leg API 31; API 31/TV all sessions green, API 34 integration = G-29/G-30 forced relaunch. Front page badge and CI-images line updated to Android 12. Dry-run only; no APK published.
+
+## Theme downloader upgrade and merge verification
+
+For any libgit2 upgrade or upstream merge touching the downloader (D-012 amendments 6–7):
+
+- Re-run the 20-clone/three-changing-update view-versus-lower gate (AC-3) and unchanged lower-config gate (AC-5).
+- Review both invariants: the update path writes no `.git/config`; ES-DE-Plus production code makes no case-variant probes or intentional rename-over-existing-file operations under shared `.git`. See [the checklist](upstream-sync-checklist.md).

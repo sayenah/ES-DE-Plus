@@ -5,6 +5,7 @@
 //  Written for ES-DE-Plus using public libgit2 APIs; no libgit2 source copied.
 
 #include "ThemeRepositoryTrust.h"
+#include "ThemeRepositoryFuse.h"
 
 #include <algorithm>
 #include <map>
@@ -140,6 +141,7 @@ std::vector<ThemeRepositoryTrust::Entry> ThemeRepositoryTrust::jsonEntries(
 #include <thread>
 #endif
 #include <iostream>
+#include <stdexcept>
 #if defined(__ANDROID__)
 #include "Log.h"
 #endif
@@ -167,6 +169,7 @@ namespace
         std::set<std::string> paths;
         std::set<std::string> retained;
         std::set<std::string> measured;
+        std::map<std::string, ThemeRepositoryFuse::Values> initialized;
 #ifndef NDEBUG
         std::thread::id ownerThread;
 #endif
@@ -575,12 +578,72 @@ int ThemeRepositoryTrust::create(git_repository** out, const char* path, int bar
 #endif
     if (result == 0 && !verify(repository, path))
         result = -1;
+    if (result == 0) {
+        ThemeRepositoryFuse::Values initial;
+        bool retired;
+#ifndef NDEBUG
+        if (!Testing::retireEnabled)
+            retired =
+                ThemeRepositoryFuse::readConfig(std::string(path) + "/.git/config", initial) &&
+                ThemeRepositoryFuse::initKeys(initial);
+        else
+#endif
+            retired = ThemeRepositoryFuse::retire(
+                path, [&] { return verify(repository, path); }, initial);
+        if (!retired)
+            result = -1;
+        else
+            session.initialized[canonical(path)] = std::move(initial);
+#ifndef NDEBUG
+        if (retired && Testing::retireEnabled)
+            diagnostic("clone config retired and init meaning validated: " + std::string(path));
+#endif
+    }
     if (result != 0) {
         git_repository_free(repository);
         return result;
     }
     *out = repository;
     return 0;
+}
+
+#ifndef NDEBUG
+void ThemeRepositoryTrust::Testing::preservingSession(const std::function<void()>& operation)
+{
+    const auto previous {session};
+    auto restore = [&] {
+        configure(previous.suppliedRoot, previous.filesDirectory, previous.report);
+        if (previous.configured && !replaceConfig(previous.repositories))
+            throw std::runtime_error("Cannot restore trust configuration after debug controls");
+    };
+    try {
+        operation();
+    }
+    catch (...) {
+        restore();
+        throw;
+    }
+    restore();
+}
+#endif
+
+bool ThemeRepositoryTrust::cloneComplete(const std::string& path)
+{
+#ifndef NDEBUG
+    if (Testing::barrier)
+        Testing::barrier("clone-post-check", path);
+#endif
+    if (!permit(path) || !session.initialized.count(canonical(path.c_str())) ||
+        !session.repositories.count(nameOf(path)))
+        return failure("Clone completion has no initialized admission");
+    git_repository* repository {nullptr};
+    const bool opened {git_repository_open(&repository, path.c_str()) == 0};
+    const bool success {
+        opened && verify(repository, path) &&
+        ThemeRepositoryFuse::complete(repository, session.initialized.at(canonical(path.c_str())),
+                                      session.repositories.at(nameOf(path)))};
+    git_repository_free(repository);
+    return success;
 }
 
 int ThemeRepositoryTrust::createRemote(
@@ -597,6 +660,11 @@ int ThemeRepositoryTrust::createRemote(
 #endif
     if (!verify(repository, path))
         return -1;
+    if (!session.initialized.count(canonical(path.c_str())) ||
+        !ThemeRepositoryFuse::installed(path, session.initialized.at(canonical(path.c_str())))) {
+        failure("Clone init config is unavailable before remote creation");
+        return -1;
+    }
     const int result {git_remote_create(out, repository, name, url)};
     if (result != 0)
         return result;

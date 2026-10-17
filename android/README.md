@@ -99,6 +99,10 @@ have no TLS protection. Close other writers and back up shared data before adopt
 Every libgit2 upgrade must recheck the protected config levels, exact canonical
 workdir matching, quoting and search-path reinitialization used by this policy.
 
+New Android clones retire the initialization config through an exclusively created regular temporary sibling, an unlink, and a rename, with identity checks before the writes and before remote creation. The installed config and completed clone are checked by meaning. The unlink-to-rename interval remains a shared-writer race; exclusive creation and later checks do not make it race-free. This applies only to new clones, never to established repositories. Older repositories and other writers can still expose stale Git metadata on Android 12.
+
+Path, device and inode checks do not establish content freshness. Content checks detect the state observed at that check; they do not authenticate shared-writable contents or exclude subsequent stale reads or concurrent modification.
+
 Data and ROM folders must be separate folders on verified current-user volumes,
 not volume roots or volume-relative `Android/` paths. ROM selection also refuses
 legacy frontend data directory names. A SAF tree is picker UX and ROM interop; it

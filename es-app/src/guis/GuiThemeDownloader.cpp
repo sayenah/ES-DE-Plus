@@ -11,6 +11,7 @@
 
 #if defined(__ANDROID__)
 #include "guis/ThemeRepositoryTrust.h"
+#include "guis/ThemeRepositoryTrustDebug.h"
 #include "utils/PlatformUtilAndroid.h"
 #endif
 
@@ -1323,6 +1324,53 @@ void GuiThemeDownloader::setupFullscreenViewer()
 
 void GuiThemeDownloader::update(int deltaTime)
 {
+#if defined(__ANDROID__) && !defined(NDEBUG)
+    ThemeRepositoryTrust::Testing::fuseIfRequested(
+        mThemeDirectory, AndroidVariables::sInternalDataDirectory,
+        [this](const std::string& path, const std::string& url, int action) {
+            const std::string previous {mThemeDirectory};
+            const bool updated {mHasThemeUpdates};
+            const bool listed {mLatestThemesList};
+            auto restore = [&] {
+                mThemeDirectory = previous;
+                mHasThemeUpdates = updated;
+                mLatestThemesList = listed;
+                mFetching = false;
+                mRepositoryError = RepositoryError::NO_REPO_ERROR;
+                mMessage.clear();
+                std::promise<bool>().swap(mPromise);
+                mFuture = mPromise.get_future();
+            };
+            mThemeDirectory = path.substr(0, path.find_last_of('/') + 1);
+            const std::string name {path.substr(path.find_last_of('/') + 1)};
+            std::promise<bool>().swap(mPromise);
+            mFuture = mPromise.get_future();
+            bool success {false};
+            try {
+                if (action == 2) {
+                    git_repository* repository {nullptr};
+                    success = git_repository_open(&repository, path.c_str()) == 0 &&
+                              ThemeRepositoryTrust::verify(repository, path);
+                    if (success)
+                        success = !checkLocalChanges(repository) &&
+                                  !checkCorruptRepository(repository) &&
+                                  !checkDivergedRepository(repository);
+                    if (success)
+                        resetRepository(repository);
+                    git_repository_free(repository);
+                }
+                else
+                    success =
+                        !(action == 0 ? cloneRepository(name, url) : fetchRepository(name, false));
+            }
+            catch (...) {
+                restore();
+                throw;
+            }
+            restore();
+            return success;
+        });
+#endif
     if (!mAttemptedFetch) {
 #if defined(__ANDROID__)
         if (!ThemeRepositoryTrust::ready()) {
@@ -1820,6 +1868,16 @@ bool GuiThemeDownloader::cloneRepository(const std::string& repositoryName, cons
     }
 #endif
     errorCode = git_clone(&repository, &url[0], &path[0], &cloneOptions);
+#if defined(__ANDROID__)
+    if (errorCode == 0 && !ThemeRepositoryTrust::cloneComplete(path)) {
+        git_repository_free(repository);
+        repository = nullptr;
+        errorCode = -1;
+        // Only the newly cloned, admitted destination can be discarded.
+        if (ThemeRepositoryTrust::permit(path))
+            Utils::FileSystem::removeDirectory(path, true);
+    }
+#endif
 #if defined(__ANDROID__) && !defined(NDEBUG)
     if (errorCode != 0)
         ThemeRepositoryTrust::diagnoseCloneFailure(path, errorCode);

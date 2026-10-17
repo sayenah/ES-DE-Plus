@@ -27,6 +27,7 @@
 namespace ThemeRepositoryTrust::Testing
 {
     Fault fault {Fault::NONE};
+    bool retireEnabled {true};
     std::function<void(const std::string&, const std::string&)> barrier;
 } // namespace ThemeRepositoryTrust::Testing
 
@@ -233,7 +234,9 @@ namespace
         options.remote_cb_payload = &trace;
         options.local = GIT_CLONE_NO_LOCAL;
         git_repository* repository {nullptr};
-        const int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
+        int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
+        if (result == 0 && !ThemeRepositoryTrust::cloneComplete(path))
+            result = -1;
         if (result != 0)
             ThemeRepositoryTrust::diagnoseCloneFailure(path, result);
         trace.config = read(path + "/.git/config");
@@ -1113,5 +1116,239 @@ void ThemeRepositoryTrust::Testing::changeBeforeLookup(git_repository* repositor
     write(privateDirectory + "/theme-trust.remote-race-result",
           "PASS: worker changed origin after precheck and before lookup\npath=" + path +
               "\nprevious=" + previous + "\nreplacement=" + replacement + "\n");
+}
+
+void ThemeRepositoryTrust::Testing::fuseIfRequested(
+    const std::string& themes,
+    const std::string& privateDirectory,
+    const std::function<bool(const std::string&, const std::string&, int)>& operation)
+{
+    const std::string request {privateDirectory + "/theme-fuse.request"};
+    if (read(request) != "ES-DE-Plus FUSE controls\n")
+        return;
+    fs::rename(request, request + ".running");
+    if (!ThemeRepositoryTrust::ready()) {
+        write(privateDirectory + "/theme-fuse.result",
+              "FAIL: FUSE controls require trust prerequisites\n");
+        return;
+    }
+    std::ostringstream output;
+    size_t sequence {0};
+    auto restoreRetirement = std::unique_ptr<bool, std::function<void(bool*)>>(
+        &retireEnabled, [](bool* value) { *value = true; });
+    try {
+        preservingSession([&] {
+            const std::string privateRoot {temporary(privateDirectory)};
+            fs::create_directory(privateRoot + "/config");
+            const std::string source {privateRoot + "/source"};
+            const std::string url {"file://" + source};
+            git_repository* raw {nullptr};
+            git(git_repository_init(&raw, source.c_str(), 0), "FUSE source init");
+            Repository origin(raw, git_repository_free);
+            auto advance = [&](const std::string& description) {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                writer.StartObject();
+                writer.Key("themes");
+                writer.StartArray();
+                writer.StartObject();
+                writer.Key("name");
+                writer.String(("ES-DE-Plus " + description).c_str());
+                writer.Key("author");
+                writer.String("ES-DE-Plus");
+                writer.Key("reponame");
+                writer.String("original");
+                writer.Key("url");
+                writer.String(url.c_str());
+                writer.EndObject();
+                writer.EndArray();
+                writer.EndObject();
+                write(source + "/themes.json", buffer.GetString());
+                git_index* index {nullptr};
+                git(git_repository_index(&index, origin.get()), "FUSE list index");
+                git(git_index_add_bypath(index, "themes.json"), "FUSE list content changed");
+                git(git_index_write(index), "FUSE list index staged");
+                git_index_free(index);
+                commit(origin.get(), source, description);
+            };
+            advance("FUSE initial tracked content");
+            advance("FUSE second tracked content");
+            git_reference* sourceHead {nullptr};
+            git(git_repository_head(&sourceHead, origin.get()), "FUSE source branch");
+            const std::string branch {git_reference_shorthand(sourceHead)};
+            git_reference_free(sourceHead);
+            std::string normalized {themes};
+            while (!normalized.empty() && normalized.back() == '/')
+                normalized.pop_back();
+            const std::string data {fs::path(normalized).parent_path().string()};
+            const std::string base {temporary(data)};
+
+            auto snapshot = [&](const std::string& path, const char* mode, const char* stage,
+                                int cloneNumber, int cycle) {
+                const std::string directory {path + "/.git"};
+                std::set<std::string> names {"config",
+                                             "HEAD",
+                                             "index",
+                                             "FETCH_HEAD",
+                                             "packed-refs",
+                                             "ORIG_HEAD",
+                                             "refs/heads/" + branch,
+                                             "refs/remotes/origin/" + branch,
+                                             "refs/remotes/origin/retired"};
+                if (fs::is_directory(directory)) {
+                    for (auto it = fs::recursive_directory_iterator(directory);
+                         it != fs::recursive_directory_iterator(); ++it) {
+                        const std::string relative {
+                            it->path().lexically_relative(directory).string()};
+                        if (relative == "objects" || relative == "hooks" || relative == "info") {
+                            it.disable_recursion_pending();
+                            continue;
+                        }
+                        if (!it->is_directory())
+                            names.insert(relative);
+                    }
+                }
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                writer.StartObject();
+                writer.Key("sequence");
+                writer.Uint64(++sequence);
+                writer.Key("mode");
+                writer.String(mode);
+                writer.Key("stage");
+                writer.String(stage);
+                writer.Key("clone");
+                writer.Int(cloneNumber);
+                writer.Key("cycle");
+                writer.Int(cycle);
+                writer.Key("directory");
+                writer.String(directory.c_str());
+                writer.Key("expectedHead");
+                writer.String(head(origin.get()).c_str());
+                writer.Key("files");
+                writer.StartArray();
+                for (const auto& name : names) {
+                    struct stat info {
+                    };
+                    const bool exists {lstat((directory + "/" + name).c_str(), &info) == 0};
+                    require(exists || errno == ENOENT, "FUSE metadata stat");
+                    require(!exists || S_ISREG(info.st_mode), "FUSE metadata regular file");
+                    writer.StartObject();
+                    writer.Key("path");
+                    writer.String(name.c_str());
+                    writer.Key("exists");
+                    writer.Bool(exists);
+                    if (exists) {
+                        const auto bytes {read(directory + "/" + name)};
+                        git_oid hash;
+                        git(git_odb_hash(&hash, bytes.data(), bytes.size(), GIT_OBJECT_BLOB),
+                            "FUSE view hash");
+                        char hex[GIT_OID_HEXSZ + 1];
+                        git_oid_tostr(hex, sizeof(hex), &hash);
+                        writer.Key("size");
+                        writer.Uint64(info.st_size);
+                        writer.Key("read");
+                        writer.Uint64(bytes.size());
+                        writer.Key("hash");
+                        writer.String(hex);
+                    }
+                    writer.EndObject();
+                }
+                writer.EndArray();
+                writer.EndObject();
+                write(privateDirectory + "/theme-fuse.snapshot.new", buffer.GetString());
+                fs::rename(privateDirectory + "/theme-fuse.snapshot.new",
+                           privateDirectory + "/theme-fuse.snapshot");
+                const std::string expected {std::to_string(sequence) + " CONTINUE\n"};
+                bool acknowledged {false};
+                for (int wait {0}; wait < 480; ++wait) {
+                    const std::string reply {read(privateDirectory + "/theme-fuse.ack")};
+                    require(reply != std::to_string(sequence) + " STOP\n",
+                            "AC-3 view/lower mismatch: stop under protocol section 9");
+                    if (reply == expected) {
+                        acknowledged = true;
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                }
+                require(acknowledged, "bounded FUSE readback rendezvous");
+            };
+
+            for (bool enabled : {false, true}) {
+                retireEnabled = enabled;
+                const char* mode {enabled ? "on" : "off"};
+                const std::string root {base + "/fuse-" + mode};
+                const std::string directory {root + "/themes"};
+                fs::create_directories(root);
+                configure(directory, privateRoot + "/config");
+                require(ready() && expectList(url) && admit(document(url)), "FUSE spike admission");
+                for (int number {0}; number < 20; ++number) {
+                    const std::string path {directory +
+                                            (number % 2 ? "/original" : "/themes-list")};
+                    require(permit(path), "FUSE clone destination admission");
+                    fs::remove_all(path);
+                    git_reference* extra {nullptr};
+                    git_oid latest;
+                    git(git_oid_fromstr(&latest, head(origin.get()).c_str()), "FUSE source oid");
+                    git(git_reference_create(&extra, origin.get(), "refs/heads/retired", &latest, 1,
+                                             "ES-DE-Plus pruning fixture"),
+                        "FUSE source extra ref");
+                    git_reference_free(extra);
+                    const bool cloned {operation(path, url, 0)};
+                    snapshot(path, mode, "clone-after-listing", number, -1);
+                    if (enabled)
+                        require(cloned, "AC-3 mandatory actual downloader clone");
+                    if (!enabled)
+                        continue; // Fixed-size diagnostic; not a retry of a mandatory operation.
+                    {
+                        auto repository = open(path);
+                        git_refdb* database {nullptr};
+                        git(git_repository_refdb(&database, repository.get()), "FUSE refdb");
+                        if ((number / 2) % 2)
+                            git(git_refdb_compress(database), "FUSE pre-existing packed refs");
+                        git_refdb_free(database);
+                    }
+                    for (int cycle {0}; cycle < 3; ++cycle) {
+                        advance("FUSE tracked update " + std::to_string(number) + "/" +
+                                std::to_string(cycle));
+                        if (cycle == 0)
+                            git(git_reference_remove(origin.get(), "refs/heads/retired"),
+                                "FUSE source prune");
+                        if (cycle == 2) {
+                            auto repository = open(path);
+                            git_oid previous;
+                            git(git_oid_fromstr(&previous, head(repository.get()).c_str()),
+                                "FUSE detached oid");
+                            git(git_repository_set_head_detached(repository.get(), &previous),
+                                "FUSE detached fixture");
+                        }
+                        // The callback invokes the production downloader methods,
+                        // including resetRepository and fetchRepository.
+                        snapshot(path, mode, "before-update", number, cycle);
+                        const bool updated {operation(path, url, 2) && operation(path, url, 1)};
+                        fingerprint(path);
+                        snapshot(path, mode, "after-update-listing", number, cycle);
+                        require(updated, "AC-3 mandatory actual downloader reset/update");
+                        {
+                            auto repository = open(path);
+                            require(head(repository.get()) == head(origin.get()) &&
+                                        read(path + "/theme.xml") == read(source + "/theme.xml"),
+                                    "AC-3 actual tracked content and HEAD advance");
+                            require(read(path + "/themes.json") == read(source + "/themes.json"),
+                                    "AC-3 themes-list tracked content advances");
+                        }
+                    }
+                    output << "PASS: R1 clone=" << number << " updates=3 actual downloader paths\n";
+                }
+            }
+        });
+        output << "PASS: FUSE retirement controls; 20 mandatory clones x 3 changing updates\n";
+    }
+    catch (const std::exception& error) {
+        output << "FAIL: " << error.what() << '\n';
+    }
+    write(privateDirectory + "/theme-fuse.result.new", output.str());
+    fs::rename(privateDirectory + "/theme-fuse.result.new",
+               privateDirectory + "/theme-fuse.result");
 }
 #endif
