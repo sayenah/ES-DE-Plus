@@ -290,13 +290,14 @@ Every successful `adb install` also waits for package resource processing before
 returning to its caller. This covers initial installs, lower/higher update builds,
 debug/release reinstalls and the interactive emulator install through the shared
 ADB helpers, including PDF callers. `cmd overlay list --user USER android` and
-the overlay dump identify enabled framework overlay paths. The sampled SDK version
-selects Android's actual package resource contract: API 31–33 includes every
-enabled framework overlay; API 34+ requests paths with
+the overlay dump identify enabled framework overlay paths. Only mutable framework
+overlays belong in per-package state. Android 12/13 filters immutable framework
+entries in `OverlayManagerSettings`; Android 14+ requests
 `includeImmutableOverlays=false` in `OverlayManagerService.updatePackageManagerLocked`.
-TV's enabled framework overlays are immutable APK overlays, so its API 36
-per-package set is empty; mutable phone palette overlays must be present. This
-uses platform version and overlay metadata, without an image-name exception.
+An empty public list can therefore coexist with immutable raw-dump entries.
+TV's enabled framework overlays are immutable APK overlays, so its per-package
+set is empty; mutable phone palette overlays must be present. This uses overlay
+metadata, without an image-name or SDK exception.
 `dumpsys package` user state must contain the expected
 paths in `overlay paths` (fabricated) or `legacy overlay paths` (APK/resourceDirs),
 and omit known disabled framework paths. Two consecutive qualifying samples are required (one-second

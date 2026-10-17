@@ -12,12 +12,6 @@ DEADLINE = 120
 
 
 def processed(snapshot, package, version, user):
-    sdk = snapshot.get('sdk', {})
-    if sdk.get('status') != 0 or not sdk.get('output', '').strip().isdigit():
-        return None
-    api = int(sdk['output'].strip())
-    if api < 31:
-        return None
     if any(snapshot[key]['status'] != 0 for key in ('list', 'overlays', 'package')):
         return None
     listing = snapshot['list']['output']
@@ -39,38 +33,39 @@ def processed(snapshot, package, version, user):
             mutable[match[1]] = flag[1] == 'true'
     if not enabled.issubset(paths):
         return None
-    if not listing.strip() and paths:
-        return None  # The two OMS reads disagree; do not accept state churn.
+    if not listing.strip() and any(mutable.values()):
+        # Android 12/13 hides immutable framework entries from public lists,
+        # while their raw dump can still contain them. Mutable entries cannot
+        # disappear from a successful target list without state churn.
+        return None
     dump = snapshot['package']['output']
     if ('Package [' + package + ']') not in dump or not re.search(r'\bversionCode=' + re.escape(version) + r'\b', dump):
         return None
     state = re.search(r'^\s*User ' + re.escape(user) + r':([^\n]*)(.*?)(?=^\s*User \d+:|\Z)', dump, re.M | re.S)
     if not state or 'installed=true' not in state[1]:
         return None
-    # Android 12/13 OMS includes every enabled framework overlay. Android 14+
-    # requests getEnabledOverlayPaths("android", user, false), excluding immutable
-    # overlays. APK paths are legacy/resourceDirs; fabricated paths are not.
+    # Android 12/13 Settings filters immutable framework overlays; Android
+    # 14+ OMS requests includeImmutableOverlays=false. Only mutable framework
+    # paths belong in installed packages on either platform. APK
+    # overlays appear as legacy/resourceDirs paths; fabricated paths do not.
     # AOSP OverlayManagerService.updatePackageManagerLocked / Settings.dumpPackageLPr.
-    include_immutable = api < 34
     blocks = re.findall(r'^\s*(?:legacy )?overlay paths:\n((?:\s*/[^\n]+\n)+)', state[2], re.M)
     actual = {path for block in blocks for path in block.split()}
-    expected = {paths[name] for name in enabled if include_immutable or mutable[name]}
+    expected = {paths[name] for name in enabled if mutable[name]}
     if actual.intersection(paths.values()) != expected:
         return None
-    return dict(api=api, immutable_in_package=include_immutable,
-                enabled=sorted(enabled), immutable=sorted(name for name in enabled if not mutable[name]),
+    return dict(enabled=sorted(enabled), immutable=sorted(name for name in enabled if not mutable[name]),
                 expected_paths=sorted(expected), applied_paths=sorted(actual))
 
 
 def sample(package, user, remaining):
     result = {}
-    for name, args in (('sdk', ['getprop', 'ro.build.version.sdk']),
-                       ('list', ['cmd', 'overlay', 'list', '--user', user, 'android']),
+    for name, args in (('list', ['cmd', 'overlay', 'list', '--user', user, 'android']),
                        ('overlays', ['cmd', 'overlay', 'dump', '--user', user]),
                        ('package', ['dumpsys', 'package', package])):
         try:
             completed = subprocess.run(['adb', 'shell', *args], capture_output=True, text=True,
-                                       timeout=max(.01, min(5, remaining / 4)))
+                                       timeout=max(.01, min(5, remaining / 3)))
             result[name] = dict(status=completed.returncode, output=completed.stdout, error=completed.stderr)
         except subprocess.TimeoutExpired:
             result[name] = dict(status='timeout', output='', error='Install readiness sample timed out')
@@ -131,8 +126,7 @@ def controls():
     import tempfile
     package = 'org.esdeplus.frontend'
     def snapshot(applied=True, path='/data/resource-cache/accent.frro'):
-        return dict(sdk=dict(status=0, output='34\n'),
-                    list=dict(status=0, output='android\n[x] com.android.systemui:accent\n'),
+        return dict(list=dict(status=0, output='android\n[x] com.android.systemui:accent\n'),
                     overlays=dict(status=0, output='com.android.systemui:accent:0 {\n'
                         ' mTargetPackageName.....: android\n mIsMutable.............: true\n'
                         ' mBaseCodePath..........: ' + path + '\n}\n'),
@@ -153,7 +147,7 @@ def controls():
     assert result['outcome'] == 'PROCESSED' and result['seconds'] == 20
     assert exercise([snapshot(False)])['outcome'] == 'DEADLINE_EXPIRED'
     assert exercise([snapshot(), snapshot(path='/new.frro'), snapshot(path='/new.frro')])['seconds'] == 2
-    for key in ('sdk', 'list', 'overlays', 'package'):
+    for key in ('list', 'overlays', 'package'):
         bad = snapshot()
         bad[key]['status'] = 1
         assert processed(bad, package, '42', '0') is None
@@ -168,13 +162,16 @@ def controls():
     stale['package']['output'] += '   /old.frro\n'
     assert processed(stale, package, '42', '0') is None
     none = snapshot(False); none['list']['output'] = 'android\n[ ] com.android.systemui:accent\n'
-    empty = dict(api=34, immutable_in_package=False, enabled=[], immutable=[], expected_paths=[], applied_paths=[])
-    assert processed(none, package, '42', '0') == empty
+    assert processed(none, package, '42', '0') == dict(enabled=[], immutable=[], expected_paths=[], applied_paths=[])
     none['list']['output'] = ''; none['overlays']['output'] = ''
-    assert processed(none, package, '42', '0') == empty
+    assert processed(none, package, '42', '0') == dict(enabled=[], immutable=[], expected_paths=[], applied_paths=[])
     immutable = snapshot(False)
     immutable['overlays']['output'] = immutable['overlays']['output'].replace(': true', ': false')
     assert exercise([immutable])['outcome'] == 'PROCESSED'
+    immutable['list']['output'] = ''
+    assert exercise([immutable])['outcome'] == 'PROCESSED'
+    missing_mutable = snapshot(False); missing_mutable['list']['output'] = ''
+    assert exercise([missing_mutable])['outcome'] == 'DEADLINE_EXPIRED'
     mixed = snapshot(False)
     mixed['list']['output'] += '[x] static.framework\n'
     mixed['overlays']['output'] += ('static.framework:0 {\n mTargetPackageName.....: android\n'
@@ -184,27 +181,9 @@ def controls():
     apk['package']['output'] = apk['package']['output'].replace('overlay paths:', 'legacy overlay paths:')
     proof = processed(apk, package, '42', '0')
     assert proof and proof['expected_paths'] == ['/mutable.apk']
-    # Android 12/13 per-package resourceDirs include immutable APK overlays;
-    # accepting their missing pre-broadcast paths would hide the install race.
-    for api in (31, 32, 33):
-        legacy = snapshot(False, '/static.apk')
-        legacy['sdk']['output'] = str(api)
-        legacy['overlays']['output'] = legacy['overlays']['output'].replace(': true', ': false')
-        assert exercise([legacy])['outcome'] == 'DEADLINE_EXPIRED'
-        legacy['package']['output'] += '  legacy overlay paths:\n   /static.apk\n'
-        assert exercise([legacy])['outcome'] == 'PROCESSED'
-        proof = processed(legacy, package, '42', '0')
-        assert proof['immutable_in_package'] and proof['expected_paths'] == ['/static.apk']
-        legacy['sdk']['output'] = '34'
-        assert processed(legacy, package, '42', '0') is None
-    for sdk in ('', 'unknown', '30'):
-        bad = snapshot(); bad['sdk']['output'] = sdk
-        assert processed(bad, package, '42', '0') is None
-    bad = snapshot(); del bad['sdk']
-    assert processed(bad, package, '42', '0') is None
     bad = snapshot(); bad['overlays']['output'] = bad['overlays']['output'].replace(' mIsMutable.............: true\n', '')
     assert processed(bad, package, '42', '0') is None
     return ('PASS: install controls: stable-but-unprocessed package blocked; enabled mutable overlay paths must be applied; '
-            'API 31–33 immutable framework paths required, API 34+ excludes them; legacy APK paths accepted; '
+            'immutable framework overlays excluded, including hidden entries behind an empty public list; legacy APK paths accepted; '
             'replacement paths reset proof; wrong version/user, missing mapping and failed reads do not qualify; '
             'bounded deadline records expiry without failing.\n')
