@@ -50,10 +50,10 @@ def imported_app_name(name):
 
 
 def activity_present(dump, package, activity):
-    for record in re.findall(r'\bActivityRecord\{([^}]+)\}', dump):
-        component = re.search(r'\bu\d+\s+([^/\s]+)/([^\s]+)\s+t\d+', record)
-        if component:
-            owner, name = component.groups()
+    for record, task in re.findall(r'\bActivityRecord\{([^}\n]+)\}(?: t(\d+)\b[^}\n]*\})?', dump):
+        component = re.search(r'\bu\d+\s+([^/\s]+)/([^\s]+)(?:\s+t(\d+))?', record)
+        if component and (component[3] or task):
+            owner, name = component[1], component[2]
             if name.startswith('.'):
                 name = owner + name
             if (owner, name) == (package, activity):
@@ -148,10 +148,14 @@ def positive_controls():
     equal([(n.tag, n.attrib) for n in after], [(n.tag, n.attrib) for n in before], 'Unrelated user settings preserved')
     package, activity = 'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'
     for name in ['.browser.retroactivity.RetroActivityFuture', activity]:
-        record = 'Hist #0: ActivityRecord{abc u0 ' + package + '/' + name + ' t95}'
-        equal(activity_present(record, package, activity), True, 'Exact Android activity record')
+        for suffix in [' t95}', '} t95}', '} t95 f}']:
+            record = 'Hist #0: ActivityRecord{abc u0 ' + package + '/' + name + suffix
+            equal(activity_present(record, package, activity), True, 'Exact Android activity record')
     for label, record in [('wrong activity package', 'ActivityRecord{abc u0 other/' + activity + ' t95}'),
                           ('wrong activity class', 'ActivityRecord{abc u0 com.retroarch/.Other t95}'),
+                          ('missing task ID', 'ActivityRecord{abc u0 ' + package + '/' + activity + '}'),
+                          ('wrong external-task package', 'ActivityRecord{abc u0 other/' + activity + '} t95}'),
+                          ('wrong external-task class', 'ActivityRecord{abc u0 com.retroarch/.Other} t95}'),
                           ('activity mentioned without record', package + '/' + activity)]:
         reject(label, lambda record=record: equal(activity_present(record, package, activity), True, label))
     warning = [{'text': t, 'package': 'com.android.vending'} for t in [

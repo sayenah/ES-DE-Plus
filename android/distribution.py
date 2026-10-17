@@ -363,7 +363,7 @@ def shader_mapping(source):
 
 
 def dependency_cache(key, hit):
-    require(isinstance(key, str) and re.fullmatch(r'android-ndk28\.2\.13676358-api31-[a-f0-9]{64}', key),
+    require(isinstance(key, str) and re.fullmatch(r'android-ndk28\.2\.13676358-api33-[a-f0-9]{64}', key),
             'Missing or invalid dependency-cache key')
     require(isinstance(hit, bool), 'Invalid dependency-cache hit state')
     return {'key': key, 'hit': hit}
@@ -653,7 +653,7 @@ def make_bundle(apk):
         'meson': run('meson', '--version'), 'clang': run(str(pathlib.Path(os.environ['ANDROID_NDK_HOME']) /
             'toolchains/llvm/prebuilt/linux-x86_64/bin/clang'), '--version'),
         'Gradle': '8.13', 'AGP': '8.13.2', 'Kotlin': '2.2.21', 'SDK': '36',
-        'SDK CMake': '3.31.5', 'build-tools': '36.0.0', 'minSdk': '31',
+        'SDK CMake': '3.31.5', 'build-tools': '36.0.0', 'minSdk': '33',
     }
     require('Pkg.Revision = 28.2.13676358' in tools['NDK'], 'Unexpected NDK provenance')
     require(os.environ.get('DEPENDENCY_CACHE_HIT') in {'true', 'false'}, 'Missing cache restore result')
@@ -915,7 +915,7 @@ def gate_controls():
             print(f'PASS: missed/forbidden APK upload rejected: {error}')
         else:
             raise ValueError('APK publication control escaped')
-    key = 'android-ndk28.2.13676358-api31-' + 'a' * 64
+    key = 'android-ndk28.2.13676358-api33-' + 'a' * 64
     dependency_cache(key, True)
     dependency_cache(key, False)
     for invalid_key, invalid_hit in [('', False), (key, 'true')]:

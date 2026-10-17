@@ -3,7 +3,7 @@ Test build of the open-source ES-DE-Plus Android app from `main` at `@SHA@`,
 [CI run @RUN@, originating attempt @ATTEMPT@](https://github.com/sayenah/ES-DE-Plus/actions/runs/@RUN@/attempts/@ATTEMPT@).
 Version: `@VERSION@`, Android version code **@CODE@**.
 
-**Install:** download `@APK@` on Android 12 / API 31 or newer (arm64 phones,
+**Install:** download `@APK@` on Android 13 / API 33 or newer (arm64 phones,
 tablets and TV boxes; x86_64 emulators). Published test builds now use one stable
 **test** key. When moving from the older throwaway-key builds, back up and
 uninstall once: uninstall deletes app-owned ROMs, settings, collections, media
