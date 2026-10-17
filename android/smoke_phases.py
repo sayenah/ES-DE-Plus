@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Independent fresh-AVD regression sessions.
-PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets')
+PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets', 'clear-task')
 
 
 def prepare(harness, mode):
@@ -55,6 +55,11 @@ def run(phase, harness):
         forced_relaunch_smoke.run(harness)
     elif phase == 'lifecycle':
         h.lifecycle_smoke.run(harness)
+        import clear_task_smoke
+        clear_task_smoke.run(harness)
+    elif phase == 'clear-task':
+        import clear_task_smoke
+        clear_task_smoke.run(harness)
     elif phase == 'integration':
         h.network_smoke.run(harness)
     else:

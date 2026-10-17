@@ -40,6 +40,15 @@ class FrontendRedirectActivity : Activity() {
         forwarded = true
         val frontend = MainActivity.liveInstance()
         if (frontend != null) {
+            if (intent.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0 &&
+                intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0) {
+                // The old record can still be waiting for this replacement to
+                // become idle. Moving its now-empty task forward replays the
+                // history intent and creates another redirect instead.
+                frontend.retireForEntry(intent)
+                finish()
+                return
+            }
             frontend.receiveEntry(intent)
             val task = getSystemService(ActivityManager::class.java).appTasks
                 .firstOrNull { it.taskInfo.taskId == frontend.taskId }

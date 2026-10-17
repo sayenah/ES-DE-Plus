@@ -104,6 +104,7 @@ jobs:
           python3 android/smoke_session.py self-test
           python3 android/pdf_close_probe_test.py
           python3 android/forced_relaunch_smoke.py self-test
+          python3 android/clear_task_smoke.py
       - name: Record exact Gradle cache key
         id: gradle-cache-key
         env:
