@@ -164,11 +164,20 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
     if (temporary.value < 0)
         return failed("Clone retirement temporary name is occupied or inaccessible");
     auto refuse = [&](const char* message) {
-    // Never promote a leftover. Removal is confined to this disposable
-    // initialized directory; subsequent shared writers can still race it.
+        // A held directory descriptor does not preserve admission after a
+        // parent was moved. Failed identity also blocks temporary cleanup.
+        struct stat held {
+        }, named {};
+        const bool owned {
+            identity() && fstat(temporary.value, &held) == 0 &&
+            fstatat(directory.value, temporaryName, &named, AT_SYMLINK_NOFOLLOW) == 0 &&
+            S_ISREG(named.st_mode) && held.st_dev == named.st_dev && held.st_ino == named.st_ino};
 #ifndef NDEBUG
         if (ThemeRepositoryTrust::Testing::fault !=
-            ThemeRepositoryTrust::Testing::Fault::RETIRE_CLEANUP)
+                ThemeRepositoryTrust::Testing::Fault::RETIRE_CLEANUP &&
+            owned)
+#else
+        if (owned)
 #endif
             unlinkat(directory.value, temporaryName, 0);
         return failed(message);

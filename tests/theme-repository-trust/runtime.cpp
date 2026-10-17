@@ -6,6 +6,7 @@
 
 #include "ThemeRepositoryFuse.h"
 #include "ThemeRepositoryTrust.h"
+#include "ThemeRepositoryTrustDebug.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -44,6 +45,32 @@ int main(int argc, char** argv)
     const std::string result {std::istreambuf_iterator<char>(stream),
                               std::istreambuf_iterator<char>()};
     std::cout << result;
+    if (result.find("PASS: app-context theme trust controls\n") == std::string::npos)
+        return 1;
+    std::string cleanupRoot {root + "/cleanup-boundary.XXXXXX"};
+    if (!mkdtemp(cleanupRoot.data()))
+        return 1;
+    std::filesystem::create_directories(cleanupRoot + "/private");
+    std::filesystem::create_directories(cleanupRoot + "/data");
+    const std::string candidate {cleanupRoot + "/data/themes/themes-list"};
+    ThemeRepositoryTrust::configure(cleanupRoot + "/data/themes", cleanupRoot + "/private");
+    if (!ThemeRepositoryTrust::expectList("file://" + probe))
+        return 1;
+    ThemeRepositoryTrust::Testing::barrier = [&](const std::string& stage,
+                                                 const std::string& path) {
+        if (stage == "clone-retire-written")
+            std::filesystem::rename(path + "/.git", path + "/.git-moved");
+    };
+    git_repository* interrupted {nullptr};
+    const int refused {ThemeRepositoryTrust::create(&interrupted, candidate.c_str(), 0, nullptr)};
+    ThemeRepositoryTrust::Testing::barrier = {};
+    git_repository_free(interrupted);
+    if (refused == 0 || !std::filesystem::is_regular_file(candidate + "/.git-moved/" +
+                                                          ThemeRepositoryFuse::temporaryName)) {
+        std::cerr << "FAIL: lost identity did not block retirement cleanup\n";
+        return 1;
+    }
+    std::cout << "PASS: lost gitdir identity blocks retirement cleanup; leftover is not promoted\n";
     ThemeRepositoryTrust::close();
     git_libgit2_shutdown();
     return result.find("PASS: app-context theme trust controls\n") != std::string::npos ? 0 : 1;
