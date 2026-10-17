@@ -2,6 +2,8 @@
 # ES-DE-Plus — written for ES-DE-Plus. WO-19 fixed/control resize evidence only; no APK upload.
 name: Diagnose window size
 on:
+  pull_request:
+    paths: ["android/window_size_smoke.py", ".github/workflows/window-size-diagnostic.yml"]
   workflow_dispatch:
 permissions:
   contents: read
