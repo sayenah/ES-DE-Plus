@@ -2,12 +2,12 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 <resources><string name="app_name">ES-DE Plus</string>
     <string name="configure_title">Configure %1$s</string>
-    <string name="storage_choice">Choose a storage mode first. Application data stays in app-owned storage; official ES-DE data is never adopted.</string>
-    <string name="scoped_mode">Use app-owned storage (recommended)</string>
-    <string name="direct_mode">Use direct filesystem compatibility</string>
+    <string name="storage_choice">1. Choose storage access. Full file access is recommended so your application data and games survive uninstall. Then choose the application-data folder, followed by the ROM folder.</string>
+    <string name="scoped_mode">Use app-owned storage (secondary; deleted on uninstall)</string>
+    <string name="direct_mode">Use direct filesystem compatibility (recommended full file access)</string>
     <string name="scoped_howto">ROM folder: %1$s
 How to add games: connect USB, install Android platform tools on your computer, enable USB debugging, and authorize the computer. Run adb push your-ROM-folder/. %2$s/ (organize games into system folders such as nes). No storage permission is required. Uninstalling removes app-owned games. Import through a file picker is not available yet.</string>
-    <string name="direct_explanation">Compatibility mode requires broad storage access. Select your shared ROM folder after granting access. A SAF selection alone does not provide the native filesystem access this mode needs.</string>
+    <string name="direct_explanation">Compatibility mode requires broad storage access. Choose your application-data folder, then your shared ROM folder after granting access. A SAF selection alone does not provide the native filesystem access this mode needs.</string>
     <string name="grant_access">Grant direct filesystem access</string>
     <string name="choose_folder">Choose shared ROM folder</string>
     <string name="direct_howto">Selected ROM folder: %1$s
@@ -29,22 +29,23 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="retry">Retry startup</string>
     <string name="owned_storage_unavailable">App-owned storage is unavailable. Reconnect the storage and retry.</string>
     <string name="volume_unavailable">The selected current-user volume is unavailable.</string>
-    <string name="volume_not_mounted">The selected volume is not mounted for read/write access.</string>
+    <string name="volume_not_mounted">The selected volume is not mounted with the required access.</string>
     <string name="volume_user_unverified">Cannot verify this volume for the current Android user.</string>
     <string name="volume_mount_changed">The selected volume mount has changed.</string>
     <string name="local_provider_required">Choose a local folder from the external-storage provider on this device.</string>
     <string name="invalid_tree">Invalid storage tree.</string>
     <string name="tree_root_refused">Choose a folder inside the volume, not its root.</string>
     <string name="official_data_refused">Choose a ROM folder outside Android and official ES-DE application data.</string>
+    <string name="android_folder_refused">Choose a folder outside the volume\'s Android directory.</string>
     <string name="tree_escape_refused">Folder escapes the selected volume.</string>
     <string name="direct_not_granted">Direct filesystem access has not been granted.</string>
-    <string name="persistent_access_required">The picker did not grant persistent read/write access.</string>
+    <string name="persistent_access_required">The picker did not grant persistent read access.</string>
     <string name="tree_access_revoked">Folder access was revoked. Choose the folder again.</string>
     <string name="absolute_path_required">Enter an absolute folder path.</string>
     <string name="unknown_volume">Unknown storage volume.</string>
     <string name="unknown_volume_id">Unknown storage volume identifier.</string>
-    <string name="folder_inside_volume">Choose a folder inside the volume.</string>
-    <string name="folder_mapping_changed">Folder mapping changed.</string>
+    <string name="folder_inside_volume">Choose a folder inside a mounted current-user volume. Restore the selected storage if it is unavailable.</string>
+    <string name="folder_mapping_changed">Folder mapping changed. Choose the actual destination path and confirm again.</string>
     <string name="owned_location_changed">App-owned storage location changed. Review the configuration.</string>
     <string name="direct_access_revoked">Direct filesystem access was revoked.</string>
     <string name="selected_folder_changed">The selected volume or folder changed.</string>
@@ -52,12 +53,32 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="storage_choice_required">Choose how to store games before continuing.</string>
     <string name="configuration_save_failed">Could not save configuration. Retry.</string>
     <string name="directory_create_failed">Cannot create %1$s. Restore access and retry.</string>
+    <string name="directory_read_failed">Cannot read %1$s. Restore access and retry.</string>
     <string name="directory_access_failed">Cannot read and write %1$s. Restore access and retry.</string>
     <string name="directory_probe_failed">Read/write check failed: %1$s</string>
     <string name="directory_probe_remove_failed">Cannot remove access check: %1$s</string>
     <string name="storage_validation_failed">Storage validation failed. Retry.</string>
     <string name="resource_verification_failed">Resource verification failed: %1$s</string>
     <string name="resource_installation_incomplete">Resource installation is incomplete. Retry.</string>
+    <string name="data_folder_step">2. Choose the application-data folder before the ROM folder.</string>
+    <string name="data_path_hint">Absolute application-data folder path</string>
+    <string name="choose_data_folder">Choose application-data folder</string>
+    <string name="change_data_folder">Change application-data folder</string>
+    <string name="confirm_data_folder">Review application-data folder</string>
+    <string name="use_data_folder">Confirm and use this data folder</string>
+    <string name="data_selected">Application-data folder: %1$s
+3. Choose a separate ROM folder.</string>
+    <string name="data_create_consent">Create or use %1$s for settings, media, gamelists, collections, themes and custom systems? Shared data survives uninstall. No files have been read or written there yet.</string>
+    <string name="data_adopt_consent">Use %1$s in place? Existing settings, custom systems, gamelists, collections, media overrides, theme repositories and custom event scripts take effect. Apps with all-files access and USB/MTP writers can change these contents. Optional Android settings may require capabilities this device lacks. Normal writes and upstream migrations will happen. Concurrent use with another frontend can lose or corrupt changes. Back up this folder and close the other app first. No files have been read or written there yet.</string>
+    <string name="previous_private_data">Previous private location: %1$s. No data is automatically copied, moved or deleted between roots. Data left in that private location is deleted on uninstall.</string>
+    <string name="private_location_unavailable">The previous private location is currently unavailable. No private data is copied; it is deleted on uninstall. Restore that volume to access it, or explicitly choose another mounted volume for shared data.</string>
+    <string name="private_data_warning">Application-data folder: %1$s. This private data, including settings, media and themes, is deleted on uninstall.</string>
+    <string name="data_folder_required">Choose and confirm the application-data folder before continuing. Your existing ROM selection is kept.</string>
+    <string name="shared_data_quote_refused">Shared application-data folder names cannot contain double quotation marks. Choose a folder without double quotation marks, then review it again.</string>
+    <string name="overlapping_folders">Application-data and ROM folders must be separate; neither may contain the other.</string>
+    <string name="media_override">Existing MediaDirectory override: %1$s. Media stays there; the selected ROM folder remains authoritative.</string>
+    <string name="media_unavailable">MediaDirectory points to inaccessible storage: %1$s. Restore this folder or correct MediaDirectory in es_settings.xml, then retry. No replacement media folder will be selected.</string>
+    <string name="invalid_adopted_settings">Cannot read the selected settings file. Correct es_settings.xml or select another data folder.</string>
     <string name="frontend_restart_waiting">Waiting for the frontend to close before restarting…</string>
     <string name="frontend_restart_recovery">The frontend could not restart yet. Retry after it closes, or return to your home screen and open the app again. Your games and settings are kept.</string>
 </resources>

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import app_data_smoke
 import icon_smoke
 import lifecycle_smoke
 import smoke_support
@@ -38,8 +39,9 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
-logpath = external + '/ES-DE-Plus/logs/es_log.txt'
-settings = external + '/ES-DE-Plus/settings/es_settings.xml'
+data_root = external + '/ES-DE-Plus'
+logpath = data_root + '/logs/es_log.txt'
+settings = data_root + '/settings/es_settings.xml'
 startup_baseline = ''
 stock_package = 'com.google.android.tvlauncher'
 onboarding_guard = False
@@ -139,6 +141,14 @@ def wait_for(condition, description, timeout=90):
     with (evidence / 'readiness-waits.txt').open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
     raise AssertionError('Timed out: ' + description)
+
+
+def select_data_root(root):
+    global data_root, logpath, settings, startup_baseline
+    data_root = root
+    logpath = root + '/logs/es_log.txt'
+    settings = root + '/settings/es_settings.xml'
+    startup_baseline = log()
 
 
 def log():
@@ -344,22 +354,25 @@ def stock_ui_clear():
             not smoke_checks.stock_tutorial_action(nodes, stock_package))
 
 
-def ui(label, dpad=False, exact=False):
+def ui(label, dpad=False, exact=False, focus_only=False):
+    assert not focus_only or dpad, 'Focus-only navigation requires the D-pad'
+    matcher = lambda node: smoke_checks.exact_label(node, label) if exact else node_matches(node, label)
     if dpad:
         wait_for(lambda: any(n.get('package') == app for n in hierarchy()), 'configurator before D-pad navigation')
         direction = 'KEYCODE_DPAD_DOWN'
         last_focus = None
         for _ in range(50):
             nodes = hierarchy()
-            if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
-                key('KEYCODE_DPAD_CENTER')
+            if any(matcher(n) and n.get('focused') == 'true' for n in nodes):
+                if not focus_only:
+                    key('KEYCODE_DPAD_CENTER')
                 return
             focused = next((n for n in nodes if n.get('focused') == 'true'), None)
-            target = next((n for n in nodes if node_matches(n, label) and n.get('focusable') == 'true'), None)
+            target = next((n for n in nodes if matcher(n) and n.get('focusable') == 'true'), None)
             if focused is not None and target is not None:
-                current_y = sum(map(int, re.findall(r'\d+', focused.attrib['bounds'])[1::2]))
-                target_y = sum(map(int, re.findall(r'\d+', target.attrib['bounds'])[1::2]))
-                direction = 'KEYCODE_DPAD_UP' if target_y < current_y else 'KEYCODE_DPAD_DOWN'
+                current_bounds = list(map(int, re.findall(r'\d+', focused.attrib['bounds'])))
+                target_bounds = list(map(int, re.findall(r'\d+', target.attrib['bounds'])))
+                direction = smoke_checks.focus_direction(current_bounds, target_bounds)
             elif focused is not None and focused.attrib == last_focus:
                 direction = 'KEYCODE_DPAD_UP' if direction == 'KEYCODE_DPAD_DOWN' else 'KEYCODE_DPAD_DOWN'
             last_focus = focused.attrib.copy() if focused is not None else None
@@ -418,13 +431,12 @@ def grant_from_settings(app_label=None, recipient=False):
     if permission_toggle(app_label) is None:
         ui(app_label or label)
     wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
-    def recipient_granted():
-        return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b',
-                    shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE')))
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and recipient_granted():
-        screenshot('recipient-all-files-already-granted')
-        key('KEYCODE_BACK')
-        return
+    target_package = 'org.esdeplus.stub' if recipient else app
+    def actual_grant():
+        state = shell('appops', 'get', '--uid', target_package, 'MANAGE_EXTERNAL_STORAGE')
+        with (evidence / 'all-files-permission-events.txt').open('a') as output:
+            output.write(target_package + ': ' + state + '\n')
+        return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b', state))
     def toggle_switch():
         if television:
             key('KEYCODE_DPAD_CENTER')
@@ -432,32 +444,69 @@ def grant_from_settings(app_label=None, recipient=False):
             toggle = permission_toggle(app_label)
             x1, y1, x2, y2 = map(int, re.findall(r'\d+', toggle.attrib['bounds']))
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
-    if television:
-        for _ in range(40):
-            row = permission_row(app_label)
-            focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
-            if focused:
-                screenshot('tv-all-files-switch-focused')
-                break
-            key('KEYCODE_DPAD_DOWN')
-        else:
-            raise AssertionError('TV D-pad cannot reach our all-files switch')
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and not recipient_granted():
-        # Settings can retain a checked preference across recipient reinstall,
-        # while the actual app-op is reset. Resynchronize through the real UI.
+    def focus_switch():
+        if television:
+            for _ in range(40):
+                row = permission_row(app_label)
+                focused = row is not None and any(n.get('focused') == 'true' for n in row.iter('node'))
+                if focused:
+                    screenshot('tv-all-files-switch-focused')
+                    break
+                key('KEYCODE_DPAD_DOWN')
+            else:
+                raise AssertionError('TV D-pad cannot reach our all-files switch')
+    already_granted = permission_toggle(app_label).get('checked') == 'true' and actual_grant()
+    if not already_granted:
+        focus_switch()
+        if permission_toggle(app_label).get('checked') == 'true' and not actual_grant():
+            # Settings can retain its checked preference across pm clear or an
+            # uninstall/reinstall while the kernel app-op has been reset. Use
+            # the real user actions to turn the stale preference off, then on.
+            old_pid = shell('pidof', target_package, check=False).strip()
+            before = set(adb('logcat', '-d', '-v', 'threadtime').splitlines())
+            toggle_switch()
+            returned = [False]
+            def reset_observed():
+                toggle = permission_toggle(app_label)
+                if toggle is not None:
+                    return toggle.get('checked') == 'false'
+                if recipient:
+                    return False
+                nodes = hierarchy()
+                output = '\n'.join(line for line in adb('logcat', '-d', '-v', 'threadtime').splitlines()
+                                   if line not in before)
+                returned[0] = smoke_checks.permission_revocation_return(nodes, old_pid,
+                    shell('pidof', app, check=False).strip(), output, app)
+                if returned[0]:
+                    (evidence / 'permission-revocation-return.txt').write_text(output)
+                return returned[0]
+            wait_for(reset_observed, 'stale switch reset or proven permission-revocation recovery')
+            if not recipient:
+                # Complete the user's off -> return -> request -> on flow. A
+                # revoke may kill the app and restore its recoverable screen;
+                # never send the next toggle to that replacement Activity.
+                if not returned[0]:
+                    key('KEYCODE_BACK')
+                    if not any(n.get('package') == app for n in hierarchy()):
+                        key('KEYCODE_BACK')
+                ui('Grant direct filesystem access', dpad=True)
+                wait_for(lambda: permission_toggle(app_label) is not None and
+                         permission_toggle(app_label).get('checked') == 'false',
+                         'fresh Settings switch reflects revoked access')
+                focus_switch()
         toggle_switch()
-        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale recipient switch reset')
-    toggle_switch()
-    wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
-             'real app all-files grant')
-    screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
+        wait_for(lambda: permission_toggle(app_label) is not None and
+                 permission_toggle(app_label).get('checked') == 'true' and actual_grant(),
+                 'real app all-files grant')
+    screenshot(('recipient-' if recipient else '') +
+               ('all-files-already-granted' if already_granted else 'all-files-granted'))
     key('KEYCODE_BACK')
     if recipient:
         launch_checks.all_files_granted(shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE'))
         return
     if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
-    wait_for(lambda: any(node_matches(n, 'Choose shared ROM folder') for n in hierarchy()),
+    wait_for(lambda: smoke_checks.storage_configurator_returned(hierarchy(), app),
              'configurator returned from all-files Settings')
 
 
@@ -533,8 +582,23 @@ def destroy_held(name):
     # _exit ends the entire process, including the pending UI join; a post-join
     # Java callback is not claimed on this path. Normal quits still assert it.
     start_entry('HomeEntry', 'android.intent.category.HOME')
-    # Wait on observable readiness, then evaluate the full product assertion
-    # once. Never replay the task clear or the frontend launch on a timeout.
+    # Restored focus can correctly scroll a tall form below its title. Wait
+    # for actual app-owned controls, capture that restored state, then navigate
+    # to the top without activating a choice. Keep the title/task/PID oracle.
+    wait_for(lambda: any(n.get('package') == app and
+                         n.get('resource-id', '').startswith(app + ':string/') for n in hierarchy()) and
+                         len(activity_records()[1]) == 2,
+             'restored configurator controls on the new host')
+    (evidence / (name + '-restored-before-scroll-ui.txt')).write_text(
+        (evidence / 'latest-ui.txt').read_text())
+    if not any(n.get('package') == app and n.get('text', '').startswith('Configure ')
+               for n in hierarchy()):
+        ui('Use direct filesystem compatibility', dpad=True, focus_only=True)
+        # The first button has no focusable predecessor: Up scrolls the heading.
+        # Short recovery forms already expose it and have no storage-mode row.
+        key('KEYCODE_DPAD_UP')
+    # Never replay task clear or frontend launch, and retain the full existing
+    # assertion after ordinary user navigation makes the title visible.
     wait_for(lambda: any(n.get('package') == app and n.get('text', '').startswith('Configure ')
                          for n in hierarchy()) and len(activity_records()[1]) == 2,
              'held configuration restored on a new host in the same task')
@@ -890,7 +954,7 @@ def gamelist_recipient_flow(mode):
         importer_navigation.open_importer(globals(), mode)
         screenshot('importer-' + mode)
         key('KEYCODE_INSERT')  # real Y/start importer action
-        temp_files = external + '/ES-DE-Plus/importer_temp/files'
+        temp_files = data_root + '/importer_temp/files'
         wait_for(lambda: bool(shell('ls', temp_files, check=False).strip()), 'real app importer inventory files')
         time.sleep(3)  # finish the actual importer thread and selector animation
         paths = shell('find', temp_files, '-type', 'f').splitlines()
@@ -1153,17 +1217,9 @@ try:
     api = device_api
     shared = '/sdcard/ESDEPlusSmoke'
     (evidence / 'image.txt').write_text(shell('getprop'))
-    if phase != 'core':
+    if phase not in ('core', 'app-data'):
         smoke_phases.run(phase, globals())
         raise SystemExit(0)
-    icon_smoke.capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, television)
-    clear_app()
-    retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
-                     app + '/org.esdeplus.frontend.RuntimeSmoke')
-    (evidence / 'retained-configurator-probe.txt').write_text(retained)
-    smoke_checks.probe_passed(retained,
-        'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
-    clear_app()
     api = int(shell('getprop', 'ro.build.version.sdk').strip())
     # Genuine shared files, accessible to users through file transfer; no settings
     # or preferences are written by the host-side automation.
@@ -1172,6 +1228,20 @@ try:
     dummy.write_bytes(b'\x00')
     for name in ['Smoke Alpha.nes', 'Smoke Beta.nes']:
         adb('push', str(dummy), shared + '/nes/' + name)
+    if phase == 'app-data':
+        app_data_smoke.run(globals())
+        (evidence / 'session-result.txt').write_text('PASS: app-data\n')
+        raise SystemExit(0)
+    icon_smoke.capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, television)
+    clear_app()
+    shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'default')
+    select_data_root(external + '/ES-DE-Plus')
+    retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
+                     app + '/org.esdeplus.frontend.RuntimeSmoke')
+    (evidence / 'retained-configurator-probe.txt').write_text(retained)
+    smoke_checks.probe_passed(retained,
+        'PASS: retained configurator reorders above the same live SDL host; positive controls rejected')
+    clear_app()
     start_entry('HomeEntry', 'android.intent.category.HOME')
     ui('Cancel configuration', dpad=True)
     ui('Configuration cancelled')
@@ -1232,6 +1302,7 @@ try:
     ui('Create system folders', dpad=True)
     destroy_held('destroy-initial-held')
     ui('How to add games')
+    ui('Create system folders', dpad=True, focus_only=True)
     assert any(n.get('text') == 'Create system folders' and n.get('checked') == 'false' for n in hierarchy())
     ui('Create system folders', dpad=True)
     ui('Use direct filesystem compatibility', dpad=True)
@@ -1256,8 +1327,21 @@ try:
     screenshot('all-files-denied')
     ui('Grant direct filesystem access', dpad=True)
     grant_from_settings()
+    # The proposed shared data root remains absent until its exact-path consent.
+    direct_data = '/sdcard/ES-DE-Plus'
+    shell('test', '!', '-e', direct_data)
+    ui('Review application-data folder', dpad=True)
+    ui('Cancel', dpad=True, exact=True)
+    shell('test', '!', '-e', direct_data)
+    ui('Review application-data folder', dpad=True)
+    ui('Confirm and use this data folder', dpad=True)
+    select_data_root(direct_data)
+    destroy_held('destroy-data-consent-held')
+    ui('Application-data folder:')
+    assert private('test', '!', '-f', 'shared_prefs/storage.xml') == '', 'Draft became accepted storage'
+    screenshot('confirmed-application-data-before-roms')
     # Real editable field and focus survive an Activity resume/re-render.
-    ui('Absolute shared ROM folder path', dpad=television)
+    ui('Absolute shared ROM folder path', dpad=True)
     if television:
         (evidence / 'tv-path-ime.txt').write_text(shell('dumpsys', 'input_method'))
         screenshot('tv-path-ime-open')
@@ -1313,8 +1397,10 @@ try:
         select_tree('ESDEPlusSmoke')
         ui('Cancel configuration', dpad=True)
         cancelled_grant_retained()
+    initial_configuration_pid = shell('pidof', app).strip()
     ui('Save and start frontend', dpad=True)
     configured_system('direct-system-view')
+    assert shell('pidof', app).strip() == initial_configuration_pid, 'First storage save restarted the existing startup host'
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
     launch_contract_probes('direct')
@@ -1421,6 +1507,7 @@ try:
     # Recover through an explicit scoped choice, without pm clear hiding old
     # persisted grants. The accepted shared grant must be released on save.
     ui('Use app-owned storage', dpad=True)
+    select_data_root(external + '/ES-DE-Plus')
     ui('Create system folders', dpad=True)
     ui('How to add games')
     screenshot('scoped-provisioning-howto')

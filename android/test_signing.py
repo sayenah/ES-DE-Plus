@@ -232,6 +232,13 @@ def fixture_signing(sdk_only=False):
             sign(UNSIGNED_RELEASE, RELEASE, key, 'fixture', password)
             if NETWORK_CONTROL.is_file():
                 sign_network_control(key, 'fixture', password, cert)
+            owner_control = pathlib.Path('android/.deps/theme-owner/prefix.apk')
+            if not sdk_only and owner_control.is_file():
+                sign(owner_control, owner_control, key, 'fixture', password)
+                owner_record = inspect_apk(owner_control, cert)
+                require(owner_record['version_name'] == 'test-438bf5927', 'Wrong ownership control revision')
+                pathlib.Path('android/evidence/theme-owner-control-signer.txt').write_text(
+                    json.dumps(owner_record, indent=2))
             if not sdk_only:
                 sign_lifecycle_probe(key, 'fixture', password, cert)
             pathlib.Path('android/evidence/test-signer.txt').write_text(cert + '\n')

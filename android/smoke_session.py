@@ -105,7 +105,7 @@ def summary(snapshots, commands, elapsed, status):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('phase', choices=('core', 'touch', 'lifecycle', 'integration',
-                                         'pdf-direct', 'pdf-scoped', 'assets', 'self-test'))
+                                         'pdf-direct', 'pdf-scoped', 'assets', 'app-data', 'self-test'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.phase == 'self-test':
