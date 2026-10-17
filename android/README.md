@@ -167,9 +167,11 @@ or permission-protected targets produce the existing error popup. Returning
 from an emulator resumes the frontend. Other-screen launching remains deferred.
 
 Build-time package visibility includes every emulator package in the bundled
-Android find rules and both phone and Leanback launcher signatures, without
-`QUERY_ALL_PACKAGES`. Custom emulator packages outside those rules are visible
-only when they match a launcher signature. The Android-apps importer deduplicates
+Android find rules, phone/Leanback launcher signatures and VIEW file/content URI
+signatures with and without MIME types, without `QUERY_ALL_PACKAGES`. The emulator
+manager also offers matching exported file handlers, keeping each actual component;
+"declares it opens these files" does not promise emulation or archive support.
+The Android-apps importer deduplicates
 components and uses sanitised labels as filenames, preserving Unicode. Only
 colliding labels receive a short deterministic component suffix. Icons are
 always staged; its banner/logo option controls additional artwork only.
@@ -201,6 +203,7 @@ in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
 assertion is retried.
 
+The `handler-stub` module reuses the MIT recipient implementation with only file-handler aliases, no launcher or Leanback entry and no package-specific query declaration; it proves generic file-handler visibility. Both fixture APKs stay on the CI runner and never enter the frontend APK or publication.
 The network smoke opens the real theme downloader, clones the canonical HTTPS
 themes list with the bundled CA bundle, downloads and selects one live theme,
 and submits a real ScreenScraper HTTPS search without an account. A result or
@@ -253,7 +256,7 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs five gating smoke phases, each in a distinct cold AVD: `core`
+CI runs five baseline gating smoke phases, each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 (update continuity on API 31/34 and network checks), `pdf-direct`, and
@@ -336,3 +339,15 @@ Upstream's GPL converter/Poppler and standalone Poppler-only codecs are excluded
 from every Android variant. libgit2 retains its GPL linking exception; LGPL
 runtime libraries stay shared. The platform renderer adds no application dependency. CI generates PDF fixtures without a third-party PDF library and checks
 native input/licence closure, JNI contracts and viewer behaviour on all three images.
+
+The emulator-manager regression runs in separate bounded jobs on every image,
+with fresh `manager-direct` and `manager-scoped` sessions. The scoped session
+also exercises the minified manager; all three flows gate each image. The
+baseline integration and PDF sessions retain all their existing checks.
+Each manager session records its boot identity, duration and child exit status;
+API 34 publication or its non-writing dry run requires every baseline and
+manager job to pass. Menu entry reads the focused label from a fresh screenshot
+before each Down or activation; manager rows are checked against a fresh native Debug
+focus capture before activation. Focus traces and screenshots accompany failures.
+Touch coverage is confined to manager dialogs until the frontend overlay lands
+(D-018 (3)); the parent menus and no-games entry use keyboard/controller input.

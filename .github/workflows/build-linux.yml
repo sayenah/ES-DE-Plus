@@ -39,6 +39,11 @@ jobs:
             clang-format-18 --dry-run --Werror "$file"
           done
 
+      - name: Emulator override persistence probe
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -Ies-app/src -Ies-core/src es-app/src/EmulatorManagerConfig.cpp es-app/src/EmulatorLaunchProfile.cpp android/emulator-manager-probe.cpp -lpugixml -o /tmp/emulator-manager-probe
+          /tmp/emulator-manager-probe /tmp/emulator-manager-fixtures
+
       - name: Configure
         run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release
 

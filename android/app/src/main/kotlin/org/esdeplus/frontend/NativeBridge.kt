@@ -152,6 +152,8 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         AppDiscovery(context).installed(packageName, activityName)
     fun checkRACoreInstalled(packageName: String, coreFile: String): Int =
         CoreQuery(context).query(packageName, coreFile)
+    fun getEmulatorActivities(paths: Array<String>): Array<String> =
+        AppDiscovery(context).emulatorActivityRecords(paths)
     fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean): Array<String> =
         AppDiscovery(context).inventory(gamesOnly, includeMedia)
     fun launchGame(base: Array<String>, strings: Array<String>, lists: Array<String>, integers: Array<String>,

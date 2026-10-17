@@ -5,10 +5,12 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.font.TextAttribute;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import javax.imageio.ImageIO;
 
 class SmokeMenuFocus {
@@ -16,7 +18,7 @@ class SmokeMenuFocus {
         "SEARCH", "SCRAPER", "UI SETTINGS", "SOUND SETTINGS", "INPUT DEVICE SETTINGS",
         "GAME COLLECTION SETTINGS", "OTHER SETTINGS", "UTILITIES", "QUIT ES-DE",
         "GAME IMPORTER", "ORPHANED DATA CLEANUP", "CREATE/UPDATE SYSTEM DIRECTORIES",
-        "RESCAN ROM DIRECTORY"
+        "RESCAN ROM DIRECTORY", "ALTERNATIVE EMULATORS", "EMULATOR MANAGER"
     };
 
     static int gray(BufferedImage image, int x, int y) {
@@ -153,8 +155,10 @@ class SmokeMenuFocus {
     }
 
     public static void main(String[] args) throws Exception {
+        // Match the frontend's HarfBuzz-shaped text, including standard kerning.
         Font font = Font.createFont(Font.TRUETYPE_FONT,
-                new File("resources/fonts/Akrobat-SemiBold.ttf"));
+                new File("resources/fonts/Akrobat-SemiBold.ttf"))
+                .deriveFont(Map.of(TextAttribute.KERNING, TextAttribute.KERNING_ON));
         if (args[0].equals("--controls")) {
             controls(font, new File(args[1]));
             return;

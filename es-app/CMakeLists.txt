@@ -142,6 +142,18 @@ elseif(WIN32)
     target_link_libraries(ES-DE ${COMMON_LIBRARIES} es-core lunasvg::lunasvg)
     set_target_properties(ES-DE PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 elseif(ANDROID)
+    list(APPEND ES_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerConfig.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorLaunchProfile.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerTouch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerRuntime.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiEmulatorManager.cpp)
+    list(APPEND ES_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorLaunchProfile.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerTouch.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerRuntime.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiEmulatorManager.h)
+    list(APPEND ES_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerConfig.h)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_library(main MODULE ${ES_SOURCES} ${ES_HEADERS})
     target_link_libraries(main PRIVATE ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS}

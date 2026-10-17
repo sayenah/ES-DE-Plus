@@ -84,6 +84,9 @@ public:
     // Return true if the input is consumed, false if it should continue to be passed
     // to other children.
     virtual bool input(InputConfig* config, Input input);
+#if defined(__ANDROID__)
+    virtual bool nativeTouch(int, int64_t, float, float) { return false; }
+#endif
 
     // Called when time passes.
     // Default implementation calls updateSelf(deltaTime) and updateChildren(deltaTime).

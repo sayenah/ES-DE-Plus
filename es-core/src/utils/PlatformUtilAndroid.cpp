@@ -478,6 +478,47 @@ namespace Utils
 
             std::string getExternalDirectory() { return callString("getExternalDirectory"); }
 
+            bool getEmulatorActivities(const std::vector<std::string>& paths,
+                                       std::vector<EmulatorActivity>& activities)
+            {
+                activities.clear();
+                ActivityContext context;
+                jmethodID id {getMethod(context, "getEmulatorActivities",
+                                        "([Ljava/lang/String;)[Ljava/lang/String;")};
+                if (id == nullptr)
+                    return false;
+                auto input = toStringArray(context.env, paths);
+                if (clearJavaException(context.env, "getEmulatorActivities") || input == nullptr)
+                    return false;
+                auto values = static_cast<jobjectArray>(
+                    context.env->CallObjectMethod(context.activity, id, input));
+                if (clearJavaException(context.env, "getEmulatorActivities") || values == nullptr)
+                    return false;
+                const jsize size {context.env->GetArrayLength(values)};
+                if (clearJavaException(context.env, "getEmulatorActivities") || size % 4 != 0 ||
+                    size > 65536)
+                    return false;
+                for (jsize i {0}; i < size; i += 4) {
+                    std::array<std::string, 4> fields;
+                    for (jsize j {0}; j < 4; ++j) {
+                        auto value =
+                            static_cast<jstring>(context.env->GetObjectArrayElement(values, i + j));
+                        if (clearJavaException(context.env, "getEmulatorActivities") ||
+                            value == nullptr)
+                            return false;
+                        fields[j] = fromJString(context.env, value);
+                        context.env->DeleteLocalRef(value);
+                        if (clearJavaException(context.env, "getEmulatorActivities"))
+                            return false;
+                    }
+                    if (fields[1].empty() || fields[2].empty() ||
+                        (fields[3] != "0" && fields[3] != "1"))
+                        return false;
+                    activities.push_back({fields[0], fields[1], fields[2], fields[3] == "1"});
+                }
+                return true;
+            }
+
             void getInstalledApps(std::vector<std::pair<std::string, std::string>>& appList,
                                   bool gamesOnly,
                                   bool includeMedia)

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import emulator_manager_smoke
 import icon_smoke
 import lifecycle_smoke
 import smoke_support
@@ -36,6 +37,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 (evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
+(evidence / 'emulator-manager-navigation-controls.txt').write_text(emulator_manager_smoke.navigation_controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
@@ -1149,6 +1151,7 @@ try:
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
+    print(adb('install', '-r', 'android/handler-stub/build/outputs/apk/debug/handler-stub-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     api = device_api
     shared = '/sdcard/ESDEPlusSmoke'
