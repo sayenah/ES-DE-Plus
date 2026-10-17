@@ -386,8 +386,8 @@ late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
 Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
-PDF-direct/PDF-scoped/assets. The core step reached 51 minutes on API 34 in
-round 4 (PR run 39046159140), leaving 9 minutes under its unchanged 60-minute
+PDF-direct/PDF-scoped/assets. The core step reached 51.8 minutes on API 34 in
+round 4 (push run 39046156277), leaving 8.2 minutes under its unchanged 60-minute
 cap. Re-measure core on API 33 after platform PR #27 integrates. Earlier
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
 (run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
