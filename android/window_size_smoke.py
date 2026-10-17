@@ -179,17 +179,41 @@ def run(harness):
             capture('window-rotation')
             h.shell('wm', 'fixed-to-user-rotation', fixed_rotation)
             # The diagnostic AVD exposes freeform via its developer setting.
-            # Use real task bounds, then drag to another size within that mode.
-            action('window-freeform-enter', ('am', 'start', '--windowingMode', '5', '-n', h.activity))
+            # Mode entry alone can leave the bounds unchanged on API 31.
+            # Wait for its layout/native agreement, then resize the real task.
+            marker = 'window-freeform-mode-' + str(time.monotonic_ns())
+            h.shell('log', '-p', 'i', '-t', 'ESDEPlusWindow', marker)
+            h.shell('am', 'start', '--windowingMode', '5', '-n', h.activity)
+            deadline = time.monotonic() + 60
+            while True:
+                assert h.shell('pidof', h.app, check=False).strip() == pid, 'PID changed entering freeform'
+                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                assert marker in logs, 'Freeform mode marker missing from logcat'
+                logs = logs.split(marker, 1)[1]
+                own = '\n'.join(line for line in logs.splitlines()
+                                if re.search(r'\s' + pid + r'\s', line))
+                sizes = re.findall(r'Window snapshot source=(?:layout|surfaceChanged) size=(\d+x\d+)', own)
+                native = h.log()
+                rendered = re.findall(r'Application resolution: (\d+x\d+)', native)
+                if (sizes and rendered and sizes[-1] == rendered[-1] and
+                        native.count('Setting up AudioManager...') == len(re.findall(RELOAD, native)) + 1):
+                    break
+                assert time.monotonic() < deadline, 'Freeform mode layout/native agreement timed out'
+                time.sleep(.25)
             dump, records = h.activity_records()
             assert len(records) == 1, dump
             task = records[0][1]
+            task_mode = r'Task\{[^\n]*#' + re.escape(task) + r'\b[^\n]*mode=freeform'
+            assert re.search(task_mode, dump), dump
+            capture('window-freeform-enter')
             width, height = map(int, physical.groups())
+            action('window-freeform-resize-1', ('am', 'task', 'resize', task, '0', '0',
+                                               str(width * 3 // 5), str(height * 3 // 5)), single=True)
             action('window-freeform-resize', ('am', 'task', 'resize', task, '0', '0',
-                                             str(width * 4 // 5), str(height * 4 // 5)))
+                                             str(width * 4 // 5), str(height * 4 // 5)), single=True)
             dump = h.shell('dumpsys', 'activity', 'activities')
             (h.evidence / 'window-freeform-activities.txt').write_text(dump)
-            assert 'windowingMode=freeform' in dump or 'mode=freeform' in dump, dump
+            assert re.search(task_mode, dump), dump
             capture('window-freeform')
         (h.evidence / 'window-result.txt').write_text(
             'PASS: 20/20 wm size 90%/reset cycles, 40 actions, matching native reload/audio setup; '
