@@ -24,10 +24,21 @@ class FrontendRedirectActivity : Activity() {
     private var forwarded = false
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        // Allow Android to attach/focus a real window before removing this
-        // HOME task. Finishing in onCreate aborts its window transition and
-        // can leave the resumed owner without an input-focused window.
+        // Ordinary forwarding must focus a real window before removing this
+        // HOME task; moving an existing task cannot finish an aborted window
+        // transition. A clear-task entry supplies a new helper window instead.
         setContentView(View(this))
+        val frontend = MainActivity.liveInstance()
+        if (frontend != null && intent.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0 &&
+            intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0) {
+            // A clear-task entry needs a new foreground owner, even if Android
+            // destroys the old SDL host before this redirect gains focus.
+            // The helper has its own window/VM; it never moves the clearing
+            // task forward or starts native main before the old process retires.
+            forwarded = true
+            frontend.retireForEntry(intent)
+            finish()
+        }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -40,15 +51,6 @@ class FrontendRedirectActivity : Activity() {
         forwarded = true
         val frontend = MainActivity.liveInstance()
         if (frontend != null) {
-            if (intent.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0 &&
-                intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0) {
-                // The old record can still be waiting for this replacement to
-                // become idle. Moving its now-empty task forward replays the
-                // history intent and creates another redirect instead.
-                frontend.retireForEntry(intent)
-                finish()
-                return
-            }
             frontend.receiveEntry(intent)
             val task = getSystemService(ActivityManager::class.java).appTasks
                 .firstOrNull { it.taskInfo.taskId == frontend.taskId }

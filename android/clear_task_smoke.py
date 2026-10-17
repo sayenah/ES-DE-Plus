@@ -65,6 +65,25 @@ def controls():
 
 def run(harness):
     h = type('Harness', (), harness)
+    settings = {key: h.shell('settings', 'get', 'global', key).strip() for key in
+                ('window_animation_scale', 'transition_animation_scale', 'animator_duration_scale')}
+    try:
+        for key in settings:
+            h.shell('settings', 'put', 'global', key, '1')
+            assert h.shell('settings', 'get', 'global', key).strip() == '1', 'Animation setting not applied: ' + key
+        (h.evidence / 'clear-task-animation-settings.txt').write_text(str(settings) + '\n' +
+            '\n'.join(key + '=' + h.shell('settings', 'get', 'global', key).strip() for key in settings))
+        _run(harness)
+    finally:
+        for key, value in settings.items():
+            if value == 'null':
+                h.shell('settings', 'delete', 'global', key)
+            else:
+                h.shell('settings', 'put', 'global', key, value)
+
+
+def _run(harness):
+    h = type('Harness', (), harness)
     baseline = os.environ.get('ESDE_CLEAR_TASK_UNFIXED') == 'true'
     outcomes = []
     (h.evidence / 'clear-task-chain-controls.txt').write_text(controls())
@@ -119,8 +138,7 @@ def run(harness):
                 logs = h.adb('logcat', '-d', '-v', 'threadtime')
                 capture(name + '-positive-control')  # Before any cleanup.
                 before = pid_lines(logs, old)
-                assert 'Clear-task replacement idle barrier armed' in before, 'Scheduling seam not reached'
-                assert 'Clear-task replacement draw barrier armed' in before, 'Drawing seam not reached'
+                assert 'Clear-task replacement transition barrier armed' in before, 'Scheduling seam not reached'
                 assert h.shell('pidof', h.app, check=False).strip() == old, 'Unfixed host did not reproduce G-32'
                 assert before.count('Focused redirect forwarding entry') >= 3, 'No redirect loop'
                 assert 'flg=0x10100000' in logs, 'No task-history replay'
@@ -140,8 +158,7 @@ def run(harness):
                 logs = h.adb('logcat', '-d', '-v', 'threadtime')
                 completed(logs, old, new, helper_required=scheduled)
                 if scheduled:
-                    assert 'Clear-task replacement idle barrier armed' in pid_lines(logs, old), 'Scheduling seam not reached'
-                    assert 'Clear-task replacement draw barrier armed' in pid_lines(logs, old), 'Drawing seam not reached'
+                    assert 'Clear-task replacement transition barrier armed' in pid_lines(logs, old), 'Scheduling seam not reached'
                 h.wait_for(lambda: len(h.activity_records()[1]) == 1,
                            name + ' helper and old entry records removed', timeout=10)
                 assert len(h.activity_records()[1]) == 1, 'Entry left duplicate frontend records'

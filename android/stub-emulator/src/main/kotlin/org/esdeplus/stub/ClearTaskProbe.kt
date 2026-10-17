@@ -14,7 +14,7 @@ import android.util.Log
 class ClearTaskProbe : Instrumentation() {
     private var entry = "MainActivity"
     private var armed = false
-    private var drawUntil = 0L
+    private var busyUntil = 0L
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
@@ -23,37 +23,26 @@ class ClearTaskProbe : Instrumentation() {
     }
 
     override fun callActivityOnCreate(activity: Activity, state: Bundle?) {
-        super.callActivityOnCreate(activity, state)
-        if (activity.javaClass.name != "org.esdeplus.frontend.FrontendRedirectActivity") return
-        if (drawUntil == 0L) {
-            drawUntil = SystemClock.uptimeMillis() + 30_000
-            Log.i("ES-DE-Plus-Probe", "Clear-task replacement draw barrier armed")
-        }
-        // The framework can finish old records when the next activity is
-        // drawn as well as when it is idle. Keep this replacement's first
-        // frame pending while still delivering real resume/focus messages.
-        // Only redirect windows are affected; the real helper can draw.
-        activity.window.decorView.viewTreeObserver.addOnPreDrawListener {
-            SystemClock.uptimeMillis() >= drawUntil
-        }
-    }
-
-    override fun callActivityOnResume(activity: Activity) {
-        super.callActivityOnResume(activity)
-        if (armed || activity.javaClass.name != "org.esdeplus.frontend.FrontendRedirectActivity") return
-        armed = true
-        // Widen the interval between replacement resume/focus and the main
-        // queue becoming idle. All framework messages still run, including
-        // focus, stop and destroy. The helper's separate VM is unaffected.
-        // No finish/recreate/quit, task operation, or result is substituted.
-        val handler = Handler(Looper.getMainLooper())
-        Log.i("ES-DE-Plus-Probe", "Clear-task replacement idle barrier armed pid=${android.os.Process.myPid()}")
-        handler.post(object : Runnable {
-            override fun run() {
-                if (SystemClock.uptimeMillis() < drawUntil) handler.post(this)
-                else Log.i("ES-DE-Plus-Probe", "Clear-task replacement idle barrier released")
+        if (activity.javaClass.name == "org.esdeplus.frontend.FrontendRedirectActivity") {
+            val style = activity.resources.getIdentifier("ClearTaskProbeAnimations", "style", activity.packageName)
+            check(style != 0) { "Missing debug transition resource" }
+            activity.window.setWindowAnimations(style)
+            Log.i("ES-DE-Plus-Probe", "Clear-task replacement transition barrier armed flags=0x${activity.intent.flags.toString(16)}")
+            if (!armed) {
+                armed = true
+                busyUntil = SystemClock.uptimeMillis() + 30_000
+                val handler = Handler(Looper.getMainLooper())
+                // Framework stop/destroy/focus messages still run. No native
+                // event, finish call, lifecycle callback or task is fabricated.
+                handler.post(object : Runnable {
+                    override fun run() {
+                        if (SystemClock.uptimeMillis() < busyUntil) handler.post(this)
+                        else Log.i("ES-DE-Plus-Probe", "Clear-task replacement idle barrier released")
+                    }
+                })
             }
-        })
+        }
+        super.callActivityOnCreate(activity, state)
     }
 
     override fun onStart() {
