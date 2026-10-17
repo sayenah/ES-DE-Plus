@@ -250,7 +250,7 @@ print('PASS: manifest-selected Pixel Plus adaptive/round icons, monochrome, mark
 assert ('application-debuggable' in badging) != release
 assert f"package: name='{application_id}'" in badging
 assert f"application-label:'{label}'" in badging
-assert "sdkVersion:'29'" in badging and "targetSdkVersion:'36'" in badging
+assert "sdkVersion:'31'" in badging and "targetSdkVersion:'36'" in badging
 print(f'PASS APK identity audit: {application_id}, label={label}, original Pixel Plus icon/splash; only exact upstream desktop literals allowed in libmain.so')
 
 # Inspect packaged manifest values, including release output, rather than only
