@@ -40,6 +40,9 @@ def run(harness):
     pid = h.shell('pidof', h.app).strip()
     assert pid.isdigit()
     assert re.findall(r'Application resolution: (\d+x\d+)', h.log())[-1] == full
+    tids = [tid for tid in h.private('ls', '/proc/' + pid + '/task').split()
+            if h.private('cat', f'/proc/{pid}/task/{tid}/comm', check=False).strip() == 'SDLThread']
+    assert len(tids) == 1, ('Missing unique frontend render thread', tids)
     rows = []
 
     def capture(name):
@@ -52,8 +55,9 @@ def run(harness):
     def action(name, command, expected=None):
         before = h.log()
         def cpu_ticks():
-            fields = h.private('cat', '/proc/' + pid + '/stat').rsplit(')', 1)[1].split()
-            return int(fields[11]) + int(fields[12])
+            fields = h.private('cat', f'/proc/{pid}/task/{tids[0]}/schedstat').split()
+            assert len(fields) == 3 and all(value.isdigit() for value in fields), fields
+            return int(fields[0])
         marker = name + '-' + str(time.monotonic_ns())
         h.shell('log', '-p', 'i', '-t', 'ESDEPlusWindow', marker)
         h.shell(*command)
@@ -95,7 +99,7 @@ def run(harness):
                 capture(name + '-timeout')
                 cpu_after = cpu_ticks()
                 (h.evidence / (name + '-progress.txt')).write_text(json.dumps(dict(
-                    ticks_before=cpu_before, ticks_after=cpu_after,
+                    render_tid=tids[0], cpu_ns_before=cpu_before, cpu_ns_after=cpu_after,
                     seconds=time.monotonic() - progress_start)) + '\n')
                 h.capture_frontend_stacks(name + '-timeout')
                 assert h.shell('pidof', h.app, check=False).strip() == pid, name
