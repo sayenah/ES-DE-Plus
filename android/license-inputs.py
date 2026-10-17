@@ -192,7 +192,7 @@ def native_controls(ndk):
                 build = source / 'build'
                 subprocess.check_call(['cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja',
                     '-DCMAKE_TOOLCHAIN_FILE=' + str(ndk / 'build/cmake/android.toolchain.cmake'),
-                    '-DANDROID_ABI=' + abi, '-DANDROID_PLATFORM=android-29', '-DANDROID_STL=c++_shared'])
+                    '-DANDROID_ABI=' + abi, '-DANDROID_PLATFORM=android-31', '-DANDROID_STL=c++_shared'])
                 subprocess.check_call(['cmake', '--build', str(build)])
                 try:
                     collect(source, ndk)
