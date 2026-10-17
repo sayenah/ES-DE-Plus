@@ -11,15 +11,23 @@ import time
 _pending = None
 
 
-def adb_completed(arguments, output, began):
+def adb_completed(arguments, output, began, before_uid=None, status=0):
     global _pending
-    if arguments in (('root',), ('unroot',)) and 'restarting adbd' in output:
-        _pending = dict(operation=arguments[0], began=began)
+    if arguments in (('root',), ('unroot',)):
+        target = '0' if arguments[0] == 'root' else '2000'
+        _pending = (dict(operation=arguments[0], began=began, before_uid=before_uid,
+                         target_uid=target, request_status=status, waited=False)
+                    if before_uid in ('0', '2000') and before_uid != target else None)
     elif arguments == ('wait-for-device',) and _pending:
+        _pending['waited'] = True
+    elif (arguments in (('shell', 'id -u'), ('shell', 'id', '-u')) and _pending and
+          _pending['waited'] and output.strip() == _pending['target_uid']):
         path = os.environ.get('ESDE_SMOKE_LOGCAT_RESETS')
         if path:
             with Path(path).open('a') as journal:
-                journal.write(json.dumps(dict(**_pending, ready=time.monotonic())) + '\n')
+                journal.write(json.dumps(dict(operation=_pending['operation'], began=_pending['began'],
+                    ready=time.monotonic(), before_uid=_pending['before_uid'], after_uid=output.strip(),
+                    request_status=_pending['request_status'])) + '\n')
         _pending = None
 
 
@@ -68,6 +76,8 @@ class Observer:
 
 
 def controls():
+    global _pending
+    _pending = None
     import io
     import tempfile
     from unittest.mock import patch
@@ -86,19 +96,43 @@ def controls():
         observer = Observer(io.StringIO(), path, spawn, lambda: clock[0])
         clock[0] = 11; observer.tick()
         with patch.dict(os.environ, ESDE_SMOKE_LOGCAT_RESETS=str(path)), patch.object(time, 'monotonic', return_value=12):
-            adb_completed(('root',), 'adbd is already running as root', 11.1)
+            adb_completed(('root',), 'adbd is already running as root', 11.1, before_uid='0')
             adb_completed(('wait-for-device',), '', 11.2)
+            adb_completed(('shell', 'id -u'), '0', 11.3)
             assert not path.exists()
-            adb_completed(('root',), 'restarting adbd as root', 11.5)
+            adb_completed(('root',), 'restarting adbd as root', 11.5, before_uid='2000')
+            adb_completed(('shell', 'id -u'), '0', 11.6)
+            assert not path.exists()  # The owned transaction must finish its device wait.
             adb_completed(('wait-for-device',), '', 11.9)
+            assert not path.exists()  # Device presence alone is not a UID transition.
+            adb_completed(('shell', 'id -u'), '0', 12)
         calls[-1].returncode = 255
         clock[0] = 12.1; observer.tick()
         assert len(calls) == 2 and len(observer.reconnections) == 1
+        # A controlled reset can disconnect its requesting client before a
+        # restart message arrives. The verified UID transition is the proof.
+        clock[0] = 12.2; observer.tick()
+        calls[-1].returncode = 255
+        clock[0] = 12.6; observer.tick()
+        with patch.dict(os.environ, ESDE_SMOKE_LOGCAT_RESETS=str(path)), patch.object(time, 'monotonic', return_value=13):
+            adb_completed(('unroot',), '', 12.3, before_uid='0', status=255)
+            adb_completed(('wait-for-device',), '', 12.5)
+            adb_completed(('shell', 'id -u'), '2000', 13)
+        clock[0] = 13.1; observer.tick()
+        assert len(calls) == 3 and observer.reconnections[-1]['reset']['request_status'] == 255
         # A previous owned reset cannot excuse a later unexpected EOF.
         calls[-1].returncode = 255
-        clock[0] = 13; observer.tick()
-        assert len(calls) == 2
+        clock[0] = 14; observer.tick()
+        assert len(calls) == 3
         assert not observer.close()['streaming_until_child_exit']
+        # A failed request without an actual UID change grants no reconnect.
+        before = path.read_text()
+        with patch.dict(os.environ, ESDE_SMOKE_LOGCAT_RESETS=str(path)):
+            adb_completed(('root',), 'request failed', 14.1, before_uid='2000', status=1)
+            adb_completed(('wait-for-device',), '', 14.2)
+            adb_completed(('shell', 'id -u'), '2000', 14.3)
+        assert path.read_text() == before
+        _pending = None
         healthy = Observer(io.StringIO(), path, spawn, lambda: clock[0])
         assert healthy.close()['streaming_until_child_exit']
         clock[0] = 20
@@ -108,5 +142,6 @@ def controls():
         before = len(calls); calls[-1].returncode = 255
         clock[0] = 23; stale.tick()
         assert len(calls) == before and not stale.close()['streaming_until_child_exit']
-    return ('PASS: log observer reconnects only after a recorded overlapping harness adbd reset; '
-            'no frontend action replay; already-root, stale reset and unexpected EOF do not authorise reconnect.\n')
+    return ('PASS: log observer requires an owned request, device wait and verified UID transition; '
+            'lost restart text still accounts for an actual reset; no frontend action replay; '
+            'no-op/failed requests, stale resets and unexplained EOF do not authorise reconnect.\n')

@@ -279,8 +279,9 @@ and each phase's session summary record the outcome and elapsed time. A continuo
 `PHASE-session-logcat.txt` preserves all buffers from session start, including
 before older checks clear their assertion buffers.
 The existing capability controls deliberately restart adbd with `root`/`unroot`.
-`session_logcat.py` reconnects the read-only observer only after a recorded actual
-adbd restart and completed `wait-for-device` overlapping its disconnect. Retained
+`session_logcat.py` reconnects the read-only observer only after an owned reset
+request, completed `wait-for-device` and verified UID change overlapping its
+disconnect. This proof does not depend on the reset client's message/exit code. Retained
 buffers append to the kept file; startup classification deduplicates overlaps.
 Repeated backfilled markers cannot discard earlier captured destroy/helper events.
 An unexplained stream exit is a hard `SESSION_EVIDENCE_FAILURE` even if the child

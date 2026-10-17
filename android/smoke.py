@@ -65,6 +65,7 @@ def settle_session():
 
 
 def adb(*args, check=True, binary=False):
+    reset_uid = adb('shell', 'id -u').strip() if args in (('root',), ('unroot',)) else None
     if args != ('wait-for-device',):
         smoke_support.connected()
     # Only identified transport errors on read-only diagnostics can be replayed.
@@ -90,8 +91,9 @@ def adb(*args, check=True, binary=False):
     if check and result.returncode:
         print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
         result.check_returncode()
-    if result.returncode == 0 and not binary:
-        smoke_session.session_logcat.adb_completed(args, result.stdout, command_started)
+    if not binary and (result.returncode == 0 or reset_uid is not None):
+        smoke_session.session_logcat.adb_completed(args, result.stdout, command_started,
+                                                   before_uid=reset_uid, status=result.returncode)
     if args[:1] == ('install',) and result.returncode == 0:
         install_settle.after_install(args, result.stdout, evidence)
     return result.stdout
