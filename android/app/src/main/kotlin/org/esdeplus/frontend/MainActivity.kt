@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.libsdl.app.SDLActivity
 
 open class MainActivity : SDLActivity() {
-    private data class DeferredRestart(val entry: Intent, val configured: Boolean)
+    private data class DeferredRestart(val configured: Boolean)
     @Volatile private var destroying = false
     @Volatile private var configured = false
     @Volatile private var restartRequested = false
@@ -154,7 +154,7 @@ open class MainActivity : SDLActivity() {
         val assetsPathsChanged = (changes and Int.MIN_VALUE) != 0
         val requested = terminal && visible && changing && !finishing
         deferringRestart = terminal && !visible && assetsPathsChanged && changing && !finishing && configured
-        if (deferringRestart) deferredRestart = DeferredRestart(ConfiguratorSession.restartEntry(), configured)
+        if (deferringRestart) deferredRestart = DeferredRestart(configured)
         val destruction = "Destroying SDL activity held=$held " +
             "finishing=$finishing changingConfigurations=$changing " +
             "configurationChanges=0x${changes.toString(16)} task=$taskId " +
@@ -209,8 +209,9 @@ open class MainActivity : SDLActivity() {
     }
     private fun prepareRestart() {
         if (restartRequested && configured && restartPrepared.compareAndSet(false, true)) {
-            FrontendRestartActivity.prepare(applicationContext,
-                deferredRestart?.entry ?: ConfiguratorSession.restartEntry())
+            // An entry alias can be forwarded while the recreation waits.
+            // Use the session's latest entry, as on the ordinary restart path.
+            FrontendRestartActivity.prepare(applicationContext, ConfiguratorSession.restartEntry())
             Log.i("ES-DE-Plus", "Frontend restart helper started configured=true")
             if (awaitingCommittedEntry) kotlin.system.exitProcess(0)
         }
