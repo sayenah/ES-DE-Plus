@@ -38,7 +38,7 @@ open class MainActivity : SDLActivity() {
         if (!awaitingCommittedEntry) {
             if (!SDLActivity.mBrokenLibraries) ConfiguratorSession.registerNative()
             updateWindowSize()
-            window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _ -> updateWindowSize() }
+            window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
         } else {
             Log.i("ES-DE-Plus", "Recreated frontend waiting for committed entry task=$taskId")
         }
@@ -163,6 +163,9 @@ open class MainActivity : SDLActivity() {
         else Log.i("ES-DE-Plus", destruction)
         if (deferringRestart) Log.i("ES-DE-Plus", "Frontend restart deferred until committed entry")
         else decideRestart(requested)
+        // SDLMain clears mSDLThread before its final singleton.finish(). Keep
+        // the reference so that finish cannot race recreation of the singleton.
+        val retiringThread = if (deferringRestart) mSDLThread else null
         destroying = true
         // Task clear can destroy the root before pausing the configurator.
         // Save its scalar snapshot without calling a retained Activity.
@@ -172,6 +175,7 @@ open class MainActivity : SDLActivity() {
         // cannot initialise a second main over their retained native globals.
         // Startup/held quit polls may end it before the Java join returns.
         super.onDestroy()
+        retiringThread?.join()
         Log.i("ES-DE-Plus", "SDL activity destroy join returned")
         live = null
         // A stopped ASSETS recreation may be only a back preview. Native
