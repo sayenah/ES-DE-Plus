@@ -302,12 +302,17 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs six gating smoke phases, each in a distinct cold AVD: `app-data`
+CI runs seven gating smoke phases, each in a distinct cold AVD: `app-data`
 (consent, adoption, root recovery and retained data after uninstall), `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
-(update continuity on API 31/34 and network checks), `pdf-direct`, and
-`pdf-scoped` (including scoped theme clone/update and minified PDF/Unicode). The same built APK is installed
+(update continuity on API 31/34 and network checks), `pdf-direct`,
+`pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
+relaunches plus predictive-back cancellation on API 34). A stopped frontend's
+asset relaunch waits for a resumed, focused entry before using the existing
+restart helper; a back preview never starts another native main. Predictive
+back is absent on API 31 and edge gestures are not a TV navigation mode.
+The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass
 `--phase PHASE`; every phase is required for the complete CI regression suite.

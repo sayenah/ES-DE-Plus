@@ -103,6 +103,7 @@ jobs:
         run: |
           python3 android/smoke_session.py self-test
           python3 android/pdf_close_probe_test.py
+          python3 android/forced_relaunch_smoke.py self-test
       - name: Record exact Gradle cache key
         id: gradle-cache-key
         env:
@@ -670,6 +671,36 @@ jobs:
             android/evidence/pdf-scoped/*.png
             android/evidence/pdf-scoped-session-*.txt
             android/evidence/pdf-scoped-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator assets smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-assets
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb install -r android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk
+            python3 android/smoke_session.py assets -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase assets
+      - name: Upload assets session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-assets-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/assets/*.txt
+            android/evidence/assets/*.png
+            android/evidence/assets-session-*.txt
+            android/evidence/assets-command-costs.txt
           retention-days: 7
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
