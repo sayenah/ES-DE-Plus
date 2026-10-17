@@ -376,6 +376,13 @@ bootstrap/old-log/rotation sequence, plus held-before-Save, duplicate-backfill,
 fresh, partial, unstable, missing-create and changed-PID controls.
 No native logfile or logging setting is changed.
 
+The stock tutorial's separate supported HOME banner can arrive during the
+clear wait. The existing exact-resource, live-focus action is allowed once
+within that bounded condition. A stuck or unknown Dismiss control still times
+out, preserves its XML, and records no completed dismissal. CI replays early,
+late, absent, stuck and unknown banners through the actual shared guard; it
+never starts or retries the frontend itself.
+
 Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
 PDF-direct/PDF-scoped/assets. These allow margin above the prior green matrix's maxima
 (45/28/12/22/22 minutes, run 38904895297), and the assets maximum of 9 minutes

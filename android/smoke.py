@@ -451,22 +451,33 @@ def dismiss_stock_onboarding(force=False):
             wait_for(advanced, 'stock tutorial page advanced or closed')
         wait_for(lambda: not smoke_checks.stock_onboarding_focused(focused_window(), stock_package),
                  'bounded stock tutorial flow closed')
-        nodes = hierarchy()
         # Closing the tutorial can expose a separate stock launcher banner.
-        # Dismiss its actual action too; retain the strict clear assertion.
-        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
-               n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
-            window = focused_window()
-            smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
-            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
-                output.write('Actual stock launcher banner; dismissing its separate action.\n' + window + '\n')
-            ui('Dismiss')
+        # It can arrive during the clear wait. Act on its verified control
+        # once, then keep polling the unchanged strict clear condition.
+        banner_acted = False
+        def clear():
+            nonlocal banner_acted
             nodes = hierarchy()
-            if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
-                   n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
-                smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
-                key('KEYCODE_DPAD_CENTER')
-        wait_for(stock_ui_clear, 'external TV onboarding dismissal completed')
+            if not banner_acted and any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+                    n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+                window = focused_window()
+                smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
+                banner_acted = True
+                with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                    output.write('Actual stock launcher banner; dismissing its separate action once.\n' +
+                                 window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
+                ui('Dismiss')
+                nodes = hierarchy()
+                if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+                       n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+                    smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
+                    key('KEYCODE_DPAD_CENTER')
+            return stock_ui_clear()
+        try:
+            wait_for(clear, 'external TV onboarding dismissal completed')
+        except fresh_session_checks.ReadinessTimeout:
+            (evidence / 'tv-onboarding-clear-failure-ui.txt').write_text((evidence / 'latest-ui.txt').read_text())
+            raise
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
         if acted:
             onboarding_dismissals += 1

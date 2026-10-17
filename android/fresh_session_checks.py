@@ -308,6 +308,7 @@ def controls():
     startup_controls()
     startup_restart_controls()
     startup_readiness_controls()
+    stock_banner_controls()
     assert copy_pid(prefix + 'Resource copy required=true') is None
     assert copy_pid(prefix + 'Installed resource: locale/en_US') is None
     copying = prefix + 'Resource copy required=true\n'
@@ -327,6 +328,8 @@ def controls():
             'cannot prove readiness for a replacement PID.\n'
             'PASS: actual startup predicate rejects the previous process log during bootstrap, '
             'empty/partial or changing files, missing creation and changed PID; fresh cold and known warm hosts qualify.\n'
+            'PASS: late stock banner handled once inside the bounded clear condition; '
+            'stuck/unknown controls stay hard without recording a dismissal or starting the frontend.\n'
             'PASS: copy probe binds its PID only to the actual font-copy event.\n')
 
 
@@ -506,6 +509,76 @@ def startup_readiness_controls(source=None):
     older_creation = created.replace('14:56:13.133869', '14:55:13.133869')
     assert evaluate(native, old, trace='', session=created + '\n' + older_creation)[0] is False
     assert evaluate(native, old, trace='', known='8817') == (True, '8817')
+
+
+def stock_banner_controls(source=None):
+    import ast
+    from pathlib import Path
+    import sys
+    import tempfile
+    import types
+    import xml.etree.ElementTree as ET
+    path = Path(__file__).with_name('smoke.py')
+    nodes = [node for node in ast.parse(path.read_text() if source is None else source).body
+             if isinstance(node, ast.FunctionDef) and node.name in ('dismiss_stock_onboarding', 'stock_ui_clear')]
+    code = compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec')
+    package = 'com.google.android.tvlauncher'
+    def exercise(arrives=3, stuck=False, resource='tray_dismiss'):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = dict(tutorial=True, homes=0, dismissed=False)
+            actions = []
+            def hierarchy():
+                if state['tutorial']:
+                    result = [ET.Element('node', {'package': package, 'resource-id': package + ':id/tutorial_negative_action',
+                        'text': 'Dismiss', 'clickable': 'true', 'focused': 'true', 'bounds': '[0,0][10,10]'})]
+                else:
+                    state['homes'] += 1
+                    result = [ET.Element('node', {'package': package, 'text': 'Home'})]
+                    if not state['dismissed'] and state['homes'] >= arrives:
+                        result.append(ET.Element('node', {'package': package, 'text': 'Dismiss',
+                            'resource-id': package + ':id/' + resource, 'clickable': 'true', 'focused': 'true'}))
+                (root / 'latest-ui.txt').write_text(''.join(ET.tostring(n, encoding='unicode') for n in result))
+                return result
+            def shell(*args):
+                assert args[:2] == ('input', 'tap') or args[0] == 'log', ('Frontend action in stock guard', args)
+                if args[0] == 'input':
+                    actions.append('tutorial')
+                    state['tutorial'] = False
+            def ui(label):
+                assert label == 'Dismiss' and resource == 'tray_dismiss'
+                actions.append('banner')
+                state['dismissed'] = not stuck
+            def key(value):
+                assert value == 'KEYCODE_DPAD_CENTER'
+                actions.append('center')
+            def wait_for(condition, description):
+                for _ in range(8):
+                    if condition(): return
+                raise ReadinessTimeout(description)
+            namespace = dict(onboarding_guard=True, dismissing_onboarding=False, last_onboarding_check=0,
+                onboarding_dismissals=0, onboarding_dismissal_marker='', startup_number=5,
+                stock_package=package, app='org.esdeplus.frontend', evidence=root, re=re,
+                time=types.SimpleNamespace(monotonic=lambda: 100, monotonic_ns=lambda: 1000, sleep=lambda _: None),
+                focused_window=lambda: 'mCurrentFocus=Window{x u0 ' + package + '/' + package +
+                    ('.dialog.ShowDialogsActivity}' if state['tutorial'] else '.MainActivity}'),
+                hierarchy=hierarchy, shell=shell, ui=ui, key=key, wait_for=wait_for,
+                adb=lambda *args, **kwargs: b'control', screenshot=lambda *args: None,
+                smoke_checks=smoke_checks, fresh_session_checks=sys.modules[__name__])
+            exec(code, namespace)
+            failed = False
+            try:
+                namespace['dismiss_stock_onboarding']()
+            except ReadinessTimeout:
+                failed = True
+            assert not namespace['dismissing_onboarding']
+            return failed, namespace['onboarding_dismissals'], actions
+    for arrival in (1, 3):
+        assert exercise(arrives=arrival) == (False, 1, ['tutorial', 'banner']), \
+            'A late supported banner prevented recording the completed dismissal'
+    assert exercise(arrives=99) == (False, 1, ['tutorial'])
+    assert exercise(stuck=True) == (True, 0, ['tutorial', 'banner', 'center'])
+    assert exercise(resource='unrecognised_dismiss') == (True, 0, ['tutorial'])
 
 
 if __name__ == '__main__':
