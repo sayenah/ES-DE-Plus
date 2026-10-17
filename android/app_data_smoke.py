@@ -32,10 +32,7 @@ def run(harness):
         h.ui('Use direct filesystem compatibility', dpad=True)
         if any(h.node_matches(n, 'Grant direct filesystem access') for n in h.hierarchy()):
             h.ui('Grant direct filesystem access', dpad=True)
-            if h.api == 29:
-                h.ui('Allow')
-            else:
-                h.grant_from_settings()
+            h.grant_from_settings()
 
     def choose(root, *, changed=False):
         if changed:

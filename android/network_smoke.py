@@ -224,7 +224,7 @@ def controls():
         else:
             raise AssertionError('Frontend/permission/TLS control escaped')
     reports.append('PASS: three bounded stalled-remote attempts (40 virtual seconds including backoff); '
-                   'API 29/TV diagnostic, API 34 hard failure; frontend death/ANR/focus, permission and TLS never retried.')
+                   'API 31/TV diagnostic, API 34 hard failure; frontend death/ANR/focus, permission and TLS never retried.')
     reports.append('PASS: a bare no-INTERNET resolve error is textually remote; the per-attempt grant check prevents masking. '
                    'Negative permission probes bypass retries and must receive their one resolve error.')
     reports.append('PASS: only an HTTPS service reply satisfies scraper reachability.')

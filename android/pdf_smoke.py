@@ -443,9 +443,8 @@ def run(mode, harness):
         h.key('KEYCODE_FORWARD_DEL'); command('fixture=missing'); h.key('KEYCODE_DPAD_UP')
         closed(frame('missing-after-discovery'))
         command('fixture=valid'); open_manual('missing-recovery'); h.key('KEYCODE_DEL')
-        # Retain the existing API 29 CI check until the Android 12 platform merge;
-        # every supported phone image runs this stress path. TV remains excluded.
-        if not h.television and (h.api == 29 or h.api >= 31):
+        # Every supported phone image runs this stress path. TV remains excluded.
+        if not h.television and h.api >= 31:
             command('fixture=stress')
             h.adb('logcat', '-c')
             first_stress = open_manual('stress-first')
@@ -562,7 +561,7 @@ def run(mode, harness):
             h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(
                 'Removable-volume success/removal probe uses the explicit direct-mode pass on this same image.\n' + volumes)
         h.evidence.joinpath('pdf-' + mode + '-summary.txt').write_text(
-            'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and missing/unreadable/malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 29/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
+            'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and missing/unreadable/malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 31/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
     finally:
         if process and process.poll() is None:
             h.shell('am', 'force-stop', h.app)

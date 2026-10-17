@@ -760,7 +760,7 @@ def configured_system(name):
 
 
 def launch_contract_probes(mode):
-    if api >= 30 and mode.startswith('direct'):
+    if mode.startswith('direct'):
         # A raw-path emulator needs its own explicitly granted filesystem
         # permission. Drive the recipient's real Settings flow under its UID;
         # provider grants are tested separately and never widened.
@@ -950,8 +950,6 @@ def gamelist_recipient_flow(mode):
         adb('uninstall', 'org.esdeplus.stub')
         failed_target('removed')
         adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
-        if api == 29:
-            shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
         start_custom()
         importer_navigation.open_importer(globals(), mode)
         screenshot('importer-' + mode)
@@ -1139,7 +1137,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 29 and API 34 still fail without a product launch retry.
+                raise  # API 31 and API 34 still fail without a product launch retry.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')
@@ -1218,8 +1216,6 @@ try:
     shell('setprop', 'debug.checkjni', '1')
     api = device_api
     shared = '/sdcard/ESDEPlusSmoke'
-    if api == 29:
-        shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
     (evidence / 'image.txt').write_text(shell('getprop'))
     if phase not in ('core', 'app-data'):
         smoke_phases.run(phase, globals())
@@ -1238,11 +1234,7 @@ try:
         raise SystemExit(0)
     icon_smoke.capture(shell, adb, hierarchy, wait_for, screenshot, app, label, evidence, television)
     clear_app()
-    if api == 29:
-        shell('pm', 'revoke', app, 'android.permission.READ_EXTERNAL_STORAGE')
-        shell('pm', 'revoke', app, 'android.permission.WRITE_EXTERNAL_STORAGE')
-    else:
-        shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'default')
+    shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'default')
     select_data_root(external + '/ES-DE-Plus')
     retained = instrument_with_ui('am', 'instrument', '-w', '-e', 'mode', 'retained-configurator',
                      app + '/org.esdeplus.frontend.RuntimeSmoke')
@@ -1315,34 +1307,26 @@ try:
     ui('Create system folders', dpad=True)
     ui('Use direct filesystem compatibility', dpad=True)
     screenshot('mode-before-permission')
-    if api >= 30:
-        settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
-        if settings_component and component_enabled(settings_component, False):
-            try:
-                ui('Grant direct filesystem access', dpad=True)
-                grant_from_settings()
-                screenshot('generic-all-files-settings-return')
-                # Revoke only for the subsequent denial/grant UI probe.
-                shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
-                start_entry('HomeEntry', 'android.intent.category.HOME')
-            finally:
-                component_enabled(settings_component, True)
+    settings_component = resolved_component('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', 'package:' + app)
+    if settings_component and component_enabled(settings_component, False):
+        try:
+            ui('Grant direct filesystem access', dpad=True)
+            grant_from_settings()
+            screenshot('generic-all-files-settings-return')
+            # Revoke only for the subsequent denial/grant UI probe.
+            shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+            start_entry('HomeEntry', 'android.intent.category.HOME')
+        finally:
+            component_enabled(settings_component, True)
     ui('Grant direct filesystem access', dpad=True)
-    if api == 29:
-        ui('Deny')
-        ui('Access was not granted')
-        screenshot('permission-denied')
-        ui('Grant direct filesystem access', dpad=True)
-        ui('Allow')
-    else:
-        # Return without granting once, from either app-specific or generic UI.
+    # Return without granting once, from either app-specific or generic UI.
+    key('KEYCODE_BACK')
+    if not any(n.get('package') == app for n in hierarchy()):
         key('KEYCODE_BACK')
-        if not any(n.get('package') == app for n in hierarchy()):
-            key('KEYCODE_BACK')
-        ui('Access was not granted')
-        screenshot('all-files-denied')
-        ui('Grant direct filesystem access', dpad=True)
-        grant_from_settings()
+    ui('Access was not granted')
+    screenshot('all-files-denied')
+    ui('Grant direct filesystem access', dpad=True)
+    grant_from_settings()
     # The proposed shared data root remains absent until its exact-path consent.
     direct_data = '/sdcard/ES-DE-Plus'
     shell('test', '!', '-e', direct_data)
@@ -1512,13 +1496,10 @@ try:
     # Revoke actual access after persisted configuration; ordinary startup must
     # show recovery, never substitute a directory or restart-loop HOME.
     shell('am', 'force-stop', app)
-    if api == 29:
-        shell('pm', 'revoke', app, 'android.permission.WRITE_EXTERNAL_STORAGE')
-    else:
-        shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
-        revoked = shell('appops', 'get', '--uid', app, 'MANAGE_EXTERNAL_STORAGE')
-        assert 'deny' in revoked, revoked
-        (evidence / 'revoked-all-files-appop.txt').write_text(revoked)
+    shell('appops', 'set', '--uid', app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+    revoked = shell('appops', 'get', '--uid', app, 'MANAGE_EXTERNAL_STORAGE')
+    assert 'deny' in revoked, revoked
+    (evidence / 'revoked-all-files-appop.txt').write_text(revoked)
     start_entry('HomeEntry', 'android.intent.category.HOME')
     ui('Configure ' + label)
     screenshot('revoked-access-recovery')

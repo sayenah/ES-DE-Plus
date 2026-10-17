@@ -14,10 +14,7 @@ def prepare(harness, mode):
     if mode == 'direct':
         h.ui('Use direct filesystem compatibility', dpad=True)
         h.ui('Grant direct filesystem access', dpad=True)
-        if h.api == 29:
-            h.ui('Allow')
-        else:
-            h.grant_from_settings()
+        h.grant_from_settings()
     else:
         h.ui('Use app-owned storage', dpad=True)
     root = h.shared if mode == 'direct' else h.roms
@@ -39,7 +36,7 @@ def prepare(harness, mode):
     h.ui('Create system folders', dpad=True)
     h.ui('Save and start frontend', dpad=True)
     h.configured_system('session-' + mode + '-configured')
-    if mode == 'direct' and h.api >= 30:
+    if mode == 'direct':
         # The PDF suite's existing direct recipient flow needs its own real
         # filesystem grant. Core still tests the complete launch contract.
         h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity',

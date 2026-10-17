@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 # ES-DE Plus Android host
 
+The open-source Android host supports Android 12 (API 31) and later.
+
 ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
 
 Published CI debug APKs use one stable **test** key held only in GitHub's
@@ -173,7 +175,7 @@ Game launching uses the existing Android find rules and Intent variables in
 
 | Token | Intent value | Recipient access |
 | --- | --- | --- |
-| `%ROM%` | Absolute filesystem path | The emulator needs its own filesystem permission. On Android 11+ another app generally cannot read the frontend's app-owned `Android/data` directory; use `%ROMPROVIDER%` for app-owned games. |
+| `%ROM%` | Absolute filesystem path | The emulator needs its own filesystem permission. Another app generally cannot read the frontend's app-owned `Android/data` directory; use `%ROMPROVIDER%` for app-owned games. |
 | `%ROMSAF%` | External-storage document URI on the verified current-user volume | A held persisted tree covering this file permits an exact read grant. URI extras retain their string type and carry the grant through `ClipData`. Without a held tree the emulator needs its own SAF access. App-owned `Android/data` paths are refused with the frontend's launch-error popup. |
 | `%ROMPROVIDER%` | ES-DE Plus content URI in Intent data | The selected file receives a temporary read-only grant in both modes. No emulator storage permission is needed to read that file. |
 
@@ -288,7 +290,7 @@ deadline the harness captures evidence, rechecks health, stops that healthy
 process and removes only the incomplete clone whose destination it verified
 absent before the attempt. It then starts the frontend once and issues the next
 request through the UI. Successful lists/downloads are preserved. A failed
-startup during recovery fails the leg.
+startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 

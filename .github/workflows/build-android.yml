@@ -204,7 +204,7 @@ jobs:
       - name: Record dependency cache key
         id: dependency-cache
         env:
-          KEY: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          KEY: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
         run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
       - name: Restore per-ABI dependencies
         id: deps
@@ -362,7 +362,7 @@ jobs:
         run: |
           python3 - <<'PYCODE'
           import os, pathlib, subprocess, tempfile
-          compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
+          compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android31-clang++'
           with tempfile.TemporaryDirectory() as temporary:
               source = pathlib.Path(temporary) / 'InputOverlay.cpp'
               source.write_text('#warning ES-DE-Plus native-warnings positive control\n')
@@ -450,6 +450,18 @@ jobs:
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
+      - name: Verify Android 11 refuses the Android 12 minimum APK
+        if: ${{ success() && matrix.image == 'api31' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          avd-name: minimum-api30
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: python3 android/minimum-sdk-smoke.py android/app/build/outputs/apk/debug/app-debug.apk
       # Every phase cold-boots a distinct AVD, uses the same built APK, and gates this job.
       # Upload each phase before booting the next so later runner loss retains earlier evidence.
       - name: API 36 phone configurator inset smoke
