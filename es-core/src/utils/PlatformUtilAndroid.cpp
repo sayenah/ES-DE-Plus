@@ -535,10 +535,9 @@ namespace Utils
             std::pair<int, int> getWindowSize()
             {
                 const auto size = callIntPair("getWindowSize", {0, 0});
-                const auto renderer = Renderer::getInstance();
                 LOG(LogDebug) << "Android window snapshot " << size.first << "x" << size.second
-                              << ", renderer " << renderer->getScreenWidth() << "x"
-                              << renderer->getScreenHeight();
+                              << ", renderer " << Renderer::getScreenWidth() << "x"
+                              << Renderer::getScreenHeight();
                 return size;
             }
 

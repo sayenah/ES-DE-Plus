@@ -54,7 +54,6 @@ def run(harness):
         def cpu_ticks():
             fields = h.private('cat', '/proc/' + pid + '/stat').rsplit(')', 1)[1].split()
             return int(fields[11]) + int(fields[12])
-        cpu_before = cpu_ticks()
         marker = name + '-' + str(time.monotonic_ns())
         h.shell('log', '-p', 'i', '-t', 'ESDEPlusWindow', marker)
         h.shell(*command)
@@ -91,13 +90,20 @@ def run(harness):
                 print('WINDOW ' + json.dumps(row), flush=True)
                 return target
             if time.monotonic() >= deadline:
+                cpu_before = cpu_ticks()
+                progress_start = time.monotonic()
                 capture(name + '-timeout')
+                cpu_after = cpu_ticks()
+                (h.evidence / (name + '-progress.txt')).write_text(json.dumps(dict(
+                    ticks_before=cpu_before, ticks_after=cpu_after,
+                    seconds=time.monotonic() - progress_start)) + '\n')
                 h.capture_frontend_stacks(name + '-timeout')
+                assert h.shell('pidof', h.app, check=False).strip() == pid, name
                 # A control hit requires an actual new SDL surface, no native
                 # reload, the original live focused process and no fatal/destroy.
                 rendered = re.findall(r'Application resolution: (\d+x\d+)', current)[-1]
                 if (target and surfaces and surfaces[-1] == target and rendered != target and
-                        not reloads and cpu_ticks() > cpu_before):
+                        not reloads and cpu_after > cpu_before):
                     assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), name
                     raise LostResize(f'G-31: {name}, SDL surface={target}, no native reload, pid={pid}')
                 raise AssertionError('Resize did not complete: ' + name)
