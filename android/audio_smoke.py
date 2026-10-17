@@ -17,6 +17,7 @@ import tarfile
 import time
 import xml.etree.ElementTree as ET
 import pdf_smoke
+import audio_view
 
 
 # Main at WO-15 dispatch. Only this source file replaces the current source in
@@ -482,7 +483,8 @@ def controls():
         assert active_tracks(header + '\n' + row, '123') == {'7': 0x1234}
         assert not active_tracks(header + '\n' + row, '555')
         assert not active_tracks(header + '\n' + row.replace('yes', ' no'), '123')
-    return 'PASS: app crash/log boundary; GL no-progress proof and healthy negative; bounded onboarding eligibility; app audio-track controls.\n'
+    return ('PASS: app crash/log boundary; GL no-progress proof and healthy negative; bounded onboarding eligibility; app audio-track controls.\n' +
+            audio_view.controls())
 
 
 def image_distance(first, second):
@@ -503,7 +505,7 @@ def video_visible(png):
     return count > width * height / 400
 
 
-def cycle(h, name, count, allow_crash=False):
+def cycle(h, name, count, allow_crash=False, view_oracle=None):
     physical = re.search(r'Physical size: (\d+)x(\d+)', h.shell('wm', 'size'))
     assert physical, 'Physical display dimensions unavailable'
     reduced = 'x'.join(str(int(int(n) * .9)) for n in physical.groups())
@@ -511,6 +513,8 @@ def cycle(h, name, count, allow_crash=False):
     assert session_pid.isdigit()
     rows = []
     try:
+        if view_oracle is None:
+            view_oracle = audio_view.capture(h, name)
         h.screenshot(name + '-system-before')
         for index in range(count):
             for size in (reduced, 'reset'):
@@ -614,10 +618,19 @@ def cycle(h, name, count, allow_crash=False):
         gamelist = (h.evidence / (name + '-gamelist-after.png')).read_bytes()
         returned = (h.evidence / (name + '-system-after-back.png')).read_bytes()
         changed = image_distance(restored, gamelist)
-        if changed <= .01 or image_distance(restored, returned) >= changed / 2:
-            raise AssertionError('Enter/Back did not restore the expected system/gamelist views')
+        back = image_distance(restored, returned)
+        # Keep the former threshold unchanged as diagnostics, never identity.
         (h.evidence / (name + '-view-oracle.txt')).write_text(
-            f'Enter image distance={changed}; Back distance={image_distance(restored, returned)}\n')
+            f'Enter image distance={changed}; Back distance={back}; '
+            f'legacy threshold diagnostic={changed > .01 and back < changed / 2}\n')
+        try:
+            for expected, png, label in (('system', restored, 'after-resize'),
+                                        ('gamelist', gamelist, 'after-enter'),
+                                        ('system', returned, 'after-back')):
+                view_oracle.expect(expected, png, label)
+        finally:
+            (h.evidence / (name + '-view-identity.txt')).write_text(
+                json.dumps(view_oracle.records, indent=2) + '\n')
         return sum(row['crash'] for row in rows)
     finally:
         h.shell('wm', 'size', 'reset')
@@ -702,10 +715,10 @@ def video_fixture(path):
     path.write_bytes(b'RIFF' + struct.pack('<I', len(content) + 4) + b'AVI ' + content)
 
 
-def fixed_session(h, name, count):
+def fixed_session(h, name, count, view_oracle=None):
     completed = True
     try:
-        assert cycle(h, name, count) == 0
+        assert cycle(h, name, count, view_oracle=view_oracle) == 0
         outcome = f'PASS: {count} size/reset cycles; same PID; matching reload/audio setup; active app audio output.'
     except GLTransportInfrastructure as error:
         completed = False
@@ -738,12 +751,13 @@ def run(harness):
     try:
         h.user_file('settings/es_settings.xml', xml_settings(document))
         h.launch(audio_relaunch='audio-video-startup')
+        view_oracle = audio_view.capture(h, 'audio-fixed-video')
         h.key('KEYCODE_ENTER')
         h.wait_for(lambda: video_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),
                    'original audio-track video visibly plays before reload')
         h.screenshot('audio-video-before-reload')
         h.save_logs('audio-video-before-reload')
-        reloaded = fixed_session(h, 'audio-fixed-video', 1)
+        reloaded = fixed_session(h, 'audio-fixed-video', 1, view_oracle=view_oracle)
         phase = 'after-reload' if reloaded else 'independent-session-after-infrastructure'
         h.key('KEYCODE_ENTER')
         h.wait_for(lambda: video_visible(h.adb('exec-out', 'screencap', '-p', binary=True)),

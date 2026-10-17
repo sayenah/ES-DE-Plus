@@ -268,6 +268,15 @@ RSS, host available memory and wrapped-ADB command counts/durations. Each
 phase's evidence is uploaded before the next AVD starts; publication still
 requires every phase and all existing D-020 gates.
 
+The integration audio stress on API 31 and TV checks navigation by nearest
+match to system/gamelist reference frames captured in that process at the same
+window size. Multiple frames cover the original looping video. Missing Enter
+and missing Back controls must both be detected before stress; after stress,
+the restored system view, Enter's gamelist and Back's system view must match
+their identities. References, controls, distances and classifications are
+saved beside the screenshots. The former `.01` image-change threshold remains
+diagnostic only. `python3 android/audio_view.py` runs the pure identity controls.
+
 For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
 including PDF fixtures; set `RUNNER_TEMP` to a temporary directory outside the
