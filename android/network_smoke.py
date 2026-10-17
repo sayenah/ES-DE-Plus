@@ -930,6 +930,7 @@ def run_checks(harness, scoped=False):
                                  '-e', 'path', new_root, h.app + '/org.esdeplus.frontend.RuntimeSmoke')
                 h.smoke_checks.probe_passed(pasted, 'PASS: fixture path clipboard prepared')
                 h.start_entry('HomeEntry', 'android.intent.category.HOME')
+                h.ui('Change application-data folder', dpad=True)
                 h.ui('Absolute application-data folder path', dpad=True)
                 current = next(node.get('text', '') for node in h.hierarchy()
                                if node.get('class') == 'android.widget.EditText')

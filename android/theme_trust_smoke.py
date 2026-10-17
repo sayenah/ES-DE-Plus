@@ -34,9 +34,11 @@ def collect(h):
                 continue
             observation = ('run-as UID=' + h.shell('run-as', h.app, 'id', '-u', check=False) +
                            '\nstat uid/gid/mode/inode/size=' +
-                           h.shell('run-as', h.app, 'stat', '-c', '%u %g %a %i %s',
-                                   path + '/.git/config', check=False) + '\nCONFIG\n' +
-                           h.shell('run-as', h.app, 'cat', path + '/.git/config', check=False))
+                           h.shell('run-as', h.app, 'sh', '-c',
+                                   shlex.join(['stat', '-c', '%u %g %a %i %s',
+                                               path + '/.git/config']) + ' 2>&1', check=False) +
+                           '\nCONFIG\n' + h.shell('run-as', h.app, 'sh', '-c',
+                                   shlex.join(['cat', path + '/.git/config']) + ' 2>&1', check=False))
             h.evidence.joinpath('theme-trust-failed-config-readback.txt').write_text(observation)
     assert 'FAIL:' not in report and 'PASS: app-context theme trust controls\n' in report, report
     assert report.count('PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n') == 2, report

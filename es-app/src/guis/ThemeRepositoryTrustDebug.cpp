@@ -42,6 +42,7 @@ namespace
         std::string initialized;
         std::string remote;
         std::string completed;
+        std::vector<std::pair<std::string, std::string>> checkpoints;
     };
     std::map<std::string, CloneTrace> cloneTraces;
 
@@ -210,9 +211,15 @@ namespace
         git_repository* repository {nullptr};
         const int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
         trace.completed = configState(path);
-        cloneTraces[path] = std::move(trace);
         git_repository_free(repository);
+        trace.checkpoints.emplace_back("AFTER CLONE HANDLE FREE", configState(path));
+        cloneTraces[path] = std::move(trace);
         return result;
+    }
+
+    void checkpoint(const std::string& path, const std::string& stage)
+    {
+        cloneTraces.at(path).checkpoints.emplace_back(stage, configState(path));
     }
 
     void traceClone(const std::string& path)
@@ -221,8 +228,10 @@ namespace
         evidence << "AFTER INITIALIZATION\n"
                  << trace.initialized << "AFTER REMOTE CREATION\n"
                  << trace.remote << "AFTER CLONE\n"
-                 << trace.completed << "CURRENT CONFIG\n"
-                 << configState(path) << "END CLONE TRACE\n";
+                 << trace.completed;
+        for (const auto& point : trace.checkpoints)
+            evidence << point.first << '\n' << point.second;
+        evidence << "CURRENT CONFIG\n" << configState(path) << "END CLONE TRACE\n";
     }
 
     bool fetch(const std::string& path)
@@ -321,7 +330,9 @@ namespace
         git(clone(url, themes + "/themes-list"), "themes-list clone callback positive control");
         git(clone(url, original), "theme clone callback positive control");
         git(clone(url, themes + "/second"), "second admitted clone positive control");
+        checkpoint(original, "AFTER SECOND REPOSITORY CLONE");
         positive(original);
+        checkpoint(original, "AFTER INITIAL IDENTITY OPEN");
         measurements(data, themes);
         // Removing the protected allowlist proves the underlying ownership check still runs.
         fs::create_directory(privateRoot + "/empty");
@@ -331,10 +342,12 @@ namespace
         git_repository* raw {nullptr};
         const int ownerCode {git_repository_open(&raw, original.c_str())};
         git_repository_free(raw);
+        checkpoint(original, "AFTER RAW OWNERSHIP OPEN/FREE");
         require(shared ? ownerCode == GIT_EOWNER : ownerCode == 0,
                 "owner validation positive control");
         evidence << "PASS: raw owner control shared=" << shared << " code=" << ownerCode << '\n';
         prepare();
+        checkpoint(original, "AFTER RAW CONTROL CONFIGURE/ADMIT");
 
         {
             auto hostile = document(url);
@@ -361,6 +374,7 @@ namespace
             require(!parsed.HasParseError(), "hostile fixture real JSON parse positive control");
             const uint64_t before {fingerprint(themes)};
             require(admit(parsed), "hostile list admits its unambiguous original entries");
+            checkpoint(original, "AFTER HOSTILE JSON ADMISSION");
             for (rapidjson::SizeType i {0}; i < parsed["themes"].Size(); ++i) {
                 require(admitted(parsed["themes"][i]) == (i < 3),
                         "full JSON admission before string conversion");
@@ -376,8 +390,11 @@ namespace
             }
             require(fingerprint(themes) == before,
                     "hostile JSON preserves reserved and other repositories");
+            checkpoint(original, "AFTER HOSTILE JSON FILESYSTEM CONTROLS");
             positive(original);
+            checkpoint(original, "AFTER HOSTILE JSON IDENTITY OPEN");
             prepare();
+            checkpoint(original, "AFTER HOSTILE JSON RESTORE CONFIGURE/ADMIT");
             evidence << "PASS: real JSON full strings; invalid, duplicate, case, manual/recovery "
                         "aliases "
                         "and overlength names blocked at filesystem boundaries; reserved/other "
@@ -393,17 +410,22 @@ namespace
             }
             std::string latest;
             {
+                checkpoint(original, "BEFORE REWIND OPEN");
                 auto repository = open(original);
+                checkpoint(original, "AFTER REWIND OPEN");
                 latest = head(repository.get());
                 git_object* previous {nullptr};
                 git(git_revparse_single(&previous, repository.get(), "HEAD~1"),
                     "previous fixture commit");
+                checkpoint(original, "BEFORE HARD RESET");
                 git(git_reset(repository.get(), previous, GIT_RESET_HARD, nullptr),
                     "set one commit behind");
+                checkpoint(original, "AFTER HARD RESET");
                 git_object_free(previous);
                 evidence << "UPDATE cycle=" << cycle << " before=" << head(repository.get())
                          << " expected=" << latest << '\n';
             }
+            checkpoint(original, "AFTER REWIND HANDLE FREE");
             if (!fetch(original)) {
                 traceClone(original);
                 require(false,
