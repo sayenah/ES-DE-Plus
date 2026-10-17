@@ -22,12 +22,13 @@ def completed(logs, old, new, helper_required=True):
     assert before.count('Running main function') == 1, 'Old PID native-main count'
     assert after.count('Running main function') == 1, 'New PID native-main count'
     assert logs.count('Running main function') == 2, 'Unexpected native main in another process'
-    sequence = ['Finished main function', 'SDL activity destroy join returned', 'VM exiting with result code 0']
+    sequence = [next(line for line in before.splitlines() if token in line) for token in
+                ('Finished main function', 'SDL activity destroy join returned', 'VM exiting with result code 0')]
     helper = f'SDL process {old} retired; restarting entry'
     if helper_required or 'Clear-task entry retiring SDL session' in before:
         assert 'Clear-task entry retiring SDL session' in before, 'No explicit clear-task retirement'
         assert helper in logs, 'Helper did not observe retirement'
-        sequence.append(helper)
+        sequence.append(next(line for line in logs.splitlines() if helper in line))
     offsets = [logs.index(token) for token in sequence]
     assert offsets == sorted(offsets), 'Retirement chain out of order'
     new_main = next(line for line in after.splitlines() if 'Running main function' in line)
@@ -43,6 +44,8 @@ def controls():
     logs += ('01-01 00:00:00.001 456 456 I ES-DE-Plus: SDL process 123 retired; restarting entry\n'
              '01-01 00:00:00.002 789 790 I SDL: Running main function\n')
     completed(logs, '123', '789')
+    unrelated_exit = '01-01 00:00:00.000 999 999 I AndroidRuntime: VM exiting with result code 0\n'
+    completed(unrelated_exit + logs, '123', '789')
     natural = '\n'.join(line for line in logs.splitlines() if
                         'Clear-task entry retiring' not in line and 'SDL process 123 retired;' not in line)
     completed(natural, '123', '789', helper_required=False)
@@ -52,6 +55,8 @@ def controls():
                 logs.replace(' 123 ', ' 999 '),
                 logs + 'Focused redirect forwarding entry\n', logs + 'ANR in frontend\n',
                 logs + '01-01 00:00:00.004 999 999 I SDL: Running main function\n']
+    mutants.append(unrelated_exit + '\n'.join(line for line in logs.splitlines()
+                                             if 'VM exiting' not in line))
     assert not pid_lines('01-01 00:00:00.000 456 456 I SDL: original PID 123 Running main function', '123')
     for mutant in mutants:
         try:
