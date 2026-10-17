@@ -165,7 +165,8 @@ def controls():
                   'ScraperHttpRequest network error - Could not resolve hostname',
                   'SSL peer certificate cannot be authenticated']:
         assert not scraper_reply(value), value
-    reports = []
+    import network_navigation
+    reports = [network_navigation.controls()]
     destinations = root_destinations(34, ['/storage/0000-0000'])
     assert len(destinations) == 2
     assert destinations[0][1] == 'escaping' and destinations[0][0].startswith('/sdcard/')
@@ -370,14 +371,11 @@ def run_checks(harness, scoped=False):
         return output[len(before):]
 
     def menu(index):
-        h.key('KEYCODE_ESCAPE')
-        for _ in range(index):
-            h.key('KEYCODE_DPAD_DOWN')
-        h.key('KEYCODE_ENTER')
+        import network_navigation
+        network_navigation.open_menu(h, ('SEARCH', 'SCRAPER', 'UI SETTINGS')[index], active[0])
 
     def downloader():
-        menu(2)  # SEARCH, SCRAPER, UI SETTINGS; first row is THEME DOWNLOADER.
-        h.key('KEYCODE_ENTER')
+        menu(2)  # Both UI SETTINGS and THEME DOWNLOADER are verified before activation.
 
     def clone_target_started(repository):
         target = shlex.quote(theme_path(repository + '/.git'))

@@ -316,11 +316,14 @@ class ConfiguratorActivity : Activity() {
             guarded {
                 if (mode == "direct" && (dataConsent != dataPath || step != "roms"))
                     throw java.io.IOException(getString(R.string.data_folder_required))
-                storage.save(StorageModel.Configuration(mode, path, tree, createSystems, dataPath))
+                val previous = storage.load()
+                val selected = StorageModel.Configuration(mode, path, tree, createSystems, dataPath)
+                storage.save(selected)
                 ConfiguratorSession.clearDraft(this)
                 // Snapshot before releasing the startup hold: the initial native
                 // thread may select its paths immediately after that release.
-                restartFrontend = MainActivity.liveInstance()?.nativePathsSelected == true
+                restartFrontend = previous != selected &&
+                    MainActivity.liveInstance()?.nativePathsSelected == true
                 completed = true
                 ConfiguratorSession.finishConfiguration()
                 returnToFrontend()
