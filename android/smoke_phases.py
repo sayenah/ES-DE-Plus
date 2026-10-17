@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Independent fresh-AVD regression sessions.
-PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped')
+PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped',
+          'manager-direct', 'manager-scoped')
 
 
 def prepare(harness, mode):
@@ -52,18 +53,18 @@ def prepare(harness, mode):
 def run(phase, harness):
     h = type('Harness', (), harness)
     assert phase in PHASES and phase != 'core', phase
-    prepare(harness, 'scoped' if phase == 'pdf-scoped' else 'direct')
+    prepare(harness, 'scoped' if phase in ('pdf-scoped', 'manager-scoped') else 'direct')
     if phase == 'lifecycle':
         h.lifecycle_smoke.run(harness)
     elif phase == 'integration':
         h.network_smoke.run(harness)
+    elif phase == 'manager-direct':
         h.emulator_manager_smoke.run('direct', harness)
+    elif phase == 'manager-scoped':
+        h.emulator_manager_smoke.run('scoped', harness)
+        h.emulator_manager_smoke.run('scoped-minified', harness, minified=True)
     else:
         h.pdf_smoke.run('scoped' if phase == 'pdf-scoped' else 'direct', harness)
         if phase == 'pdf-scoped':
-            # The unchanged Unicode/minified probe consumes the real fixtures
-            # created by the scoped PDF session, in the same selected storage.
             h.pdf_smoke.release(harness)
-            h.emulator_manager_smoke.run('scoped', harness)
-            h.emulator_manager_smoke.run('scoped-minified', harness, minified=True)
     h.evidence.joinpath('session-result.txt').write_text('PASS: ' + phase + '\n')

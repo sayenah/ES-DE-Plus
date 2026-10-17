@@ -132,19 +132,22 @@ namespace
     void prettyXml(std::ostream& stream,
                    pugi::xml_node node,
                    const std::string& indent,
-                   size_t depth = 0)
+                   size_t depth = 0,
+                   const std::string& prefix = "",
+                   const std::string& newline = "\n")
     {
         if (node.type() == pugi::node_document) {
             for (auto child : node.children())
-                prettyXml(stream, child, indent, depth);
+                prettyXml(stream, child, indent, depth, prefix, newline);
             return;
         }
+        stream << prefix;
         for (size_t i {0}; i < depth; ++i)
             stream << indent;
         if (!layoutContainer(node) || preserveSpace(node) || characterData(node) ||
             !node.first_child()) {
             node.print(stream, "", pugi::format_raw, pugi::encoding_utf8);
-            stream << '\n';
+            stream << newline;
             return;
         }
         // Let pugixml escape the opening tag; print opaque children without adding
@@ -156,12 +159,309 @@ namespace
         std::ostringstream opening;
         element.print(opening, "", pugi::format_raw, pugi::encoding_utf8);
         const auto text = opening.str();
-        stream << text.substr(0, text.size() - 2) << ">\n";
+        stream << text.substr(0, text.size() - 2) << ">" << newline;
         for (auto child : node.children())
-            prettyXml(stream, child, indent, depth + 1);
+            prettyXml(stream, child, indent, depth + 1, prefix, newline);
+        stream << prefix;
         for (size_t i {0}; i < depth; ++i)
             stream << indent;
-        stream << "</" << node.name() << ">\n";
+        stream << "</" << node.name() << ">" << newline;
+    }
+
+    struct XmlRange {
+        size_t begin;
+        size_t opening;
+        size_t closing;
+        size_t end;
+    };
+
+    // Locate lexical boundaries in the original UTF-8 buffer, never in a printed
+    // copy. pugixml already validated the grammar; quoted '>' and nested tags,
+    // comments, CDATA and processing instructions must not end an element early.
+    size_t tagEnd(const std::string& bytes, size_t begin)
+    {
+        char quote {0};
+        for (size_t i {begin}; i < bytes.size(); ++i) {
+            const char c {bytes[i]};
+            if (quote) {
+                if (c == quote)
+                    quote = 0;
+            }
+            else if (c == '\'' || c == '"')
+                quote = c;
+            else if (c == '>')
+                return i + 1;
+        }
+        throw std::runtime_error(_("Cannot locate original XML boundaries; no files changed"));
+    }
+
+    XmlRange originalRange(pugi::xml_node node, const std::string& bytes)
+    {
+        if (node.type() == pugi::node_document)
+            return {0, 0, bytes.size(), bytes.size()};
+        const auto offset = node.offset_debug();
+        size_t prefix {0};
+        const char* terminator {nullptr};
+        switch (node.type()) {
+            case pugi::node_element:
+                prefix = 1;
+                break;
+            case pugi::node_declaration:
+            case pugi::node_pi:
+                prefix = 2;
+                terminator = "?>";
+                break;
+            case pugi::node_comment:
+                prefix = 4;
+                terminator = "-->";
+                break;
+            case pugi::node_cdata:
+                prefix = 9;
+                terminator = "]]>";
+                break;
+            case pugi::node_pcdata:
+                terminator = "<";
+                break;
+            default:
+                break;
+        }
+        if (offset < static_cast<ptrdiff_t>(prefix) || static_cast<size_t>(offset) >= bytes.size())
+            throw std::runtime_error(_("Cannot locate original XML boundaries; no files changed"));
+        const size_t begin {static_cast<size_t>(offset) - prefix};
+        if (terminator) {
+            const auto end = bytes.find(terminator, offset);
+            const auto after = end == std::string::npos ?
+                                   bytes.size() :
+                                   end + (node.type() == pugi::node_pcdata ?
+                                              0 :
+                                              std::char_traits<char>::length(terminator));
+            return {begin, begin, after, after};
+        }
+        const auto opening = tagEnd(bytes, begin);
+        if (bytes[begin] != '<')
+            throw std::runtime_error(_("Cannot locate original XML boundaries; no files changed"));
+        if (bytes[opening - 2] == '/')
+            return {begin, opening, opening, opening};
+        size_t position {opening};
+        size_t depth {1};
+        while ((position = bytes.find('<', position)) != std::string::npos) {
+            const char* end {nullptr};
+            if (bytes.compare(position, 4, "<!--") == 0)
+                end = "-->";
+            else if (bytes.compare(position, 9, "<![CDATA[") == 0)
+                end = "]]>";
+            else if (bytes.compare(position, 2, "<?") == 0)
+                end = "?>";
+            if (end) {
+                const auto found = bytes.find(end, position + 2);
+                if (found == std::string::npos)
+                    break;
+                position = found + std::char_traits<char>::length(end);
+                continue;
+            }
+            const auto after = tagEnd(bytes, position);
+            if (bytes.compare(position, 2, "</") == 0) {
+                if (--depth == 0)
+                    return {begin, opening, position, after};
+            }
+            else if (bytes[after - 2] != '/')
+                ++depth;
+            position = after;
+        }
+        throw std::runtime_error(_("Cannot locate original XML boundaries; no files changed"));
+    }
+
+    std::string nodeKey(pugi::xml_node node)
+    {
+        std::string key {std::to_string(node.type()) + ":" + node.name()};
+        if (node.type() == pugi::node_comment) {
+            const std::string value {node.value()};
+            return key + (value.find(snapshotPrefix) == 0 ? snapshotPrefix : value);
+        }
+        if (std::string_view(node.name()) == "system")
+            key += ":" + std::string(node.child("name").text().get());
+        else if (std::string_view(node.name()) == "emulator")
+            key += ":" + std::string(node.attribute("name").value());
+        else if (std::string_view(node.name()) == "command")
+            key += ":" + std::string(node.attribute("label").value());
+        return key;
+    }
+
+    std::string lineIndent(const std::string& bytes, size_t position)
+    {
+        const auto line = position == 0 ? std::string::npos : bytes.rfind('\n', position - 1);
+        const size_t start {line == std::string::npos ? 0 : line + 1};
+        auto prefix = bytes.substr(start, position - start);
+        return prefix.find_first_not_of(" \t") == std::string::npos ? prefix : "";
+    }
+
+    std::string patchXml(pugi::xml_node source,
+                         pugi::xml_node original,
+                         const std::string& bytes,
+                         const std::string& indent,
+                         const std::string& newline,
+                         bool preserve = false)
+    {
+        const auto range = originalRange(original, bytes);
+        if (xml(source) == xml(original))
+            return bytes.substr(range.begin, range.end - range.begin);
+        if (source.type() != pugi::node_element && source.type() != pugi::node_document) {
+            std::ostringstream output;
+            source.print(output, "", pugi::format_raw, pugi::encoding_utf8);
+            return output.str();
+        }
+        preserve |= preserveSpace(source) || !layoutContainer(source) || characterData(source);
+        const bool selfClosing {range.opening == range.end && source.type() == pugi::node_element};
+        auto children = [&](pugi::xml_node parent) {
+            std::vector<pugi::xml_node> result;
+            for (auto child : parent.children()) {
+                if (!preserve && child.type() == pugi::node_pcdata &&
+                    std::string_view(child.value()).find_first_not_of(" \t\r\n") ==
+                        std::string_view::npos)
+                    continue;
+                result.push_back(child);
+            }
+            return result;
+        };
+        const auto before = children(original);
+        const auto after = children(source);
+        // Manager edits retain sibling order. Match stable grammar identities;
+        // opaque repeated user nodes retain their original ordinal position.
+        std::vector<size_t> matches(after.size(), before.size());
+        size_t next {0};
+        for (size_t i {0}; i < after.size(); ++i)
+            for (size_t j {next}; j < before.size(); ++j)
+                if (nodeKey(after[i]) == nodeKey(before[j])) {
+                    matches[i] = j;
+                    next = j + 1;
+                    break;
+                }
+        std::string output = bytes.substr(range.begin, range.opening - range.begin);
+        if (selfClosing)
+            output = output.substr(0, output.size() - 2) + ">";
+        if (source.type() == pugi::node_element) {
+            pugi::xml_document tags;
+            auto oldTag = tags.append_child(original.name());
+            auto newTag = tags.append_child(source.name());
+            for (auto attribute : original.attributes())
+                oldTag.append_attribute(attribute.name()).set_value(attribute.value());
+            for (auto attribute : source.attributes())
+                newTag.append_attribute(attribute.name()).set_value(attribute.value());
+            if (xml(oldTag) != xml(newTag)) {
+                auto tag = xml(newTag);
+                output = tag.substr(0, tag.size() - 2) + ">";
+            }
+        }
+        const auto parentIndent = lineIndent(bytes, range.begin);
+        auto childIndent = parentIndent + indent;
+        for (auto child : before) {
+            auto candidate = lineIndent(bytes, originalRange(child, bytes).begin);
+            if (candidate.size() > parentIndent.size()) {
+                childIndent = candidate;
+                break;
+            }
+        }
+        auto insert = [&](size_t first, size_t last, size_t position) {
+            if (first == last)
+                return std::string {};
+            std::string added;
+            const auto prefix = lineIndent(bytes, position);
+            for (size_t i {first}; i < last; ++i) {
+                if (preserve) {
+                    std::ostringstream raw;
+                    after[i].print(raw, "", pugi::format_raw, pugi::encoding_utf8);
+                    added += raw.str();
+                }
+                else {
+                    pugi::xml_document copy;
+                    std::ostringstream printed;
+                    prettyXml(printed, copyXml(copy, after[i]), indent, 0, childIndent, newline);
+                    auto text = printed.str();
+                    text.erase(0, childIndent.size());
+                    if (text.size() >= newline.size() &&
+                        text.compare(text.size() - newline.size(), newline.size(), newline) == 0)
+                        text.erase(text.size() - newline.size());
+                    added += (i == first ? (childIndent.find(prefix) == 0 ?
+                                                childIndent.substr(prefix.size()) :
+                                                newline + childIndent) :
+                                           newline + childIndent) +
+                             text;
+                }
+            }
+            return preserve ? added : added + newline + prefix;
+        };
+        size_t cursor {range.opening};
+        size_t pending {0};
+        for (size_t j {0}; j < before.size(); ++j) {
+            const auto childRange = originalRange(before[j], bytes);
+            output += bytes.substr(cursor, childRange.begin - cursor);
+            const auto match = std::find(matches.begin() + pending, matches.end(), j);
+            if (match != matches.end()) {
+                const size_t i {static_cast<size_t>(match - matches.begin())};
+                output += insert(pending, i, childRange.begin);
+                output += patchXml(after[i], before[j], bytes, indent, newline, preserve);
+                pending = i + 1;
+            }
+            cursor = childRange.end;
+        }
+        output += bytes.substr(cursor, range.closing - cursor);
+        output += insert(pending, after.size(), range.closing);
+        output += selfClosing ? "</" + std::string(source.name()) + ">" :
+                                bytes.substr(range.closing, range.end - range.closing);
+        return output;
+    }
+
+    std::string transcodeXml(const std::string& bytes, pugi::xml_encoding encoding, bool toUtf8)
+    {
+        const bool latin {encoding == pugi::encoding_latin1};
+        const bool little {encoding == pugi::encoding_utf16_le ||
+                           encoding == pugi::encoding_utf32_le};
+        const size_t width {
+            latin ?
+                1U :
+                (encoding == pugi::encoding_utf16_le || encoding == pugi::encoding_utf16_be ? 2U :
+                                                                                              4U)};
+        std::wstring wide;
+        if (toUtf8) {
+            if (bytes.size() % width != 0)
+                throw std::runtime_error(_("Incomplete XML encoding; no files changed"));
+            for (size_t i {0}; i < bytes.size(); i += width) {
+                uint32_t value {0};
+                for (size_t j {0}; j < width; ++j)
+                    value |= static_cast<uint32_t>(static_cast<unsigned char>(bytes[i + j]))
+                             << (8 * (little ? j : width - 1 - j));
+                if (width == 2 && value >= 0xdc00 && value <= 0xdfff && !wide.empty()) {
+                    const auto high = static_cast<uint32_t>(wide.back());
+                    if (high >= 0xd800 && high <= 0xdbff) {
+                        wide.back() = static_cast<wchar_t>(0x10000 + ((high - 0xd800) << 10) +
+                                                           value - 0xdc00);
+                        continue;
+                    }
+                }
+                wide.push_back(static_cast<wchar_t>(value));
+            }
+            return pugi::as_utf8(wide);
+        }
+        wide = pugi::as_wide(bytes);
+        std::string result;
+        auto append = [&](uint32_t value) {
+            for (size_t j {0}; j < width; ++j)
+                result += static_cast<char>((value >> (8 * (little ? j : width - 1 - j))) & 0xff);
+        };
+        for (auto character : wide) {
+            auto value = static_cast<uint32_t>(character);
+            if (latin && value > 0xff)
+                throw std::runtime_error(
+                    _("This XML encoding cannot represent the new text; use UTF-8"));
+            if (width == 2 && value > 0xffff) {
+                value -= 0x10000;
+                append(0xd800 + (value >> 10));
+                append(0xdc00 + (value & 0x3ff));
+            }
+            else
+                append(value);
+        }
+        return result;
     }
 
     std::string formatted(pugi::xml_node source, const std::string& original)
@@ -179,22 +479,33 @@ namespace
                 }
             }
         }
-        pugi::xml_document copy;
-        const auto node = copyXml(copy, source);
-        std::ostringstream stream;
-        prettyXml(stream, node, indent);
-        std::string output = stream.str();
-        // XML parsers normalize input newlines. Retain the file's CRLF convention
-        // on output where the original consistently used it, including declarations.
-        if (original.find("\r\n") != std::string::npos) {
-            bool crlf {true};
-            for (size_t i {0}; i < original.size(); ++i)
-                if (original[i] == '\n' && (i == 0 || original[i - 1] != '\r'))
-                    crlf = false;
-            if (crlf) {
-                for (size_t i {0}; (i = output.find('\n', i)) != std::string::npos; i += 2)
-                    output.insert(i, 1, '\r');
+        const std::string newline {original.find("\r\n") == std::string::npos ? "\n" : "\r\n"};
+        std::string output;
+        if (original.empty()) {
+            pugi::xml_document copy;
+            std::ostringstream stream;
+            prettyXml(stream, copyXml(copy, source), indent);
+            output = stream.str();
+        }
+        else {
+            pugi::xml_document previous;
+            const auto parsed = previous.load_buffer(original.data(), original.size(),
+                                                     pugi::parse_full | pugi::parse_ws_pcdata);
+            if (!parsed)
+                throw std::runtime_error(_("Cannot read original XML; no files changed"));
+            if (parsed.encoding != pugi::encoding_utf8) {
+                const auto utf8 = transcodeXml(original, parsed.encoding, true);
+                if (!previous.load_buffer(utf8.data(), utf8.size(),
+                                          pugi::parse_full | pugi::parse_ws_pcdata,
+                                          pugi::encoding_utf8))
+                    throw std::runtime_error(_("Cannot read original XML; no files changed"));
+                output =
+                    transcodeXml(patchXml(source, previous, utf8, indent,
+                                          utf8.find("\r\n") == std::string::npos ? "\n" : "\r\n"),
+                                 parsed.encoding, false);
             }
+            else
+                output = patchXml(source, previous, original, indent, newline);
         }
         pugi::xml_document readback;
         if (!readback.load_buffer(output.data(), output.size(),

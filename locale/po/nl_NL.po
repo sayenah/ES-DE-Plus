@@ -199,6 +199,18 @@ msgstr ""
 msgid "Cannot finish reading "
 msgstr ""
 
+msgid "Cannot locate original XML boundaries; no files changed"
+msgstr ""
+
+msgid "Incomplete XML encoding; no files changed"
+msgstr ""
+
+msgid "This XML encoding cannot represent the new text; use UTF-8"
+msgstr ""
+
+msgid "Cannot read original XML; no files changed"
+msgstr ""
+
 msgid "Cannot preserve the configuration while formatting XML"
 msgstr ""
 

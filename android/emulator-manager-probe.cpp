@@ -104,9 +104,9 @@ int main(int argc, char** argv)
                 "add readback");
         require(actual.commands[1].addition == id, "ownership readback");
         require(read(systems).find("user comment") != std::string::npos &&
-                    read(systems).find("<unknown a=\"b\">keep</unknown>") != std::string::npos &&
+                    read(systems).find("<unknown a='b'>keep</unknown>") != std::string::npos &&
                     read(systems).find("loadExclusive") != std::string::npos &&
-                    read(systems).find("private=\"keep\"") != std::string::npos,
+                    read(systems).find("private='keep'") != std::string::npos,
                 "custom preservation");
         after.remove("test", id);
         after.save();
@@ -241,7 +241,7 @@ int main(int argc, char** argv)
         EmulatorManagerConfig ownedEdit {root, bundle, bundledRules};
         refused([&] { ownedEdit.remove("test", collisionId); });
         require(read(systems) == editedCommand, "later hand-edited addition preserved");
-        // Standard XML encodings are read, then emitted with a truthful UTF-8 declaration.
+        // Preserve the original XML encoding as well as its untouched lexical content.
         pugi::xml_document unicode;
         require(unicode.load_string(source.c_str()), "UTF-16 source preparation");
         unicode.prepend_child(pugi::node_declaration).append_attribute("encoding") = "UTF-16";
@@ -255,8 +255,14 @@ int main(int argc, char** argv)
         });
         encoded.add("test", "Encoded", "org.example/Activity", collisionProfile, ".zip", true);
         encoded.save();
-        require(read(systems).find("encoding=\"UTF-8\"") != std::string::npos,
-                "truthful UTF-8 output declaration");
+        pugi::xml_document encodedReadback;
+        const auto encodedBytes = read(systems);
+        const auto encodedResult =
+            encodedReadback.load_buffer(encodedBytes.data(), encodedBytes.size(), pugi::parse_full);
+        require(encodedResult && encodedResult.encoding == pugi::encoding_utf16_le &&
+                    std::string(encodedReadback.child("xml").attribute("encoding").value()) ==
+                        "UTF-16",
+                "original UTF-16 encoding and declaration retained");
         require(EmulatorManagerConfig(root, bundle, bundledRules).system("test").commands.size() ==
                     2,
                 "encoded input readback");
@@ -328,7 +334,7 @@ int main(int argc, char** argv)
                 "unrelated game selection preserved");
         require(read(gamelist).find("user gamelist") != std::string::npos &&
                     read(gamelist).find("<playcount>7</playcount>") != std::string::npos &&
-                    read(gamelist).find("extra=\"preserve\"") != std::string::npos,
+                    read(gamelist).find("extra='preserve'") != std::string::npos,
                 "selection repair preserves metadata/comments/attributes");
         const auto once = read(gamelist);
         EmulatorManagerConfig::clearSelections(gamelist, {"Removed"});
@@ -561,6 +567,118 @@ int main(int argc, char** argv)
                             protectedNodes(userRules, true, inherited),
                     "complete protected subtrees unchanged after readback/removal");
         }
+        // LOW-N1: additions may insert bytes, but every original byte outside
+        // changed fields must survive, including lexical choices the DOM loses.
+        const std::string lexical {
+            "\xef\xbb\xbf<?xml version='1.0'?>\n<systemList>\n\t<!-- my systems -->\n\n"
+            "\t<system>\n\t\t<name>test</name> <!-- trailing note -->\n"
+            "\t\t<fullname>Test &amp; &#233;</fullname>\n"
+            "\t\t<path>%ROMPATH%/test</path>\n\t\t<extension>.rom</extension>\n"
+            "\t\t<command label='Original'>PLACEHOLDER %ROM%</command>\n"
+            "\t\t<opaque quote='a > b'><![CDATA[<not-a-tag/>]]><?user keep?></opaque>\n"
+            "\t</system>\n\n\n"
+            "\t<system><name>compact</name><fullname>Compact</fullname><path>p</path>"
+            "<extension>.u</extension><command>c %ROM%</command></system>\n"
+            "  <system>\n      <name>mixed</name>\n      <fullname>Mixed</fullname>\n"
+            "      <path>q</path>\n      <extension>.v</extension>\n"
+            "      <command>c %ROM%</command>\n  </system>\n</systemList>\n"};
+        for (int variant {0}; variant < 4; ++variant) {
+            const auto directory = root + "/bytes-" + std::to_string(variant);
+            require(mkdir(directory.c_str(), 0700) == 0, "byte-preservation scratch");
+            std::string original {lexical};
+            if (variant == 1)
+                for (size_t i {0}; (i = original.find('\n', i)) != std::string::npos; i += 2)
+                    original.insert(i, 1, '\r');
+            if (variant == 2) {
+                original.erase(0, 3); // No BOM, deliberately mixed line endings.
+                original.insert(original.find("\n\n"), 1, '\r');
+            }
+            if (variant == 3) {
+                original.erase(0, 3);
+                const auto begin = original.find("\t<system>");
+                const auto end = original.find("</system>", begin) + 9;
+                auto compact = original.substr(begin, end - begin);
+                for (auto position = compact.find_first_of("\t\n"); position != std::string::npos;
+                     position = compact.find_first_of("\t\n"))
+                    compact.erase(position, 1);
+                original.replace(begin, end - begin, compact);
+            }
+            const std::string originalRules {
+                "\xef\xbb\xbf<?xml version='1.0'?>\r\n<ruleList>\r\n\r\n"
+                "  <!-- user rules -->\r\n  <emulator name='User'><rule type='androidpackage'>"
+                "<entry>org.user/Activity</entry></rule></emulator> <!-- inline -->\r\n"
+                "\r\n</ruleList>\r\n"};
+            put(directory + "/es_systems.xml", original);
+            put(directory + "/es_find_rules.xml", originalRules);
+            EmulatorManagerConfig bytes {directory, bundle, bundledRules};
+            const auto id = bytes.add("test", "Bytes", "org.bytes/Activity", collisionProfile,
+                                      variant == 2 ? ".zip" : "", true);
+            bytes.save();
+            auto expected = original;
+            if (variant == 2)
+                expected.replace(expected.find(".rom</extension>"), 4, ".rom .zip");
+            const auto insertion = expected.find("</system>");
+            const auto actual = read(directory + "/es_systems.xml");
+            const auto added = actual.size() - expected.size();
+            require(actual.substr(0, insertion) == expected.substr(0, insertion) &&
+                        actual.substr(insertion + added) == expected.substr(insertion) &&
+                        actual.substr(insertion, added).find("ES-DE-Plus addition") !=
+                            std::string::npos,
+                    "BOM, blank lines, inline comments, quotes/entities, compact and mixed-indent "
+                    "systems retain exact untouched bytes");
+            const auto actualRules = read(directory + "/es_find_rules.xml");
+            const auto ruleInsertion = originalRules.find("</ruleList>");
+            require(
+                actualRules.substr(0, ruleInsertion) == originalRules.substr(0, ruleInsertion) &&
+                    actualRules.substr(ruleInsertion + actualRules.size() - originalRules.size()) ==
+                        originalRules.substr(ruleInsertion),
+                "rules retain declaration, BOM, CRLF, blank lines, compact rules and inline "
+                "comment bytes");
+            EmulatorManagerConfig readback {directory, bundle, bundledRules};
+            require(readback.system("test").commands.back().addition == id,
+                    "byte-preserving upstream readback");
+            pugi::xml_document owned;
+            require(owned.load_buffer(actual.data(), actual.size(), pugi::parse_full),
+                    "owned parse");
+            auto system = owned.child("systemList").child("system");
+            auto command = system.find_child_by_attribute("command", "label", "Bytes");
+            auto marker = command.previous_sibling();
+            std::string removed = actual;
+            for (const auto& token :
+                 {std::string("<!--") + marker.value() + "-->",
+                  actual.substr(actual.find("<command label=\"Bytes\""),
+                                actual.find("</command>", actual.find("<command label=\"Bytes\"")) +
+                                    10 - actual.find("<command label=\"Bytes\""))}) {
+                const auto position = removed.find(token);
+                require(position != std::string::npos, "owned lexical boundary");
+                removed.erase(position, token.size());
+            }
+            readback.remove("test", id);
+            readback.save();
+            require(read(directory + "/es_systems.xml") == removed &&
+                        tree(removed) == tree(expected) &&
+                        read(directory + "/es_find_rules.xml") == actualRules,
+                    "removal deletes only exact owned tokens; all other bytes and semantic tree "
+                    "retained");
+            EmulatorManagerConfig unchanged {directory, bundle, bundledRules};
+            unchanged.save();
+            require(read(directory + "/es_systems.xml") == removed &&
+                        read(directory + "/es_find_rules.xml") == actualRules,
+                    "no-op save retains exact bytes");
+            const auto gamelist = directory + "/gamelist.xml";
+            const std::string selections {
+                "\xef\xbb\xbf<?xml version='1.0'?>\r\n<gameList>\r\n\r\n"
+                "  <game><path>one.zip</path><altemulator>Removed</altemulator></game> <!-- keep "
+                "-->\r\n"
+                "\t<game><path>two.zip</path><altemulator>Other</altemulator></game>\r\n</"
+                "gameList>\r\n"};
+            put(gamelist, selections);
+            EmulatorManagerConfig::clearSelections(gamelist, {"Removed"});
+            auto repaired = selections;
+            repaired.erase(repaired.find("Removed"), 7);
+            require(read(gamelist) == repaired,
+                    "selection repair changes only selected text bytes");
+        }
         const std::string profileText {
             "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
             "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "
@@ -582,7 +700,8 @@ int main(int argc, char** argv)
             << "PASS: precedence, unlabeled policy, partial failure/retry, preservation, "
                "ownership, external edit, malformed/ambiguous refusal, snapshot/refresh/reset; "
                "exact removal/ambiguous-label refusal; shared stable rules; "
-               "declaration/indent/CRLF readback; mixed/opaque/CDATA/xml:space preservation\n";
+               "declaration/indent/CRLF readback; mixed/opaque/CDATA/xml:space preservation; "
+               "exact-byte BOM/layout preservation\n";
     }
     catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

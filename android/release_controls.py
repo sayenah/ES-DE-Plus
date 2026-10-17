@@ -140,11 +140,11 @@ def eligibility_controls():
     script = textwrap.dedent(block.split("          python3 - <<'PYCODE'\n", 1)[1].split('          PYCODE', 1)[0])
     script = compile(script.replace("print('PASS: all required build/publication outcomes present')", ''),
                      'publication-result', 'exec')
-    for eligible, early, final, dry, release in itertools.product(
-            (True, False), *([('success', 'failure', 'skipped', 'cancelled')] * 4)):
-        environment = dict(ELIGIBLE=str(eligible).lower(), EARLY_LEGS=early, FINAL_LEG=final,
+    for eligible, early, manager, final, dry, release in itertools.product(
+            (True, False), *([('success', 'failure', 'skipped', 'cancelled')] * 5)):
+        environment = dict(ELIGIBLE=str(eligible).lower(), EARLY_LEGS=early, MANAGER_LEGS=manager, FINAL_LEG=final,
                            DRY_LEG=dry, RELEASE_RESULT=release)
-        expected = early == 'success' and ((final, dry, release) ==
+        expected = early == manager == 'success' and ((final, dry, release) ==
                    (('success', 'skipped', 'success') if eligible else ('skipped', 'success', 'skipped')))
         with mock.patch.dict(os.environ, environment):
             try:
@@ -153,7 +153,7 @@ def eligibility_controls():
                 assert not expected, environment
             else:
                 assert expected, environment
-    print('PASS: actual publication-result script, 512 job-outcome combinations')
+    print('PASS: actual publication-result script, 2048 job-outcome combinations')
 
 
 def check():
