@@ -1814,7 +1814,7 @@ bool GuiThemeDownloader::cloneRepository(const std::string& repositoryName, cons
     cloneOptions.remote_cb = ThemeRepositoryTrust::createRemote;
     if (!ThemeRepositoryTrust::permit(path)) {
         mRepositoryError = RepositoryError::CLONE_ERROR;
-        mMessage = "Theme repository admission or storage access failed";
+        mMessage = _("THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED");
         mPromise.set_value(true);
         return true;
     }
