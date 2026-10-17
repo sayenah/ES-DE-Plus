@@ -161,7 +161,9 @@ installs. Exact Gradle cache hits resolve offline. Dispatch
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
 then drives real configurator/permission screens on API 31, API 34 and Android TV
-API 36 x86_64. API 34 runs last on its own runner, after the API 31 and TV legs pass. After
+API 36 x86_64. API 34 runs last on its own runner after the first phone and TV legs
+finish. Its nonpublishing job also runs after an early-leg failure; final matrix
+success and publication still require every leg to pass. After
 same-commit Linux success and all Android checks, CI uploads and validates the
 source artefact on both dry-run and publication paths. Only an eligible
 `publish: true` dispatch then uploads the exact smoked debug APK; every other
@@ -316,7 +318,7 @@ requires every phase and all existing D-020 gates.
 
 Theme trust controls run in the integration session under the app UID, using
 ES-DE-Plus-authored Git/JSON fixtures, explicit failure injection and clone/worker
-barriers. API 31/34 additionally build the exact historical `438bf5927` ownership
+barriers. API 33/34 additionally build the exact historical `438bf5927` ownership
 control on the runner; no control APK is uploaded. The framework-free policy and
 Git operation target runs on Linux with:
 `cmake -S tests/theme-repository-trust -B build/theme-trust -DCMAKE_BUILD_TYPE=Release -DTHEME_TRUST_RUNTIME=ON`,
@@ -396,7 +398,7 @@ native input/licence closure, JNI contracts and viewer behaviour on all three im
 
 The app-data, integration, core, lifecycle, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Integration runs before the longer core/lifecycle sessions so downloader failures surface earlier. The four-hour outer job budget covers all seven sessions and the extended network controls; individual probe deadlines and failure gates are unchanged. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
 
-The API 34 special-character fixture uses emulated shared storage with `#`, `;`, space and `é`. D-012 amendment 5 excludes quotes from shared data paths because Android's MediaProvider refuses renames through those components. The configurator and resume probe require an actionable rejection, no destination access or mutation and no fallback, then prove valid-folder review still works. Native controls clone/fetch/reset actual quoted and backslash-containing app-private Git paths and parse their exact `safe.directory` entries through libgit2; framework-free tests also cover escaping. The integration emulator provisions a 2 GiB card for the retained list repository, the large theme and temporary clone files. A mounted removable volume additionally gets its own clone/select/load fixture with a portable filename; SDK card images use [FAT32](https://developer.android.com/tools/mksdcard), whose [filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file) exclude quotes. API 31/34 historical ownership controls require `python3 android/theme-owner-control.py` before the signing fixture; this builds exact archived `438bf5927` locally on the runner, with no APK upload.
+The API 34 special-character fixture uses emulated shared storage with `#`, `;`, space and `é`. D-012 amendment 5 excludes quotes from shared data paths because Android's MediaProvider refuses renames through those components. The configurator and resume probe require an actionable rejection, no destination access or mutation and no fallback, then prove valid-folder review still works. Native controls clone/fetch/reset actual quoted and backslash-containing app-private Git paths and parse their exact `safe.directory` entries through libgit2; framework-free tests also cover escaping. The integration emulator provisions a 2 GiB card for the retained list repository, the large theme and temporary clone files. A mounted removable volume additionally gets its own clone/select/load fixture with a portable filename; SDK card images use [FAT32](https://developer.android.com/tools/mksdcard), whose [filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file) exclude quotes. API 33/34 historical ownership controls require `python3 android/theme-owner-control.py` before the signing fixture; this builds exact archived `438bf5927` locally on the runner, with no APK upload.
 
 The API 34 integration session also force-stops a real in-place large-theme clone after Git initialization and before tracked content is present. A fresh frontend must offer the ordinary explicit corrupt-repository recovery, rename once and finish the download through the UI without filesystem repair. This is process-interruption evidence for D-012 am. 3; no Android 12 staging or retirement path is used.
 

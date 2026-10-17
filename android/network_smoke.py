@@ -175,12 +175,12 @@ def controls():
     assert destinations[1][1] == 'removable'
     assert not any(character in pathlib.PurePosixPath(destinations[1][0]).name
                    for character in '<>:"/\\|?*')
-    assert root_destinations(31, []) == [] and root_destinations(36, []) == []
+    assert root_destinations(33, []) == [] and root_destinations(36, []) == []
     assert len(root_destinations(34, [])) == 1
-    assert all(root_destinations(api, ['/storage/card'])[0][1] == 'removable' for api in (31, 36))
+    assert all(root_destinations(api, ['/storage/card'])[0][1] == 'removable' for api in (33, 36))
     reports.append('PASS: API34 legal special-character fixture remains on emulated storage even with a card; '
                    'removable clone/load fixture uses a portable filename; absence is explicit.')
-    for api in (31, 34, 36):
+    for api in (33, 34, 36):
         ticks = [0]
         attempts = []
         recoveries = []
@@ -225,7 +225,7 @@ def controls():
         else:
             raise AssertionError('Frontend/permission/TLS control escaped')
     reports.append('PASS: three bounded stalled-remote attempts (40 virtual seconds including backoff); '
-                   'API 31/TV diagnostic, API 34 hard failure; frontend death/ANR/focus, permission and TLS never retried.')
+                   'API 33/TV diagnostic, API 34 hard failure; frontend death/ANR/focus, permission and TLS never retried.')
     reports.append('PASS: a bare no-INTERNET resolve error is textually remote; the per-attempt grant check prevents masking. '
                    'Negative permission probes bypass retries and must receive their one resolve error.')
     reports.append('PASS: only an HTTPS service reply satisfies scraper reachability.')
@@ -607,7 +607,7 @@ def run_checks(harness, scoped=False):
     def owner_positive_control():
         nonlocal owner_leftover
         baseline = pathlib.Path('android/.deps/theme-owner/prefix.apk')
-        if scoped or h.api not in (31, 34) or not baseline.is_file():
+        if scoped or h.api not in (33, 34) or not baseline.is_file():
             return  # TV36 already has the required historical 438bf5927 evidence.
         begin('historical-owner-control')
         # user_file() stopped the frontend after preparing DebugMode. Load it
@@ -746,7 +746,7 @@ def run_checks(harness, scoped=False):
         if h.television:
             assert size_kib >= 50 * 1024, ('TV large-theme control must exceed 50 MiB', size_kib)
         record(f'PASS: shared-data theme clone seconds={time.monotonic() - clone_began:.3f} KiB={size_kib} path={theme_path(repository)}')
-        if extended and h.api in (31, 34, 36):
+        if extended and h.api in (33, 34, 36):
             # AC-4 exercises a fresh frontend; its admission hook rewinds this
             # run's clone before inventory.
             h.shell('am', 'force-stop', h.app)
