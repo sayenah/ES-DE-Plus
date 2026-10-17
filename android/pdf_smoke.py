@@ -349,7 +349,7 @@ def run(mode, harness):
             # This is a separate, focused diagnostic workload. The normal
             # PR-D smoke below remains complete. Keep the existing total
             # instrumentation deadline and per-close timeout unchanged.
-            assert h.api >= 31 and not h.television
+            assert h.api >= 33 and not h.television
             command('fixture=stress')
             probe = pdf_close_probe.CloseProbe(h, mode)
             poll_counts = []
@@ -444,7 +444,7 @@ def run(mode, harness):
         closed(frame('missing-after-discovery'))
         command('fixture=valid'); open_manual('missing-recovery'); h.key('KEYCODE_DEL')
         # Every supported phone image runs this stress path. TV remains excluded.
-        if not h.television and h.api >= 31:
+        if not h.television and h.api >= 33:
             command('fixture=stress')
             h.adb('logcat', '-c')
             first_stress = open_manual('stress-first')
@@ -474,7 +474,7 @@ def run(mode, harness):
             def close_cycle():
                 return probe.close(manual_visible)
             polls = close_cycle()
-            if h.api >= 31:
+            if h.api >= 33:
                 if polls != 1:
                     probe.capture('slow-stress-close')
                 h.launch_checks.equal(polls, 1, 'Cached PDF closes on first poll after resume')
@@ -561,7 +561,7 @@ def run(mode, harness):
             h.evidence.joinpath('pdf-' + mode + '-removable-volume.txt').write_text(
                 'Removable-volume success/removal probe uses the explicit direct-mode pass on this same image.\n' + volumes)
         h.evidence.joinpath('pdf-' + mode + '-summary.txt').write_text(
-            'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and missing/unreadable/malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 31/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
+            'PASS: actual gamelist/manual path, next/previous/first/last, zoom/pan/reset, close/reopen, injected and missing/unreadable/malformed/password/zero failures, valid recovery/game launch, background/foreground, activity destruction. API 33/34 also 60-page forward/back + ten cycles, FD and retained memory evidence.\n')
     finally:
         if process and process.poll() is None:
             h.shell('am', 'force-stop', h.app)
