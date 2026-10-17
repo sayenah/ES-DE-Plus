@@ -14,11 +14,28 @@ import android.util.Log
 class ClearTaskProbe : Instrumentation() {
     private var entry = "MainActivity"
     private var armed = false
+    private var drawUntil = 0L
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         entry = arguments?.getString("entry") ?: entry
         start()
+    }
+
+    override fun callActivityOnCreate(activity: Activity, state: Bundle?) {
+        super.callActivityOnCreate(activity, state)
+        if (activity.javaClass.name != "org.esdeplus.frontend.FrontendRedirectActivity") return
+        if (drawUntil == 0L) {
+            drawUntil = SystemClock.uptimeMillis() + 30_000
+            Log.i("ES-DE-Plus-Probe", "Clear-task replacement draw barrier armed")
+        }
+        // The framework can finish old records when the next activity is
+        // drawn as well as when it is idle. Keep this replacement's first
+        // frame pending while still delivering real resume/focus messages.
+        // Only redirect windows are affected; the real helper can draw.
+        activity.window.decorView.viewTreeObserver.addOnPreDrawListener {
+            SystemClock.uptimeMillis() >= drawUntil
+        }
     }
 
     override fun callActivityOnResume(activity: Activity) {
@@ -30,11 +47,10 @@ class ClearTaskProbe : Instrumentation() {
         // focus, stop and destroy. The helper's separate VM is unaffected.
         // No finish/recreate/quit, task operation, or result is substituted.
         val handler = Handler(Looper.getMainLooper())
-        val deadline = SystemClock.uptimeMillis() + 15_000
         Log.i("ES-DE-Plus-Probe", "Clear-task replacement idle barrier armed pid=${android.os.Process.myPid()}")
         handler.post(object : Runnable {
             override fun run() {
-                if (SystemClock.uptimeMillis() < deadline) handler.post(this)
+                if (SystemClock.uptimeMillis() < drawUntil) handler.post(this)
                 else Log.i("ES-DE-Plus-Probe", "Clear-task replacement idle barrier released")
             }
         })
