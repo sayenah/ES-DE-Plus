@@ -771,8 +771,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: manager-api29
-            api: 29
+          - image: manager-api31
+            api: 31
             target: google_apis
             profile: pixel_2
           - image: manager-tv36

@@ -88,9 +88,7 @@ def manager_menus(h, mode, leave=False):
 
 def run(mode, harness, minified=False):
     h = type('Harness', (), harness)
-    if h.api == 29:
-        h.shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
-    elif mode.startswith('direct'):
+    if mode.startswith('direct'):
         h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity', '--es', 'queryMode', 'storage-permission')
         h.grant_from_settings('ES-DE Plus recipient', recipient=True)
     original_settings = h.shell('cat', h.settings)
@@ -321,7 +319,7 @@ def run(mode, harness, minified=False):
         h.wait_for(lambda: receipt_ready(lambda r: r.get('extras', {}).get('ROM', {}).get('value') == fixture_data['file']), 'candidate recipient observed file')
         observation = json.loads(h.shell('run-as', 'org.esdeplus.stub', 'cat', 'files/observation.json'))
         controls('org.esdeplus.stub/org.esdeplus.stub.RecipientActivity', observation['component'], 'selected candidate component')
-        if h.api == 29 or mode.startswith('direct'):
+        if mode.startswith('direct'):
             controls(fixture_data['sha256'], observation.get('sha256'), 'exact ZIP bytes via path')
         else:
             controls(True, bool(observation.get('readError')), 'recipient reports scoped raw-path access refusal')

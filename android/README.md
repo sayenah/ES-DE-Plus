@@ -256,7 +256,7 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs five gating smoke phases, each in a distinct cold AVD: `core`
+CI runs five baseline gating smoke phases, each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 (update continuity on API 31/34 and network checks), `pdf-direct`, and
@@ -340,10 +340,14 @@ from every Android variant. libgit2 retains its GPL linking exception; LGPL
 runtime libraries stay shared. The platform renderer adds no application dependency. CI generates PDF fixtures without a third-party PDF library and checks
 native input/licence closure, JNI contracts and viewer behaviour on all three images.
 
-The emulator-manager regression uses the fresh integration session for direct
-transport and PDF-scoped for scoped and minified flows. All three flows gate
-each image. Menu entry reads the focused label from a fresh screenshot before
-each Down or activation; manager rows are checked against a fresh native Debug
+The emulator-manager regression runs in separate bounded jobs on every image,
+with fresh `manager-direct` and `manager-scoped` sessions. The scoped session
+also exercises the minified manager; all three flows gate each image. The
+baseline integration and PDF sessions retain all their existing checks.
+Each manager session records its boot identity, duration and child exit status;
+API 34 publication or its non-writing dry run requires every baseline and
+manager job to pass. Menu entry reads the focused label from a fresh screenshot
+before each Down or activation; manager rows are checked against a fresh native Debug
 focus capture before activation. Focus traces and screenshots accompany failures.
 Touch coverage is confined to manager dialogs until the frontend overlay lands
 (D-018 (3)); the parent menus and no-games entry use keyboard/controller input.
