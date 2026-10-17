@@ -54,8 +54,8 @@ def startup_host_created(output, pid):
     if not pid.isdigit():
         return None
     thread = r'^\S+\s+\S+\s+(?:[+-]\d{4}\s+)?' + re.escape(pid) + r'\s+\d+\s'
-    return next((' '.join(line.split()[:2]) for line in reversed(output.splitlines())
-                 if re.match(thread, line) and 'Creating sole SDL activity' in line), None)
+    return max((' '.join(line.split()[:2]) for line in output.splitlines()
+                if re.match(thread, line) and 'Creating sole SDL activity' in line), default=None)
 
 
 def startup_log_fresh(native, before, after, created):
@@ -476,7 +476,7 @@ def startup_readiness_controls(source=None):
     native = 'Total game count: 2\nApplication startup time: 1960 ms\n'
     old = '122|100|2026-10-17 14:55:52.000000000 +0000'
     fresh = '123|100|2026-10-17 14:56:14.000000000 +0000'
-    def evaluate(text, stamp, trace=created, known='8581', after=None, final_pid='8817'):
+    def evaluate(text, stamp, trace=created, known='8581', after=None, final_pid='8817', session=None):
         values = iter(text if isinstance(text, list) else [text, text])
         stamps = iter([stamp, stamp if after is None else after])
         pids = iter(['8817', final_pid])
@@ -485,6 +485,7 @@ def startup_readiness_controls(source=None):
                          logpath='/control/es_log.txt', log=lambda: next(values),
                          shell=lambda *args, **kwargs: next(stamps) if args[0] == 'stat' else next(pids),
                          adb=lambda *args: trace, startup_trace=lambda *args: trace,
+                         session_logcat=lambda *args: trace if session is None else session,
                          fresh_session_checks=sys.modules[__name__])
         exec(code, namespace)
         return namespace['current_startup_ready'](), namespace['startup_ready_pid']
@@ -497,6 +498,13 @@ def startup_readiness_controls(source=None):
     assert evaluate(native, fresh, trace=created.replace('8817 8817', '1001 8817'))[0] is False
     assert evaluate(native, fresh) == (True, '8817')
     assert evaluate(native, fresh, trace=created.replace(' +0000', '')) == (True, '8817')
+    # First configuration creates the held SDL host before the Save marker.
+    # Its session creation still proves freshness; restart chains stay scoped.
+    assert evaluate(native, fresh, trace='', session=created) == (True, '8817'), \
+        'Held host created before the Save marker was rejected'
+    assert evaluate(native, old, trace='', session=created)[0] is False
+    older_creation = created.replace('14:56:13.133869', '14:55:13.133869')
+    assert evaluate(native, old, trace='', session=created + '\n' + older_creation)[0] is False
     assert evaluate(native, old, trace='', known='8817') == (True, '8817')
 
 

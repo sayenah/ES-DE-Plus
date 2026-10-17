@@ -366,12 +366,15 @@ Classification merges the kept session stream with the live capture, so buffer
 clears or eviction cannot hide a destroy. UTC/year/microsecond timestamps preserve order.
 For every newly observed PID, including instrumentation bootstrap starts and
 helper replacements, readiness requires a stable inode/size/mtime sample around
-reading `es_log`, with a modification after that host's logged creation. Native
-`Log::init` rotates the old file before writing a new one; a stale old startup
+reading `es_log`, with a modification after that host's logged creation. Creation
+comes from the complete kept session because an initially held host exists
+before its Save marker; G-30 restart classification remains scoped to the start.
+Native `Log::init` rotates the old file before writing a new one; a stale old startup
 line cannot satisfy this condition. A previously verified warm PID may retain
 its log. The CI self-test executes the actual predicate with the captured
-bootstrap/old-log/rotation sequence, plus fresh, partial, unstable, missing-create
-and changed-PID controls. No native logfile or logging setting is changed.
+bootstrap/old-log/rotation sequence, plus held-before-Save, duplicate-backfill,
+fresh, partial, unstable, missing-create and changed-PID controls.
+No native logfile or logging setting is changed.
 
 Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
 PDF-direct/PDF-scoped/assets. These allow margin above the prior green matrix's maxima

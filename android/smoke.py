@@ -230,11 +230,15 @@ def capture_startup_failure(name, marker):
     return dict(focus=focus, logcat=since_start, after_dismissal=after_dismissal)
 
 
-def startup_trace(marker, snapshot):
+def session_logcat(snapshot):
     path = pathlib.Path('android/evidence') / (phase + '-session-logcat.txt')
     kept = path.read_text(errors='replace') if path.exists() else ''
     kept = ''.join(line for line in kept.splitlines(keepends=True) if line.endswith('\n'))
-    return fresh_session_checks.startup_trace(kept, snapshot, marker)
+    return kept + '\n' + snapshot
+
+
+def startup_trace(marker, snapshot):
+    return fresh_session_checks.startup_trace(session_logcat(snapshot), snapshot, marker)
 
 
 def current_startup_ready():
@@ -245,8 +249,8 @@ def current_startup_ready():
     pid = shell('pidof', app, check=False).strip()
     if not startup_monitoring and pid and pid == startup_ready_pid:
         return True
-    output = startup_trace(startup_log_marker, adb('logcat', '-d', '-b', 'all', '-v', 'threadtime',
-                                                '-v', 'year', '-v', 'UTC', '-v', 'usec'))
+    snapshot = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime', '-v', 'year', '-v', 'UTC', '-v', 'usec')
+    output = startup_trace(startup_log_marker, snapshot)
     try:
         chains = fresh_session_checks.startup_restart(output, app)
         if chains or pid != startup_ready_pid:
@@ -260,7 +264,8 @@ def current_startup_ready():
                     return False
                 chains = fresh_session_checks.startup_restart(output, app, pid, ready=current)
             elif not fresh_session_checks.startup_log_fresh(
-                    current, before, after, fresh_session_checks.startup_host_created(output, pid)):
+                    current, before, after,
+                    fresh_session_checks.startup_host_created(session_logcat(snapshot), pid)):
                 return False
     except fresh_session_checks.HostStartupFailure as failure:
         capture_startup_failure('host-startup-' + startup_log_marker, startup_log_marker)
