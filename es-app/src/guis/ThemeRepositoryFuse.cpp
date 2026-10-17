@@ -367,12 +367,25 @@ void ThemeRepositoryFuse::offerListRecovery(const std::string& path,
         _("PROCEED"),
         [path, proceed] {
             if (!recheckListRecovery(path)) {
+#ifndef NDEBUG
+                LOG(LogDebug) << "Theme list recovery confirmation refused: " << path;
+#endif
                 ThemeRepositoryTrust::reportFailure();
                 return;
             }
+#ifndef NDEBUG
+            LOG(LogDebug) << "Theme list recovery confirmation accepted: " << path;
+#endif
             proceed();
         },
-        _("CANCEL"), cancel, "", nullptr, "", nullptr, nullptr, true));
+        _("CANCEL"),
+        [=] {
+#ifndef NDEBUG
+            LOG(LogDebug) << "Theme list recovery cancelled: " << path;
+#endif
+            cancel();
+        },
+        "", nullptr, "", nullptr, nullptr, true));
 }
 #endif
 

@@ -60,6 +60,15 @@ def classifier(h, repository, select_row, downloader, request_result, capture, r
             if fault == 'cancel':
                 h.key('KEYCODE_DPAD_RIGHT')
             h.key('KEYCODE_ENTER')
+            verdict = ('cancelled' if fault == 'cancel' else 'confirmation accepted' if
+                       fault == 'proceed' else 'confirmation refused')
+            current_pid = h.shell('pidof', h.app).strip()
+            event = re.compile(r'^\S+\s+\S+\s+' + re.escape(current_pid) +
+                               r'\s+\d+\s+\w\s+ES-DE-Plus\s*:.*Theme list recovery ' + verdict,
+                               re.M)
+            h.wait_for(lambda: event.search(h.shell('logcat', '-d', '-v', 'threadtime',
+                                                    '-s', 'ES-DE-Plus:D')),
+                       'current-PID recovery decision ' + verdict, 30)
             if fault == 'proceed':
                 result = list_ready(before)
                 assert result.count('Renaming directory ' + path) == 1, result

@@ -74,6 +74,10 @@ namespace
 
     std::string read(const std::string& path)
     {
+        struct stat info {
+        };
+        if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode))
+            return ""; // Injections deliberately leave directories, links and FIFOs.
         std::ifstream stream(path, std::ios::binary);
         return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
     }
