@@ -5,8 +5,77 @@ import hashlib
 import json
 import importer_navigation
 import re
+import struct
 import xml.etree.ElementTree as ET
 
+
+
+def touch_geometry(windows, focus, component):
+    # Accessibility bounds describe the visible/clipped region, not SDL's input
+    # client extent. Use the current WindowManager owner and requested client
+    # size; a system bar must not shrink all injected touch coordinates.
+    assert 'WINDOW MANAGER LAST ANR' not in windows, 'Historical window state cannot authorize a tap'
+    current = next((line for line in focus.splitlines() if 'mCurrentFocus=' in line), '')
+    token = re.search(r'Window\{([^\s]+)\s+u\d+\s+([^\s}]+)', current)
+    assert token, 'Missing current focused native window'
+    def full(value):
+        assert '/' in value, 'Focused window has no activity component'
+        package, activity = value.split('/', 1)
+        return package + '/' + (package + activity if activity.startswith('.') else activity)
+    assert full(token[2]) == full(component), 'Touch target does not own current focus'
+    blocks = re.split(r'(?m)^\s*Window #\d+ ', windows)[1:]
+    matched = [block for block in blocks
+               if (match := re.match(r'Window\{([^\s]+)\s+u\d+\s+([^\s}]+)', block)) and
+               match[1] == token[1] and full(match[2]) == full(component)]
+    assert len(matched) == 1, 'Missing or ambiguous current native window geometry'
+    block = matched[0]
+    rectangle = r'\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]'
+    frame = re.search(r'(?m)^\s*(?:mFrame=|(?:Frames:|mWindowFrames:)[^\r\n]*?\bframe=)' + rectangle, block)
+    requested = re.search(r'\bRequested w=(\d+) h=(\d+)', block)
+    assert frame and requested, 'Missing native window frame or requested client size'
+    left, top, right, bottom = map(int, frame.groups())
+    width, height = map(int, requested.groups())
+    assert right > left and bottom > top and width > 0 and height > 0, 'Empty native window geometry'
+    return left, top, width, height
+
+
+def touch_point(point, renderer, geometry, display):
+    x, y = point
+    rw, rh = renderer
+    left, top, width, height = geometry
+    assert rw > 0 and rh > 0 and 0 <= x < rw and 0 <= y < rh, 'Native touch target outside renderer'
+    result = (round(left + x * width / rw), round(top + y * height / rh))
+    assert 0 <= result[0] < display[0] and 0 <= result[1] < display[1], 'Native touch target outside display'
+    return result
+
+
+def touch_controls():
+    component = 'smoke.app/smoke.app.MainActivity'
+    focus = 'mCurrentFocus=Window{abc u0 smoke.app/.MainActivity}'
+    sample = ("WINDOW MANAGER WINDOWS\n  Window #0 Window{abc u0 smoke.app/.MainActivity}:\n"
+              "    Requested w=1080 h=1920 mLayoutSeq=4\n"
+              "    Frames: parent=[0,0][1080,1920] display=[0,0][1080,1920] frame=[0,0][1080,1794]\n")
+    geometry = touch_geometry(sample, focus, component)
+    # The captured API-31 failure scaled CANCEL to the ALT key above it. The
+    # requested native client remains 1920 high despite 1794 visible pixels.
+    assert touch_point((956.6, 1224.53), (1080, 1920), geometry, (1080, 1920)) == (957, 1225)
+    assert touch_point((956.6, 1224.53), (1080, 1920), (0, 0, 1080, 1794), (1080, 1920)) != (957, 1225)
+    assert touch_point((540, 960), (1080, 1920), (20, 40, 540, 960), (1080, 1920)) == (290, 520)
+    assert touch_geometry(sample.replace('Frames: parent=[0,0][1080,1920] display=[0,0][1080,1920] frame=', 'mFrame='), focus, component) == geometry
+    for bad_window, bad_focus in [
+            ('WINDOW MANAGER LAST ANR\n' + sample, focus),
+            (sample.replace('Window{abc', 'Window{old'), focus),
+            (sample + sample, focus),
+            (sample.replace('Requested w=1080', 'Requested w=0'), focus),
+            (sample.replace('frame=[0,0][1080,1794]', 'no-frame'), focus),
+            (sample, focus.replace('smoke.app/.MainActivity', 'stock.launcher/.Home'))]:
+        try:
+            touch_geometry(bad_window, bad_focus, component)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Unverified touch geometry accepted')
+    return 'PASS: native client touch mapping rejects clipped accessibility scaling, stale/ambiguous/empty frames and wrong focus; translated/scaled windows map exactly.\n'
 
 
 def navigate_menus(read, key):
@@ -51,7 +120,7 @@ def navigation_controls():
     control()
     for label in ('QUIT ES-DE', 'SEARCH', 'EMULATOR MANAGER'):
         control(label)
-    return 'PASS: manager entry verifies fresh focus before every Down/A; QUIT, wrong and stale submenu labels send no A.\n'
+    return ('PASS: manager entry verifies fresh focus before every Down/A; QUIT, wrong and stale submenu labels send no A.\n' + touch_controls())
 
 
 def manager_menus(h, mode, leave=False):
@@ -138,6 +207,7 @@ def run(mode, harness, minified=False):
         h.launch_checks.equal(actual, expected, label)
     current_page = None
     focus_step = 0
+    touch_step = 0
     def page(name):
         nonlocal current_page
         marker = 'Emulator manager page: ' + name + ';'
@@ -206,22 +276,28 @@ def run(mode, harness, minified=False):
         pick(1); page('system')
         pick(0); page('draft')
     def tap(prefix):
+        nonlocal touch_step
         pattern = r'Emulator manager touch target: (' + re.escape(prefix) + r'[^\t\r\n]*)\tx:([0-9.]+)\ty:([0-9.]+)'
         h.wait_for(lambda: re.search(pattern, h.adb('logcat', '-d')) is not None, 'visible touch target ' + prefix, timeout=30)
         match = list(re.finditer(pattern, h.adb('logcat', '-d')))[-1]
-        # Targets are renderer coordinates. adb taps use display coordinates;
-        # derive the actual surface origin/scale instead of assuming no system bars.
-        nodes = h.hierarchy()
-        surfaces = [n for n in nodes if n.get('class', '').endswith(('SurfaceView', 'SDLSurface'))]
-        if not surfaces:
-            surfaces = [n for n in nodes if n.get('resource-id') == 'android:id/content']
-        controls(1, len(surfaces), 'one visible SDL content surface')
-        left, top, right, bottom = map(int, re.findall(r'\d+', surfaces[0].get('bounds')))
-        width, height = map(int, re.findall(r'Application resolution: (\d+)x(\d+)', h.log())[-1])
-        display_x = left + float(match[2]) * (right - left) / width
-        display_y = top + float(match[3]) * (bottom - top) / height
+        # Read actual native client geometry, never clipped accessibility bounds.
+        focused = h.focused_window()
+        windows = h.shell('dumpsys', 'window', '-a', 'windows')
+        capture = h.evidence / f'emulator-manager-{mode}-touch{touch_step}'
+        touch_step += 1
+        capture.with_suffix('.window.txt').write_text(windows)
+        frame = h.adb('exec-out', 'screencap', '-p', binary=True)
+        capture.with_suffix('.png').write_bytes(frame)
+        assert frame[:8] == b'\x89PNG\r\n\x1a\n', 'Invalid touch frame capture'
+        display = struct.unpack('>II', frame[16:24])
+        geometry = touch_geometry(windows, focused, h.activity)
+        assert touch_geometry(windows, h.focused_window(), h.activity) == geometry, 'Focus changed before tap'
+        renderer = tuple(map(int, re.findall(r'Application resolution: (\d+)x(\d+)', h.log())[-1]))
+        point = touch_point((float(match[2]), float(match[3])), renderer, geometry, display)
+        with (h.evidence / ('emulator-manager-' + mode + '-touch-map.txt')).open('a') as output:
+            output.write(f'{prefix}: native={match[2]},{match[3]} renderer={renderer} client={geometry} display={display} tap={point}\n')
         h.adb('logcat', '-c')
-        h.shell('input', 'tap', str(round(display_x)), str(round(display_y)))
+        h.shell('input', 'tap', str(point[0]), str(point[1]))
         h.time.sleep(0.5)
     def manager():
         manager_menus(h, mode)
