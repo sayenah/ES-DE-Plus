@@ -54,7 +54,7 @@ def controls():
     with tempfile.TemporaryDirectory(dir='android') as directory:
         actions = []
         h = SimpleNamespace(
-            app='org.esdeplus.frontend', evidence=pathlib.Path(directory), logpath='/fixture/log',
+            app='smoke.app', evidence=pathlib.Path(directory), logpath='/fixture/log',
             shell=lambda *args, **kwargs: '123', key=actions.append,
             focused_window=lambda: 'fixture frontend', log=lambda: 'fixture frontend log',
             adb=lambda *args, **kwargs: b'PNG' if kwargs.get('binary') else 'fixture logcat',

@@ -45,6 +45,7 @@ class ConfiguratorActivity : Activity() {
     private var pathInput: EditText? = null
     private var completed = false
     private var restartFrontend = false
+    private var storageRestartRequired = false
     private lateinit var sessionId: String
 
     override fun onCreate(state: Bundle?) {
@@ -79,6 +80,7 @@ class ConfiguratorActivity : Activity() {
             val entry = draft.getParcelable<Intent>("entry")
             intent.putExtra("entry", entry)
         }
+        storageRestartRequired = draft?.getBoolean("storageRestartRequired") == true || message != null
         storage.releaseUnselectedGrants(tree)
     }
 
@@ -88,6 +90,7 @@ class ConfiguratorActivity : Activity() {
         if (sessionId != ConfiguratorSession.session(this)) restoreSelection(null)
         resourceError = ConfiguratorSession.resourceFailure != null
         message = intent.getStringExtra("message") ?: storage.problem()
+        if (message != null) storageRestartRequired = true
         render()
     }
 
@@ -129,6 +132,7 @@ class ConfiguratorActivity : Activity() {
         state.putBoolean("createSystems", createSystems)
         state.putBoolean("permissionPending", permissionPending)
         state.putBoolean("resourceError", resourceError)
+        state.putBoolean("storageRestartRequired", storageRestartRequired)
         state.putString("message", message)
         state.putString("typedPath", typedPath)
         state.putInt("focusId", focusId)
@@ -158,6 +162,7 @@ class ConfiguratorActivity : Activity() {
         try { action() }
         catch (error: Exception) {
             message = error.message ?: getString(R.string.configuration_failed)
+            storageRestartRequired = true
             render()
         }
     }
@@ -207,6 +212,7 @@ class ConfiguratorActivity : Activity() {
         }
         text(getString(R.string.storage_choice))
         val direct = button(R.string.direct_mode) {
+            storageRestartRequired = true
             if (mode != "direct") {
                 path = ""; tree = ""; dataPath = ""; dataConsent = ""; typedPath = ""; step = "data"
             }
@@ -217,6 +223,7 @@ class ConfiguratorActivity : Activity() {
         }
         button(R.string.scoped_mode) {
             guarded {
+                storageRestartRequired = true
                 dataPath = storage.verifyDirectory(storage.privateData(), true).path
                 dataConsent = dataPath
                 val owned = storage.verifyDirectory(storage.ownedROMs(), true, readOnly = true).path
@@ -290,6 +297,7 @@ class ConfiguratorActivity : Activity() {
                     guarded {
                         val selected = storage.acceptPath(input.text.toString())
                         storage.verifyDisjoint(java.io.File(dataPath), selected)
+                        storageRestartRequired = true
                         path = selected.path
                         tree = ""
                         storage.releaseUnselectedGrants()
@@ -322,7 +330,7 @@ class ConfiguratorActivity : Activity() {
                 ConfiguratorSession.clearDraft(this)
                 // Snapshot before releasing the startup hold: the initial native
                 // thread may select its paths immediately after that release.
-                restartFrontend = previous != selected &&
+                restartFrontend = (storageRestartRequired || previous != selected) &&
                     MainActivity.liveInstance()?.nativePathsSelected == true
                 completed = true
                 ConfiguratorSession.finishConfiguration()
@@ -414,6 +422,7 @@ class ConfiguratorActivity : Activity() {
             .setPositiveButton(R.string.use_data_folder) { _, _ ->
                 guarded {
                     val confirmed = storage.confirmData(destination, path)
+                    storageRestartRequired = true
                     dataPath = confirmed.path
                     dataConsent = dataPath
                     step = "roms"
@@ -498,6 +507,7 @@ class ConfiguratorActivity : Activity() {
             }
             val directory = storage.acceptTree(uri, data.flags)
             storage.verifyDisjoint(java.io.File(dataPath), directory)
+            storageRestartRequired = true
             path = directory.path
             tree = uri.toString()
             pathInput = null

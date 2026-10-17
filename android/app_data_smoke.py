@@ -130,18 +130,27 @@ def run(harness):
     h.shell('am', 'force-stop', h.app)
     h.start_entry()
     h.configured_system('app-data-before-resume-loss')
-    old = h.shell('pidof', h.app).strip()
-    # Lose the selected root while backgrounded. Validation must not recreate it.
-    h.shell('am', 'start', '-a', 'android.settings.SETTINGS')
-    h.shell('mv', roots[0], roots[0] + '.unavailable')
-    try:
-        h.key('KEYCODE_BACK')
-        h.ui('Configure ' + h.label)
-        h.shell('test', '!', '-e', roots[0])
-        h.screenshot('app-data-missing-on-resume')
-    finally:
-        h.shell('mv', roots[0] + '.unavailable', roots[0])
-    # Changing roots after native startup must start a new frontend process.
+    def lose_selected_root():
+        old = h.shell('pidof', h.app).strip()
+        # Lose the selected root while backgrounded. Validation must not recreate it.
+        h.shell('am', 'start', '-a', 'android.settings.SETTINGS')
+        h.shell('mv', roots[0], roots[0] + '.unavailable')
+        try:
+            h.key('KEYCODE_BACK')
+            h.ui('Configure ' + h.label)
+            h.shell('test', '!', '-e', roots[0])
+            h.screenshot('app-data-missing-on-resume')
+        finally:
+            h.shell('mv', roots[0] + '.unavailable', roots[0])
+        return old
+
+    old = lose_selected_root()
+    choose(roots[0], changed=True)
+    h.wait_for(lambda: h.shell('pidof', h.app, check=False).strip() not in {'', old},
+               'fresh native process after same-root recovery and reconfirmation')
+    loaded(roots[0], 'app-data-same-root-reconfirmed')
+    # A different re-selection must also retire the already running frontend.
+    old = lose_selected_root()
     choose(roots[1], changed=True)
     h.wait_for(lambda: h.shell('pidof', h.app, check=False).strip() not in {'', old},
                'fresh native process after data-root re-selection')
@@ -188,5 +197,5 @@ def run(harness):
         'D-pad/typed selection, authored renamed/.emulationstation/ES-DE folders, legacy settings migration, '
         'conflicting XML ROM preserved, media override, custom systems/gamelists/collections/scripts loaded, '
         'unavailable theme fallback, missing selected root at startup/resume without recreation, '
-        'obstructed required themes, fresh process on re-selection, real uninstall/reinstall and shared-data reload. '
+        'obstructed required themes, fresh process on same/different-root re-selection, real uninstall/reinstall and shared-data reload. '
         'No-access/tree-hash positive controls are recorded separately.\n')
