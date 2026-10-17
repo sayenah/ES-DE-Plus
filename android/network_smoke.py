@@ -305,7 +305,6 @@ def run(harness, scoped=False):
 
 def run_checks(harness, scoped=False):
     import theme_trust_smoke
-    import theme_fuse_smoke
     h = type('Harness', (), harness)
     h.evidence.joinpath('network-assertion-positive-controls.txt').write_text(controls())
     subprocess.run([sys.executable, 'android/network-control.py', '--self-test'], check=True)
@@ -559,12 +558,9 @@ def run_checks(harness, scoped=False):
         controls = not scoped and not negative and not trust_controls_complete
         if controls:
             theme_trust_smoke.request(h)
-            theme_fuse_smoke.request(h)
         downloader()
         if controls:
             theme_trust_smoke.collect(h)
-            theme_fuse_smoke.collect(h)
-            theme_trust_smoke.after_all_controls(h)
             trust_controls_complete = True
         capture('network-' + ('control' if negative else 'fixed') + '-first-use')
         # Debug prerequisites have their own result and may mention arbitrary
@@ -955,10 +951,6 @@ def run_checks(harness, scoped=False):
                    f'theme loaded, installed inventory and actual fast-forward passed; '
                    f'HEAD {retained_rewind["previous"]} -> {retained_rewind["latest"]}; '
                    f'seconds={time.monotonic() - retained_update_began:.3f}')
-        if extended and not scoped:
-            import theme_recovery_smoke
-            theme_recovery_smoke.classifier(h, repository, select_theme_row, downloader,
-                                            request_result, capture, record, theme_path)
         destinations = root_destinations(h.api, removable_roots) if extended and not scoped else []
         for new_root, root_kind in destinations:
             # Real root re-selection, using ordinary EditText paste for Unicode.
@@ -1016,10 +1008,6 @@ def run_checks(harness, scoped=False):
                    '; HTTPS list/theme cloned, selected and loaded; allowlist contains only new root')
         capture('network-theme-applied')
         record(f'PASS: real downloaded {repository} is selectable, saved and loaded through the UI.')
-        if extended and not scoped and h.api == 34:
-            import theme_recovery_smoke
-            theme_recovery_smoke.run(h, repository, select_theme_row, downloader,
-                                     request_result, capture, record, theme_path)
 
     def scraper(negative):
         begin(('control' if negative else 'fixed') + '-scraper')

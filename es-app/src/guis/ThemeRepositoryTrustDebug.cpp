@@ -8,13 +8,11 @@
 #include "ThemeRepositoryTrustDebug.h"
 
 #if !defined(NDEBUG) && (defined(__ANDROID__) || defined(THEME_TRUST_TEST))
-#include "ThemeRepositoryFuse.h"
 #include "ThemeRepositoryTrust.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 
 #include <cerrno>
-#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -29,7 +27,6 @@
 namespace ThemeRepositoryTrust::Testing
 {
     Fault fault {Fault::NONE};
-    bool retireEnabled {true};
     std::function<void(const std::string&, const std::string&)> barrier;
 } // namespace ThemeRepositoryTrust::Testing
 
@@ -40,7 +37,6 @@ namespace
     using Remote = std::unique_ptr<git_remote, decltype(&git_remote_free)>;
     std::ostringstream evidence;
     bool running {false};
-    std::string controlDirectory;
     int fetches {0};
     struct CloneTrace {
         std::string initialized;
@@ -241,9 +237,7 @@ namespace
         options.remote_cb_payload = &trace;
         options.local = GIT_CLONE_NO_LOCAL;
         git_repository* repository {nullptr};
-        int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
-        if (result == 0 && !ThemeRepositoryTrust::cloneComplete(path))
-            result = -1;
+        const int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
         if (result != 0)
             ThemeRepositoryTrust::diagnoseCloneFailure(path, result);
         trace.config = read(path + "/.git/config");
@@ -322,210 +316,6 @@ namespace
             evidence << "STAT " << path << " uid=" << info.st_uid << " gid=" << info.st_gid
                      << " mode=" << std::oct << info.st_mode << std::dec << '\n';
         }
-    }
-
-    void retireBoundaries(const std::string& themes,
-                          const std::string& privateRoot,
-                          const std::string& url,
-                          bool shared)
-    {
-        using namespace ThemeRepositoryTrust;
-        const std::string path {themes + "/pending"};
-        const std::string marker {privateRoot + "/retirement-canary"};
-        write(marker, "ES-DE-Plus retirement canary");
-        const std::string protectedConfig {read(privateRoot + "/libgit2/.gitconfig")};
-        auto clear = [&] {
-            Testing::barrier = {};
-            Testing::fault = Testing::Fault::NONE;
-            fs::remove_all(path);
-            fs::remove_all(path + "-moved");
-        };
-        for (const std::string kind :
-             {"file", "symlink", "directory", "fifo", "replace-temp", "modify-temp",
-              "destination-file", "destination-symlink", "destination-directory", "gitdir-parent",
-              "workdir-parent", "gitdir-replacement", "workdir-replacement", "installed-config"}) {
-            clear();
-            bool reached {false};
-            bool unsupported {false};
-            bool initialized {false};
-            Testing::barrier = [&](const std::string& stage, const std::string& candidate) {
-                const std::string temp {candidate + "/.git/" + ThemeRepositoryFuse::temporaryName};
-                std::error_code error;
-                if (stage == "clone-after-init") {
-                    initialized = fs::is_regular_file(candidate + "/.git/config");
-                    evidence << "RETIREMENT " << kind << " INITIALIZATION config=" << initialized
-                             << "; temp=" << fs::exists(temp) << '\n';
-                }
-                if (stage == "clone-retirement-finished")
-                    evidence << "RETIREMENT " << kind
-                             << " AFTER R1 (before libgit2 cleanup) config="
-                             << fs::exists(candidate + "/.git/config")
-                             << "; temp=" << fs::exists(temp) << '\n';
-                const bool occupied {kind == "file" || kind == "symlink" || kind == "directory" ||
-                                     kind == "fifo"};
-                if (occupied && stage == "clone-retire-before-create") {
-                    reached = true;
-                    if (kind == "file")
-                        write(temp, "occupied");
-                    else if (kind == "directory")
-                        fs::create_directory(temp);
-                    else if (kind == "symlink")
-                        fs::create_symlink(marker, temp, error);
-                    else if (mkfifo(temp.c_str(), 0600) != 0)
-                        error = std::error_code(errno, std::generic_category());
-                }
-                if (stage == "clone-retire-written") {
-                    if (kind == "replace-temp") {
-                        reached = true;
-                        const std::string contents {read(temp)};
-                        fs::rename(temp, temp + ".held");
-                        write(temp, contents); // Same meaning, different entry.
-                    }
-                    if (kind == "modify-temp") {
-                        reached = true;
-                        write(temp, "[core]\n bare=true\n");
-                    }
-                    if (kind == "gitdir-parent" || kind == "gitdir-replacement") {
-                        reached = true;
-                        fs::rename(candidate + "/.git", candidate + "/.git-moved");
-                        if (kind == "gitdir-parent")
-                            fs::create_directory_symlink(privateRoot, candidate + "/.git", error);
-                        else
-                            fs::create_directory(candidate + "/.git");
-                    }
-                    if (kind == "workdir-parent" || kind == "workdir-replacement") {
-                        reached = true;
-                        fs::rename(candidate, candidate + "-moved");
-                        if (kind == "workdir-parent")
-                            fs::create_directory_symlink(privateRoot, candidate, error);
-                        else
-                            fs::create_directory(candidate);
-                    }
-                }
-                if (stage == "clone-retire-unlinked" && kind.compare(0, 12, "destination-") == 0) {
-                    reached = true;
-                    if (kind == "destination-file")
-                        write(candidate + "/.git/config", "planted");
-                    else if (kind == "destination-symlink")
-                        fs::create_symlink(marker, candidate + "/.git/config", error);
-                    else
-                        fs::create_directory(candidate + "/.git/config");
-                }
-                if (stage == "clone-retire-renamed" && kind == "installed-config") {
-                    reached = true;
-                    write(candidate + "/.git/config", "[core]\n bare=true\n");
-                }
-                if (error) {
-                    require(error == std::errc::operation_not_permitted ||
-                                error == std::errc::operation_not_supported ||
-                                error == std::errc::permission_denied,
-                            "unexpected fixture object creation failure: " + error.message());
-                    unsupported = true;
-                    evidence << "CAPABILITY: retirement " << kind << " not representable on "
-                             << themes << "; " << error.message() << '\n';
-                }
-            };
-            const int result {clone(url, path)};
-            require(reached && initialized, "retirement barrier and initialization fired");
-            require(!unsupported || shared, "private filesystem must exercise every object type");
-            require(unsupported || result != 0, "retirement injection refused: " + kind);
-            require(unsupported || cloneTraces.at(path).remote.empty(),
-                    "retirement refusal precedes the public remote callback: " + kind);
-            require(read(marker) == "ES-DE-Plus retirement canary" &&
-                        read(privateRoot + "/libgit2/.gitconfig") == protectedConfig,
-                    "retirement preserves private canary and trust config");
-            if (kind == "file")
-                require(read(path + "/.git/" + ThemeRepositoryFuse::temporaryName) == "occupied",
-                        "occupied temporary file not truncated or cleaned");
-            if (kind == "destination-file")
-                require(read(path + "/.git/config") == "planted", "planted destination unchanged");
-            evidence << "RETIREMENT " << kind << ": init=target metadata only; result=" << result
-                     << "; object-unavailable=" << unsupported
-                     << "; AFTER LIBGIT2 CLEANUP config=" << fs::exists(path + "/.git/config")
-                     << "; temp="
-                     << fs::exists(path + "/.git/" + ThemeRepositoryFuse::temporaryName)
-                     << "; checkout-present=" << fs::exists(path + "/theme.xml")
-                     << "; remote-callback=" << !cloneTraces.at(path).remote.empty()
-                     << "; blocked=repository-creation-callback (unless object unavailable)"
-                     << "; protected data unchanged; residual=writer may act after a check\n";
-            clear();
-            git(clone(url, path), "retirement restored actual clone positive control");
-            positive(path);
-        }
-        clear();
-        for (Testing::Fault injected : {Testing::Fault::RETIRE_WRITE, Testing::Fault::RETIRE_RENAME,
-                                        Testing::Fault::RETIRE_CLEANUP}) {
-            clear();
-            Testing::fault = injected;
-            require(clone(url, path) != 0,
-                    "retirement write/rename/cleanup failure refused through actual clone");
-            require(cloneTraces.at(path).remote.empty(),
-                    "retirement I/O failure precedes the public remote callback");
-            const bool leftover {fs::exists(path + "/.git/" + ThemeRepositoryFuse::temporaryName)};
-            require(leftover == (injected == Testing::Fault::RETIRE_CLEANUP),
-                    "retirement cleanup and failed-cleanup states measured");
-            require(fs::exists(path + "/.git/config") == (injected == Testing::Fault::RETIRE_WRITE),
-                    "write failure precedes unlink; rename failures follow unlink");
-            require(read(marker) == "ES-DE-Plus retirement canary" &&
-                        read(privateRoot + "/libgit2/.gitconfig") == protectedConfig,
-                    "retirement failure preserves protected data");
-            evidence << "RETIREMENT failure=" << static_cast<int>(injected)
-                     << "; init=target metadata; cleanup-leftover=" << leftover
-                     << "; remote/fetch/checkout=none; protected data unchanged\n";
-            clear();
-            git(clone(url, path), "retirement failure restored clone positive control");
-        }
-        clear();
-        for (bool packed : {false, true}) {
-            git(clone(url, path), "missing-origin fixture actual clone");
-            {
-                auto repository = open(path);
-                if (packed) {
-                    git_refdb* database {nullptr};
-                    git(git_repository_refdb(&database, repository.get()), "classifier refdb");
-                    git(git_refdb_compress(database), "classifier packed origin refs");
-                    git_refdb_free(database);
-                }
-                setting(repository.get(), "remote.origin.url", nullptr);
-                setting(repository.get(), "remote.origin.fetch", nullptr);
-            }
-            const uint64_t before {fingerprint(path)};
-            {
-                auto repository = open(path);
-                git_remote* origin {nullptr};
-                const int lookup {git_remote_lookup(&origin, repository.get(), "origin")};
-                git_remote_free(origin);
-                require(lookup == GIT_ENOTFOUND, "exact missing-origin fixture");
-                const git_error* missing {git_error_last()};
-                evidence << "CLASSIFIER lookup-class=" << (missing ? missing->klass : -1) << '\n';
-                require(!corrupt(lookup, path), "missing origin is never general corrupt recovery");
-                const int api {ThemeRepositoryFuse::deviceApi()};
-                const bool applicable {api == 31 || api == 32};
-                require(ThemeRepositoryFuse::missingOrigin(repository.get(), path, lookup) ==
-                            applicable,
-                        "actual platform classifier; no Android 12 class on TV");
-                if (applicable)
-                    require(!corrupt(lookup, path),
-                            "classifier retains the non-corrupt error class");
-                require(ThemeRepositoryFuse::originReferences(repository.get()),
-                        "classifier retained origin refs positive control");
-                require(!ThemeRepositoryFuse::recheckListRecovery(path),
-                        "theme classification never authorizes list recovery");
-                evidence << "CLASSIFIER api=" << api << "; packed=" << packed
-                         << "; missing-origin=" << applicable << "; corrupt=0; no mutation\n";
-            }
-            require(fingerprint(path) == before, "classifier never mutates or deletes the theme");
-            clear();
-            git(clone(url, path), "classifier restored clone positive control");
-            require(fetch(path), "classifier restored fetch positive control");
-            clear();
-        }
-        evidence << "PASS: retirement boundaries and write/rename/cleanup controls; each restored "
-                    "clone passed\n"
-                 << "RESIDUAL: deterministic entry/content/parent checks block the observed "
-                    "injections before later clone operations. Shared writers can still replace "
-                    "entries or change contents after a check. No race-freedom, content freshness "
-                    "or successful cache retirement follows from destination replacement.\n";
     }
 
     void suite(const std::string& data,
@@ -1160,7 +950,6 @@ namespace
             positive(pending);
             fs::remove_all(pending);
         }
-        retireBoundaries(themes, privateRoot, url, shared);
         for (int i {0}; i < 3; ++i) {
             ThemeRepositoryTrust::close();
             git_libgit2_shutdown();
@@ -1175,66 +964,12 @@ namespace
     }
 } // namespace
 
-void ThemeRepositoryTrust::Testing::initialFailure(const std::string& path,
-                                                   const std::map<std::string, std::string>& values,
-                                                   bool parsed,
-                                                   int fd,
-                                                   int64_t firstSize)
-{
-    // Only explicit, ES-DE-Plus-authored control suites collect this evidence.
-    // Record interpretation and bytes without logging arbitrary config values.
-    if (!running)
-        return;
-    const git_error* error {git_error_last()};
-    evidence << "METADATA path=" << path << '\n'
-             << "INIT-FAIL parsed=" << parsed << " error-class=" << (error ? error->klass : -1)
-             << " keys=" << values.size() << " first-fstat-size=" << firstSize << '\n';
-    for (const auto& entry : values) {
-        if (entry.first.compare(0, 5, "core.") == 0 && entry.first.size() < 80 &&
-            entry.first.find_first_not_of("abcdefghijklmnopqrstuvwxyz.-_") == std::string::npos)
-            evidence << "INIT-KEY " << entry.first << "="
-                     << (entry.second == "true" || entry.second == "false" || entry.second == "0" ?
-                             entry.second :
-                             "<other>")
-                     << '\n';
-        else
-            evidence << "INIT-KEY non-core; value omitted\n";
-    }
-    struct stat info {
-    };
-    if (fd < 0 || fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)) {
-        evidence << "INIT-VIEW unavailable errno=" << errno << '\n';
-        return;
-    }
-    // Observe the original held descriptor before its close can refresh a
-    // cached view; this never reopens or retries the failed clone.
-    if (lseek(fd, 0, SEEK_SET) < 0) {
-        evidence << "INIT-VIEW seek failed errno=" << errno << '\n';
-        return;
-    }
-    std::string bytes;
-    char buffer[4096];
-    ssize_t count;
-    while ((count = ::read(fd, buffer, sizeof(buffer))) > 0 && bytes.size() < 65536)
-        bytes.append(buffer, count);
-    evidence << "INIT-VIEW dev=" << info.st_dev << " inode=" << info.st_ino
-             << " size=" << info.st_size << " read=" << bytes.size() << " read-status=" << count;
-    git_oid hash;
-    if (count == 0 && git_odb_hash(&hash, bytes.data(), bytes.size(), GIT_OBJECT_BLOB) == 0) {
-        char hex[GIT_OID_HEXSZ + 1];
-        git_oid_tostr(hex, sizeof(hex), &hash);
-        evidence << " blob-sha1=" << hex;
-    }
-    evidence << '\n';
-}
-
 void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
                                                    const std::string& privateDirectory)
 {
     const std::string request {privateDirectory + "/theme-trust.request"};
     if (running)
         return;
-    controlDirectory = privateDirectory;
     fault = Fault::NONE;
     const std::string injection {privateDirectory + "/theme-trust.inject"};
     const std::string injected {read(injection)};
@@ -1309,41 +1044,6 @@ void ThemeRepositoryTrust::Testing::runIfRequested(const std::string& themes,
     running = false;
 }
 
-void ThemeRepositoryTrust::Testing::interruptIfRequested(const std::string& stage,
-                                                         const std::string& path)
-{
-    if (controlDirectory.empty() ||
-        (stage != "clone-retire-created" && stage != "clone-retire-unlinked" &&
-         stage != "clone-retire-renamed" && stage != "clone-post-check"))
-        return;
-    const std::string name {fs::path(path).filename().string()};
-    const std::string expected {stage + "\n" + name + "\n"};
-    const std::string request {controlDirectory + "/theme-retire.interrupt"};
-    if (read(request) != expected)
-        return;
-    require(validName(name) && ready() && permit(path), "interruption control is admitted");
-    fs::rename(request, request + ".running");
-    std::ostringstream state;
-    state << expected << path << "\napp-uid=" << geteuid() << '\n';
-    for (const std::string relative : {"config", ThemeRepositoryFuse::temporaryName}) {
-        struct stat info {
-        };
-        const bool exists {lstat((path + "/.git/" + relative).c_str(), &info) == 0};
-        require(exists || errno == ENOENT, "interruption state is observable");
-        state << relative << " exists=" << exists
-              << " regular=" << (exists && S_ISREG(info.st_mode))
-              << " size=" << (exists ? info.st_size : 0) << '\n';
-    }
-    write(controlDirectory + "/theme-retire.reached.new", state.str());
-    fs::rename(controlDirectory + "/theme-retire.reached.new",
-               controlDirectory + "/theme-retire.reached");
-    // The harness terminates this process. A missed termination fails instead
-    // of allowing an incomplete control to look like a successful clone.
-    for (int sample {0}; sample < 1200; ++sample)
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    throw std::runtime_error("Interruption control was not terminated within its bounded wait");
-}
-
 void ThemeRepositoryTrust::Testing::afterAdmission(const std::string& themes,
                                                    const std::string& privateDirectory)
 {
@@ -1392,20 +1092,6 @@ void ThemeRepositoryTrust::Testing::changeBeforeLookup(git_repository* repositor
                                                        const std::string& privateDirectory,
                                                        bool worker)
 {
-    const std::string missingRequest {privateDirectory + "/theme-retire.missing-origin"};
-    const std::string repositoryName {fs::path(path).filename().string()};
-    if ((worker || repositoryName == "themes-list") &&
-        read(missingRequest) == repositoryName + "\n") {
-        fs::rename(missingRequest, missingRequest + ".running");
-        const std::string previous {read(path + "/.git/config")};
-        require(!previous.empty(), "missing-origin fixture has a complete backup");
-        write(privateDirectory + "/theme-trust.remote-race-backup", previous);
-        write(privateDirectory + "/theme-trust.remote-race-path", path + "/.git/config");
-        setting(repository, "remote.origin.url", nullptr);
-        setting(repository, "remote.origin.fetch", nullptr);
-        write(privateDirectory + "/theme-retire.missing-origin-result",
-              "PASS: real repository-local origin omitted after identity check\n" + path + "\n");
-    }
     if (!worker)
         return;
     const std::string request {privateDirectory + "/theme-trust.remote-race"};
@@ -1431,292 +1117,5 @@ void ThemeRepositoryTrust::Testing::changeBeforeLookup(git_repository* repositor
     write(privateDirectory + "/theme-trust.remote-race-result",
           "PASS: worker changed origin after precheck and before lookup\npath=" + path +
               "\nprevious=" + previous + "\nreplacement=" + replacement + "\n");
-}
-
-void ThemeRepositoryTrust::Testing::fuseIfRequested(
-    const std::string& themes,
-    const std::string& privateDirectory,
-    const std::function<bool(const std::string&, const std::string&, int)>& operation)
-{
-    const std::string request {privateDirectory + "/theme-fuse.request"};
-    if (read(request) != "ES-DE-Plus FUSE controls\n")
-        return;
-    fs::rename(request, request + ".running");
-    if (!ThemeRepositoryTrust::ready()) {
-        write(privateDirectory + "/theme-fuse.result",
-              "FAIL: FUSE controls require trust prerequisites\n");
-        return;
-    }
-    std::ostringstream output;
-    size_t sequence {0};
-    auto restoreRetirement =
-        std::unique_ptr<bool, std::function<void(bool*)>>(&retireEnabled, [](bool* value) {
-            *value = true;
-            barrier = {};
-            fault = Fault::NONE;
-        });
-    try {
-        preservingSession([&] {
-            const std::string privateRoot {temporary(privateDirectory)};
-            fs::create_directory(privateRoot + "/config");
-            const std::string source {privateRoot + "/source"};
-            const std::string url {"file://" + source};
-            git_repository* raw {nullptr};
-            git(git_repository_init(&raw, source.c_str(), 0), "FUSE source init");
-            Repository origin(raw, git_repository_free);
-            auto advance = [&](const std::string& description) {
-                rapidjson::StringBuffer buffer;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-                writer.StartObject();
-                writer.Key("themes");
-                writer.StartArray();
-                writer.StartObject();
-                writer.Key("name");
-                writer.String(("ES-DE-Plus " + description).c_str());
-                writer.Key("author");
-                writer.String("ES-DE-Plus");
-                writer.Key("reponame");
-                writer.String("original");
-                writer.Key("url");
-                writer.String(url.c_str());
-                writer.EndObject();
-                writer.EndArray();
-                writer.EndObject();
-                write(source + "/themes.json", buffer.GetString());
-                git_index* index {nullptr};
-                git(git_repository_index(&index, origin.get()), "FUSE list index");
-                git(git_index_add_bypath(index, "themes.json"), "FUSE list content changed");
-                git(git_index_write(index), "FUSE list index staged");
-                git_index_free(index);
-                commit(origin.get(), source, description);
-            };
-            advance("FUSE initial tracked content");
-            advance("FUSE second tracked content");
-            git_reference* sourceHead {nullptr};
-            git(git_repository_head(&sourceHead, origin.get()), "FUSE source branch");
-            const std::string branch {git_reference_shorthand(sourceHead)};
-            git_reference_free(sourceHead);
-            std::string normalized {themes};
-            while (!normalized.empty() && normalized.back() == '/')
-                normalized.pop_back();
-            const std::string data {fs::path(normalized).parent_path().string()};
-            const std::string base {temporary(data)};
-
-            auto snapshot = [&](const std::string& path, const char* mode, const char* stage,
-                                int cloneNumber, int cycle) {
-                const std::string directory {path + "/.git"};
-                std::set<std::string> names {"config",
-                                             "HEAD",
-                                             "index",
-                                             "FETCH_HEAD",
-                                             "packed-refs",
-                                             "ORIG_HEAD",
-                                             "refs/heads/" + branch,
-                                             "refs/remotes/origin/" + branch,
-                                             "refs/remotes/origin/retired"};
-                if (fs::is_directory(directory)) {
-                    for (auto it = fs::recursive_directory_iterator(directory);
-                         it != fs::recursive_directory_iterator(); ++it) {
-                        const std::string relative {
-                            it->path().lexically_relative(directory).string()};
-                        if (relative == "objects" || relative == "hooks" || relative == "info") {
-                            it.disable_recursion_pending();
-                            continue;
-                        }
-                        if (!it->is_directory())
-                            names.insert(relative);
-                    }
-                }
-                rapidjson::StringBuffer buffer;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-                writer.StartObject();
-                writer.Key("sequence");
-                writer.Uint64(++sequence);
-                writer.Key("mode");
-                writer.String(mode);
-                writer.Key("stage");
-                writer.String(stage);
-                writer.Key("clone");
-                writer.Int(cloneNumber);
-                writer.Key("cycle");
-                writer.Int(cycle);
-                writer.Key("directory");
-                writer.String(directory.c_str());
-                writer.Key("expectedHead");
-                writer.String(head(origin.get()).c_str());
-                writer.Key("files");
-                writer.StartArray();
-                for (const auto& name : names) {
-                    struct stat info {
-                    };
-                    const bool exists {lstat((directory + "/" + name).c_str(), &info) == 0};
-                    require(exists || errno == ENOENT, "FUSE metadata stat");
-                    require(!exists || S_ISREG(info.st_mode), "FUSE metadata regular file");
-                    writer.StartObject();
-                    writer.Key("path");
-                    writer.String(name.c_str());
-                    writer.Key("exists");
-                    writer.Bool(exists);
-                    if (exists) {
-                        const auto bytes {read(directory + "/" + name)};
-                        git_oid hash;
-                        git(git_odb_hash(&hash, bytes.data(), bytes.size(), GIT_OBJECT_BLOB),
-                            "FUSE view hash");
-                        char hex[GIT_OID_HEXSZ + 1];
-                        git_oid_tostr(hex, sizeof(hex), &hash);
-                        writer.Key("size");
-                        writer.Uint64(info.st_size);
-                        writer.Key("read");
-                        writer.Uint64(bytes.size());
-                        writer.Key("hash");
-                        writer.String(hex);
-                    }
-                    writer.EndObject();
-                }
-                writer.EndArray();
-                writer.EndObject();
-                write(privateDirectory + "/theme-fuse.snapshot.new", buffer.GetString());
-                fs::rename(privateDirectory + "/theme-fuse.snapshot.new",
-                           privateDirectory + "/theme-fuse.snapshot");
-                const std::string expected {std::to_string(sequence) + " CONTINUE\n"};
-                bool acknowledged {false};
-                for (int wait {0}; wait < 480; ++wait) {
-                    const std::string reply {read(privateDirectory + "/theme-fuse.ack")};
-                    require(reply != std::to_string(sequence) + " STOP\n",
-                            "AC-3 view/lower mismatch: stop under protocol section 9");
-                    if (reply == expected) {
-                        acknowledged = true;
-                        break;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-                }
-                require(acknowledged, "bounded FUSE readback rendezvous");
-            };
-
-            for (bool enabled : {false, true}) {
-                retireEnabled = enabled;
-                const char* mode {enabled ? "on" : "off"};
-                const std::string root {base + "/fuse-" + mode};
-                const std::string directory {root + "/themes"};
-                fs::create_directories(root);
-                configure(directory, privateRoot + "/config");
-                require(ready() && expectList(url) && admit(document(url)), "FUSE spike admission");
-                for (int number {0}; number < 20; ++number) {
-                    const std::string path {directory +
-                                            (number % 2 ? "/original" : "/themes-list")};
-                    require(permit(path), "FUSE clone destination admission");
-                    fs::remove_all(path);
-                    git_reference* extra {nullptr};
-                    git_oid latest;
-                    git(git_oid_fromstr(&latest, head(origin.get()).c_str()), "FUSE source oid");
-                    git(git_reference_create(&extra, origin.get(), "refs/heads/retired", &latest, 1,
-                                             "ES-DE-Plus pruning fixture"),
-                        "FUSE source extra ref");
-                    git_reference_free(extra);
-                    const bool cloned {operation(path, url, 0)};
-                    snapshot(path, mode, "clone-after-listing", number, -1);
-                    if (enabled)
-                        require(cloned, "AC-3 mandatory actual downloader clone");
-                    if (!enabled)
-                        continue; // Fixed-size diagnostic; not a retry of a mandatory operation.
-                    {
-                        auto repository = open(path);
-                        git_refdb* database {nullptr};
-                        git(git_repository_refdb(&database, repository.get()), "FUSE refdb");
-                        if ((number / 2) % 2)
-                            git(git_refdb_compress(database), "FUSE pre-existing packed refs");
-                        git_refdb_free(database);
-                    }
-                    for (int cycle {0}; cycle < 3; ++cycle) {
-                        advance("FUSE tracked update " + std::to_string(number) + "/" +
-                                std::to_string(cycle));
-                        if (cycle == 0)
-                            git(git_reference_remove(origin.get(), "refs/heads/retired"),
-                                "FUSE source prune");
-                        if (cycle == 2) {
-                            auto repository = open(path);
-                            git_oid previous;
-                            git(git_oid_fromstr(&previous, head(repository.get()).c_str()),
-                                "FUSE detached oid");
-                            git(git_repository_set_head_detached(repository.get(), &previous),
-                                "FUSE detached fixture");
-                        }
-                        // The callback invokes the production downloader methods,
-                        // including resetRepository and fetchRepository.
-                        snapshot(path, mode, "before-update", number, cycle);
-                        const bool updated {operation(path, url, 2) && operation(path, url, 1)};
-                        fingerprint(path);
-                        snapshot(path, mode, "after-update-listing", number, cycle);
-                        require(updated, "AC-3 mandatory actual downloader reset/update");
-                        {
-                            auto repository = open(path);
-                            require(head(repository.get()) == head(origin.get()) &&
-                                        read(path + "/theme.xml") == read(source + "/theme.xml"),
-                                    "AC-3 actual tracked content and HEAD advance");
-                            require(read(path + "/themes.json") == read(source + "/themes.json"),
-                                    "AC-3 themes-list tracked content advances");
-                        }
-                    }
-                    output << "PASS: R1 clone=" << number << " updates=3 actual downloader paths\n";
-                }
-            }
-            const std::string directory {base + "/fuse-on/themes"};
-            for (const std::string faultName : {"origin", "branch"}) {
-                const std::string name {faultName == "origin" ? "original" : "themes-list"};
-                const std::string path {directory + "/" + name};
-                const std::string other {directory +
-                                         (faultName == "origin" ? "/themes-list" : "/original")};
-                const uint64_t otherBefore {fingerprint(other)};
-                const std::string configBefore {read(privateRoot + "/config/libgit2/.gitconfig")};
-                require(permit(path), "post-clone fault destination admitted");
-                fs::remove_all(path); // This isolated control owns the disposable target.
-                bool reached {false};
-                barrier = [&](const std::string& stage, const std::string& candidate) {
-                    if (stage != "clone-post-check" || candidate != path)
-                        return;
-                    reached = true;
-                    auto repository = open(path);
-                    if (faultName == "origin") {
-                        setting(repository.get(), "remote.origin.url", nullptr);
-                        setting(repository.get(), "remote.origin.fetch", nullptr);
-                    }
-                    else {
-                        git_reference* head {nullptr};
-                        git(git_repository_head(&head, repository.get()), "post-clone branch");
-                        const std::string key {std::string("branch.") +
-                                               git_reference_shorthand(head) + ".remote"};
-                        git_reference_free(head);
-                        setting(repository.get(), key.c_str(), nullptr);
-                    }
-                };
-                bool cloned {false};
-                try {
-                    cloned = operation(path, url, 0);
-                }
-                catch (...) {
-                    barrier = {};
-                    throw;
-                }
-                barrier = {};
-                require(reached && !cloned && !fs::exists(path),
-                        "post-clone integrity failure uses admitted cleanup");
-                require(fingerprint(other) == otherBefore &&
-                            read(privateRoot + "/config/libgit2/.gitconfig") == configBefore,
-                        "post-clone cleanup preserves the other repository and protected config");
-                require(operation(path, url, 0),
-                        "post-clone restored actual clone positive control");
-                output << "PASS: post-clone missing-" << faultName
-                       << " rejected; admitted cleanup; "
-                          "other repository/private config unchanged; restored clone passed\n";
-            }
-        });
-        output << "PASS: FUSE retirement controls; 20 mandatory clones x 3 changing updates\n";
-    }
-    catch (const std::exception& error) {
-        output << "FAIL: " << error.what() << '\n';
-    }
-    write(privateDirectory + "/theme-fuse.result.new", output.str());
-    fs::rename(privateDirectory + "/theme-fuse.result.new",
-               privateDirectory + "/theme-fuse.result");
 }
 #endif

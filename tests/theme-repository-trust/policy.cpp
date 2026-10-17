@@ -4,7 +4,6 @@
 //  policy.cpp
 //  Written for ES-DE-Plus. Fixtures are original, using the upstream themes.json format.
 
-#include "ThemeRepositoryFuse.h"
 #include "ThemeRepositoryTrust.h"
 
 #include <iostream>
@@ -21,33 +20,6 @@ namespace
 
 int main()
 {
-    const ThemeRepositoryFuse::Values initial {{"core.repositoryformatversion", "0"},
-                                               {"core.bare", "false"},
-                                               {"core.logallrefupdates", "true"},
-                                               {"core.filemode", "false"},
-                                               {"core.symlinks", "false"},
-                                               {"core.ignorecase", "true"}};
-    check(ThemeRepositoryFuse::initKeys(initial), "complete Android init meaning");
-    for (const auto& key :
-         {"core.bare", "core.repositoryformatversion", "core.logallrefupdates", "core.filemode"}) {
-        auto changed = initial;
-        changed.erase(key);
-        check(!ThemeRepositoryFuse::initKeys(changed), "required init key cannot disappear");
-    }
-    auto hostile = initial;
-    hostile["core.worktree"] = "/outside";
-    check(!ThemeRepositoryFuse::initKeys(hostile), "unknown init keys rejected");
-    for (int api : {31, 32}) {
-        check(ThemeRepositoryFuse::missingOrigin(api, true, true, true, true),
-              "narrow missing-origin positive");
-        for (int missing {0}; missing < 4; ++missing)
-            check(!ThemeRepositoryFuse::missingOrigin(api, missing != 0, missing != 1, missing != 2,
-                                                      missing != 3),
-                  "every classifier prerequisite required");
-    }
-    for (int api : {0, 30, 33, 34, 36})
-        check(!ThemeRepositoryFuse::missingOrigin(api, true, true, true, true),
-              "Android 12 classifier never inferred on another platform");
     using namespace ThemeRepositoryTrust;
     check(validName("Plus-original_1.2"), "ordinary component positive control");
     for (const std::string name :

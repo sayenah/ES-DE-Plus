@@ -10,9 +10,7 @@
 #include "guis/GuiThemeDownloader.h"
 
 #if defined(__ANDROID__)
-#include "guis/ThemeRepositoryFuse.h"
 #include "guis/ThemeRepositoryTrust.h"
-#include "guis/ThemeRepositoryTrustDebug.h"
 #include "utils/PlatformUtilAndroid.h"
 #endif
 
@@ -274,9 +272,6 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
     mRepositoryError = RepositoryError::NO_REPO_ERROR;
     mMessage = "";
 
-#if defined(__ANDROID__)
-    bool missingOrigin {false};
-#endif
     const bool isThemesList {repositoryName == "themes-list"};
     git_repository* repository {nullptr};
     git_remote* gitRemote {nullptr};
@@ -299,9 +294,6 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
 #endif
         errorCode = git_remote_lookup(&gitRemote, repository, "origin");
         if (errorCode != 0) {
-#if defined(__ANDROID__)
-            missingOrigin = ThemeRepositoryFuse::missingOrigin(repository, path, errorCode);
-#endif
             mRepositoryError = RepositoryError::INVALID_ORIGIN;
             throw std::runtime_error("Couldn't get information about origin, ");
         }
@@ -478,11 +470,6 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
         LOG(LogError) << "GuiThemeDownloader: " << runtimeError.what() << gitError->message;
         mRepositoryError = RepositoryError::FETCH_ERROR;
         mMessage = gitError->message;
-#if defined(__ANDROID__)
-        if (missingOrigin)
-            mMessage = _("ANDROID 12 COULD NOT READ THIS THEME REPOSITORY'S ORIGIN. DELETE THE "
-                         "THEME USING THE DOWNLOADER, THEN DOWNLOAD IT AGAIN.");
-#endif
 #if LIBGIT2_VER_MAJOR < 2 && LIBGIT2_VER_MINOR < 8
         git_error_clear();
 #endif
@@ -1336,53 +1323,6 @@ void GuiThemeDownloader::setupFullscreenViewer()
 
 void GuiThemeDownloader::update(int deltaTime)
 {
-#if defined(__ANDROID__) && !defined(NDEBUG)
-    ThemeRepositoryTrust::Testing::fuseIfRequested(
-        mThemeDirectory, AndroidVariables::sInternalDataDirectory,
-        [this](const std::string& path, const std::string& url, int action) {
-            const std::string previous {mThemeDirectory};
-            const bool updated {mHasThemeUpdates};
-            const bool listed {mLatestThemesList};
-            auto restore = [&] {
-                mThemeDirectory = previous;
-                mHasThemeUpdates = updated;
-                mLatestThemesList = listed;
-                mFetching = false;
-                mRepositoryError = RepositoryError::NO_REPO_ERROR;
-                mMessage.clear();
-                std::promise<bool>().swap(mPromise);
-                mFuture = mPromise.get_future();
-            };
-            mThemeDirectory = path.substr(0, path.find_last_of('/') + 1);
-            const std::string name {path.substr(path.find_last_of('/') + 1)};
-            std::promise<bool>().swap(mPromise);
-            mFuture = mPromise.get_future();
-            bool success {false};
-            try {
-                if (action == 2) {
-                    git_repository* repository {nullptr};
-                    success = git_repository_open(&repository, path.c_str()) == 0 &&
-                              ThemeRepositoryTrust::verify(repository, path);
-                    if (success)
-                        success = !checkLocalChanges(repository) &&
-                                  !checkCorruptRepository(repository) &&
-                                  !checkDivergedRepository(repository);
-                    if (success)
-                        resetRepository(repository);
-                    git_repository_free(repository);
-                }
-                else
-                    success =
-                        !(action == 0 ? cloneRepository(name, url) : fetchRepository(name, false));
-            }
-            catch (...) {
-                restore();
-                throw;
-            }
-            restore();
-            return success;
-        });
-#endif
     if (!mAttemptedFetch) {
 #if defined(__ANDROID__)
         if (!ThemeRepositoryTrust::ready()) {
@@ -1734,32 +1674,6 @@ bool GuiThemeDownloader::fetchThemesList()
             return true;
         }
 #endif
-#if defined(__ANDROID__)
-        if (errorCode == 0) {
-            git_remote* origin {nullptr};
-            const int lookup {git_remote_lookup(&origin, repository, "origin")};
-            const bool missingOrigin {ThemeRepositoryFuse::missingOrigin(repository, path, lookup)};
-            git_remote_free(origin);
-            if (missingOrigin) {
-                git_repository_free(repository);
-                ThemeRepositoryFuse::offerListRecovery(
-                    path,
-                    [this, repositoryName, url] {
-                        if (renameDirectory(mThemeDirectory + "themes-list", "_CORRUPT_DISABLED")) {
-                            mGrid.removeEntry(mCenterGrid);
-                            mGrid.setCursorTo(mButtons);
-                            return;
-                        }
-                        mFetchThread = std::thread(&GuiThemeDownloader::cloneRepository, this,
-                                                   repositoryName, url);
-                        mStatusType = StatusType::STATUS_DOWNLOADING;
-                        mStatusText = _("DOWNLOADING THEMES LIST");
-                    },
-                    [this] { delete this; });
-                return false;
-            }
-        }
-#endif
         if (errorCode != 0 || checkCorruptRepository(repository)) {
             mWindow->pushGui(new GuiMsgBox(
                 _("IT SEEMS AS IF THE THEMES LIST REPOSITORY IS CORRUPT, WHICH COULD HAVE BEEN "
@@ -1906,16 +1820,6 @@ bool GuiThemeDownloader::cloneRepository(const std::string& repositoryName, cons
     }
 #endif
     errorCode = git_clone(&repository, &url[0], &path[0], &cloneOptions);
-#if defined(__ANDROID__)
-    if (errorCode == 0 && !ThemeRepositoryTrust::cloneComplete(path)) {
-        git_repository_free(repository);
-        repository = nullptr;
-        errorCode = -1;
-        // Only the newly cloned, admitted destination can be discarded.
-        if (ThemeRepositoryTrust::permit(path))
-            Utils::FileSystem::removeDirectory(path, true);
-    }
-#endif
 #if defined(__ANDROID__) && !defined(NDEBUG)
     if (errorCode != 0)
         ThemeRepositoryTrust::diagnoseCloneFailure(path, errorCode);

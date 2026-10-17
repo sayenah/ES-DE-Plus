@@ -19,7 +19,6 @@ import smoke_support
 import smoke_session
 import smoke_phases
 import network_smoke
-import theme_fuse_smoke
 import importer_navigation
 import json
 import os
@@ -1216,7 +1215,6 @@ try:
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     api = device_api
-    theme_fuse_smoke.media_provider(type('Harness', (), globals()))
     shared = '/sdcard/ESDEPlusSmoke'
     (evidence / 'image.txt').write_text(shell('getprop'))
     if phase not in ('core', 'app-data'):

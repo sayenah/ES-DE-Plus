@@ -3,10 +3,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(ThemeRepositoryTrustTests LANGUAGES CXX)
 enable_testing()
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_test(NAME theme-fuse-driver-controls COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/fuse_driver.py)
-add_executable(theme-repository-trust policy.cpp ../../es-app/src/guis/ThemeRepositoryTrust.cpp
-               ../../es-app/src/guis/ThemeRepositoryFuse.cpp)
+add_executable(theme-repository-trust policy.cpp ../../es-app/src/guis/ThemeRepositoryTrust.cpp)
 target_compile_features(theme-repository-trust PRIVATE cxx_std_17)
 target_include_directories(theme-repository-trust PRIVATE ../../es-app/src/guis
                            ../../external/rapidjson/include)
@@ -18,8 +15,7 @@ if(THEME_TRUST_RUNTIME)
     pkg_check_modules(GIT2 REQUIRED IMPORTED_TARGET libgit2)
     add_executable(theme-repository-trust-runtime runtime.cpp
                    ../../es-app/src/guis/ThemeRepositoryTrust.cpp
-                   ../../es-app/src/guis/ThemeRepositoryTrustDebug.cpp
-                   ../../es-app/src/guis/ThemeRepositoryFuse.cpp)
+                   ../../es-app/src/guis/ThemeRepositoryTrustDebug.cpp)
     target_compile_features(theme-repository-trust-runtime PRIVATE cxx_std_17)
     target_compile_definitions(theme-repository-trust-runtime PRIVATE THEME_TRUST_TEST)
     target_compile_options(theme-repository-trust-runtime PRIVATE -UNDEBUG)
