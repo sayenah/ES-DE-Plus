@@ -35,7 +35,7 @@ while pending:
     needed = re.findall(r'\(NEEDED\).*?\[(.*?)\]', metadata)
     print(f'PACKAGE CLOSURE {name}: {", ".join(needed)}')
     for dependency in needed:
-        if dependency == 'libc++_shared.so' or not (sysroot / '29' / dependency).is_file():
+        if dependency == 'libc++_shared.so' or not (sysroot / '31' / dependency).is_file():
             pending.append(dependency)
 reviewed = runpy.run_path('android/license-inputs.py')
 assert set(closure) <= reviewed['SHARED'], ('Unreviewed package inputs', set(closure) - reviewed['SHARED'])

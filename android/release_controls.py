@@ -64,7 +64,7 @@ def eligibility_controls():
             (test_signing.REPOSITORY, 'someone/ES-DE-Plus'),
             ('push', 'workflow_dispatch', 'pull_request', 'pull_request_target'),
             ('refs/heads/main', 'refs/heads/fix/publish-on-demand', 'refs/pull/19/merge', 'refs/tags/main'),
-            ('api29', 'tv36', 'api34'), ('', '123'),
+            ('api31', 'tv36', 'api34'), ('', '123'),
             ('', 'none', 'android', 'linux', 'source-upload', 'source-validation', 'apk-upload'),
             ('', False, True)):
         evaluated += 1

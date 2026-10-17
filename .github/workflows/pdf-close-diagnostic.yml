@@ -64,7 +64,7 @@ jobs:
       - name: Record dependency cache key
         id: dependency-cache
         env:
-          KEY: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          KEY: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
         run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
       - name: Restore per-ABI dependencies
         id: deps
