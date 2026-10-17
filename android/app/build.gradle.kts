@@ -90,7 +90,7 @@ android {
     ndkVersion = "28.2.13676358"
     defaultConfig {
         applicationId = appId
-        minSdk = 29
+        minSdk = 31
         targetSdk = 36
         versionCode = appVersion
         versionName = appVersionName
@@ -98,7 +98,7 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DANDROID_APPLICATION_ID=$appId", "-DANDROID_VERSION_CODE=$appVersion",
-                    "-DGLES=ON", "-DANDROID_PLATFORM=android-29", "-DANDROID_STL=c++_shared",
+                    "-DGLES=ON", "-DANDROID_STL=c++_shared",
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DAPPLICATION_UPDATER=OFF",
                     "-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${file("../native-output.cmake").absolutePath}",
                     "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384",
