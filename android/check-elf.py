@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory() as temporary:
             prebuilt = digest in prebuilt_hashes[abi]
             print(f'{"NDK PREBUILT" if prebuilt else "STRICT"} {abi}/{name}: SHA256={digest}')
             api = android_api(data)
-            require(api <= 29, (abi, name, 'API too high', api))
+            require(api <= 31, (abi, name, 'API too high', api))
             for line in output.splitlines():
                 fields = line.split()
                 if fields and fields[0] == 'LOAD':
@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory() as temporary:
             pending.extend(dependency for dependency in dependencies.get(name, []) if dependency not in system)
         require(reachable == libraries.keys(), (abi, 'Unreachable packaged libraries', sorted(libraries.keys() - reachable)))
         result = 'PASS' if len(failures) == previous_failures and alignment.returncode == 0 else 'FAIL'
-        print(f'{result} {abi}: architecture, API <=29, SONAME closure, LOAD 16 KiB; strict built-library RELRO; hash-verified NDK prebuilt + APK zipalign')
+        print(f'{result} {abi}: architecture, API <=31, SONAME closure, LOAD 16 KiB; strict built-library RELRO; hash-verified NDK prebuilt + APK zipalign')
 for failure in failures:
     print(f'FAIL: {failure}')
 sys.exit(bool(failures))

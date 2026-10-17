@@ -627,7 +627,7 @@ def cycle(h, name, count, allow_crash=False):
 
 def run_control(harness):
     h = type('Harness', (), harness)
-    assert h.device_api == 29 or h.television
+    assert h.device_api == 31 or h.television
     original = h.shell('cat', h.settings)
     document = h.launch_checks.settings_fragment(original)
     navigation = document.find("bool[@name='NavigationSounds']")
@@ -722,7 +722,7 @@ def fixed_session(h, name, count):
 def run(harness):
     h = type('Harness', (), harness)
     (h.evidence / 'audio-assertion-controls.txt').write_text(controls())
-    if h.device_api != 29 and not h.television:
+    if h.device_api != 31 and not h.television:
         return
     fixed_session(h, 'audio-fixed-default', 20)
     original = h.shell('cat', h.settings)

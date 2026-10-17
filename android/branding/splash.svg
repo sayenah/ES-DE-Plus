@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. Original placeholder. -->
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. Original Pixel Plus art (D-016). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-    <rect width="640" height="360" fill="#142838"/>
-    <path fill="#58d8b0" d="M300 110h40v50h50v40h-50v50h-40v-50h-50v-40h50z"/>
+    <rect width="640" height="360" fill="#170B38"/>
+    <g transform="translate(212 72) scale(2)">
+        <path fill="#7B2FF7" d="M18,20h4v4h-4z M84,80h4v4h-4z"/>
+        <path fill="#00D1FF" opacity="0.7" d="M82,22h3v3h-3z"/>
+        <path fill="#000000" opacity="0.45" d="M52,31h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M34,49h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M52,49h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M70,49h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z M52,67h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z"/>
+        <path fill="#00D1FF" d="M49,28h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z"/>
+        <path fill="#FF2D78" d="M31,46h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z"/>
+        <path fill="#FFFFFF" d="M49,46h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z"/>
+        <path fill="#FFC23D" d="M67,46h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z"/>
+        <path fill="#22D68C" d="M49,64h10a3,3 0,0 1,3,3v10a3,3 0,0 1,-3,3h-10a3,3 0,0 1,-3,-3v-10a3,3 0,0 1,3,-3z"/>
+    </g>
 </svg>

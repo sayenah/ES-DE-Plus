@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 # ES-DE Plus Android host
 
+The open-source Android host supports Android 12 (API 31) and later.
+
 ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
 
 Published CI debug APKs use one stable **test** key held only in GitHub's
@@ -55,7 +57,7 @@ D-013 am. 2. A compromise stops publication for a Founder ruling on rotation,
 which requires another uninstall. Release signing is a separate Founder decision
 and cannot reuse this arrangement without a fresh ruling.
 
-CI proves replacement on API 29/34 with two version codes and one throwaway key:
+CI proves replacement on API 31/34 with two version codes and one throwaway key:
 `adb install -r` retains settings, accepted storage configuration and app data,
 then launches the higher build. Stable-key custody, real release API publication
 and retries, and continuity across two stable-key publications require real
@@ -71,8 +73,7 @@ settings, collections and logs stay in the current user's app-specific external
   computer, then use `adb push your-ROM-folder/. <displayed-ROM-path>/`. Organize
   games into system folders such as `nes`. Uninstalling removes these games.
   SAF import is deferred.
-- **Direct filesystem compatibility (explicit choice):** Android 10 requests
-  legacy read/write storage permission. Android 11 and later open the app's
+- **Direct filesystem compatibility (explicit choice):** Open the app's
   all-files-access settings, falling back to the generic settings page if the
   app-specific page is unavailable. Select a local shared ROM folder through the system
   picker, then copy games there using USB file transfer or a file manager. Only
@@ -118,8 +119,8 @@ installs. Exact Gradle cache hits resolve offline. Dispatch
 
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
-then drives real configurator/permission screens on API 29, API 34 and Android TV
-API 36 x86_64. API 34 runs last on its own runner, after the API 29 and TV legs pass. After
+then drives real configurator/permission screens on API 31, API 34 and Android TV
+API 36 x86_64. API 34 runs last on its own runner, after the API 31 and TV legs pass. After
 same-commit Linux success and all Android checks, CI uploads and validates the
 source artefact on both dry-run and publication paths. Only an eligible
 `publish: true` dispatch then uploads the exact smoked debug APK; every other
@@ -133,7 +134,7 @@ Game launching uses the existing Android find rules and Intent variables in
 
 | Token | Intent value | Recipient access |
 | --- | --- | --- |
-| `%ROM%` | Absolute filesystem path | The emulator needs its own filesystem permission. On Android 11+ another app generally cannot read the frontend's app-owned `Android/data` directory; use `%ROMPROVIDER%` for app-owned games. |
+| `%ROM%` | Absolute filesystem path | The emulator needs its own filesystem permission. Another app generally cannot read the frontend's app-owned `Android/data` directory; use `%ROMPROVIDER%` for app-owned games. |
 | `%ROMSAF%` | External-storage document URI on the verified current-user volume | A held persisted tree covering this file permits an exact read grant. URI extras retain their string type and carry the grant through `ClipData`. Without a held tree the emulator needs its own SAF access. App-owned `Android/data` paths are refused with the frontend's launch-error popup. |
 | `%ROMPROVIDER%` | ES-DE Plus content URI in Intent data | The selected file receives a temporary read-only grant in both modes. No emulator storage permission is needed to read that file. |
 
@@ -194,7 +195,7 @@ When the emulator presents Play Protect's older-Android-target warning, CI uses
 the visible installation confirmation for this pinned APK. Package verification
 stays enabled and the APK is not modified.
 Under D-010 am. 1, the pinned stable RetroArch exact-ROM receipt gates on the
-API 29 and API 34 phone images. It still runs on TV as a clearly labelled
+API 31 and API 34 phone images. It still runs on TV as a clearly labelled
 non-gating diagnostic, with outcome, live logs and backtrace capability gaps
 in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
@@ -204,7 +205,7 @@ The network smoke opens the real theme downloader, clones the canonical HTTPS
 themes list with the bundled CA bundle, downloads and selects one live theme,
 and submits a real ScreenScraper HTTPS search without an account. A result or
 service-level reply proves scraper reachability. API 34 gates these checks;
-API 29 and TV record exhausted remote failures as non-gating diagnostics.
+API 31 and TV record exhausted remote failures as non-gating diagnostics.
 Each remote operation has at most three attempts with 5 seconds between attempts:
 300 seconds per clone and 90 seconds per scraper request, plus UI, health-check
 and evidence-capture time. During a request the same process must remain alive,
@@ -248,11 +249,25 @@ deadline the harness captures evidence, rechecks health, stops that healthy
 process and removes only the incomplete clone whose destination it verified
 absent before the attempt. It then starts the frontend once and issues the next
 request through the UI. Successful lists/downloads are preserved. A failed
-startup during recovery fails the leg, including the known API 29 lifecycle stall.
+startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-For a local API 34 smoke, use a full-history checkout at the commit being tested.
+CI runs five gating smoke phases, each in a distinct cold AVD: `core`
+(configurator, storage, held destruction, process death, launch/importer and
+RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
+(update continuity on API 31/34 and network checks), `pdf-direct`, and
+`pdf-scoped` (including minified PDF/Unicode). The same built APK is installed
+in each fresh guest; configuration and grants are established through the UI.
+The default `smoke.py APK` command runs core only. For another phase, pass
+`--phase PHASE`; every phase is required for the complete CI regression suite.
+`smoke_session.py PHASE -- COMMAND` preserves the command's exit status,
+verifies a clean guest and distinct boot identity, and records read-only QEMU
+RSS, host available memory and wrapped-ADB command counts/durations. Each
+phase's evidence is uploaded before the next AVD starts; publication still
+requires every phase and all existing D-020 gates.
+
+For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
 including PDF fixtures; set `RUNNER_TEMP` to a temporary directory outside the
 checkout for throwaway signing material. The network/signing sequence, from the
@@ -267,7 +282,7 @@ cp android/app/build/outputs/apk/debug/app-debug.apk android/.deps/update/lower-
 android/gradlew -p android --no-daemon :app:assembleDebug
 python3 android/network-control.py
 python3 android/test_signing.py fixtures
-python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+python3 android/smoke_session.py integration -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase integration
 ```
 
 The signing fixture re-signs both smoke variants and the control with the same

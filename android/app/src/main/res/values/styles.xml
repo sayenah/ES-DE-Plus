@@ -3,8 +3,8 @@
 <resources>
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowBackground">#142838</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/placeholder_icon</item>
-        <item name="android:windowSplashScreenBackground">#142838</item>
+        <item name="android:windowBackground">#170B38</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/pixel_plus_foreground</item>
+        <item name="android:windowSplashScreenBackground">#170B38</item>
     </style>
 </resources>

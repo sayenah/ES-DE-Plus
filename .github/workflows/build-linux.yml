@@ -20,6 +20,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify PDF-close failure propagation
+        run: python3 android/pdf_close_probe_test.py
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
