@@ -329,9 +329,22 @@ namespace
         // opaque repeated user nodes retain their original ordinal position.
         std::vector<size_t> matches(after.size(), before.size());
         size_t next {0};
+        auto sameIdentity = [&](pugi::xml_node current, pugi::xml_node prior) {
+            if (nodeKey(current) == nodeKey(prior))
+                return true;
+            // Naming the one unlabelled upstream command changes its key, but
+            // its existing attributes and lexical text still belong to the user.
+            if (std::string_view(current.name()) != "command" ||
+                std::string_view(prior.name()) != "command" || prior.attribute("label"))
+                return false;
+            pugi::xml_document copy;
+            auto unnamed = copy.append_copy(current);
+            unnamed.remove_attribute("label");
+            return xml(unnamed) == xml(prior);
+        };
         for (size_t i {0}; i < after.size(); ++i)
             for (size_t j {next}; j < before.size(); ++j)
-                if (nodeKey(after[i]) == nodeKey(before[j])) {
+                if (sameIdentity(after[i], before[j])) {
                     matches[i] = j;
                     next = j + 1;
                     break;
@@ -348,8 +361,25 @@ namespace
             for (auto attribute : source.attributes())
                 newTag.append_attribute(attribute.name()).set_value(attribute.value());
             if (xml(oldTag) != xml(newTag)) {
-                auto tag = xml(newTag);
-                output = tag.substr(0, tag.size() - 2) + ">";
+                bool additionsOnly {true};
+                for (auto attribute : oldTag.attributes())
+                    if (!newTag.attribute(attribute.name()) ||
+                        std::string_view(attribute.value()) !=
+                            newTag.attribute(attribute.name()).value())
+                        additionsOnly = false;
+                if (additionsOnly) {
+                    pugi::xml_document attributes;
+                    auto added = attributes.append_child("x");
+                    for (auto attribute : newTag.attributes())
+                        if (!oldTag.attribute(attribute.name()))
+                            added.append_attribute(attribute.name()).set_value(attribute.value());
+                    const auto tag = xml(added);
+                    output.insert(output.size() - 1, tag.substr(2, tag.size() - 4));
+                }
+                else {
+                    auto tag = xml(newTag);
+                    output = tag.substr(0, tag.size() - 2) + ">";
+                }
             }
         }
         const auto parentIndent = lineIndent(bytes, range.begin);

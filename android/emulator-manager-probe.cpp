@@ -679,6 +679,20 @@ int main(int argc, char** argv)
             require(read(gamelist) == repaired,
                     "selection repair changes only selected text bytes");
         }
+        const auto unlabelledBytes = root + "/unlabelled-bytes";
+        require(mkdir(unlabelledBytes.c_str(), 0700) == 0, "unlabelled lexical scratch");
+        auto unlabelled = source;
+        unlabelled.replace(unlabelled.find("<command>"), 9, "<command  custom = 'keep'>");
+        unlabelled.replace(unlabelled.find("PLACEHOLDER"), 11, "PLACEHOLDER &amp; &#233;");
+        put(unlabelledBytes + "/es_systems.xml", unlabelled);
+        EmulatorManagerConfig labelOnly {unlabelledBytes, bundle, bundledRules};
+        labelOnly.add("test", "Lexical", "org.lexical/Activity", collisionProfile, "", true);
+        labelOnly.save();
+        const auto labelledBytes = read(unlabelledBytes + "/es_systems.xml");
+        require(
+            labelledBytes.find("<command  custom = 'keep' label=\"Original emulator\">"
+                               "PLACEHOLDER &amp; &#233; %ROM%</command>") != std::string::npos,
+            "adding original label preserves command attribute spacing/quotes and entity bytes");
         const std::string profileText {
             "%EMULATOR_X% %ACTION%=android.intent.action.VIEW %MIMETYPE%=application/zip "
             "%EXTRA_ROM%=%ROM% %EXTRAARRAY_paths%=one,two %EXTRAINTEGER_slot%=2 "
