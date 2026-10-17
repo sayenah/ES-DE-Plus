@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+import session_logcat
 
 
 # API 34 core telemetry (38841218615 attempts 1/2) ranged from 2.8–67.03%;
@@ -195,13 +196,17 @@ def sample():
     return result
 
 
-def run_child(command, env, observe):
+def run_child(command, env, observe, tick=lambda: None):
     child = subprocess.Popen(command, env=env)
+    next_observation = 0
     try:
         while True:
-            observe()
+            if time.monotonic() >= next_observation:
+                observe()
+                next_observation = time.monotonic() + 30
+            tick()
             try:
-                return child.wait(timeout=30)
+                return child.wait(timeout=.25)
             except subprocess.TimeoutExpired:
                 pass
     finally:
@@ -241,6 +246,8 @@ def emulator_result(outcome, session):
     status = session.get('child_status') if session else None
     if status is not None and status != 0:
         classification = 'SESSION_FAILURE'
+    elif session and session.get('session_status', status) != status:
+        classification = 'SESSION_EVIDENCE_FAILURE'
     elif outcome == 'success' and status == 0:
         classification = 'PASS'
     elif status == 0:
@@ -270,7 +277,7 @@ def main():
         import fresh_session_checks
         import install_settle
         controls = (fresh_session_checks.controls() + settle_controls() + install_settle.controls() +
-                    settings_navigation.controls())
+                    session_logcat.controls() + settings_navigation.controls())
         root = Path('android/evidence')
         root.mkdir(parents=True, exist_ok=True)
         (root / 'fresh-session-controls.txt').write_text(controls)
@@ -294,6 +301,8 @@ def main():
         assert emulator_result('failure', dict(child_status=0))['outcome'] == 'EMULATOR_SHUTDOWN_INFRASTRUCTURE'
         assert emulator_result('cancelled', dict(child_status=0))['outcome'] == 'EMULATOR_SHUTDOWN_INFRASTRUCTURE'
         assert emulator_result('failure', None)['outcome'] == 'EMULATOR_START_OR_SESSION_FAILURE'
+        assert emulator_result('failure', dict(child_status=0, session_status=1))['outcome'] == 'SESSION_EVIDENCE_FAILURE'
+        assert emulator_result('success', dict(child_status=7, session_status=7))['outcome'] == 'SESSION_FAILURE'
         print('PASS: child failures propagate unchanged; command cost classification; '
               'emulator shutdown failure classified without hiding nonzero child status')
         return 0
@@ -313,6 +322,9 @@ def main():
     env = dict(os.environ)
     env['ESDE_SMOKE_COMMAND_METRICS'] = str(root / (args.phase + '-command-costs.txt'))
     Path(env['ESDE_SMOKE_COMMAND_METRICS']).write_text('')
+    env['ESDE_SMOKE_LOGCAT_RESETS'] = str(root / (args.phase + '-session-logcat-resets.txt'))
+    resets = Path(env['ESDE_SMOKE_LOGCAT_RESETS'])
+    resets.write_text('')
     if args.phase != 'core':
         env['ESDE_SMOKE_EVIDENCE'] = str(root / args.phase)
     health = root / (args.phase + '-session-health.txt')
@@ -339,23 +351,22 @@ def main():
         # Keep a continuous copy even when an older suite clears its own
         # assertion buffer. Start before installation/settling; never clear it.
         with (root / (args.phase + '-session-logcat.txt')).open('w') as session_log:
-            follower = subprocess.Popen(['adb', 'logcat', '-b', 'all', '-v', 'threadtime',
-                                         '-v', 'year', '-v', 'UTC', '-v', 'usec'],
-                                        stdout=session_log, stderr=subprocess.STDOUT)
+            observer = session_logcat.Observer(session_log, resets)
             try:
-                status = run_child(command, env, observe)
+                status = run_child(command, env, observe, observer.tick)
             finally:
-                streaming = follower.poll() is None
-                if streaming:
-                    follower.terminate()
-                follower.wait(timeout=5)
+                logcat_status = observer.close()
                 (root / (args.phase + '-session-logcat-status.txt')).write_text(
-                    json.dumps(dict(streaming_until_child_exit=streaming, status=follower.returncode)) + '\n')
+                    json.dumps(logcat_status) + '\n')
         observe()
         records = lambda path: [json.loads(line) for line in path.read_text().splitlines(keepends=True)
                                 if line.endswith('\n')]
         measured = summary(records(health), records(Path(env['ESDE_SMOKE_COMMAND_METRICS'])),
                            time.monotonic() - began, status)
+        measured['logcat'] = logcat_status
+        measured['session_status'] = status if status or logcat_status['streaming_until_child_exit'] else 1
+        if not logcat_status['streaming_until_child_exit']:
+            print('LOGCAT_STREAM_INTERRUPTED: unaccounted stream exit; session cannot pass', flush=True)
         settle_record = Path(env.get('ESDE_SMOKE_EVIDENCE', str(root))) / 'session-settle-summary.txt'
         measured['settle'] = json.loads(settle_record.read_text()) if settle_record.exists() else None
         startup_record = settle_record.parent / 'startup-outcomes.txt'
@@ -369,8 +380,8 @@ def main():
         measured['install_settles'] = records(installs) if installs.exists() else []
         (root / (args.phase + '-session-summary.txt')).write_text(json.dumps(measured, indent=2) + '\n')
         print('SESSION_SUMMARY ' + json.dumps(dict(phase=args.phase, **measured)), flush=True)
-        print(f'SESSION {args.phase}: child exit status {status}', flush=True)
-        return status
+        print(f'SESSION {args.phase}: child exit status {status}; session status {measured["session_status"]}', flush=True)
+        return measured['session_status']
 
 
 if __name__ == '__main__':

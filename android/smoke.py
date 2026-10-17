@@ -90,6 +90,8 @@ def adb(*args, check=True, binary=False):
     if check and result.returncode:
         print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
         result.check_returncode()
+    if result.returncode == 0 and not binary:
+        smoke_session.session_logcat.adb_completed(args, result.stdout, command_started)
     if args[:1] == ('install',) and result.returncode == 0:
         install_settle.after_install(args, result.stdout, evidence)
     return result.stdout
@@ -710,6 +712,7 @@ def real_system_home():
         shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME', '-n', stock)
         width, height = map(int, re.findall(r'(\d+)x(\d+)', shell('wm', 'size'))[-1])
         shell('input', 'swipe', str(width // 2), str(height - 100), str(width // 2), '100', '500')
+        begin_startup()  # The stock drawer starts the app through its icon, not am start.
         ui(label, exact=True)
         configured_system('system-home-drawer-launch')
         pid = shell('pidof', app).strip()

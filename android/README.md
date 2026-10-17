@@ -278,6 +278,13 @@ expiry is recorded and the original assertions still run. `session-settle-*.txt`
 and each phase's session summary record the outcome and elapsed time. A continuous
 `PHASE-session-logcat.txt` preserves all buffers from session start, including
 before older checks clear their assertion buffers.
+The existing capability controls deliberately restart adbd with `root`/`unroot`.
+`session_logcat.py` reconnects the read-only observer only after a recorded actual
+adbd restart and completed `wait-for-device` overlapping its disconnect. Retained
+buffers append to the kept file; startup classification deduplicates overlaps.
+An unexplained stream exit is a hard `SESSION_EVIDENCE_FAILURE` even if the child
+passed; a failed child keeps its original status. The stock app-drawer icon tap
+also gets its own startup marker before activation, just like explicit starts.
 
 Every successful `adb install` also waits for package resource processing before
 returning to its caller. This covers initial installs, lower/higher update builds,
