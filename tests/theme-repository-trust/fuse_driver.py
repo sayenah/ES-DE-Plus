@@ -15,6 +15,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'android'))
 import theme_fuse_smoke
+import theme_recovery_smoke
 
 
 class Guest:
@@ -101,6 +102,15 @@ class Guest:
 
 
 class ReadbackControls(unittest.TestCase):
+    def test_confirmation_positive_uses_native_log_application_tag_and_current_pid(self):
+        app = 'example.frontend'
+        line = ('10-17 08:00:00.123 1234 1250 D ' + app +
+                ': Oct 17 08:00:00 Debug: Theme list recovery confirmation refused: /fixture\n')
+        self.assertTrue(theme_recovery_smoke.decision_seen(line, '1234', app, 'confirmation refused'))
+        self.assertFalse(theme_recovery_smoke.decision_seen(line, '5678', app, 'confirmation refused'))
+        self.assertFalse(theme_recovery_smoke.decision_seen(line, '1234', 'SDL-host', 'confirmation refused'))
+        self.assertFalse(theme_recovery_smoke.decision_seen(line, '1234', app, 'cancelled'))
+
     def test_update_and_path_probe_review_invariants(self):
         gui = (ROOT / 'es-app/src/guis/GuiThemeDownloader.cpp').read_text()
         for function in ('fetchRepository', 'resetRepository'):

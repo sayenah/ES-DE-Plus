@@ -6,6 +6,12 @@ import shlex
 import xml.etree.ElementTree as ET
 
 
+def decision_seen(logcat, pid, app, verdict):
+    return bool(re.search(r'^\S+\s+\S+\s+' + re.escape(pid) +
+                          r'\s+\d+\s+\w\s+' + re.escape(app) +
+                          r'\s*:.*Theme list recovery ' + re.escape(verdict), logcat, re.M))
+
+
 def classifier(h, repository, select_row, downloader, request_result, capture, record, theme_path):
     def request(name):
         h.shell('run-as', h.app, 'sh', '-c', 'printf %s ' + shlex.quote(name + '\n') +
@@ -63,11 +69,9 @@ def classifier(h, repository, select_row, downloader, request_result, capture, r
             verdict = ('cancelled' if fault == 'cancel' else 'confirmation accepted' if
                        fault == 'proceed' else 'confirmation refused')
             current_pid = h.shell('pidof', h.app).strip()
-            event = re.compile(r'^\S+\s+\S+\s+' + re.escape(current_pid) +
-                               r'\s+\d+\s+\w\s+ES-DE-Plus\s*:.*Theme list recovery ' + verdict,
-                               re.M)
-            h.wait_for(lambda: event.search(h.shell('logcat', '-d', '-v', 'threadtime',
-                                                    '-s', 'ES-DE-Plus:D')),
+            h.wait_for(lambda: decision_seen(h.shell('logcat', '-d', '-v', 'threadtime',
+                                                     '-s', h.app + ':D'),
+                                            current_pid, h.app, verdict),
                        'current-PID recovery decision ' + verdict, 30)
             if fault == 'proceed':
                 result = list_ready(before)
