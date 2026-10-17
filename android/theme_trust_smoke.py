@@ -10,6 +10,7 @@ import re
 def request(h):
     h.evidence.joinpath('theme-trust-ca-before.txt').write_text(
         h.shell('run-as', h.app, 'sha256sum', 'files/resources/certificates/curl-ca-bundle.crt'))
+    h.evidence.joinpath('theme-trust-settings-before.txt').write_text(h.shell('sha256sum', h.settings))
     h.shell('run-as', h.app, 'rm', '-f', 'files/theme-trust.result')
     h.shell('run-as', h.app, 'sh', '-c',
             'printf %s ' + shlex.quote('ES-DE-Plus theme trust controls\n') +
@@ -95,6 +96,14 @@ def collect(h):
         assert required in report, (required, report)
     print('PASS: native theme trust controls; app UID/stat, identity, remotes, failures, clone barriers',
           flush=True)
+
+
+def after_all_controls(h):
+    ca = h.shell('run-as', h.app, 'sha256sum', 'files/resources/certificates/curl-ca-bundle.crt')
+    settings = h.shell('sha256sum', h.settings)
+    h.evidence.joinpath('theme-trust-after-all-controls.txt').write_text(ca + settings)
+    assert ca == h.evidence.joinpath('theme-trust-ca-before.txt').read_text(), 'CA changed across clone faults'
+    assert settings == h.evidence.joinpath('theme-trust-settings-before.txt').read_text(), 'Settings changed across clone faults'
 
 
 def allowlist(h):

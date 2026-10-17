@@ -429,6 +429,8 @@ namespace
             require(reached && initialized, "retirement barrier and initialization fired");
             require(!unsupported || shared, "private filesystem must exercise every object type");
             require(unsupported || result != 0, "retirement injection refused: " + kind);
+            require(unsupported || cloneTraces.at(path).remote.empty(),
+                    "retirement refusal precedes the public remote callback: " + kind);
             require(read(marker) == "ES-DE-Plus retirement canary" &&
                         read(privateRoot + "/libgit2/.gitconfig") == protectedConfig,
                     "retirement preserves private canary and trust config");
@@ -443,7 +445,9 @@ namespace
                      << "; temp="
                      << fs::exists(path + "/.git/" + ThemeRepositoryFuse::temporaryName)
                      << "; checkout-present=" << fs::exists(path + "/theme.xml")
-                     << "; protected data unchanged\n";
+                     << "; remote-callback=" << !cloneTraces.at(path).remote.empty()
+                     << "; blocked=repository-creation-callback (unless object unavailable)"
+                     << "; protected data unchanged; residual=writer may act after a check\n";
             clear();
             git(clone(url, path), "retirement restored actual clone positive control");
             positive(path);
@@ -455,6 +459,8 @@ namespace
             Testing::fault = injected;
             require(clone(url, path) != 0,
                     "retirement write/rename/cleanup failure refused through actual clone");
+            require(cloneTraces.at(path).remote.empty(),
+                    "retirement I/O failure precedes the public remote callback");
             const bool leftover {fs::exists(path + "/.git/" + ThemeRepositoryFuse::temporaryName)};
             require(leftover == (injected == Testing::Fault::RETIRE_CLEANUP),
                     "retirement cleanup and failed-cleanup states measured");

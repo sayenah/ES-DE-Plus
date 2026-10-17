@@ -564,6 +564,7 @@ def run_checks(harness, scoped=False):
         if controls:
             theme_trust_smoke.collect(h)
             theme_fuse_smoke.collect(h)
+            theme_trust_smoke.after_all_controls(h)
             trust_controls_complete = True
         capture('network-' + ('control' if negative else 'fixed') + '-first-use')
         # Debug prerequisites have their own result and may mention arbitrary
