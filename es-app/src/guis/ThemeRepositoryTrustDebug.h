@@ -27,6 +27,7 @@ namespace ThemeRepositoryTrust::Testing
     extern Fault fault;
     extern bool retireEnabled;
     extern std::function<void(const std::string&, const std::string&)> barrier;
+    void interruptIfRequested(const std::string& stage, const std::string& path);
     void initialFailure(const std::string& path,
                         const std::map<std::string, std::string>& values,
                         bool parsed,

@@ -42,6 +42,7 @@ bool ThemeRepositoryFuse::missingOrigin(
 }
 
 #if defined(__ANDROID__) || defined(THEME_TRUST_TEST)
+#include "ThemeRepositoryTrust.h"
 #include "ThemeRepositoryTrustDebug.h"
 #if __has_include(<git2/sys/errors.h>)
 #include <git2/sys/errors.h>
@@ -52,6 +53,9 @@ bool ThemeRepositoryFuse::missingOrigin(
 #include <sys/stat.h>
 #include <unistd.h>
 #if defined(__ANDROID__)
+#include "Log.h"
+#include "Window.h"
+#include "guis/GuiMsgBox.h"
 #include <android/api-level.h>
 #endif
 
@@ -81,6 +85,7 @@ namespace
     void barrier(const char* stage, const std::string& path)
     {
 #ifndef NDEBUG
+        ThemeRepositoryTrust::Testing::interruptIfRequested(stage, path);
         if (ThemeRepositoryTrust::Testing::barrier)
             ThemeRepositoryTrust::Testing::barrier(stage, path);
 #else
@@ -173,7 +178,18 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
         parent.value < 0 ?
             -1 :
             openat(parent.value, ".git", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)};
-    if (directory.value < 0 || !identity())
+    auto currentIdentity = [&] {
+        struct stat heldParent {
+        }, namedParent {}, heldDirectory {}, namedDirectory {};
+        return identity() && fstat(parent.value, &heldParent) == 0 &&
+               lstat(path.c_str(), &namedParent) == 0 && S_ISDIR(namedParent.st_mode) &&
+               heldParent.st_dev == namedParent.st_dev && heldParent.st_ino == namedParent.st_ino &&
+               fstat(directory.value, &heldDirectory) == 0 &&
+               lstat((path + "/.git").c_str(), &namedDirectory) == 0 &&
+               S_ISDIR(namedDirectory.st_mode) && heldDirectory.st_dev == namedDirectory.st_dev &&
+               heldDirectory.st_ino == namedDirectory.st_ino;
+    };
+    if (directory.value < 0 || !currentIdentity())
         return failed("Clone gitdir is unavailable before retirement");
     barrier("clone-retire-before-create", path);
     Descriptor temporary {openat(directory.value, temporaryName,
@@ -186,7 +202,7 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
         struct stat held {
         }, named {};
         const bool owned {
-            identity() && fstat(temporary.value, &held) == 0 &&
+            currentIdentity() && fstat(temporary.value, &held) == 0 &&
             fstatat(directory.value, temporaryName, &named, AT_SYMLINK_NOFOLLOW) == 0 &&
             S_ISREG(named.st_mode) && held.st_dev == named.st_dev && held.st_ino == named.st_ino};
 #ifndef NDEBUG
@@ -230,7 +246,7 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
                held.st_ino == named.st_ino && configValues(temporary.value, written) &&
                written == initial;
     };
-    if (!identity() || !sameSource())
+    if (!currentIdentity() || !sameSource())
         return refuse("Clone retirement source changed");
     if (unlinkat(directory.value, "config", 0) != 0)
         return refuse("Clone retirement unlink failed");
@@ -245,7 +261,7 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
     // This check blocks deterministic planted destinations, not a writer in
     // the check/rename gap. Destination replacement cannot prove retirement.
     errno = 0;
-    if (!identity() || !sameSource())
+    if (!currentIdentity() || !sameSource())
         return refuse("Clone retirement source or identity changed after unlink");
     errno = 0;
     if (fstatat(directory.value, "config", &named, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
@@ -253,7 +269,7 @@ bool ThemeRepositoryFuse::retire(const std::string& path,
     if (renameat(directory.value, temporaryName, directory.value, "config") != 0)
         return refuse("Clone retirement rename failed");
     barrier("clone-retire-renamed", path);
-    return identity() && installed(path, initial);
+    return currentIdentity() && installed(path, initial);
 }
 
 bool ThemeRepositoryFuse::complete(git_repository* repository,
@@ -294,6 +310,71 @@ bool ThemeRepositoryFuse::originReferences(git_repository* repository)
     git_reference_iterator_free(iterator);
     return found;
 }
+
+bool ThemeRepositoryFuse::missingOrigin(git_repository* repository,
+                                        const std::string& path,
+                                        int lookup)
+{
+    if ((deviceApi() != 31 && deviceApi() != 32) || lookup != GIT_ENOTFOUND ||
+        !ThemeRepositoryTrust::permit(path) || !ThemeRepositoryTrust::verify(repository, path))
+        return false;
+    // Preserve the remote-lookup diagnostic across the read-only refs query.
+    // Iterator exhaustion must not turn a missing local config key into a
+    // different class of error or make it eligible for corrupt recovery.
+    const git_error* original {git_error_last()};
+    const int errorClass {original ? original->klass : GIT_ERROR_CONFIG};
+    const std::string message {original && original->message ? original->message :
+                                                               "Repository origin is missing"};
+    // An unreadable, symlinked or unparseable local config is not this class.
+    Values values;
+    if (!readConfig(path + "/.git/config", values))
+        return false;
+    const bool result {missingOrigin(deviceApi(), true, true, true, originReferences(repository))};
+#if defined(__ANDROID__) && !defined(NDEBUG)
+    if (result)
+        LOG(LogDebug) << "Android 12 missing-origin classification; no automatic mutation: "
+                      << path;
+#endif
+    git_error_set_str(errorClass, message.c_str());
+    return result;
+}
+
+bool ThemeRepositoryFuse::recheckListRecovery(const std::string& path)
+{
+    if (path.substr(path.find_last_of('/') + 1) != "themes-list" ||
+        !ThemeRepositoryTrust::permit(path))
+        return false;
+    git_repository* repository {nullptr};
+    git_remote* origin {nullptr};
+    const int opened {git_repository_open(&repository, path.c_str())};
+    const bool identity {opened == 0 && ThemeRepositoryTrust::verify(repository, path)};
+    const int lookup {identity ? git_remote_lookup(&origin, repository, "origin") : GIT_ERROR};
+    const bool result {identity && missingOrigin(repository, path, lookup)};
+    git_remote_free(origin);
+    git_repository_free(repository);
+    return result;
+}
+
+#if defined(__ANDROID__)
+void ThemeRepositoryFuse::offerListRecovery(const std::string& path,
+                                            const std::function<void()>& proceed,
+                                            const std::function<void()>& cancel)
+{
+    Window::getInstance()->pushGui(new GuiMsgBox(
+        _("ANDROID 12 COULD NOT READ THE THEMES LIST REPOSITORY'S ORIGIN. A FRESH DOWNLOAD IS "
+          "REQUIRED. THE OLD DIRECTORY \"themes-list\" WILL BE RENAMED TO "
+          "\"themes-list_CORRUPT_DISABLED\" AND REMOVED ON A LATER DOWNLOADER VISIT."),
+        _("PROCEED"),
+        [path, proceed] {
+            if (!recheckListRecovery(path)) {
+                ThemeRepositoryTrust::reportFailure();
+                return;
+            }
+            proceed();
+        },
+        _("CANCEL"), cancel, "", nullptr, "", nullptr, nullptr, true));
+}
+#endif
 
 int ThemeRepositoryFuse::deviceApi()
 {

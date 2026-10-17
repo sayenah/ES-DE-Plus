@@ -954,6 +954,10 @@ def run_checks(harness, scoped=False):
                    f'theme loaded, installed inventory and actual fast-forward passed; '
                    f'HEAD {retained_rewind["previous"]} -> {retained_rewind["latest"]}; '
                    f'seconds={time.monotonic() - retained_update_began:.3f}')
+        if extended and not scoped:
+            import theme_recovery_smoke
+            theme_recovery_smoke.classifier(h, repository, select_theme_row, downloader,
+                                            request_result, capture, record, theme_path)
         destinations = root_destinations(h.api, removable_roots) if extended and not scoped else []
         for new_root, root_kind in destinations:
             # Real root re-selection, using ordinary EditText paste for Unicode.
@@ -1011,6 +1015,10 @@ def run_checks(harness, scoped=False):
                    '; HTTPS list/theme cloned, selected and loaded; allowlist contains only new root')
         capture('network-theme-applied')
         record(f'PASS: real downloaded {repository} is selectable, saved and loaded through the UI.')
+        if extended and not scoped and h.api == 34:
+            import theme_recovery_smoke
+            theme_recovery_smoke.run(h, repository, select_theme_row, downloader,
+                                     request_result, capture, record, theme_path)
 
     def scraper(negative):
         begin(('control' if negative else 'fixed') + '-scraper')

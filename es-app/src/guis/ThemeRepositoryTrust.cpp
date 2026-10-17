@@ -149,6 +149,7 @@ std::vector<ThemeRepositoryTrust::Entry> ThemeRepositoryTrust::jsonEntries(
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <fcntl.h>
 #include <limits.h>
 #include <sys/stat.h>
 #ifndef NDEBUG
@@ -165,6 +166,7 @@ namespace
         std::string root;
         std::string privateDirectory;
         std::string filesDirectory;
+        std::string configContents;
         std::map<std::string, std::string> repositories;
         std::set<std::string> paths;
         std::set<std::string> retained;
@@ -260,6 +262,7 @@ namespace
             unlink(temporary.c_str());
             return failure("Cannot atomically replace the private Git config");
         }
+        session.configContents = contents;
         session.repositories = repositories;
         session.paths.clear();
         for (const auto& entry : repositories)
@@ -389,6 +392,44 @@ bool ThemeRepositoryTrust::ready()
         access(session.suppliedRoot.c_str(), R_OK | W_OK | X_OK) != 0) {
         session.configured = false;
         return failure("Theme storage is no longer accessible; reselect it in the configurator");
+    }
+    // Maintaining the prerequisite includes the current private file and
+    // process search paths, not just the success of an earlier setup.
+    int ownerValidation {0};
+    bool current {git_libgit2_opts(GIT_OPT_GET_OWNER_VALIDATION, &ownerValidation) == 0 &&
+                  ownerValidation == 1};
+    for (int level : {GIT_CONFIG_LEVEL_SYSTEM, GIT_CONFIG_LEVEL_GLOBAL, GIT_CONFIG_LEVEL_XDG,
+                      GIT_CONFIG_LEVEL_PROGRAMDATA}) {
+        git_buf search {};
+        const int result {git_libgit2_opts(GIT_OPT_GET_SEARCH_PATH, level, &search)};
+        const std::string actual {search.ptr ? search.ptr : ""};
+        git_buf_dispose(&search);
+        current = current && result == 0 &&
+                  actual == (level == GIT_CONFIG_LEVEL_GLOBAL ? session.privateDirectory : "");
+    }
+    const int fd {open((session.privateDirectory + "/.gitconfig").c_str(),
+                       O_RDONLY | O_NOFOLLOW | O_CLOEXEC)};
+    struct stat info {
+    };
+    current = current && fd >= 0 && fstat(fd, &info) == 0 && S_ISREG(info.st_mode) &&
+              info.st_uid == geteuid() && (info.st_mode & 0777) == 0600 &&
+              info.st_size == static_cast<off_t>(session.configContents.size());
+    std::string contents(session.configContents.size(), '\0');
+    size_t offset {0};
+    while (current && offset < contents.size()) {
+        const ssize_t count {read(fd, contents.data() + offset, contents.size() - offset)};
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            current = false;
+        else
+            offset += count;
+    }
+    if (fd >= 0)
+        ::close(fd);
+    if (!current || contents != session.configContents) {
+        session.configured = false;
+        return failure("The private Git trust prerequisite changed; reopen the downloader");
     }
     return true;
 }
@@ -595,6 +636,8 @@ int ThemeRepositoryTrust::create(git_repository** out, const char* path, int bar
         else
             session.initialized[canonical(path)] = std::move(initial);
 #ifndef NDEBUG
+        if (Testing::barrier)
+            Testing::barrier("clone-retirement-finished", path);
         if (retired && Testing::retireEnabled)
             diagnostic("clone config retired and init meaning validated: " + std::string(path));
 #endif
@@ -630,6 +673,7 @@ void ThemeRepositoryTrust::Testing::preservingSession(const std::function<void()
 bool ThemeRepositoryTrust::cloneComplete(const std::string& path)
 {
 #ifndef NDEBUG
+    Testing::interruptIfRequested("clone-post-check", path);
     if (Testing::barrier)
         Testing::barrier("clone-post-check", path);
 #endif

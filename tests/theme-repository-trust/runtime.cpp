@@ -98,6 +98,37 @@ int main(int argc, char** argv)
         return 1;
     }
     std::cout << "PASS: lost gitdir identity blocks retirement cleanup; leftover is not promoted\n";
+    for (const std::string fault : {"missing", "changed", "search"}) {
+        ThemeRepositoryTrust::configure(cleanupRoot + "/data/themes", cleanupRoot + "/private");
+        if (!ThemeRepositoryTrust::expectList("file://" + probe) || !ThemeRepositoryTrust::ready())
+            return 1;
+        const std::string config {cleanupRoot + "/private/libgit2/.gitconfig"};
+        std::ifstream input(config);
+        const std::string original {std::istreambuf_iterator<char>(input),
+                                    std::istreambuf_iterator<char>()};
+        input.close();
+        if (fault == "missing")
+            std::filesystem::rename(config, config + ".saved");
+        else if (fault == "changed")
+            std::ofstream(config) << "[safe]\n directory = *\n";
+        else if (git_libgit2_opts(GIT_OPT_SET_SEARCH_PATH, GIT_CONFIG_LEVEL_GLOBAL, "") != 0)
+            return 1;
+        if (ThemeRepositoryTrust::ready() || ThemeRepositoryTrust::permit(candidate) ||
+            ThemeRepositoryTrust::corrupt(GIT_ERROR, candidate))
+            return 1;
+        if (fault == "missing")
+            std::filesystem::rename(config + ".saved", config);
+        else if (fault == "changed")
+            std::ofstream(config) << original;
+        // Restoring bytes or search paths does not revive a failed prerequisite.
+        if (ThemeRepositoryTrust::ready())
+            return 1;
+        ThemeRepositoryTrust::configure(cleanupRoot + "/data/themes", cleanupRoot + "/private");
+        if (!ThemeRepositoryTrust::expectList("file://" + probe) || !ThemeRepositoryTrust::ready())
+            return 1;
+        std::cout << "PASS: maintained private prerequisite " << fault
+                  << " fails closed; explicit restored setup passes\n";
+    }
     ThemeRepositoryTrust::close();
     git_libgit2_shutdown();
     return result.find("PASS: app-context theme trust controls\n") != std::string::npos ? 0 : 1;

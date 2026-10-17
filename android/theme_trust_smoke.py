@@ -8,6 +8,8 @@ import re
 
 
 def request(h):
+    h.evidence.joinpath('theme-trust-ca-before.txt').write_text(
+        h.shell('run-as', h.app, 'sha256sum', 'files/resources/certificates/curl-ca-bundle.crt'))
     h.shell('run-as', h.app, 'rm', '-f', 'files/theme-trust.result')
     h.shell('run-as', h.app, 'sh', '-c',
             'printf %s ' + shlex.quote('ES-DE-Plus theme trust controls\n') +
@@ -75,9 +77,14 @@ def collect(h):
                         except Exception as error:
                             observation += '\nShell restoration failed: ' + repr(error)
             h.evidence.joinpath('theme-trust-failed-config-readback.txt').write_text(observation)
+    ca_after = h.shell('run-as', h.app, 'sha256sum',
+                       'files/resources/certificates/curl-ca-bundle.crt')
+    h.evidence.joinpath('theme-trust-ca-after.txt').write_text(ca_after)
+    assert ca_after == h.evidence.joinpath('theme-trust-ca-before.txt').read_text(), 'CA bundle changed'
     assert 'FAIL:' not in report and 'PASS: app-context theme trust controls\n' in report, report
     assert report.count('PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n') == 2, report
     assert report.count('PASS: config bytes survive unobserved tree traversal in all 16 cycles\n') == 2, report
+    assert report.count('PASS: retirement boundaries and write/rename/cleanup controls; each restored clone passed\n') == 2, report
     for required in ['raw owner control shared=1 code=-36', 'worktree outside, private and admitted',
                      'gitlink and commondir blocked', 'non-repository, bare and linked worktree',
                      'between-precheck-fetch', 'substituted transport calls=0',

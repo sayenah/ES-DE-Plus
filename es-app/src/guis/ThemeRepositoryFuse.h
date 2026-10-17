@@ -30,6 +30,13 @@ namespace ThemeRepositoryFuse
     bool complete(git_repository* repository, const Values& initial, const std::string& url);
     bool originReferences(git_repository* repository);
     int deviceApi();
+    bool missingOrigin(git_repository* repository, const std::string& path, int lookup);
+    bool recheckListRecovery(const std::string& path);
+#if defined(__ANDROID__)
+    void offerListRecovery(const std::string& path,
+                           const std::function<void()>& proceed,
+                           const std::function<void()>& cancel);
+#endif
 } // namespace ThemeRepositoryFuse
 #endif
 #endif

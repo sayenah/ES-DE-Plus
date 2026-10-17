@@ -10,6 +10,7 @@
 #include "guis/GuiThemeDownloader.h"
 
 #if defined(__ANDROID__)
+#include "guis/ThemeRepositoryFuse.h"
 #include "guis/ThemeRepositoryTrust.h"
 #include "guis/ThemeRepositoryTrustDebug.h"
 #include "utils/PlatformUtilAndroid.h"
@@ -273,6 +274,9 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
     mRepositoryError = RepositoryError::NO_REPO_ERROR;
     mMessage = "";
 
+#if defined(__ANDROID__)
+    bool missingOrigin {false};
+#endif
     const bool isThemesList {repositoryName == "themes-list"};
     git_repository* repository {nullptr};
     git_remote* gitRemote {nullptr};
@@ -295,6 +299,9 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
 #endif
         errorCode = git_remote_lookup(&gitRemote, repository, "origin");
         if (errorCode != 0) {
+#if defined(__ANDROID__)
+            missingOrigin = ThemeRepositoryFuse::missingOrigin(repository, path, errorCode);
+#endif
             mRepositoryError = RepositoryError::INVALID_ORIGIN;
             throw std::runtime_error("Couldn't get information about origin, ");
         }
@@ -471,6 +478,11 @@ bool GuiThemeDownloader::fetchRepository(const std::string& repositoryName, bool
         LOG(LogError) << "GuiThemeDownloader: " << runtimeError.what() << gitError->message;
         mRepositoryError = RepositoryError::FETCH_ERROR;
         mMessage = gitError->message;
+#if defined(__ANDROID__)
+        if (missingOrigin)
+            mMessage = _("ANDROID 12 COULD NOT READ THIS THEME REPOSITORY'S ORIGIN. DELETE THE "
+                         "THEME USING THE DOWNLOADER, THEN DOWNLOAD IT AGAIN.");
+#endif
 #if LIBGIT2_VER_MAJOR < 2 && LIBGIT2_VER_MINOR < 8
         git_error_clear();
 #endif
@@ -1720,6 +1732,32 @@ bool GuiThemeDownloader::fetchThemesList()
             git_repository_free(repository);
             ThemeRepositoryTrust::reportFailure();
             return true;
+        }
+#endif
+#if defined(__ANDROID__)
+        if (errorCode == 0) {
+            git_remote* origin {nullptr};
+            const int lookup {git_remote_lookup(&origin, repository, "origin")};
+            const bool missingOrigin {ThemeRepositoryFuse::missingOrigin(repository, path, lookup)};
+            git_remote_free(origin);
+            if (missingOrigin) {
+                git_repository_free(repository);
+                ThemeRepositoryFuse::offerListRecovery(
+                    path,
+                    [this, repositoryName, url] {
+                        if (renameDirectory(mThemeDirectory + "themes-list", "_CORRUPT_DISABLED")) {
+                            mGrid.removeEntry(mCenterGrid);
+                            mGrid.setCursorTo(mButtons);
+                            return;
+                        }
+                        mFetchThread = std::thread(&GuiThemeDownloader::cloneRepository, this,
+                                                   repositoryName, url);
+                        mStatusType = StatusType::STATUS_DOWNLOADING;
+                        mStatusText = _("DOWNLOADING THEMES LIST");
+                    },
+                    [this] { delete this; });
+                return false;
+            }
         }
 #endif
         if (errorCode != 0 || checkCorruptRepository(repository)) {

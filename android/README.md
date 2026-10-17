@@ -101,6 +101,10 @@ workdir matching, quoting and search-path reinitialization used by this policy.
 
 New Android clones retire the initialization config through an exclusively created regular temporary sibling, an unlink, and a rename, with identity checks before the writes and before remote creation. The installed config and completed clone are checked by meaning. The unlink-to-rename interval remains a shared-writer race; exclusive creation and later checks do not make it race-free. This applies only to new clones, never to established repositories. Older repositories and other writers can still expose stale Git metadata on Android 12.
 
+The Android 12 missing-origin recovery is a specific classification after trust, admission, storage and identity checks succeed; it is not general corrupt-repository recovery. A themes-list recovery requires confirmation and repeats these checks at confirmation. A theme update reports the error without automatically renaming or deleting the theme. Failure to maintain the private Git configuration blocks operations and cleanup until the downloader is reopened successfully.
+
+Integration evidence includes occupied/replaced/modified temporary entries, planted config destinations, redirected parents and write/rename/cleanup failures, each followed by a restored clone. The API 34 integration session additionally terminates real list/theme clones at four retirement/validation barriers and observes the fresh-start UI recovery without filesystem repair. These controls test process interruption, not power-loss atomicity; their assertions remain gating.
+
 Path, device and inode checks do not establish content freshness. Content checks detect the state observed at that check; they do not authenticate shared-writable contents or exclude subsequent stale reads or concurrent modification.
 
 Data and ROM folders must be separate folders on verified current-user volumes,
