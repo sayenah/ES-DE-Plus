@@ -657,8 +657,9 @@ def run_checks(harness, scoped=False):
                 for command in (['stat', '-c', '%u %g %a %i %s %Y %Z', target], ['cat', target]):
                     output.write(h.shell('sh', '-c', shlex.join(command) + ' 2>&1', check=False))
         before = ''
+        interruption_complete = False
         def attempt():
-            nonlocal before
+            nonlocal before, interruption_complete
             begin('fixed-theme-download')
             permission(True)
             h.shell('test', '!', '-e', theme_path(repository))
@@ -666,11 +667,50 @@ def run_checks(harness, scoped=False):
             capture('network-theme-selected')
             before = h.log()
             h.key('KEYCODE_ENTER')
+            if extended and h.api == 34 and not scoped and not interruption_complete:
+                # Interrupt this run's real large clone after Git initialization,
+                # before any tracked content is available. Recovery uses only UI.
+                h.wait_for(lambda: h.shell('sh', '-c', 'test -f ' +
+                                   shlex.quote(theme_path(repository + '/.git/config')) +
+                                   ' && test ! -e ' + shlex.quote(theme_path(repository + '/theme.xml')) +
+                                   ' && echo ESDEPlus-incomplete', check=False).strip() == 'ESDEPlus-incomplete',
+                           'real theme clone initialized before interruption', 60)
+                interrupted_pid = h.shell('pidof', h.app).strip()
+                h.evidence.joinpath('theme-interrupted-clone.txt').write_text(h.log())
+                h.shell('am', 'force-stop', h.app)
+                assert not h.shell('pidof', h.app, check=False).strip()
+                assert downloaded not in delta(before), 'Clone completed before interruption'
+                h.shell('test', '-f', theme_path(repository + '/.git/config'))
+                h.shell('test', '!', '-e', theme_path(repository + '/theme.xml'))
+                h.launch()
+                assert h.shell('pidof', h.app).strip() != interrupted_pid
+                before = h.log()
+                downloader()
+                listed = request_result(before,
+                    lambda text: bool(re.search(r'parseThemesList\(\): Parsed [1-9]\d* themes', text)),
+                    lambda text: "Couldn't fetch" in text,
+                    'fresh frontend list after theme-clone interruption', 300,
+                    lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('interruption-list', required=True))))
+                assert "Couldn't fetch" not in listed, listed
+                if 'Not running the most current application release' in listed:
+                    h.key('KEYCODE_ENTER')
+                select_theme_row()
+                h.key('KEYCODE_ENTER')  # Actual corrupt-repository recovery prompt.
+                capture('theme-interruption-recovery-confirmation')
+                before = h.log()
+                h.key('KEYCODE_ENTER')  # Explicit PROCEED; native rename/re-clone.
+                interruption_complete = True
             output = request_result(before, lambda s: downloaded in s,
                 lambda s: "Couldn't clone repository" in s,
                 'frontend theme HTTPS download completed', 300,
                 lambda _: clone_target_started(repository))
             capture('network-theme-downloaded')
+            if interruption_complete and downloaded in output:
+                renamed = 'Renaming directory ' + theme_path(repository) + '\n'
+                assert output.count(renamed) == 1, output
+                h.shell('test', '-d', theme_path(repository + '_CORRUPT_DISABLED/.git'))
+                record('PASS: real in-place theme clone interrupted after init; fresh-process '
+                       'explicit bounded UI recovery renamed once and completed; no filesystem repair.')
             if "Couldn't clone repository" in output:
                 raise RemoteFailure(output)
             return output
