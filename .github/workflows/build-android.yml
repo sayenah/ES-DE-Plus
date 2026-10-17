@@ -79,7 +79,7 @@ jobs:
           python3 android/release_controls.py
           python3 android/test_signing.py version
           if [[ "$FAILURE" == android ]]; then
-            echo 'Injected Android-leg failure; downstream API 34 and APK upload must be skipped'
+            echo 'Injected Android-leg failure; publication must remain blocked'
             exit 1
           fi
       - name: Check changed C++ formatting (clang-format 18)
@@ -823,9 +823,11 @@ jobs:
       GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
     steps: *android_steps
 
+  # Collect supported-phone evidence even when an early runtime session fails.
+  # This job never publishes; publication-result still requires all early legs green.
   api34-dry-run:
     needs: build
-    if: ${{ !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none')) }}
+    if: ${{ !cancelled() && !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     strategy: *api34_strategy

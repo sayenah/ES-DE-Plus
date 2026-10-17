@@ -659,7 +659,7 @@ def run_checks(harness, scoped=False):
         before = ''
         interruption_complete = False
         def attempt():
-            nonlocal before, interruption_complete
+            nonlocal before, interruption_complete, clone_began
             begin('fixed-theme-download')
             permission(True)
             h.shell('test', '!', '-e', theme_path(repository))
@@ -698,6 +698,7 @@ def run_checks(harness, scoped=False):
                 h.key('KEYCODE_ENTER')  # Actual corrupt-repository recovery prompt.
                 capture('theme-interruption-recovery-confirmation')
                 before = h.log()
+                clone_began = time.monotonic()  # Time the successful clone from its actual PROCEED.
                 h.key('KEYCODE_ENTER')  # Explicit PROCEED; native rename/re-clone.
                 interruption_complete = True
             output = request_result(before, lambda s: downloaded in s,
