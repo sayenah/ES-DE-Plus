@@ -518,7 +518,9 @@ jobs:
           avd-name: esde-integration
           force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          sdcard-path-or-size: 512M
+          # Retained themes-list (~208 MiB) plus the large theme (~430 MiB)
+          # and temporary clone files must fit for the removable-storage control.
+          sdcard-path-or-size: 2048M
           disable-animations: true
           cores: 4
           ram-size: 4096M

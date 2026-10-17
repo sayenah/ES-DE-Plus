@@ -23,13 +23,16 @@ def collect(h):
     finally:
         h.evidence.joinpath('theme-trust-controls.txt').write_text(result())
     report = result()
-    if 'FAIL: actual update fetch positive control' in report:
+    if ('FAIL: actual update fetch positive control' in report or
+            'FAIL: T-4 config changed' in report):
         # Observe the failed fixture later from the same UID, without retrying
         # the operation or changing its failed result. This distinguishes a
         # persistent missing origin from a transient shared-filesystem view.
         root = h.shell('readlink', '-f', h.data_root, check=False).strip()
         allowed = re.escape(root) + r'/theme-trust\.[^/\n]+/themes/original'
-        for path in set(re.findall(r'^FETCH remote lookup=.*? path=(.*?) error=', report, re.M)):
+        paths = set(re.findall(r'^FETCH remote lookup=.*? path=(.*?) error=', report, re.M))
+        paths.update(re.findall(r'^METADATA path=(.*?)$', report, re.M))
+        for path in paths:
             if not root.startswith('/') or not re.fullmatch(allowed, path):
                 continue
             observation = ('run-as UID=' + h.shell('run-as', h.app, 'id', '-u', check=False) +
@@ -39,9 +42,38 @@ def collect(h):
                                                path + '/.git/config']) + ' 2>&1', check=False) +
                            '\nCONFIG\n' + h.shell('run-as', h.app, 'sh', '-c',
                                    shlex.join(['cat', path + '/.git/config']) + ' 2>&1', check=False))
+            if path.startswith('/storage/emulated/0/'):
+                # Read only this authored failed fixture below FUSE, after its
+                # failure is final. No operation/assertion is repeated. Restore
+                # the normal shell before propagating the original failure.
+                raw = '/data/media/0/' + path.removeprefix('/storage/emulated/0/')
+                rooted = False
+                try:
+                    reply = h.adb('root', check=False)
+                    observation += '\nRAW LOWER-FS DIAGNOSTIC\n' + reply
+                    rooted = 'cannot run as root' not in reply
+                    if rooted:
+                        h.adb('wait-for-device')
+                        h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '0',
+                                   'failed-fixture diagnostic shell', timeout=10)
+                        for command in (['stat', '-c', '%u %g %a %i %s %Y %Z', raw + '/.git/config'],
+                                        ['cat', raw + '/.git/config']):
+                            observation += h.shell('sh', '-c', shlex.join(command) + ' 2>&1', check=False)
+                except Exception as error:
+                    observation += '\nLower-FS diagnostic unavailable: ' + repr(error)
+                finally:
+                    if rooted:
+                        try:
+                            h.adb('unroot', check=False)
+                            h.adb('wait-for-device')
+                            h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '2000',
+                                       'normal shell after failed-fixture diagnostic', timeout=10)
+                        except Exception as error:
+                            observation += '\nShell restoration failed: ' + repr(error)
             h.evidence.joinpath('theme-trust-failed-config-readback.txt').write_text(observation)
     assert 'FAIL:' not in report and 'PASS: app-context theme trust controls\n' in report, report
     assert report.count('PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n') == 2, report
+    assert report.count('PASS: config bytes survive unobserved tree traversal in all 16 cycles\n') == 2, report
     for required in ['raw owner control shared=1 code=-36', 'worktree outside, private and admitted',
                      'gitlink and commondir blocked', 'non-repository, bare and linked worktree',
                      'between-precheck-fetch', 'substituted transport calls=0',

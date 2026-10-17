@@ -42,6 +42,7 @@ namespace
         std::string initialized;
         std::string remote;
         std::string completed;
+        std::string config;
         std::vector<std::pair<std::string, std::string>> checkpoints;
     };
     std::map<std::string, CloneTrace> cloneTraces;
@@ -114,6 +115,7 @@ namespace
             const std::string current {configState(observedRepository)};
             if (current != observed) {
                 cloneTraces.at(observedRepository).checkpoints.emplace_back(stage, current);
+                evidence << "CONFIG CHANGED DURING " << stage << '\n' << current;
                 observed = current;
             }
         };
@@ -234,6 +236,7 @@ namespace
         const int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
         if (result != 0)
             ThemeRepositoryTrust::diagnoseCloneFailure(path, result);
+        trace.config = read(path + "/.git/config");
         trace.completed = configState(path);
         git_repository_free(repository);
         trace.checkpoints.emplace_back("AFTER CLONE HANDLE FREE", configState(path));
@@ -439,6 +442,15 @@ namespace
                 prepare();
                 git(clone(url, original), "repeated clone positive control");
             }
+            // The diagnostic observer itself performs extra reads. Independently
+            // require ordinary tree traversal to preserve each fresh clone's
+            // metadata before any observer/open/reset can refresh its view.
+            fingerprint(original);
+            if (read(original + "/.git/config") != cloneTraces.at(original).config) {
+                evidence << "METADATA path=" << original << '\n';
+                traceClone(original);
+                require(false, "T-4 config changed after unobserved read-only tree traversal");
+            }
             std::string latest;
             {
                 checkpoint(original, "BEFORE REWIND OPEN");
@@ -480,6 +492,7 @@ namespace
             }
         }
         evidence << "PASS: 16 mandatory clone/rewind/fetch/reset cycles; no retries\n";
+        evidence << "PASS: config bytes survive unobserved tree traversal in all 16 cycles\n";
         const std::string canonicalData {fs::canonical(data).string()};
         if (!shared && canonicalData.find('"') != std::string::npos &&
             canonicalData.find('\\') != std::string::npos)
