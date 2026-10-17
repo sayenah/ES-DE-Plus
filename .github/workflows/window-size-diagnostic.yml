@@ -1,0 +1,161 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. WO-19 fixed/control resize evidence only; no APK upload.
+name: Diagnose window size
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  window-size:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api31
+            api: 31
+            target: google_apis
+            profile: pixel_2
+            control: false
+          - image: api34
+            api: 34
+            target: google_apis
+            profile: pixel_2
+            control: false
+          - image: tv36
+            api: 36
+            target: android-tv
+            profile: tv_1080p
+            control: false
+          - image: api31-unfixed
+            api: 31
+            target: google_apis
+            profile: pixel_2
+            control: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    env:
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+      GRADLE_USER_HOME: ${{ github.workspace }}/android/.deps/gradle-user-home
+      ESDE_WINDOW_CONTROL: ${{ matrix.control && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Verify window snapshot ordering oracle
+        run: python3 android/window_size_smoke.py
+      - name: Build the unfixed main host as a labelled positive control
+        if: matrix.control
+        run: |
+          mkdir -p android/evidence
+          # Pin the main commit that authorised WO-19. Only the host and bridge
+          # implementation differ; the probe/action/fixtures stay identical.
+          git show d555cefebaca0486379604eadae5616b193bdd37:android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt > android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt
+          git show d555cefebaca0486379604eadae5616b193bdd37:es-core/src/utils/PlatformUtilAndroid.cpp > es-core/src/utils/PlatformUtilAndroid.cpp
+          echo 'Unfixed main d555cefebaca0486379604eadae5616b193bdd37; original MainActivity and PlatformUtilAndroid; identical probe' > android/evidence/window-control-source.txt
+      # No reusable Android setup action exists in this repository. Reuse its
+      # dependency scripts and pinned build setup below.
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
+      - name: Ensure pinned SDK tools before offline Gradle configuration
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.31.5'
+          test -f "$ANDROID_NDK_HOME/source.properties"
+          grep -Fx 'Pkg.Revision = 28.2.13676358' "$ANDROID_NDK_HOME/source.properties"
+          echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
+      - name: Restore downloads
+        if: ${{ success() }}
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: android/.deps/downloads
+          key: android-downloads-${{ hashFiles('tools/Android_dependencies_setup.sh', 'android/distribution.py') }}
+      - name: Verify cached pinned Debian font sources, table binding and positive controls
+        run: |
+          set -o pipefail
+          mkdir -p android/evidence
+          python3 android/distribution.py font | tee android/evidence/distribution-freefont.txt
+          python3 android/distribution.py font-fallback-controls | tee android/evidence/distribution-font-fallback-controls.txt
+      - name: Prepare source and include layout
+        run: |
+          set -o pipefail
+          tools/Android_dependencies_setup.sh 2>&1 | tee android/source-archives.log
+      - name: Record dependency cache key
+        id: dependency-cache
+        env:
+          KEY: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+        run: echo "key=$KEY" >> "$GITHUB_OUTPUT"
+      - name: Restore per-ABI dependencies
+        id: deps
+        if: ${{ success() }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            android/.deps/install
+            android/libs
+          key: ${{ steps.dependency-cache.outputs.key }}
+      - name: Build both dependency ABIs
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          JOBS=$(nproc)
+          export JOBS
+          echo "Dependency build parallelism: $JOBS"
+          tools/Android_dependencies_build.sh arm64-v8a 2>&1 | tee android/deps-arm64.log
+          tools/Android_dependencies_build.sh x86_64 2>&1 | tee android/deps-x86_64.log
+      - name: Save completed dependency installs
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            android/.deps/install
+            android/libs
+          key: ${{ steps.dependency-cache.outputs.key }}
+      - name: Restore ABI-neutral generated headers
+        run: tools/Android_dependencies_setup.sh
+      - name: Assemble debug APK with committed wrapper
+        id: assemble
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee assemble.log
+      - name: Enable KVM access
+        if: ${{ success() }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: ${{ matrix.image }} window resize diagnostics
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-window
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb shell settings put global enable_freeform_support 1
+            adb reboot
+            python3 android/smoke_support.py boot
+            python3 android/smoke_session.py window -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase window
+      - name: Upload live diagnostic evidence (no APK)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: window-size-${{ matrix.image }}-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
+            android/*.log
+          retention-days: 7

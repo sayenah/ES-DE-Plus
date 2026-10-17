@@ -12,6 +12,7 @@
 #if defined(__ANDROID__)
 
 #include "Log.h"
+#include "renderers/Renderer.h"
 #include "utils/FileSystemUtil.h"
 
 #include <SDL2/SDL.h>
@@ -531,7 +532,15 @@ namespace Utils
 
             int getWifiStatus() { return callInt("getWifiStatus"); }
 
-            std::pair<int, int> getWindowSize() { return callIntPair("getWindowSize", {0, 0}); }
+            std::pair<int, int> getWindowSize()
+            {
+                const auto size = callIntPair("getWindowSize", {0, 0});
+                const auto renderer = Renderer::getInstance();
+                LOG(LogDebug) << "Android window snapshot " << size.first << "x" << size.second
+                              << ", renderer " << renderer->getScreenWidth() << "x"
+                              << renderer->getScreenHeight();
+                return size;
+            }
 
             int launchGame(const std::string& packageName,
                            const std::string& activityName,

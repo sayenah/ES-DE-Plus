@@ -3,6 +3,7 @@
 package org.esdeplus.frontend
 
 import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import android.os.Build
 import android.os.SystemClock
@@ -12,6 +13,7 @@ import android.content.res.Configuration
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 import org.libsdl.app.SDLActivity
+import org.libsdl.app.SDLSurface
 
 open class MainActivity : SDLActivity() {
     @Volatile private var destroying = false
@@ -21,6 +23,8 @@ open class MainActivity : SDLActivity() {
     private val restartPrepared = AtomicBoolean(false)
     private val bridge by lazy { NativeBridge(applicationContext, recoverStartup = true) }
     override fun getLibraries(): Array<String> = arrayOf("SDL2", "main")
+    override fun createSDLSurface(context: Context): SDLSurface =
+        WindowSurface(context) { width, height -> updateWindowSize("surfaceChanged", width, height) }
     override fun onCreate(savedInstanceState: Bundle?) {
         live = WeakReference(this)
         Log.i("ES-DE-Plus", "Creating sole SDL activity task=$taskId")
@@ -29,8 +33,8 @@ open class MainActivity : SDLActivity() {
         // SDL's JNI bindings are now ready; prepare cancellation before
         // onResume can start the native thread and its configuration query.
         if (!SDLActivity.mBrokenLibraries) ConfiguratorSession.registerNative()
-        updateWindowSize()
-        window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize() }
+        updateWindowSize("create")
+        window.decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateWindowSize("layout") }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -44,7 +48,7 @@ open class MainActivity : SDLActivity() {
     }
     override fun onConfigurationChanged(configuration: Configuration) {
         super.onConfigurationChanged(configuration)
-        updateWindowSize()
+        updateWindowSize("configuration")
         Log.i("ES-DE-Plus", "SDL activity configuration handled task=$taskId")
     }
     override fun onResume() {
@@ -116,12 +120,23 @@ open class MainActivity : SDLActivity() {
         live = null
         if (terminal) kotlin.system.exitProcess(0)
     }
-    private fun updateWindowSize() {
-        bridge.windowSnapshot = if (Build.VERSION.SDK_INT >= 30) {
+    private fun updateWindowSize(source: String) {
+        // WindowMetrics can retain the old configuration on Android 12 for
+        // in-bucket resizes. Once laid out, the SDL surface is authoritative.
+        val frame = mSurface?.holder?.surfaceFrame
+        val size = if (frame != null && frame.width() > 0 && frame.height() > 0) {
+            intArrayOf(frame.width(), frame.height())
+        } else if (Build.VERSION.SDK_INT >= 30) {
             windowManager.currentWindowMetrics.bounds.let { intArrayOf(it.width(), it.height()) }
         } else {
             resources.displayMetrics.let { intArrayOf(it.widthPixels, it.heightPixels) }
         }
+        updateWindowSize(source, size[0], size[1])
+    }
+    private fun updateWindowSize(source: String, width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        bridge.windowSnapshot = intArrayOf(width, height)
+        if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Window snapshot source=$source size=${width}x$height")
     }
     // JNI instance methods; the keep rules preserve their names and exact descriptors.
     fun checkConfigurationNeeded(): Boolean {
