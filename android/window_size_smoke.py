@@ -33,6 +33,15 @@ def matching_frames(logs):
     return hooks
 
 
+def render_thread(logs, pid):
+    # Native workers can inherit SDLThread's kernel name. The startup line
+    # comes from SDL_main itself, so its logcat TID identifies the renderer.
+    tids = set(re.findall(r'(?m)^\S+\s+\S+\s+' + re.escape(pid) +
+                          r'\s+(\d+)\s+I\s+.*Application startup time:', logs))
+    assert len(tids) == 1, ('Missing unique native startup thread', tids)
+    return tids.pop()
+
+
 class LostResize(AssertionError):
     pass
 
@@ -58,15 +67,14 @@ def run(harness):
     assert re.findall(r'Application resolution: (\d+x\d+)', h.log())[-1] == full
     assert re.findall(r'Display resolution: (\d+x\d+)', h.log())[-1] == full
     assert re.findall(r'Screen mode: (\w+)', h.log())[-1] == 'fullscreen'
+    startup = h.adb('logcat', '-d', '-v', 'threadtime')
+    startup = '\n'.join(line for line in startup.splitlines()
+                        if re.search(r'\s' + pid + r'\s', line))
     if not control:
-        startup = h.adb('logcat', '-d', '-v', 'threadtime')
-        startup = '\n'.join(line for line in startup.splitlines()
-                            if re.search(r'\s' + pid + r'\s', line))
         matching_frames(startup)
         assert ordered_snapshot(startup, full), startup
-    tids = [tid for tid in h.private('ls', '/proc/' + pid + '/task').split()
-            if h.private('cat', f'/proc/{pid}/task/{tid}/comm', check=False).strip() == 'SDLThread']
-    assert len(tids) == 1, ('Missing unique frontend render thread', tids)
+    tid = render_thread(startup, pid)
+    assert h.private('cat', f'/proc/{pid}/task/{tid}/comm').strip() == 'SDLThread'
     rows = []
 
     def capture(name):
@@ -79,7 +87,7 @@ def run(harness):
     def action(name, command, expected=None, single=False):
         before = h.log()
         def cpu_ticks():
-            fields = h.private('cat', f'/proc/{pid}/task/{tids[0]}/schedstat').split()
+            fields = h.private('cat', f'/proc/{pid}/task/{tid}/schedstat').split()
             assert len(fields) == 3 and all(value.isdigit() for value in fields), fields
             return int(fields[0])
         marker = name + '-' + str(time.monotonic_ns())
@@ -130,7 +138,7 @@ def run(harness):
                 capture(name + '-timeout')
                 cpu_after = cpu_ticks()
                 (h.evidence / (name + '-progress.txt')).write_text(json.dumps(dict(
-                    render_tid=tids[0], cpu_ns_before=cpu_before, cpu_ns_after=cpu_after,
+                    render_tid=tid, cpu_ns_before=cpu_before, cpu_ns_after=cpu_after,
                     seconds=time.monotonic() - progress_start)) + '\n')
                 h.capture_frontend_stacks(name + '-timeout')
                 assert h.shell('pidof', h.app, check=False).strip() == pid, name
@@ -230,6 +238,15 @@ def run(harness):
 
 
 def self_test():
+    startup = '10-17 00:00:00.000 123 456 I app: Info: Application startup time: 200 ms'
+    assert render_thread(startup, '123') == '456'
+    assert render_thread(startup + '\n' + startup.replace('123 456', '789 111'), '123') == '456'
+    try:
+        render_thread(startup + '\n' + startup.replace('123 456', '123 999'), '123')
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('Ambiguous native startup threads accepted')
     logs = ('Window snapshot source=surfaceChanged size=972x1728 '
             'decor=972x1728 metrics=972x1728 surface=972x1602\n'
             'SDL: Window size: 972x1602\nAndroid window snapshot 972x1728, renderer 1080x1920')
