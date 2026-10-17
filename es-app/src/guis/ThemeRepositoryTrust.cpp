@@ -149,6 +149,9 @@ std::vector<ThemeRepositoryTrust::Entry> ThemeRepositoryTrust::jsonEntries(
 #include <cstdlib>
 #include <limits.h>
 #include <sys/stat.h>
+#ifndef NDEBUG
+#include <sys/statvfs.h>
+#endif
 #include <unistd.h>
 
 namespace
@@ -355,6 +358,26 @@ void ThemeRepositoryTrust::configure(const std::string& themeDirectory,
 
 void ThemeRepositoryTrust::close() { session = {}; }
 
+#ifndef NDEBUG
+void ThemeRepositoryTrust::diagnoseCloneFailure(const std::string& path, int code)
+{
+    const int savedErrno {errno};
+    const git_error* error {git_error_last()};
+    const std::string detail {error && error->message ? error->message : "<none>"};
+    const int errorClass {error ? error->klass : -1};
+    struct statvfs volume {
+    };
+    const int result {statvfs(session.root.c_str(), &volume)};
+    diagnostic("Clone failure path=" + path + " code=" + std::to_string(code) +
+               " class=" + std::to_string(errorClass) + " errno=" + std::to_string(savedErrno) +
+               " detail=" + detail + " statvfs=" + std::to_string(result) +
+               " block-size=" + std::to_string(volume.f_frsize) +
+               " available-blocks=" + std::to_string(volume.f_bavail) +
+               " total-blocks=" + std::to_string(volume.f_blocks));
+    errno = savedErrno;
+}
+#endif
+
 bool ThemeRepositoryTrust::ready()
 {
     if (!session.configured)
@@ -399,10 +422,18 @@ bool ThemeRepositoryTrust::admit(const rapidjson::Document& document)
         else
             diagnostic("Rejected ambiguous or invalid JSON entry " + std::to_string(i));
     }
+#ifndef NDEBUG
+    if (Testing::barrier)
+        Testing::barrier("admission-before-config", session.root);
+#endif
     const bool success {replaceConfig(repositories)};
 #ifndef NDEBUG
+    if (Testing::barrier)
+        Testing::barrier("admission-after-config", session.root);
     if (success)
         Testing::afterAdmission(session.root, session.filesDirectory);
+    if (Testing::barrier)
+        Testing::barrier("admission-after-hook", session.root);
 #endif
     return success;
 }

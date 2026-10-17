@@ -1820,6 +1820,10 @@ bool GuiThemeDownloader::cloneRepository(const std::string& repositoryName, cons
     }
 #endif
     errorCode = git_clone(&repository, &url[0], &path[0], &cloneOptions);
+#if defined(__ANDROID__) && !defined(NDEBUG)
+    if (errorCode != 0)
+        ThemeRepositoryTrust::diagnoseCloneFailure(path, errorCode);
+#endif
     git_repository_free(repository);
 
     if (errorCode != 0) {

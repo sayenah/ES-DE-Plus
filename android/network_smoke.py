@@ -393,6 +393,8 @@ def run_checks(harness, scoped=False):
 
     def live_state(name, required=False):
         stem = capture(name)
+        h.evidence.joinpath(stem + '-storage.txt').write_text(h.shell('sh', '-c',
+            shlex.join(['df', '-k', h.data_root]) + ' 2>&1', check=False))
         pid = h.shell('pidof', h.app, check=False).strip()
         h.evidence.joinpath(stem + '-window.txt').write_text(h.shell('dumpsys', 'window', 'displays', check=False))
         if not re.fullmatch(r'\d+', pid):
@@ -487,8 +489,15 @@ def run_checks(harness, scoped=False):
             with wall_budget(120, 'stalled-request evidence'):
                 live_state('stalled-request', required=True)
             healthy(pid)
+        def observed_health():
+            healthy(pid)
+            # Sample the already confirmed data volume while the clone still
+            # owns its temporary files; libgit2 may clean them before returning.
+            with h.evidence.joinpath(active[0] + '-storage.txt').open('a') as output:
+                output.write(f'monotonic={time.monotonic():.3f}\n' + h.shell('sh', '-c',
+                    shlex.join(['df', '-k', h.data_root]) + ' 2>&1', check=False))
         try:
-            output = wait_request(lambda: delta(before), lambda: healthy(pid), success, failure,
+            output = wait_request(lambda: delta(before), observed_health, success, failure,
                                   description, timeout, started=confirmed_start, responsive=deadline_proof)
         except RemoteStall:
             healthy(pid)
@@ -626,6 +635,12 @@ def run_checks(harness, scoped=False):
         assert re.fullmatch(r'[A-Za-z0-9._-]+', repository) and not repository.startswith('.'), repository
         assert selected['url'].startswith('https://') and not selected.get('deprecated')
         downloaded = f'Downloaded theme "{repository}"'
+        def config_snapshot(stage):
+            target = theme_path(repository + '/.git/config')
+            with h.evidence.joinpath('theme-update-config-snapshots.txt').open('a') as output:
+                output.write(stage + ' (shell mount view) path=' + target + '\n')
+                for command in (['stat', '-c', '%u %g %a %i %s %Y %Z', target], ['cat', target]):
+                    output.write(h.shell('sh', '-c', shlex.join(command) + ' 2>&1', check=False))
         before = ''
         def attempt():
             nonlocal before
@@ -671,7 +686,9 @@ def run_checks(harness, scoped=False):
                 h.key('KEYCODE_ENTER')  # Completed remote error OK; selection retained.
         clone_began = time.monotonic()
         remote_attempts(attempt, recover, record, 'theme')
+        config_snapshot('AFTER CLONE BEFORE DU')
         size_kib = int(h.shell('du', '-sk', theme_path(repository)).split()[0])
+        config_snapshot('AFTER DU')
         if h.television:
             assert size_kib >= 50 * 1024, ('TV large-theme control must exceed 50 MiB', size_kib)
         record(f'PASS: shared-data theme clone seconds={time.monotonic() - clone_began:.3f} KiB={size_kib} path={theme_path(repository)}')
@@ -680,6 +697,7 @@ def run_checks(harness, scoped=False):
             # run's clone before inventory.
             h.shell('am', 'force-stop', h.app)
             h.launch()
+            config_snapshot('AFTER FRESH FRONTEND STARTUP')
             # The fresh frontend rotates its log. Subsequent inventory/theme
             # assertions must use this process's prefix, retaining delta's reset guard.
             before = h.log()
@@ -693,6 +711,7 @@ def run_checks(harness, scoped=False):
                 'shared-data list refreshed before real update', 300,
                 lambda _: bool(re.search(r'\bgit_remote_fetch\b', live_state('rewind-list-start', required=True))))
             rewind = theme_trust_smoke.rewind_result(h)
+            config_snapshot('AFTER ADMISSION AND REWIND')
             h.shell('test', '!', '-e', theme_path('themes-list_CORRUPT_DISABLED'))
             if 'Not running the most current application release' in delta(before_list):
                 h.key('KEYCODE_ENTER')

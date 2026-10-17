@@ -79,9 +79,19 @@ namespace
         struct stat info {
         };
         std::ostringstream state;
-        if (stat(path.c_str(), &info) == 0)
+        if (stat(path.c_str(), &info) == 0) {
             state << "uid=" << info.st_uid << " inode=" << info.st_ino << " size=" << info.st_size
                   << '\n';
+#if defined(__APPLE__)
+            state << "mtime=" << info.st_mtimespec.tv_sec << '.' << info.st_mtimespec.tv_nsec
+                  << " ctime=" << info.st_ctimespec.tv_sec << '.' << info.st_ctimespec.tv_nsec;
+#else
+            state << "mtime=" << info.st_mtim.tv_sec << '.' << info.st_mtim.tv_nsec
+                  << " ctime=" << info.st_ctim.tv_sec << '.' << info.st_ctim.tv_nsec;
+#endif
+            state << " device=" << info.st_dev << " mode=" << std::oct << info.st_mode << std::dec
+                  << '\n';
+        }
         else
             state << "stat errno=" << errno << '\n';
         state << read(path);
@@ -95,14 +105,26 @@ namespace
         return pattern;
     }
 
-    uint64_t fingerprint(const std::string& root)
+    uint64_t fingerprint(const std::string& root, const std::string& observedRepository = "")
     {
+        std::string observed {observedRepository.empty() ? "" : configState(observedRepository)};
+        auto observe = [&](const std::string& stage) {
+            if (observedRepository.empty())
+                return;
+            const std::string current {configState(observedRepository)};
+            if (current != observed) {
+                cloneTraces.at(observedRepository).checkpoints.emplace_back(stage, current);
+                observed = current;
+            }
+        };
         uint64_t hash {14695981039346656037ULL};
         std::set<std::string> paths;
         for (const auto& item : fs::recursive_directory_iterator(root))
             paths.insert(item.path().string());
+        observe("TREE HASH AFTER DIRECTORY ENUMERATION");
         for (const auto& path : paths) {
             const std::string content {fs::is_regular_file(path) ? read(path) : "<directory>"};
+            observe("TREE HASH AFTER READING " + path);
             for (unsigned char c : path.substr(root.size()) + content) {
                 hash ^= c;
                 hash *= 1099511628211ULL;
@@ -210,6 +232,8 @@ namespace
         options.local = GIT_CLONE_NO_LOCAL;
         git_repository* repository {nullptr};
         const int result {git_clone(&repository, url.c_str(), path.c_str(), &options)};
+        if (result != 0)
+            ThemeRepositoryTrust::diagnoseCloneFailure(path, result);
         trace.completed = configState(path);
         git_repository_free(repository);
         trace.checkpoints.emplace_back("AFTER CLONE HANDLE FREE", configState(path));
@@ -372,8 +396,15 @@ namespace
             rapidjson::Document parsed;
             parsed.Parse(bytes.GetString(), bytes.GetSize());
             require(!parsed.HasParseError(), "hostile fixture real JSON parse positive control");
-            const uint64_t before {fingerprint(themes)};
+            checkpoint(original, "BEFORE HOSTILE JSON TREE HASH");
+            const uint64_t before {fingerprint(themes, original)};
+            checkpoint(original, "AFTER HOSTILE JSON TREE HASH");
+            Testing::barrier = [&](const std::string& stage, const std::string&) {
+                if (stage.compare(0, 10, "admission-") == 0)
+                    checkpoint(original, stage);
+            };
             require(admit(parsed), "hostile list admits its unambiguous original entries");
+            Testing::barrier = {};
             checkpoint(original, "AFTER HOSTILE JSON ADMISSION");
             for (rapidjson::SizeType i {0}; i < parsed["themes"].Size(); ++i) {
                 require(admitted(parsed["themes"][i]) == (i < 3),
@@ -1010,6 +1041,7 @@ void ThemeRepositoryTrust::Testing::afterAdmission(const std::string& themes,
         name.pop_back();
         require(validName(name) && name != "themes-list" && permit(themes + "/" + name),
                 "rewind request has an admitted theme name");
+        result << "APP CONFIG BEFORE REWIND\n" << configState(themes + "/" + name);
         auto repository = open(themes + "/" + name);
         require(verify(repository.get(), themes + "/" + name), "rewind identity");
         result << "latest=" << head(repository.get()) << '\n';
@@ -1028,6 +1060,7 @@ void ThemeRepositoryTrust::Testing::afterAdmission(const std::string& themes,
         git_object* previous {nullptr};
         git(git_revparse_single(&previous, repository.get(), "HEAD~1"), "rewind parent");
         git(git_reset(repository.get(), previous, GIT_RESET_HARD, nullptr), "rewind one commit");
+        result << "APP CONFIG AFTER REWIND\n" << configState(themes + "/" + name);
         git_object_free(previous);
         result << "previous=" << head(repository.get()) << '\n' << "PASS: one commit behind\n";
     }

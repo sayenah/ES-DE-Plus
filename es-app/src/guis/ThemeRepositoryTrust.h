@@ -57,6 +57,9 @@ namespace ThemeRepositoryTrust
                      const char* name,
                      const char* url,
                      void* payload);
+#ifndef NDEBUG
+    void diagnoseCloneFailure(const std::string& path, int code);
+#endif
 } // namespace ThemeRepositoryTrust
 #endif
 #endif
