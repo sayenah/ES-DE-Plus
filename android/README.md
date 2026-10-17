@@ -258,11 +258,14 @@ CI runs six gating smoke phases, each in a distinct cold AVD: `core`
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 (update continuity on API 33/34 and network checks), `pdf-direct`,
 `pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
-relaunches plus predictive-back cancellation on API 33/34). A stopped frontend's
-asset relaunch waits for a resumed, focused entry before using the existing
-restart helper; a back preview never starts another native main. Predictive
-back cancellation runs on both supported phone images; edge gestures are not a
-TV navigation mode.
+relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
+A stopped frontend's asset relaunch waits for a resumed, focused entry before
+using the existing restart helper; a back preview never starts another native
+main. The CI-only
+stub opts in at the application level because Android 13 ignores the activity-level
+opt-in. Both phone probes require a system Back callback, return-to-HOME and real
+HOME launch-behind before testing cancellation and committed restoration; a
+compat `TYPE_CALLBACK` fails the probe. Edge gestures are not a TV navigation mode.
 The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass

@@ -7,41 +7,48 @@ import threading
 import time
 
 
-def callback_without_preview(api, enabled, logs):
-    # AOSP 13 BackNavigationController returns for TYPE_CALLBACK before its
-    # launch-behind path, even with Global.ENABLE_BACK_ANIMATION enabled.
-    # https://android.googlesource.com/platform/frameworks/base/+/android-13.0.0_r1/services/core/java/com/android/server/wm/BackNavigationController.java#187
-    if api != 33 or enabled != '1':
-        return None
-    records = re.findall(r'Received backNavigationInfo:(BackNavigationInfo\{[^\n]*\})', logs)
-    if not records:
-        return None
-    latest = records[-1]
-    fields = ('mType=TYPE_CALLBACK (4)', 'mDepartingAnimationTarget=null',
-              'mScreenshotSurface=null', 'mScreenshotBuffer=null')
-    if all(re.search(r'(?:\{|,\s*)' + re.escape(field) + r'(?=,|\})', latest) for field in fields):
-        return latest
-    return None
+def preview_evidence(logs, app):
+    # Android 13 reads the opt-in from ApplicationInfo, not ActivityInfo. The
+    # CI stub must opt in at application level to get the system callback;
+    # TYPE_CALLBACK from its compat callback is a probe failure, not N/A.
+    # https://android.googlesource.com/platform/frameworks/base/+/android-13.0.0_r1/core/java/android/window/WindowOnBackInvokedDispatcher.java#285
+    lines = logs.splitlines()
+    callback = next((line for line in reversed(lines) if 'startBackNavigation currentTask=' in line), '')
+    navigation = next((line for line in reversed(lines) if 'Received backNavigationInfo:' in line), '')
+    behind = next((line for line in reversed(lines) if 'Setting Activity.mLauncherTaskBehind to true.' in line), '')
+    assert 'org.esdeplus.stub/' in callback and 'PredictiveBackActivity' in callback, callback
+    assert re.search(r'\bmPriority=-1(?=[,}])', callback), 'Probe lacks system Back callback: ' + callback
+    assert 'mType=TYPE_RETURN_TO_HOME (1)' in navigation, 'Probe lacks return-to-HOME preview: ' + navigation
+    assert re.search(re.escape(app) + r'/(?:\.|' + re.escape(app) + r'\.)HomeEntry\b', behind), \
+        'Probe lacks frontend HOME launch-behind: ' + behind
+    return '\n'.join((callback, behind, navigation)) + '\n'
 
 
 def controls():
-    record = ('Received backNavigationInfo:BackNavigationInfo{mType=TYPE_CALLBACK (4), '
-              'mDepartingAnimationTarget=null, mScreenshotSurface=null, mScreenshotBuffer=null}')
-    assert callback_without_preview(33, '1', record)
-    assert not callback_without_preview(34, '1', record)
-    assert not callback_without_preview(36, '1', record)
-    assert not callback_without_preview(33, '0', record)
-    assert not callback_without_preview(33, 'null', record)
-    assert not callback_without_preview(33, '1', '')
-    assert not callback_without_preview(33, '1', record.replace('Received backNavigationInfo:', 'unrelated:'))
-    for field in ('mType', 'mDepartingAnimationTarget', 'mScreenshotSurface', 'mScreenshotBuffer'):
-        assert not callback_without_preview(33, '1', record.replace(field + '=', 'missing='))
-    for field in ('mDepartingAnimationTarget', 'mScreenshotSurface', 'mScreenshotBuffer'):
-        assert not callback_without_preview(33, '1', record.replace(field + '=null', field + '=Surface{live}'))
-    preview = record.replace('TYPE_CALLBACK (4)', 'TYPE_RETURN_TO_HOME (1)')
-    assert not callback_without_preview(33, '1', preview)
-    assert not callback_without_preview(33, '1', record + '\n' + preview), 'Stale callback accepted'
-    return 'PASS: API 33 callback applicability requires enabled developer option and live null-target evidence; API 34+ and 15 invalid/stale cases stay gating\n'
+    callback = ('startBackNavigation currentTask=Task{game}, '
+                'topRunningActivity=ActivityRecord{game u0 org.esdeplus.stub/.PredictiveBackActivity}, '
+                'callbackInfo=OnBackInvokedCallbackInfo{mPriority=-1}')
+    behind = ('Setting Activity.mLauncherTaskBehind to true. '
+              'Activity=ActivityRecord{home u0 org.esdeplus.frontend/.HomeEntry} t10}')
+    navigation = 'Received backNavigationInfo:BackNavigationInfo{mType=TYPE_RETURN_TO_HOME (1)}'
+    logs = '\n'.join((callback, behind, navigation))
+    preview_evidence(logs, 'org.esdeplus.frontend')
+    mutants = [logs.replace(old, new) for old, new in (
+        ('mPriority=-1', 'mPriority=0'), ('mPriority=-1', 'mPriority=-10'),
+        ('TYPE_RETURN_TO_HOME (1)', 'TYPE_CALLBACK (4)'),
+        ('org.esdeplus.stub/', 'other.game/'), ('PredictiveBackActivity', 'RecipientActivity'),
+        ('org.esdeplus.frontend/', 'other.home/'), ('.HomeEntry', '.MainActivity'))]
+    mutants += [logs.replace(line, '') for line in (callback, behind, navigation)]
+    mutants += [logs + '\n' + navigation.replace('TYPE_RETURN_TO_HOME (1)', 'TYPE_CALLBACK (4)'),
+                logs + '\n' + callback.replace('mPriority=-1', 'mPriority=0')]
+    for mutant in mutants:
+        try:
+            preview_evidence(mutant, 'org.esdeplus.frontend')
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Missing or compat-only preview evidence escaped')
+    return f'PASS: {len(mutants)} missing/wrong/stale preview records rejected; system callback, return-to-HOME and HOME launch-behind required on both phones\n'
 
 
 def run(harness):
@@ -133,8 +140,9 @@ def run(harness):
             assert 'Destroying SDL activity' not in h.adb('logcat', '-d'), 'ASSETS was not deferred while stopped'
             time.sleep(0.25)
         capture('pending')
-        # RETURN_TO_HOME always uses live launch-behind in AOSP 14, even when
-        # cross-task previews can use a snapshot. Neither app is instrumented.
+        # With the CI game's application-level opt-in, Android 13 and 14 use
+        # the system callback and can launch HOME behind this gesture. Require
+        # the real platform path and ASSETS recreation; neither app is instrumented.
         png = h.adb('exec-out', 'screencap', '-p', binary=True)
         width, height = struct.unpack('>II', png[16:24])
         y = height // 2
@@ -142,19 +150,12 @@ def run(harness):
         pointer_down = True
         for x in (width // 40, width // 15, width // 8, width // 5):
             h.shell('input', 'touchscreen', 'motionevent', 'MOVE', str(x), str(y))
-        def preview_ready():
-            logs = h.adb('logcat', '-d')
-            return ('Recreated frontend waiting for committed entry' in logs or
-                    callback_without_preview(h.api, back_animation, logs))
-        h.wait_for(preview_ready, name + ' launch-behind recreation or API 33 callback evidence', timeout=30)
+        h.wait_for(lambda: 'Recreated frontend waiting for committed entry' in h.adb('logcat', '-d'),
+                   name + ' real launch-behind ASSETS recreation', timeout=30)
         logs = h.adb('logcat', '-d', '-v', 'threadtime')
-        callback_info = callback_without_preview(h.api, back_animation, logs)
-        if callback_info:
-            assert 'Destroying SDL activity' not in logs, 'TYPE_CALLBACK unexpectedly destroyed SDL'
-            assert 'Recreated frontend waiting for committed entry' not in logs, 'TYPE_CALLBACK unexpectedly recreated SDL'
-        else:
-            forced_relaunch_smoke.destruction_evidence(logs, old)
-            assert 'SDL activity destroy join returned' in logs, 'Old native main did not return/join'
+        (h.evidence / (name + '-platform.txt')).write_text(preview_evidence(logs, h.app))
+        forced_relaunch_smoke.destruction_evidence(logs, old)
+        assert 'SDL activity destroy join returned' in logs, 'Old native main did not return/join'
         assert not re.search(r'START .*FrontendRestartActivity', logs), 'Helper started during back preview'
         capture('preview')
         h.shell('input', 'touchscreen', 'motionevent', 'CANCEL')
@@ -172,16 +173,6 @@ def run(harness):
         assert not monitor.is_alive() and not errors, errors
         assert len(samples) >= 20, len(samples)
         capture('cancelled')
-        if callback_info:
-            logs = h.adb('logcat', '-d')
-            assert 'Destroying SDL activity' not in logs, 'SDL destroyed after callback cancellation'
-            assert 'Recreated frontend waiting for committed entry' not in logs, 'SDL recreated after callback cancellation'
-            result = ('not applicable — TYPE_CALLBACK: API 33 supplied no launch-behind preview; '
-                      f'enable_back_animation={back_animation}; {callback_info}; '
-                      f'cancelled gesture retained game focus in {len(samples)} samples, original PID and one native main; '
-                      'no SDL destruction, gate or helper.\n')
-            (h.evidence / (name + '-result.txt')).write_text(result)
-            return 'back-cancel: ' + result.strip()
         # A later, committed user Back must still restore through the helper.
         h.key('KEYCODE_BACK')
         h.wait_for(lambda: f'SDL process {old} retired; restarting entry' in h.adb('logcat', '-d'),
