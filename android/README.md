@@ -261,11 +261,15 @@ RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
 A stopped frontend's asset relaunch waits for a resumed, focused entry before
 using the existing restart helper; a back preview never starts another native
-main. The CI-only
-stub opts in at the application level because Android 13 ignores the activity-level
-opt-in. Both phone probes require a system Back callback, return-to-HOME and real
-HOME launch-behind before testing cancellation and committed restoration; a
-compat `TYPE_CALLBACK` fails the probe. Edge gestures are not a TV navigation mode.
+main. The CI-only stub opts in at the application level because Android 13 ignores
+the activity-level opt-in. Both phone probes require a system Back callback,
+return-to-HOME and real HOME launch-behind before testing cancellation and committed
+restoration. API 34 must emit the platform launch-behind log. Later Android 13 uses
+a transition path without that log; its probe instead binds the platform's return
+destination to the original HOME task and requires that sole HOME record visible and PAUSED behind
+the game. ASSETS destruction/native join, recreation, continuous game focus,
+cancellation and committed restoration remain mandatory. A compat `TYPE_CALLBACK`
+fails the probe. Edge gestures are not a TV navigation mode.
 The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass
