@@ -146,6 +146,8 @@ def run(harness):
 
     rotation = {key: h.shell('settings', 'get', 'system', key).strip()
                 for key in ('accelerometer_rotation', 'user_rotation')}
+    fixed_rotation = h.shell('wm', 'fixed-to-user-rotation').strip()
+    assert fixed_rotation in ('default', 'enabled', 'disabled'), fixed_rotation
     try:
         try:
             cycle_start = h.log()
@@ -164,10 +166,18 @@ def run(harness):
         if not h.television:
             h.shell('settings', 'put', 'system', 'accelerometer_rotation', '0')
             h.shell('settings', 'put', 'system', 'user_rotation', '0')
+            # SDL fixes the activity orientation to its current window shape.
+            # Force a real display rotation through Android's shell policy;
+            # changing user_rotation alone is ignored by SENSOR_PORTRAIT.
+            h.shell('wm', 'fixed-to-user-rotation', 'enabled')
             rotated = action('window-rotate', ('settings', 'put', 'system', 'user_rotation', '1'))
             assert rotated != full, 'Rotation did not change geometry'
+            capture('window-rotated')
+            display = (h.evidence / 'window-rotated-window.txt').read_text()
+            assert re.search(r'\n\s*mRotation=(?:1|ROTATION_90)\b', display), 'Display did not rotate'
             action('window-rotate-reset', ('settings', 'put', 'system', 'user_rotation', '0'), full)
             capture('window-rotation')
+            h.shell('wm', 'fixed-to-user-rotation', fixed_rotation)
             # The diagnostic AVD exposes freeform via its developer setting.
             # Use real task bounds, then drag to another size within that mode.
             action('window-freeform-enter', ('am', 'start', '--windowingMode', '5', '-n', h.activity))
@@ -192,6 +202,7 @@ def run(harness):
         for key, value in rotation.items():
             h.shell('settings', 'delete', 'system', key) if value == 'null' else \
                 h.shell('settings', 'put', 'system', key, value)
+        h.shell('wm', 'fixed-to-user-rotation', fixed_rotation)
 
 
 def self_test():
