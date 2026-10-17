@@ -342,8 +342,10 @@ timeout captures the live screenshot, focused window, activity state and logcat
 tail before cleanup. It permits one relaunch only if the shared TV guard actually
 dismissed a stock tutorial during that start and the frontend has never logged
 startup readiness. The captured live window must show stock launcher/HOME focus,
-or the complete log after the guard's dismissal marker must show no frontend
-activity creation. Frontend focus at timeout always makes the timeout hard,
+or the complete log since the start marker must show no frontend activity
+creation. Any frontend process death or SDL finishing destroy in that whole
+start vetoes recovery. App-owned splash/starting windows and null or missing
+focus count as frontend focus. Frontend focus at timeout makes the timeout hard,
 including a created activity with hung native startup. Readiness is checked again
 after capture; a crash/ANR in the marked start window, a stale dismissal, any timeout after readiness, and a second
 timeout stay hard failures. The original 90 s readiness bound applies to each
@@ -384,9 +386,12 @@ late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
 Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
-PDF-direct/PDF-scoped/assets. These allow margin above the prior green matrix's maxima
-(45/28/12/22/22 minutes, run 38904895297), and the assets maximum of 9 minutes
-10 seconds in run 39005159816. An action failure or timeout after the
+PDF-direct/PDF-scoped/assets. The core step reached 51 minutes on API 34 in
+round 4 (PR run 39046159140), leaving 9 minutes under its unchanged 60-minute
+cap. Re-measure core on API 33 after platform PR #27 integrates. Earlier
+lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
+(run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
+An action failure or timeout after the
 child recorded exit 0 is recorded as `EMULATOR_SHUTDOWN_INFRASTRUCTURE` in
 `PHASE-emulator-result.txt`; a nonzero child remains `SESSION_FAILURE`. Either
 failure keeps the job red. This bounds teardown stalls without retrying sessions.

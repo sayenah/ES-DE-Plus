@@ -14,16 +14,28 @@ def startup_preemption(capture, app, stock_package):
     # Inspect live focus, never last-ANR snapshots. The caller supplies the
     # complete log since this start and since the guard's completed dismissal.
     window = smoke_checks.live_window(capture['focus'])
-    frontend_focused = smoke_checks.package_window_focused(window, app)
+    focus = next((line.split('mCurrentFocus=', 1)[1].strip()
+                  for line in window.splitlines() if 'mCurrentFocus=' in line), '')
+    # Splash/starting windows also belong to the frontend. Missing focus is
+    # not proof that another window preempted it.
+    frontend_focused = not focus or bool(re.search(r'\bnull\b', focus)) or bool(
+        re.search(r'(?<![\w.])' + re.escape(app) + r'(?![\w.])', focus))
     stock_focused = smoke_checks.package_window_focused(window, stock_package)
-    after = capture['after_dismissal']
-    created = after is not None and any(
+    output = capture['logcat']
+    created = any(
         ('ES-DE-Plus' in line and 'Creating sole SDL activity' in line) or
         ('wm_on_create_called' in line and app + '.' in line)
-        for line in after.splitlines())
-    allowed = not frontend_focused and (stock_focused or (after is not None and not created))
+        for line in output.splitlines())
+    died = bool(re.search(r'Process ' + re.escape(app) + r' \(pid \d+\) has died', output) or
+                re.search(r'am_proc_died.*\[\d+,\s*\d+,\s*' + re.escape(app) + r'[,\]]', output))
+    finishing = any('ES-DE-Plus' in line and 'Destroying SDL activity' in line and
+                    'finishing=true' in line for line in output.splitlines())
+    after = capture['after_dismissal']
+    allowed = (not frontend_focused and not died and not finishing and
+               (stock_focused or (after is not None and not created)))
     return dict(preemption_proven=allowed, frontend_focused=frontend_focused,
-                stock_home_focused=stock_focused, activity_created_after_dismissal=created,
+                stock_home_focused=stock_focused, activity_created_since_start=created,
+                frontend_process_died=died, frontend_finishing=finishing,
                 dismissal_marker_present=after is not None)
 
 
@@ -321,6 +333,10 @@ def controls():
             'PASS: startup controls: one relaunch after a dismissal during this start; live capture before stop; '
             'no relaunch without a new dismissal, no second relaunch, none after readiness or a crash/ANR; '
             'created/focused native hang and frontend-focused timeout stay HARD_TIMEOUT.\n'
+            'PASS: MEDIUM-1: five QA self-exit/focus probes stay HARD_TIMEOUT; whole-start creation, '
+            'finishing and event-buffer death veto recovery.\n'
+            'PASS: LOW-1: no dismissal without action; historical/missing live window rejected; '
+            'wm_on_create_called before dismissal prevents recovery.\n'
             'PASS: late/second G-29 destroys labelled and counted; replacement declared-bits destroy rejected.\n'
             'PASS: G-30 destroy/death without helper stays hard even after stock dismissal; '
             'restart needs request, helper start, retirement, new live PID and native startup; missing links rejected.\n'
@@ -338,7 +354,7 @@ def startup_controls():
     created = 'I ES-DE-Plus: Creating sole SDL activity task=12'
     stock = 'com.google.android.tvlauncher/.MainActivity'
     def exercise(dismiss=False, initial=0, reached=False, late_ready=False, fail_twice=False,
-                 crash='', focus=stock, after=''):
+                 crash='', focus=stock, after='', logcat=None):
         count = [initial]
         events, records = [], []
         def attempt(ready):
@@ -353,7 +369,8 @@ def startup_controls():
             raise ReadinessTimeout('control')
         def capture(number):
             events.append('capture')
-            return dict(logcat=crash, after_dismissal=after if dismiss else None,
+            return dict(logcat=crash + '\n' + (after or '') if logcat is None else logcat,
+                        after_dismissal=after if dismiss else None,
                         focus='WINDOW MANAGER DISPLAY CONTENTS\n mCurrentFocus=Window{aa u0 ' + focus + '}')
         failed = False
         try:
@@ -366,7 +383,7 @@ def startup_controls():
     assert not failed and events == ['start', 'capture', 'stop', 'start']
     assert [r['outcome'] for r in records] == ['RELAUNCH_STOCK_ONBOARDING', 'READY']
     assert records[-1]['relaunches'] == 1
-    # Either live stock HOME focus or a complete post-dismissal log with no
+    # Either live stock HOME focus or a complete whole-start log with no
     # activity creation proves preemption. Frontend focus always vetoes it.
     for options in (dict(dismiss=True, after=created),
                     dict(dismiss=True, focus='com.android.systemui/.Other', after='')):
@@ -386,6 +403,44 @@ def startup_controls():
                     dict(dismiss=True, focus='com.android.systemui/.Other', after=None)):
         events, records, failed = exercise(**options)
         assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT'
+    died = 'I ActivityManager: Process ' + app + ' (pid 3001) has died: cch+5 CEM'
+    finishing = ('I ES-DE-Plus: Destroying SDL activity held=false finishing=true '
+                 'changingConfigurations=false configurationChanges=0x0 task=12')
+    # MEDIUM-1: the five independent QA self-exit probes must fail without
+    # issuing any stop. Empty after_dismissal deliberately excludes creation.
+    cases = {
+        'created+finished+died, HOME focused': dict(logcat='\n'.join((created, finishing, died))),
+        'created+died, HOME focused': dict(logcat=created + '\n' + died),
+        'died before creation, systemui focus': dict(logcat=died, focus='com.android.systemui/.Other'),
+        'created before dismissal, frontend splash': dict(logcat=created, focus='Splash Screen ' + app),
+        'created before dismissal, null focus': dict(logcat=created, focus='null'),
+        'finishing without death, HOME focused': dict(logcat=finishing),
+        'event-buffer process death, HOME focused': dict(logcat='I am_proc_died: [0,3001,' + app + ',900,17]'),
+        'created before dismissal, systemui focus': dict(logcat=created, focus='com.android.systemui/.Other'),
+        'wm creation before dismissal, systemui focus': dict(
+            logcat='I wm_on_create_called: [0,123,' + app + '.MainActivity,performCreate]',
+            focus='com.android.systemui/.Other'),
+    }
+    for name, options in cases.items():
+        events, records, failed = exercise(dismiss=True, **options)
+        assert failed and events == ['start', 'capture'] and records[0]['outcome'] == 'HARD_TIMEOUT', name
+        if 'splash' in name or 'null focus' in name:
+            assert records[0]['frontend_focused'], name
+    assert startup_preemption(dict(focus='WINDOW MANAGER DISPLAY CONTENTS\n mCurrentFocus=null',
+                                   logcat='', after_dismissal=''), app,
+                              'com.google.android.tvlauncher')['frontend_focused']
+    assert startup_preemption(dict(focus='WINDOW MANAGER DISPLAY CONTENTS',
+                                   logcat='', after_dismissal=''), app,
+                              'com.google.android.tvlauncher')['frontend_focused']
+    for invalid in ('WINDOW MANAGER LAST ANR\n mCurrentFocus=Window{aa u0 ' + stock + '}',
+                    'mCurrentFocus=Window{aa u0 ' + stock + '}'):
+        try:
+            startup_preemption(dict(focus=invalid, logcat='', after_dismissal=''), app,
+                               'com.google.android.tvlauncher')
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Non-live focus authorised a startup relaunch')
     g30 = ('10-16 10:00:00.000 2001 2001 I ES-DE-Plus: Destroying SDL activity '
            'held=false finishing=false changingConfigurations=true configurationChanges=0x-80000000 task=8\n'
            '10-16 10:00:00.100 551 551 I ActivityManager: Process org.esdeplus.frontend (pid 2001) has died: fg TOP')
@@ -523,7 +578,7 @@ def stock_banner_controls(source=None):
              if isinstance(node, ast.FunctionDef) and node.name in ('dismiss_stock_onboarding', 'stock_ui_clear')]
     code = compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec')
     package = 'com.google.android.tvlauncher'
-    def exercise(arrives=3, stuck=False, resource='tray_dismiss'):
+    def exercise(arrives=3, stuck=False, resource='tray_dismiss', vanished=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state = dict(tutorial=True, homes=0, dismissed=False)
@@ -565,6 +620,15 @@ def stock_banner_controls(source=None):
                 hierarchy=hierarchy, shell=shell, ui=ui, key=key, wait_for=wait_for,
                 adb=lambda *args, **kwargs: b'control', screenshot=lambda *args: None,
                 smoke_checks=smoke_checks, fresh_session_checks=sys.modules[__name__])
+            if vanished:
+                focus_reads = [0]
+                original_focus = namespace['focused_window']
+                def focus():
+                    focus_reads[0] += 1
+                    if focus_reads[0] > 1:
+                        state['tutorial'] = False
+                    return original_focus()
+                namespace['focused_window'] = focus
             exec(code, namespace)
             failed = False
             try:
@@ -577,6 +641,8 @@ def stock_banner_controls(source=None):
         assert exercise(arrives=arrival) == (False, 1, ['tutorial', 'banner']), \
             'A late supported banner prevented recording the completed dismissal'
     assert exercise(arrives=99) == (False, 1, ['tutorial'])
+    assert exercise(arrives=99, vanished=True) == (False, 0, []), \
+        'Tutorial vanished before the harness acted; a dismissal was incorrectly recorded'
     assert exercise(stuck=True) == (True, 0, ['tutorial', 'banner', 'center'])
     assert exercise(resource='unrecognised_dismiss') == (True, 0, ['tutorial'])
 
