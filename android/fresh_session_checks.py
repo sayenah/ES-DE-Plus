@@ -38,12 +38,12 @@ class HostStartupFailure(AssertionError):
 def startup_trace(kept, snapshot, marker):
     source = kept if marker in kept else snapshot
     assert marker and marker in source, 'Startup marker missing; cannot classify timeout'
-    prefix, _, tail = source.rpartition(marker)
-    marker_line = prefix.splitlines()[-1]
+    marker_line = next(line for line in source.splitlines() if marker in line)
     assert re.match(r'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6} ', marker_line), 'Startup timestamp format missing'
     cutoff = marker_line[:26]
-    fresh = snapshot.rpartition(marker)[2] if marker in snapshot else snapshot
-    lines = dict.fromkeys((tail + '\n' + fresh).splitlines())
+    # A reconnected observer backfills buffers, including duplicate markers.
+    # Keep earlier captured events even if that later dump lost those events.
+    lines = dict.fromkeys((kept + '\n' + snapshot).splitlines())
     # UTC/year timestamps retain causal order across buffer clears/evictions;
     # stable sorting preserves the stream's order for equal timestamps.
     return '\n'.join(sorted((line for line in lines if re.match(r'\d{4}-\d\d-\d\d ', line)
@@ -425,6 +425,17 @@ def startup_restart_controls(zone=''):
         raise AssertionError('Kept G-30 destroy was lost to buffer eviction')
     trace = startup_trace(marker + '\n'.join(dead), dead[-1], 'control-marker')
     assert 'Destroying SDL activity' in trace
+    backfill = marker + dead[-1]
+    trace = startup_trace(marker + '\n'.join(dead) + '\n' + backfill, backfill, 'control-marker')
+    try:
+        startup_restart(trace, app)
+    except HostStartupFailure as failure:
+        assert 'CONFIGURATION_DESTROY_WITHOUT_HELPER' in str(failure)
+    else:
+        raise AssertionError('Duplicate marker backfill concealed the kept G-30 destroy')
+    trace = startup_trace(marker + '\n'.join(lines) + '\n' + marker + lines[-1],
+                          marker + lines[-1], 'control-marker')
+    assert len(startup_restart(trace, app, '2003', native)) == 1
     later = '2026-10-16 10:00:10.000000 551 551 I ESDE-Smoke: later-marker\n'
     trace = startup_trace(marker + '\n'.join(dead) + '\n' + later,
                           marker + '\n'.join(dead) + '\n' + later, 'later-marker')

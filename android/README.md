@@ -282,6 +282,7 @@ The existing capability controls deliberately restart adbd with `root`/`unroot`.
 `session_logcat.py` reconnects the read-only observer only after a recorded actual
 adbd restart and completed `wait-for-device` overlapping its disconnect. Retained
 buffers append to the kept file; startup classification deduplicates overlaps.
+Repeated backfilled markers cannot discard earlier captured destroy/helper events.
 An unexplained stream exit is a hard `SESSION_EVIDENCE_FAILURE` even if the child
 passed; a failed child keeps its original status. The stock app-drawer icon tap
 also gets its own startup marker before activation, just like explicit starts.
