@@ -2,9 +2,6 @@
 # ES-DE-Plus — written for ES-DE-Plus. Isolated WO-18 controls; evidence only, never APK uploads.
 name: Forced relaunch
 on:
-  push:
-    branches: ['fix/forced-relaunch-restore']
-    paths: ['android/**', '.github/workflows/forced-relaunch.yml']
   workflow_dispatch:
     inputs:
       unfixed:
@@ -72,7 +69,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api29-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          key: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
       - name: Build dependencies on cache miss
         if: steps.deps.outputs.cache-hit != 'true'
         run: |

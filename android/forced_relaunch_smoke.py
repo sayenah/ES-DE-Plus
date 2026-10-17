@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Real ASSETS_PATHS relaunches; no startup recovery.
 import os
+import hashlib
+from pathlib import Path
 import re
 import shlex
 import subprocess
@@ -32,14 +34,20 @@ def destruction_evidence(logs, old):
 
 def restoration_evidence(logs, old):
     old_lines = destruction_evidence(logs, old)
-    assert 'Frontend restart decision requested=true configured=true helperStarted=true' in old_lines, old_lines
-    decision_line = next((line for line in old_lines.splitlines() if
-                         'Frontend restart decision requested=true configured=true ' in line), '')
+    decisions = [line for line in old_lines.splitlines() if 'Frontend restart decision ' in line]
+    assert len(decisions) == 1, ('Expected one decision', decisions)
+    decision_line = decisions[0]
+    assert 'requested=true configured=true helperStarted=false' in decision_line, decision_line
+    assert 'Frontend restart helper started configured=true' in old_lines, old_lines
     decision = logs.find(decision_line) if decision_line else -1
     helper = re.search(r'START .*FrontendRestartActivity', logs)
     retirement = logs.find(f'SDL process {old} retired; restarting entry')
     assert decision >= 0 and helper and retirement >= 0, 'Missing decision, helper START or observed old-process retirement'
     assert decision < helper.start() < retirement, 'Restore chain is out of order'
+    if 'Frontend restart deferred until committed entry' in old_lines:
+        committed_line = next((line for line in old_lines.splitlines() if
+                               'Frontend entry committed resumed=true focused=true' in line), '')
+        assert committed_line and logs.find(committed_line) < decision, 'Deferred restore lacks committed entry'
 
 
 def controls():
@@ -48,12 +56,12 @@ def controls():
             'configurationChanges=0x-80000000\n'
             '01-01 00:00:00.002 123 123 I ES-DE-Plus: Frontend restart decision requested=true configured=true helperStarted=false\n'
             '01-01 00:00:00.003 456 456 I ActivityTaskManager: START cmp=FrontendRestartActivity\n'
-            '01-01 00:00:00.004 123 123 I ES-DE-Plus: Frontend restart decision requested=true configured=true helperStarted=true\n'
+            '01-01 00:00:00.004 123 123 I ES-DE-Plus: Frontend restart helper started configured=true\n'
             '01-01 00:00:00.005 789 789 I ES-DE-Plus: SDL process 123 retired; restarting entry\n')
     restoration_evidence(logs, '123')
     mutants = [logs.replace(token, replacement) for token, replacement in (
         ('requested=true', 'requested=false'), ('configured=true', 'configured=false'),
-        ('helperStarted=true', 'helperStarted=false'), ('START', 'NOT_STARTED'),
+        ('helperStarted=false', 'helperStarted=true'), ('START', 'NOT_STARTED'),
         ('SDL process 123 retired;', 'SDL process 999 retired;'),
         ('configurationChanges=0x-80000000', 'configurationChanges=0x10000000'),
         ('finishing=false', 'finishing=true'), ('changingConfigurations=true', 'changingConfigurations=false'))]
@@ -62,8 +70,16 @@ def controls():
                 logs.replace(' 123 ', ' 999 '),
                 logs.replace('123 123 I ES-DE-Plus: Destroying', '999 123 I ES-DE-Plus: Destroying')]
     lines = logs.splitlines(keepends=True)
+    mutants.append(logs + lines[2])
+    mutants.append(logs.replace('Frontend restart helper started configured=true', 'Frontend restart helper not started'))
     mutants += [''.join(lines[:2] + [lines[3], lines[2]] + lines[4:]),
                 ''.join(lines[:3] + [lines[5], lines[3], lines[4]])]
+    deferred = logs.replace(lines[2],
+        '01-01 00:00:00.002 123 123 I ES-DE-Plus: Frontend restart deferred until committed entry\n'
+        '01-01 00:00:00.002 123 123 I ES-DE-Plus: Frontend entry committed resumed=true focused=true\n' + lines[2])
+    restoration_evidence(deferred, '123')
+    mutants += [deferred.replace('resumed=true', 'resumed=false'), deferred.replace('focused=true', 'focused=false'),
+                deferred.replace('Frontend entry committed', 'No committed entry')]
     for mutant in mutants:
         try:
             restoration_evidence(mutant, '123')
@@ -89,6 +105,9 @@ def run(harness):
     failures = []
     outcomes = []
     (h.evidence / 'assets-chain-controls.txt').write_text(controls())
+    source = Path(__file__).resolve().parent / 'app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt'
+    (h.evidence / 'assets-host-source.txt').write_text('Build source: ' + os.environ.get('GITHUB_SHA', 'local') +
+        '\nMainActivity SHA-256: ' + hashlib.sha256(source.read_bytes()).hexdigest() + '\n')
 
     def capture(name):
         h.save_logs(name)
@@ -247,6 +266,12 @@ def run(harness):
                 if process.poll() is None:
                     process.terminate()
                 process.wait(timeout=10)
+    if not baseline:
+        try:
+            import predictive_back_smoke
+            outcomes.append(predictive_back_smoke.run(harness))
+        except Exception as error:
+            failures.append('assets-back-cancel: ' + str(error))
     (h.evidence / 'assets-summary.txt').write_text('\n'.join(outcomes + failures) + '\n')
     assert not failures, '\n'.join(failures)
 
