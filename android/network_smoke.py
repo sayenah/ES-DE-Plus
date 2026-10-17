@@ -336,6 +336,7 @@ def run_checks(harness, scoped=False):
     control = pathlib.Path('android/.deps/network/no-internet.apk')
     attempts = {}
     active = ['network-setup']
+    diagnostic_repository = [None]
     trust_controls_complete = False
     owner_leftover = False
 
@@ -420,6 +421,19 @@ def run_checks(harness, scoped=False):
                 h.adb('wait-for-device')
                 h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '0',
                            'native diagnostic shell', timeout=10)
+                if name == 'failure-before-stop' and diagnostic_repository[0]:
+                    # Compare only the selected, already-confirmed theme's
+                    # config below FUSE after failure is final. No retry/write.
+                    canonical = h.shell('readlink', '-f', h.data_root, check=False).strip()
+                    if canonical.startswith('/storage/emulated/0/') and all(
+                            part not in ('.', '..') for part in canonical.split('/')):
+                        target = ('/data/media/0/' + canonical.removeprefix('/storage/emulated/0/') +
+                                  '/themes/' + diagnostic_repository[0] + '/.git/config')
+                        observation = 'RAW LOWER-FS CONFIG path=' + target + '\n'
+                        for command in (['stat', '-c', '%u %g %a %i %s %Y %Z', target],
+                                        ['cat', target]):
+                            observation += h.shell('sh', '-c', shlex.join(command) + ' 2>&1', check=False)
+                        h.evidence.joinpath(stem + '-lower-config.txt').write_text(observation)
                 stacks = h.shell('sh', '-c', f'debuggerd -b {pid} 2>&1', check=False)
             finally:
                 h.adb('unroot', check=False)
@@ -634,6 +648,7 @@ def run_checks(harness, scoped=False):
         repository = selected['reponame']
         assert re.fullmatch(r'[A-Za-z0-9._-]+', repository) and not repository.startswith('.'), repository
         assert selected['url'].startswith('https://') and not selected.get('deprecated')
+        diagnostic_repository[0] = repository
         downloaded = f'Downloaded theme "{repository}"'
         def config_snapshot(stage):
             target = theme_path(repository + '/.git/config')
