@@ -8,13 +8,29 @@ import time
 
 
 RELOAD = r'Window size has changed from (\d+x\d+) to (\d+x\d+), reloading'
+HOOK = (r'Window snapshot source=surfaceChanged size=(\d+x\d+) '
+        r'decor=(\d+x\d+) metrics=(\d+x\d+) surface=(\d+x\d+)')
 
 
 def ordered_snapshot(logs, size):
-    publication = logs.find('Window snapshot source=surfaceChanged size=' + size)
-    surface = logs.find('Window size: ' + size, publication)
-    comparison = logs.find('Android window snapshot ' + size + ', renderer ', surface)
-    return 0 <= publication < surface < comparison
+    for hook in re.finditer(HOOK, logs):
+        snapshot, decor, metrics, child = hook.groups()
+        if snapshot != size or decor != size or metrics != size:
+            continue
+        surface = logs.find('Window size: ' + child, hook.end())
+        comparison = logs.find('Android window snapshot ' + size + ', renderer ', surface)
+        if hook.end() <= surface < comparison:
+            return True
+    return False
+
+
+def matching_frames(logs):
+    hooks = list(re.finditer(HOOK, logs))
+    assert hooks, 'Missing hook-time window geometry'
+    for hook in hooks:
+        snapshot, decor, metrics, _ = hook.groups()
+        assert snapshot == decor == metrics, 'Hook frame disagrees with window bounds: ' + hook.group()
+    return hooks
 
 
 class LostResize(AssertionError):
@@ -40,6 +56,14 @@ def run(harness):
     pid = h.shell('pidof', h.app).strip()
     assert pid.isdigit()
     assert re.findall(r'Application resolution: (\d+x\d+)', h.log())[-1] == full
+    assert re.findall(r'Display resolution: (\d+x\d+)', h.log())[-1] == full
+    assert re.findall(r'Screen mode: (\w+)', h.log())[-1] == 'fullscreen'
+    if not control:
+        startup = h.adb('logcat', '-d', '-v', 'threadtime')
+        startup = '\n'.join(line for line in startup.splitlines()
+                            if re.search(r'\s' + pid + r'\s', line))
+        matching_frames(startup)
+        assert ordered_snapshot(startup, full), startup
     tids = [tid for tid in h.private('ls', '/proc/' + pid + '/task').split()
             if h.private('cat', f'/proc/{pid}/task/{tid}/comm', check=False).strip() == 'SDLThread']
     assert len(tids) == 1, ('Missing unique frontend render thread', tids)
@@ -52,7 +76,7 @@ def run(harness):
                 h.shell('dumpsys', service, check=False))
         h.screenshot(name)
 
-    def action(name, command, expected=None):
+    def action(name, command, expected=None, single=False):
         before = h.log()
         def cpu_ticks():
             fields = h.private('cat', f'/proc/{pid}/task/{tids[0]}/schedstat').split()
@@ -75,18 +99,25 @@ def run(harness):
             assert current.startswith(before), 'Native log replaced during resize: ' + name
             delta = current[len(before):]
             reloads = re.findall(RELOAD, delta)
-            target = expected or (surfaces[-1] if surfaces else None)
+            hooks = list(re.finditer(HOOK, own))
+            target = expected or (hooks[-1][1] if hooks else None)
             resolutions = re.findall(r'Application resolution: (\d+x\d+)', delta)
-            complete = (target and surfaces and surfaces[-1] == target and reloads and
+            complete = (target and surfaces and reloads and
                         reloads[-1][1] == target and resolutions and resolutions[-1] == target and
                         delta.count('Setting up AudioManager...') == len(reloads))
             if complete:
                 if not control:
+                    matching_frames(own)
                     assert ordered_snapshot(own, target), 'Snapshot was not published before native compared: ' + own
+                if single:
+                    assert len(reloads) == 1, ('Duplicate resize reload', name, reloads)
+                display = re.findall(r'Display resolution: (\d+x\d+)', delta)[-1]
+                mode = re.findall(r'Screen mode: (\w+)', delta)[-1]
+                assert mode == ('fullscreen' if target == display else 'windowed'), (name, target, display, mode)
                 assert h.smoke_checks.package_window_focused(h.focused_window(), h.app), name
                 row = dict(action=name, command=command, size=target, reloads=len(reloads),
                            audio_setups=delta.count('Setting up AudioManager...'), pid=pid,
-                           snapshot_before_native=not control)
+                           snapshot_before_native=not control, screen_mode=mode, display=display)
                 rows.append(row)
                 (h.evidence / 'window-cycles.txt').write_text(json.dumps(rows, indent=2) + '\n')
                 (h.evidence / (name + '-logcat.txt')).write_text(interval)
@@ -117,9 +148,10 @@ def run(harness):
                 for key in ('accelerometer_rotation', 'user_rotation')}
     try:
         try:
+            cycle_start = h.log()
             for cycle in range(1, 21):
-                action(f'window-{cycle:02}-resize', ('wm', 'size', reduced), reduced)
-                action(f'window-{cycle:02}-reset', ('wm', 'size', 'reset'), full)
+                action(f'window-{cycle:02}-resize', ('wm', 'size', reduced), reduced, single=True)
+                action(f'window-{cycle:02}-reset', ('wm', 'size', 'reset'), full, single=True)
         except LostResize as error:
             if not control:
                 raise
@@ -128,6 +160,7 @@ def run(harness):
             return
         assert not control, 'Unfixed main completed 20/20; G-31 positive control not reproduced'
         capture('window-20-cycles')
+        assert len(re.findall(RELOAD, h.log()[len(cycle_start):])) == 40, 'Unexpected cycle reload count'
         if not h.television:
             h.shell('settings', 'put', 'system', 'accelerometer_rotation', '0')
             h.shell('settings', 'put', 'system', 'user_rotation', '0')
@@ -162,12 +195,16 @@ def run(harness):
 
 
 def self_test():
-    logs = ('Window snapshot source=surfaceChanged size=972x1728\n'
-            'SDL: Window size: 972x1728\nAndroid window snapshot 972x1728, renderer 1080x1920')
+    logs = ('Window snapshot source=surfaceChanged size=972x1728 '
+            'decor=972x1728 metrics=972x1728 surface=972x1602\n'
+            'SDL: Window size: 972x1602\nAndroid window snapshot 972x1728, renderer 1080x1920')
     assert ordered_snapshot(logs, '972x1728')
+    matching_frames(logs)
     assert not ordered_snapshot('\n'.join(reversed(logs.splitlines())), '972x1728')
     assert not ordered_snapshot(logs.replace('size=972x1728', 'size=1080x1920'), '972x1728')
     assert not ordered_snapshot(logs.replace('snapshot 972x1728', 'snapshot 1080x1920'), '972x1728')
+    assert not ordered_snapshot(logs.replace('decor=972x1728', 'decor=1080x1920'), '972x1728')
+    assert not ordered_snapshot(logs.replace('metrics=972x1728', 'metrics=1080x1920'), '972x1728')
     print('PASS: window ordering oracle rejects stale, late and missing snapshots')
 
 
