@@ -8,7 +8,7 @@
   <a href="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml"><img alt="Android build" src="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-android.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-linux.yml"><img alt="Linux build" src="https://github.com/sayenah/ES-DE-Plus/actions/workflows/build-linux.yml/badge.svg?branch=main"></a>
   <a href="/LICENSE"><img alt="Source licence: MIT" src="https://img.shields.io/badge/source-MIT-8b7bff"></a>
-  <img alt="Android 10 and later" src="https://img.shields.io/badge/Android-10%2B-2ee6c5">
+  <img alt="Android 12 and later" src="https://img.shields.io/badge/Android-12%2B-2ee6c5">
   <img alt="Phone, TV and home screen" src="https://img.shields.io/badge/phone%20%C2%B7%20TV%20%C2%B7%20home%20screen-ff6fa8">
 </p>
 
@@ -70,7 +70,7 @@
 | 🧭 | **[ES-DE Companion](https://github.com/RobZombie9043/es-de-companion) features** — second-screen artwork, app drawer, per-game display targeting and more — *[planned (#3)](https://github.com/sayenah/ES-DE-Plus/issues/3)* |
 | 🧭 | **Signed releases** — *planned* |
 
-Every Android change is built and tested on three emulator images — **Android 10**, **Android 14** and **Android TV** — driving the real screens, before it can merge.
+Every Android change is built and tested on three emulator images — **Android 12**, **Android 14** and **Android TV** — driving the real screens, before it can merge.
 
 ## 📦 Get it
 
