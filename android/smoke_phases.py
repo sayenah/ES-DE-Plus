@@ -56,6 +56,7 @@ def run(phase, harness):
     elif phase == 'lifecycle':
         h.lifecycle_smoke.run(harness)
     elif phase == 'integration':
+        h.audio_smoke.run(harness)
         h.network_smoke.run(harness)
     else:
         h.pdf_smoke.run('scoped' if phase == 'pdf-scoped' else 'direct', harness)

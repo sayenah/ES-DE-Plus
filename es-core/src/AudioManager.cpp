@@ -134,15 +134,12 @@ void AudioManager::deinit()
     if (sAudioDevice == 0)
         return;
 
-    SDL_LockAudioDevice(sAudioDevice);
+    SDL_CloseAudioDevice(sAudioDevice);
     SDL_FreeAudioStream(sConversionStream);
-    SDL_UnlockAudioDevice(sAudioDevice);
-
-    SDL_CloseAudio();
-    SDL_QuitSubSystem(SDL_INIT_AUDIO);
-
     sConversionStream = nullptr;
     sAudioDevice = 0;
+
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 void AudioManager::mixAudio(void* /*unused*/, Uint8* stream, int len)

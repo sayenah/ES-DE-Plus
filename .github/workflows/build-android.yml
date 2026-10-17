@@ -292,6 +292,14 @@ jobs:
           (destination / 'native-outputs.txt').write_text(text)
           print(text)
           PYCODE
+      - name: Build isolated unfixed audio control (runner only)
+        id: audio-control-build
+        if: ${{ github.event_name == 'workflow_dispatch' && matrix.image != 'api34' }}
+        continue-on-error: true
+        run: python3 android/audio_smoke.py build-control
+      - name: Record failed non-gating audio control build
+        if: ${{ !cancelled() && steps.audio-control-build.outcome == 'failure' }}
+        run: echo 'NOT RUN — isolated audio control APK build failed; non-gating manual evidence.' > android/evidence/audio-control-result.txt
       - name: Assemble unsigned minified release APK
         id: release
         run: |
@@ -446,6 +454,26 @@ jobs:
           set -o pipefail
           python3 android/distribution.py bundle android/app/build/outputs/apk/debug/app-debug.apk | tee android/evidence/distribution-bundle.txt
           python3 android/distribution.py controls android/.deps/distribution/source | tee android/evidence/distribution-source-controls.txt
+      - name: Collect unfixed audio controls in an isolated AVD
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && steps.audio-control-build.outcome == 'success' && matrix.image != 'api34' }}
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: audio-unfixed-control
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/audio_smoke.py control
       - name: Verify Android 11 refuses the Android 12 minimum APK
         if: ${{ success() && matrix.image == 'api31' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
@@ -547,6 +575,8 @@ jobs:
           path: |
             android/evidence/integration/*.txt
             android/evidence/integration/*.png
+            android/evidence/integration/audio-*-progress.json
+            android/evidence/integration/audio-startup-relaunches.jsonl
             android/evidence/integration-session-*.txt
             android/evidence/integration-command-costs.txt
           retention-days: 7
@@ -713,6 +743,8 @@ jobs:
             android/DEPENDENCY-LICENSES.md
             android/evidence/**/*.txt
             android/evidence/**/*.png
+            android/evidence/**/audio-*-progress.json
+            android/evidence/**/audio-startup-relaunches.jsonl
           retention-days: 7
       # This is the ONLY APK upload. Source upload/download/validation precede it.
       # Default success plus explicit needs/source checks reject every failed/skipped/cancelled gate.
