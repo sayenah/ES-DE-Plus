@@ -131,6 +131,9 @@ class ReadbackControls(unittest.TestCase):
             theme_fuse_smoke.collect(h)
         self.assertEqual(h.position, 140)
         self.assertEqual(h.uid, '2000')
+        self.assertEqual(len((h.evidence / 'theme-fuse-view-lower.txt').read_text().splitlines()), 140)
+        coverage = json.loads((h.evidence / 'theme-fuse-coverage.txt').read_text())
+        self.assertGreater(coverage['index']['replaced'], 0)
 
     def test_non_config_mismatch_stops_without_retry(self):
         h = self.guest('index-view')
@@ -139,6 +142,11 @@ class ReadbackControls(unittest.TestCase):
         self.assertTrue(h.stopped)
         self.assertEqual(h.uid, '2000')
         self.assertEqual(h.position, 2)
+        records = [json.loads(row) for row in
+                   (h.evidence / 'theme-fuse-view-lower.txt').read_text().splitlines()]
+        self.assertEqual(records[-1]['mismatches'], ['index'])
+        view = next(entry for entry in records[-1]['files'] if entry['path'] == 'index')
+        self.assertNotEqual(view['hash'], records[-1]['lower']['index']['hash'])
 
     def test_config_write_is_hard_even_with_equal_views(self):
         h = self.guest('config-write')

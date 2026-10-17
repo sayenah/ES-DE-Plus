@@ -52,7 +52,7 @@ def collect(h):
     previous = {}
     coverage = {}
     result_file = h.evidence / 'theme-fuse-controls.txt'
-    samples = h.evidence / 'theme-fuse-view-lower.jsonl'
+    samples = h.evidence / 'theme-fuse-view-lower.txt'
     samples.write_text('')
 
     def acknowledge(number, state):
@@ -141,7 +141,7 @@ def collect(h):
             h.adb('wait-for-device')
             h.wait_for(lambda: h.shell('id', '-u', check=False).strip() == '2000',
                        'ordinary shell after FUSE controls', 10)
-        h.evidence.joinpath('theme-fuse-coverage.json').write_text(json.dumps(coverage, indent=2))
+        h.evidence.joinpath('theme-fuse-coverage.txt').write_text(json.dumps(coverage, indent=2))
         h.evidence.joinpath('theme-fuse-retire-off.txt').write_text(
             f'API={h.api} snapshots_with_mismatch={negative[0]}; '
             'diagnostic only; no mandatory failure was retried\n')
