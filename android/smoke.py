@@ -249,14 +249,19 @@ def current_startup_ready():
                                                 '-v', 'year', '-v', 'UTC', '-v', 'usec'))
     try:
         chains = fresh_session_checks.startup_restart(output, app)
-        if chains:
+        if chains or pid != startup_ready_pid:
             before = shell('stat', '-c', '%i|%s|%y', logpath, check=False).strip()
             current = log()
             after = shell('stat', '-c', '%i|%s|%y', logpath, check=False).strip()
-            pid = shell('pidof', app, check=False).strip()
-            if not fresh_session_checks.startup_native_ready(chains, current, pid, before, after):
+            if shell('pidof', app, check=False).strip() != pid:
                 return False
-            chains = fresh_session_checks.startup_restart(output, app, pid, ready=current)
+            if chains:
+                if not fresh_session_checks.startup_native_ready(chains, current, pid, before, after):
+                    return False
+                chains = fresh_session_checks.startup_restart(output, app, pid, ready=current)
+            elif not fresh_session_checks.startup_log_fresh(
+                    current, before, after, fresh_session_checks.startup_host_created(output, pid)):
+                return False
     except fresh_session_checks.HostStartupFailure as failure:
         capture_startup_failure('host-startup-' + startup_log_marker, startup_log_marker)
         (evidence / ('host-startup-' + startup_log_marker + '-outcome.txt')).write_text(str(failure) + '\n')

@@ -50,9 +50,16 @@ def startup_trace(kept, snapshot, marker):
                              and line[:26] >= cutoff), key=lambda line: line[:26]))
 
 
-def startup_native_ready(chains, native, pid, before, after):
-    if (not chains or not all(row['complete'] for row in chains) or
-            pid != chains[-1]['new_pid'] or before != after or
+def startup_host_created(output, pid):
+    if not pid.isdigit():
+        return None
+    thread = r'^\S+\s+\S+\s+(?:[+-]\d{4}\s+)?' + re.escape(pid) + r'\s+\d+\s'
+    return next((' '.join(line.split()[:2]) for line in reversed(output.splitlines())
+                 if re.match(thread, line) and 'Creating sole SDL activity' in line), None)
+
+
+def startup_log_fresh(native, before, after, created):
+    if (not created or before != after or
             'Application startup time:' not in native or 'Error:' in native):
         return False
     try:
@@ -60,10 +67,16 @@ def startup_native_ready(chains, native, pid, before, after):
         # stable file written after replacement creation cannot be the old
         # PID's leftover readiness marker. No native log is modified here.
         modified = datetime.datetime.fromisoformat(before.split('|')[2].replace(' +', '+').replace(' -', '-'))
-        created = datetime.datetime.fromisoformat(chains[-1]['new_host_created']).replace(tzinfo=datetime.timezone.utc)
+        created = datetime.datetime.fromisoformat(created).replace(tzinfo=datetime.timezone.utc)
         return modified.tzinfo is not None and modified >= created
     except (IndexError, KeyError, ValueError):
         return False
+
+
+def startup_native_ready(chains, native, pid, before, after):
+    return bool(chains and all(row['complete'] for row in chains) and
+                pid == chains[-1]['new_pid'] and
+                startup_log_fresh(native, before, after, chains[-1]['new_host_created']))
 
 
 def startup_restart(output, app, current_pid='', ready=None):
@@ -294,6 +307,7 @@ def controls():
             raise AssertionError('A late/second destroy escaped: ' + label)
     startup_controls()
     startup_restart_controls()
+    startup_readiness_controls()
     assert copy_pid(prefix + 'Resource copy required=true') is None
     assert copy_pid(prefix + 'Installed resource: locale/en_US') is None
     copying = prefix + 'Resource copy required=true\n'
@@ -311,6 +325,8 @@ def controls():
             'restart needs request, helper start, retirement, new live PID and native startup; missing links rejected.\n'
             'PASS: kept startup trace survives circular-buffer eviction; stale/unstable native logfile '
             'cannot prove readiness for a replacement PID.\n'
+            'PASS: actual startup predicate rejects the previous process log during bootstrap, '
+            'empty/partial or changing files, missing creation and changed PID; fresh cold and known warm hosts qualify.\n'
             'PASS: copy probe binds its PID only to the actual font-copy event.\n')
 
 
@@ -442,6 +458,46 @@ def startup_restart_controls(zone=''):
     assert startup_restart(trace, app) == []
     if not zone:
         startup_restart_controls('+0000 ')
+
+
+def startup_readiness_controls(source=None):
+    # Exercise the real device-facing predicate without importing smoke.py's
+    # command-line/device setup. Replay the bootstrap/log-rotation race from
+    # run 39032722833, API 31 assets-configurator (also reachable on other SDKs).
+    import ast
+    from pathlib import Path
+    import sys
+    path = Path(__file__).with_name('smoke.py')
+    node = next(node for node in ast.parse(path.read_text() if source is None else source).body
+                if isinstance(node, ast.FunctionDef) and node.name == 'current_startup_ready')
+    code = compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec')
+    created = ('2026-10-17 14:56:13.133869 +0000 8817 8817 I ES-DE-Plus: '
+               'Creating sole SDL activity task=18')
+    native = 'Total game count: 2\nApplication startup time: 1960 ms\n'
+    old = '122|100|2026-10-17 14:55:52.000000000 +0000'
+    fresh = '123|100|2026-10-17 14:56:14.000000000 +0000'
+    def evaluate(text, stamp, trace=created, known='8581', after=None, final_pid='8817'):
+        values = iter(text if isinstance(text, list) else [text, text])
+        stamps = iter([stamp, stamp if after is None else after])
+        pids = iter(['8817', final_pid])
+        namespace = dict(startup_ready_pid=known, startup_baseline='previous baseline',
+                         startup_monitoring=True, startup_log_marker='control', app='org.esdeplus.frontend',
+                         logpath='/control/es_log.txt', log=lambda: next(values),
+                         shell=lambda *args, **kwargs: next(stamps) if args[0] == 'stat' else next(pids),
+                         adb=lambda *args: trace, startup_trace=lambda *args: trace,
+                         fresh_session_checks=sys.modules[__name__])
+        exec(code, namespace)
+        return namespace['current_startup_ready'](), namespace['startup_ready_pid']
+    assert evaluate(native, old)[0] is False, 'Previous native log accepted for a new bootstrap PID'
+    assert evaluate([native, ''], old, after=fresh)[0] is False
+    assert evaluate('Total game count: 2\n', fresh)[0] is False
+    assert evaluate(native, fresh, trace='')[0] is False
+    assert evaluate(native, fresh, after=old)[0] is False
+    assert evaluate(native, fresh, final_pid='9000')[0] is False
+    assert evaluate(native, fresh, trace=created.replace('8817 8817', '1001 8817'))[0] is False
+    assert evaluate(native, fresh) == (True, '8817')
+    assert evaluate(native, fresh, trace=created.replace(' +0000', '')) == (True, '8817')
+    assert evaluate(native, old, trace='', known='8817') == (True, '8817')
 
 
 if __name__ == '__main__':
