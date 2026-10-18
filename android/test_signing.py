@@ -296,7 +296,7 @@ def sdk_controls():
             manifest = root / 'AndroidManifest.xml'
             manifest.write_text(f"""<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 package="org.esdeplus.frontend" android:versionCode="{code}" android:versionName="{version['version_name']}">
-<uses-sdk android:minSdkVersion="31" android:targetSdkVersion="36"/>
+<uses-sdk android:minSdkVersion="33" android:targetSdkVersion="36"/>
 <application android:label="@string/app_name" android:debuggable="{str(debug).lower()}"/>
 </manifest>""")
             subprocess.run([str(tools() / 'aapt2'), 'link', '--manifest', str(manifest), '-I',

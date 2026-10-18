@@ -676,10 +676,11 @@ def grant_from_settings(app_label=None, recipient=False):
 def activity_records():
     dump = shell('dumpsys', 'activity', 'activities')
     records = []
-    for record in re.findall(r'Hist\s+#\d+: ActivityRecord\{([^}]+)\}', dump):
-        match = re.search(r'\bu\d+ ' + re.escape(app) + r'/([^\s]+) t(\d+)', record)
-        if match:
-            records.append((match[1].rsplit('.', 1)[-1], match[2], record))
+    # Some Android versions print the task ID after the ActivityRecord brace.
+    for record, task in re.findall(r'Hist\s+#\d+: ActivityRecord\{([^}\n]+)\}(?: t(\d+)\b[^}\n]*\})?', dump):
+        match = re.search(r'\bu\d+ ' + re.escape(app) + r'/([^\s]+)(?: t(\d+))?', record)
+        if match and (match[2] or task):
+            records.append((match[1].rsplit('.', 1)[-1], match[2] or task, record))
     return dump, records
 
 
@@ -1307,7 +1308,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 31 and API 34 still fail without a product launch retry.
+                raise  # API 33 and API 34 still fail without a product launch retry.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')
