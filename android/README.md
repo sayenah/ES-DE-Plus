@@ -299,10 +299,11 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs seven baseline gating smoke phases, each in a distinct cold AVD: `app-data`
+CI runs eight baseline gating smoke phases, each in a distinct cold AVD: `app-data`
 (consent, adoption, root recovery and retained data after uninstall), `core`
 (configurator, storage, held destruction, process death, launch/importer and
-RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
+RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
+(24 return/join/retirement and single-new-main chains), `integration`
 (update continuity on API 33/34 and network checks), `pdf-direct`,
 `pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
 relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
@@ -458,13 +459,14 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/60/35/60/20 minutes for core/lifecycle/integration/
+Emulator steps are bounded to 60/40/40/60/35/60/20 minutes for core/lifecycle/clear-task/integration/
 PDF-direct/PDF-scoped/assets; API 34 core uses 80 minutes under D-024 am. 16.
 Integration and scoped-PDF use 60-minute teardown backstops under D-012 am. 12;
 measured passes took 41m45s and 35m43s. In-harness readiness/probe deadlines stay unchanged.
 The core step reached 51.8 minutes on API 34 in round 4 (push run 39046156277),
 leaving 8.2 minutes under the earlier 60-minute cap. Readiness/probe deadlines
 remain unchanged. Re-measure core on API 33 after platform PR #27 integrates. Earlier
+Clear-task chains run in their own cold-AVD session; all lifecycle assertions remain in place.
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
 (run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
 An action failure or timeout after the
