@@ -111,12 +111,29 @@ def startup_restart(output, app, current_pid='', ready=None):
                    for text in later)
         helper = re.escape(app) + r'/(?:\.|' + re.escape(app) + r'\.)FrontendRestartActivity\b'
         requested = next((n for n, text in enumerate(later) if re.search(r'\bSTART u\d+ .*cmp=' + helper, text)), None)
+        storage_before_destroy = False
+        retirement_floor = -1
+        if requested is None:
+            # Explicit data re-selection requests the helper before retiring
+            # the SDL host. Bind that earlier request to this old PID's marker;
+            # ordinary configuration destroys still need their later request.
+            storage = next((n for n in range(index - 1, -1, -1)
+                            if re.search(r'\bI ES-DE-Plus: Storage selection requires a fresh frontend start$', lines[n]) and
+                            (actor := re.match(thread, lines[n])) and actor[1] == pid), None)
+            prior = [n for n in range(storage + 1, index)
+                     if re.search(r'\bSTART u\d+ .*cmp=' + helper, lines[n])] if storage is not None else []
+            if len(prior) == 1:
+                later = lines[storage + 1:]
+                requested = prior[0] - storage - 1
+                retirement_floor = index - storage - 1
+                storage_before_destroy = True
         if died and requested is None:
             raise HostStartupFailure('G-30 CONFIGURATION_DESTROY_WITHOUT_HELPER: PID ' + pid + ': ' + line)
         started = next((n for n, text in enumerate(later) if requested is not None and n >= requested and
                         'FrontendRestartActivity' in text and any(token in text for token in
                         ('Start proc ', 'Displayed ', 'wm_on_create_called', 'wm_on_resume_called'))), None)
         retired = next((n for n, text in enumerate(later) if started is not None and n >= started and
+                        n > retirement_floor and
                         'SDL process ' + pid + ' retired; restarting entry' in text), None)
         creation = next((text for n, text in enumerate(later)
                          if retired is not None and n > retired and 'Creating sole SDL activity' in text), None)
@@ -125,6 +142,7 @@ def startup_restart(output, app, current_pid='', ready=None):
         if ready is not None and (not complete or 'Application startup time:' not in ready or 'Error:' in ready):
             raise HostStartupFailure('G-30 INCOMPLETE_RESTART_CHAIN: PID ' + pid + ' -> ' + str(new))
         chains.append(dict(old_pid=pid, restart_requested=requested is not None,
+                           storage_request_before_destroy=storage_before_destroy,
                            helper_started=started is not None, retired=retired is not None,
                            new_pid=new, new_host_created=' '.join(creation.split()[:2]) if creation else None,
                            complete=complete))
@@ -340,6 +358,7 @@ def controls():
             'PASS: late/second G-29 destroys labelled and counted; replacement declared-bits destroy rejected.\n'
             'PASS: G-30 destroy/death without helper stays hard even after stock dismissal; '
             'restart needs request, helper start, retirement, new live PID and native startup; missing links rejected.\n'
+            'PASS: explicit same-PID storage request may precede destruction; missing/wrong/stale/ambiguous evidence stays hard.\n'
             'PASS: kept startup trace survives circular-buffer eviction; stale/unstable native logfile '
             'cannot prove readiness for a replacement PID.\n'
             'PASS: actual startup predicate rejects the previous process log during bootstrap, '
@@ -485,6 +504,33 @@ def startup_restart_controls(zone=''):
             assert 'G-30' in str(failure)
         else:
             raise AssertionError('Incomplete host restart escaped')
+    # PR15 run39102636049: the valid storage-reselection helper request
+    # precedes the old host's destruction. Every other restart link is needed.
+    storage = [prefix + '2001 2001 I ES-DE-Plus: Storage selection requires a fresh frontend start',
+               lines[1], prefix + '2002 2002 I wm_on_create_called: [.FrontendRestartActivity]',
+               lines[0], lines[2], lines[4], lines[5]]
+    for log in (storage, storage[:2] + [storage[3], storage[2]] + storage[4:]):
+        rows = startup_restart('\n'.join(log), app, '2003', native)
+        assert rows[0]['complete'] and rows[0]['storage_request_before_destroy']
+        assert startup_native_ready(rows, native, '2003', stamp, stamp)
+        assert not startup_native_ready(rows, native, '2003', old, old)
+    storage_bad = [storage[:n] + storage[n + 1:] for n in (0, 1, 2, 5, 6)]
+    storage_bad.extend([
+        [storage[0].replace('2001 2001', '2099 2099')] + storage[1:],
+        [storage[0].replace('I ES-DE-Plus:', 'I OtherLog:')] + storage[1:],
+        [storage[1], storage[0]] + storage[2:],  # A request before this marker is stale.
+        storage[:2] + [storage[1]] + storage[2:],  # Ambiguous helper requests.
+        storage[:3] + [storage[5]] + storage[3:5] + storage[6:],  # Retirement before destruction.
+        storage[:5] + [storage[5].replace('process 2001', 'process 2099')] + storage[6:],
+        storage[:6] + [storage[6].replace('2003 2003', '2001 2001')],
+    ])
+    for log in storage_bad:
+        try:
+            startup_restart('\n'.join(log), app, '2003', native)
+        except HostStartupFailure:
+            pass
+        else:
+            raise AssertionError('Unproven pre-destruction storage restart escaped')
     marker = prefix + '551 551 I ESDE-Smoke: control-marker\n'
     trace = startup_trace(marker + '\n'.join(lines), marker + '\n'.join(lines), 'control-marker')
     assert startup_restart(trace, app, '2003', native)[0]['complete']

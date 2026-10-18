@@ -417,7 +417,10 @@ harness's onboarding relaunch. Startup readiness after a host restart requires
 the framework's helper START request, evidence that the helper actually started,
 the helper's old-PID-retired record, creation of a new live frontend PID, and
 `Application startup time:` without `Error:`. Missing links fail; the harness
-never supplies the absent restart. Start markers include configurator Save/start
+never supplies the absent restart. Application-data re-selection may request the
+helper before SDL destruction: only the exact storage-restart marker from the
+same old PID admits that order. Helper start, retirement after destruction, a
+new live frontend and fresh native-log evidence are still required. Start markers include configurator Save/start
 and explicit frontend entries, and timeout evidence precedes caller cleanup.
 CI controls replay the G-30 exclusion and reject each missing restart link.
 Classification merges the kept session stream with the live capture, so buffer
