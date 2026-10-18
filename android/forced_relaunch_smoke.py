@@ -66,6 +66,7 @@ def controls():
         ('helperStarted=false', 'helperStarted=true'), ('START', 'NOT_STARTED'),
         ('SDL process 123 retired;', 'SDL process 999 retired;'),
         ('configurationChanges=0x-80000000', 'configurationChanges=0x10000000'),
+        ('configurationChanges=0x-80000000', 'configurationChanges=0x-7fffff80'),
         ('finishing=false', 'finishing=true'), ('changingConfigurations=true', 'changingConfigurations=false'))]
     mutants.append(logs.replace('held=false', 'held=true'))
     mutants += [logs + '01-01 00:00:00.006 123 124 V SDL: Running main function\n',

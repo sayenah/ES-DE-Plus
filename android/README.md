@@ -270,6 +270,9 @@ destination to the original HOME task and requires that sole HOME record visible
 the game. ASSETS destruction/native join, recreation, continuous game focus,
 cancellation and committed restoration remain mandatory. A compat `TYPE_CALLBACK`
 fails the probe. Edge gestures are not a TV navigation mode.
+The CI probe game uses HOME's sensor-portrait orientation, and the harness checks
+equal HOME/game screen dimensions before the gesture. This keeps orientation
+changes out of the strict ASSETS_PATHS-only destruction assertion.
 The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass

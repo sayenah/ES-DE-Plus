@@ -178,6 +178,8 @@ def run(harness):
         home_task = records[0][1]
         old = h.shell('pidof', h.app).strip()
         before = h.log()
+        home_png = h.adb('exec-out', 'screencap', '-p', binary=True)
+        home_size = struct.unpack('>II', home_png[16:24])
         h.shell('am', 'start', '-n', 'org.esdeplus.stub/.PredictiveBackActivity')
         h.wait_for(lambda: forced_relaunch_smoke.frontend_stopped(h.activity_records()[0], record) and
                    h.smoke_checks.package_window_focused(h.focused_window(), 'org.esdeplus.stub'),
@@ -198,6 +200,11 @@ def run(harness):
         # the real platform path and ASSETS recreation; neither app is instrumented.
         png = h.adb('exec-out', 'screencap', '-p', binary=True)
         width, height = struct.unpack('>II', png[16:24])
+        # Keep rotation out of the ASSETS_PATHS-only destruction contract. The
+        # CI game uses the same sensor-portrait orientation as the phone HOME.
+        with (h.evidence / (name + '-preconditions.txt')).open('a') as output:
+            output.write(f'HOME size={home_size}; game size={(width, height)}\n')
+        assert (width, height) == home_size, 'Probe game rotated the display away from HOME'
         y = height // 2
         h.shell('input', 'touchscreen', 'motionevent', 'DOWN', '1', str(y))
         pointer_down = True
