@@ -461,6 +461,10 @@ round-1 matrices (39051707636 and 39051710800), or 89–99% of the 40-minute cap
 introduced by PR #24. The clear-task chains therefore run in their own gating
 cold-AVD session with a 40-minute step cap; existing lifecycle assertions and
 every in-harness deadline stay unchanged.
+Its initial instrumented or ordinary entry uses the shared bounded startup
+policy: one proven stock-onboarding preemption before readiness may recover;
+crashes, exits, host failures and later failures stay hard. The clear-task action
+itself is issued once, after readiness, with every retirement assertion retained.
 
 Emulator steps are bounded to 60/40/40/60/35/60/20 minutes for core/lifecycle/clear-task/
 integration/PDF-direct/PDF-scoped/assets; API 34 core uses 80 minutes under D-024 am. 16.
