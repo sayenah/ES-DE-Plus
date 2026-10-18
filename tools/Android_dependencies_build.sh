@@ -16,7 +16,7 @@ grep -q 'Pkg.Revision = 28.2.13676358' "$ndk/source.properties"
 case $(uname -s) in Linux) host=linux-x86_64 ;; Darwin) host=darwin-x86_64 ;; *) exit 1 ;; esac
 toolbin=$ndk/toolchains/llvm/prebuilt/$host/bin
 export PATH="$toolbin:$PATH"
-export CC=$toolbin/${triple}31-clang CXX=$toolbin/${triple}31-clang++
+export CC=$toolbin/${triple}33-clang CXX=$toolbin/${triple}33-clang++
 export AR=$toolbin/llvm-ar RANLIB=$toolbin/llvm-ranlib STRIP=$toolbin/llvm-strip
 export CFLAGS='-O2 -fPIC' CXXFLAGS='-O2 -fPIC'
 export LDFLAGS='-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'
@@ -30,12 +30,12 @@ mkdir -p "$work" "$prefix" "$libs"
 # or ICU's native host tools). OpenSSL locates plain clang in the real NDK PATH.
 audit_tools=$work/compiler-audit
 mkdir -p "$audit_tools"
-for tool in "${triple}31-clang" "${triple}31-clang++" llvm-ar llvm-ranlib; do
+for tool in "${triple}33-clang" "${triple}33-clang++" llvm-ar llvm-ranlib; do
     printf '#!/usr/bin/env bash\nexec python3 "%s/android/license-tool.py" "%s/%s" "$@"\n' "$root" "$toolbin" "$tool" > "$audit_tools/$tool"
     chmod +x "$audit_tools/$tool"
 done
 export PATH="$audit_tools:$PATH"
-export CC=$audit_tools/${triple}31-clang CXX=$audit_tools/${triple}31-clang++
+export CC=$audit_tools/${triple}33-clang CXX=$audit_tools/${triple}33-clang++
 export AR=$audit_tools/llvm-ar RANLIB=$audit_tools/llvm-ranlib
 audit_commands=$work/compiler-commands.jsonl
 : > "$audit_commands"
@@ -44,7 +44,7 @@ cm() {
     local name=$1 source=$2; shift 2
     cmake -S "$source" -B "$work/$name" -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
-        -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-31 -DANDROID_STL=c++_shared \
+        -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-33 -DANDROID_STL=c++_shared \
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
         -DCMAKE_FIND_ROOT_PATH="$prefix" -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -110,7 +110,7 @@ cm freetype "$src/freetype" -DBUILD_SHARED_LIBS=ON -DFT_DISABLE_HARFBUZZ=ON -DFT
 # OpenSSL uses the NDK compiler selected via its Android target.
 mkdir -p "$work/openssl"
 (cd "$work/openssl"; ANDROID_NDK_ROOT="$ndk" "$src/openssl/Configure" "$openssl_arch" \
-    -D__ANDROID_API__=31 --prefix="$prefix" --libdir=lib shared no-tests no-apps -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
+    -D__ANDROID_API__=33 --prefix="$prefix" --libdir=lib shared no-tests no-apps -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384
  ESDE_LICENSE_COMMANDS="$audit_commands" make -j"$jobs"; ESDE_LICENSE_COMMANDS="$audit_commands" make install_sw)
 cm curl "$src/curl" -DBUILD_SHARED_LIBS=ON -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF \
     -DCURL_USE_OPENSSL=ON -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_USE_LIBSSH=OFF \
@@ -152,4 +152,4 @@ mkdir -p "$work/ffmpeg"
 python3 android/license-inputs.py capture "$abi" "$ndk"
 # Package only the upstream link inputs and recursive non-system DT_NEEDED closure.
 python3 android/package-dependencies.py "$prefix/lib" "$libs" "$ndk" "$host" "$triple"
-printf 'Built dependency closure for %s (API 31, 16 KiB).\n' "$abi"
+printf 'Built dependency closure for %s (API 33, 16 KiB).\n' "$abi"

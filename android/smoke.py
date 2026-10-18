@@ -16,6 +16,8 @@ import icon_smoke
 import lifecycle_smoke
 import smoke_support
 import smoke_session
+import fresh_session_checks
+import install_settle
 import smoke_phases
 import network_smoke
 import audio_smoke
@@ -37,6 +39,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 (evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
+(evidence / 'fresh-session-controls.txt').write_text(fresh_session_checks.controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
 logpath = external + '/ES-DE-Plus/logs/es_log.txt'
@@ -49,9 +52,23 @@ last_onboarding_check = 0.0
 onboarding_dismissals = 0
 readiness_waits = evidence / ('audio-control-readiness-waits.txt' if '--audio-control' in sys.argv
                               else 'readiness-waits.txt')
+onboarding_dismissal_marker = ''
+startup_number = 0
+startup_log_marker = ''
+startup_monitoring = False
+startup_ready_pid = ''
+session_settled = False
+
+
+def settle_session():
+    global session_settled
+    if not session_settled:
+        smoke_session.settle(app, evidence)
+        session_settled = True
 
 
 def adb(*args, check=True, binary=False):
+    reset_uid = adb('shell', 'id -u').strip() if args in (('root',), ('unroot',)) else None
     if args != ('wait-for-device',):
         smoke_support.connected()
     # Only identified transport errors on read-only diagnostics can be replayed.
@@ -77,12 +94,29 @@ def adb(*args, check=True, binary=False):
     if check and result.returncode:
         print(result.stderr.decode(errors='replace') if binary else result.stderr, file=sys.stderr)
         result.check_returncode()
+    if not binary and (result.returncode == 0 or reset_uid is not None):
+        smoke_session.session_logcat.adb_completed(args, result.stdout, command_started,
+                                                   before_uid=reset_uid, status=result.returncode)
+    if args[:1] == ('install',) and result.returncode == 0:
+        install_settle.after_install(args, result.stdout, evidence)
     return result.stdout
 
 
 def shell(*args, check=True):
     # adb shell joins arguments without escaping, including arguments to sh -c.
+    if args[:2] == ('am', 'start') and any(
+            flag in ('-n', '-p', '--component', '--package') and
+            (value == app or value.startswith(app + '/')) for flag, value in zip(args, args[1:])):
+        begin_startup()
     return adb('shell', shlex.join(args), check=check)
+
+
+def begin_startup():
+    global startup_log_marker, startup_monitoring
+    startup_monitoring = True
+    startup_log_marker = 'ESDE_STARTUP_' + str(time.monotonic_ns())
+    adb('shell', shlex.join(('log', '-t', 'ESDE-Smoke', startup_log_marker)))
+    return startup_log_marker
 
 
 def focused_window():
@@ -113,6 +147,8 @@ def instrument_with_ui(*arguments, install=False):
             errors.seek(0)
             result = subprocess.CompletedProcess(process.args, process.returncode, output.read(), errors.read())
             result.check_returncode()
+            if install:
+                install_settle.after_install(arguments, result.stdout, evidence)
             return result.stdout
         finally:
             if process.poll() is None:
@@ -142,7 +178,14 @@ def wait_for(condition, description, timeout=90):
         time.sleep(0.25)
     with readiness_waits.open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
-    raise AssertionError('Timed out: ' + description)
+    if timeout >= 30 and startup_monitoring and startup_log_marker:
+        captured = capture_startup_failure('timeout-' + startup_log_marker, startup_log_marker)
+        try:
+            fresh_session_checks.startup_restart(captured['logcat'], app)
+        except fresh_session_checks.HostStartupFailure as failure:
+            (evidence / ('timeout-' + startup_log_marker + '-outcome.txt')).write_text(str(failure) + '\n')
+            raise
+    raise fresh_session_checks.ReadinessTimeout('Timed out: ' + description)
 
 
 def log():
@@ -156,14 +199,105 @@ def screenshot(name):
 
 
 def launch(audio_relaunch=None):
+    global startup_number
+    if audio_relaunch:
+        launch_attempt(lambda: None, audio_relaunch)
+        return
+    startup_number += 1
+    name = f'startup-{startup_number}'
+    marker = begin_startup()
+    def record(result):
+        result.update(start=name, readiness_deadline_seconds=90)
+        with (evidence / 'startup-outcomes.txt').open('a') as output:
+            output.write(json.dumps(result) + '\n')
+        print('STARTUP_OUTCOME ' + json.dumps(result), flush=True)
+    fresh_session_checks.startup(
+        launch_attempt, lambda: onboarding_dismissals,
+        lambda number: capture_startup_failure(f'{name}-attempt-{number + 1}-failure', marker),
+        lambda: shell('am', 'force-stop', app), record, app, current_startup_ready)
+
+
+def capture_startup_failure(name, marker):
+    # No transition sleep or cleanup before this live screenshot and state.
+    (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
+    focus = focused_window()
+    (evidence / (name + '-focus.txt')).write_text(focus)
+    (evidence / (name + '-window.txt')).write_text(shell('dumpsys', 'window'))
+    (evidence / (name + '-activities.txt')).write_text(shell('dumpsys', 'activity', 'activities'))
+    output = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime', '-v', 'year', '-v', 'UTC', '-v', 'usec')
+    (evidence / (name + '-logcat-tail.txt')).write_text('\n'.join(output.splitlines()[-1000:]) + '\n')
+    (evidence / (name + '-all-logcat.txt')).write_text(output)
+    save_logs(name)
+    capture_frontend_stacks(name)
+    since_start = startup_trace(marker, output)
+    (evidence / (name + '-startup-trace.txt')).write_text(since_start)
+    after_dismissal = (since_start.partition(onboarding_dismissal_marker)[2]
+                       if onboarding_dismissal_marker and onboarding_dismissal_marker in since_start else None)
+    return dict(focus=focus, logcat=since_start, after_dismissal=after_dismissal)
+
+
+def session_logcat(snapshot):
+    path = pathlib.Path('android/evidence') / (phase + '-session-logcat.txt')
+    kept = path.read_text(errors='replace') if path.exists() else ''
+    kept = ''.join(line for line in kept.splitlines(keepends=True) if line.endswith('\n'))
+    return kept + '\n' + snapshot
+
+
+def startup_trace(marker, snapshot):
+    return fresh_session_checks.startup_trace(session_logcat(snapshot), snapshot, marker)
+
+
+def current_startup_ready():
+    global startup_ready_pid
+    current = log()
+    if current == startup_baseline or 'Application startup time:' not in current:
+        return False
+    pid = shell('pidof', app, check=False).strip()
+    if not startup_monitoring and pid and pid == startup_ready_pid:
+        return True
+    snapshot = adb('logcat', '-d', '-b', 'all', '-v', 'threadtime', '-v', 'year', '-v', 'UTC', '-v', 'usec')
+    output = startup_trace(startup_log_marker, snapshot)
+    try:
+        chains = fresh_session_checks.startup_restart(output, app)
+        if chains or pid != startup_ready_pid:
+            before = shell('stat', '-c', '%i|%s|%y', logpath, check=False).strip()
+            current = log()
+            after = shell('stat', '-c', '%i|%s|%y', logpath, check=False).strip()
+            if shell('pidof', app, check=False).strip() != pid:
+                return False
+            if chains:
+                if not fresh_session_checks.startup_native_ready(chains, current, pid, before, after):
+                    return False
+                chains = fresh_session_checks.startup_restart(output, app, pid, ready=current)
+            elif not fresh_session_checks.startup_log_fresh(
+                    current, before, after,
+                    fresh_session_checks.startup_host_created(session_logcat(snapshot), pid)):
+                return False
+    except fresh_session_checks.HostStartupFailure as failure:
+        capture_startup_failure('host-startup-' + startup_log_marker, startup_log_marker)
+        (evidence / ('host-startup-' + startup_log_marker + '-outcome.txt')).write_text(str(failure) + '\n')
+        raise
+    if chains:
+        assert 'Error:' not in current, current
+        with (evidence / 'startup-restart-chains.txt').open('a') as record:
+            record.write(json.dumps(dict(marker=startup_log_marker, chains=chains,
+                                         application_startup_time=True, native_log_stat=after)) + '\n')
+    if not pid.isdigit():
+        return False
+    startup_ready_pid = pid
+    return True
+
+
+def launch_attempt(reached_readiness, audio_relaunch=None):
     # Each stopped-process restart must produce new startup evidence.
-    global startup_baseline
+    global startup_baseline, startup_monitoring
     startup_baseline = log()
     if audio_relaunch:
         audio_smoke.startup(globals(), audio_relaunch, startup_baseline)
     else:
         shell('am', 'start', '-n', activity)
-        wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh frontend startup/system loading')
+        wait_for(current_startup_ready, 'fresh frontend startup/system loading')
+    reached_readiness()
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
     # Startup logging precedes the render loop's first frame/texture uploads.
@@ -182,6 +316,9 @@ def launch(audio_relaunch=None):
         raise
     if any(node.get('text') == 'Got it' for node in hierarchy()):
         ui('Got it')
+    if not current_startup_ready():
+        raise fresh_session_checks.ReadinessTimeout('Startup readiness lost before startup UI completed')
+    startup_monitoring = False
 
 
 def save_logs(name):
@@ -260,6 +397,7 @@ def node_matches(node, label):
 
 def dismiss_stock_onboarding(force=False):
     global dismissing_onboarding, last_onboarding_check, onboarding_dismissals
+    global onboarding_dismissal_marker
     if not onboarding_guard or dismissing_onboarding:
         return
     if not force and time.monotonic() - last_onboarding_check < 2:
@@ -270,7 +408,7 @@ def dismiss_stock_onboarding(force=False):
     if not smoke_checks.stock_onboarding_focused(window, stock_package):
         return
     dismissing_onboarding = True
-    tutorial_dismissed = False
+    acted = False
     try:
         # The stock launcher can present a multi-page Live TV/Shop tutorial.
         # Each page gets its exact negative action once, and must visibly
@@ -304,6 +442,7 @@ def dismiss_stock_onboarding(force=False):
                         n.get('text') == action and n.get('clickable') == 'true')
             x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
             shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
+            acted = True
             time.sleep(1)
             nodes = hierarchy()
             window = focused_window()
@@ -319,31 +458,48 @@ def dismiss_stock_onboarding(force=False):
                 return (bool(current_page[1]) and current_page != page and
                         (not page[0] or bool(current_page[0])))
             wait_for(advanced, 'stock tutorial page advanced or closed')
-            tutorial_dismissed = True
         wait_for(lambda: not smoke_checks.stock_onboarding_focused(focused_window(), stock_package),
                  'bounded stock tutorial flow closed')
-        nodes = hierarchy()
         # Closing the tutorial can expose a separate stock launcher banner.
-        # Dismiss its actual action too; retain the strict clear assertion.
-        if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
-               n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
-            window = focused_window()
-            smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
-            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
-                output.write('Actual stock launcher banner; dismissing its separate action.\n' + window + '\n')
-            ui('Dismiss')
+        # It can arrive during the clear wait. Act on its verified control
+        # once, then keep polling the unchanged strict clear condition.
+        banner_acted = False
+        def clear():
+            nonlocal banner_acted
             nodes = hierarchy()
-            if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
-                   n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
-                smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
-                key('KEYCODE_DPAD_CENTER')
-        wait_for(stock_ui_clear, 'external TV onboarding dismissal completed')
+            if not banner_acted and any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+                    n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+                window = focused_window()
+                smoke_checks.probe_passed('focused' if smoke_checks.package_window_focused(window, stock_package) else '', 'focused')
+                banner_acted = True
+                with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                    output.write('Actual stock launcher banner; dismissing its separate action once.\n' +
+                                 window + '\n' + (evidence / 'latest-ui.txt').read_text() + '\n')
+                ui('Dismiss')
+                nodes = hierarchy()
+                if any(n.get('package') == stock_package and n.get('text') == 'Dismiss' and
+                       n.get('resource-id') == stock_package + ':id/tray_dismiss' for n in nodes):
+                    smoke_checks.probe_passed('focused' if smoke_checks.stock_banner_dismiss_focused(nodes, stock_package) else '', 'focused')
+                    key('KEYCODE_DPAD_CENTER')
+            return stock_ui_clear()
+        try:
+            wait_for(clear, 'external TV onboarding dismissal completed')
+        except fresh_session_checks.ReadinessTimeout:
+            (evidence / 'tv-onboarding-clear-failure-ui.txt').write_text((evidence / 'latest-ui.txt').read_text())
+            raise
         smoke_checks.onboarding_clear(hierarchy(), stock_package, app)
-        if tutorial_dismissed:
+        if acted:
             onboarding_dismissals += 1
+            onboarding_dismissal_marker = 'ESDE_STOCK_DISMISSED_' + str(time.monotonic_ns())
+            shell('log', '-t', 'ESDE-Smoke', onboarding_dismissal_marker)
+            with (evidence / 'tv-onboarding-events.txt').open('a') as output:
+                output.write(f'Completed stock-tutorial dismissal {onboarding_dismissals}; '
+                             f'startup counter={startup_number}; marker={onboarding_dismissal_marker}; '
+                             f'monotonic={time.monotonic():.6f}.\n')
         screenshot('tv-onboarding-dismissed')
         # No frontend launch, task focus change, process restart or assertion
-        # retry is performed. The original condition still has to pass.
+        # retry is performed here. WO-17's shared startup wrapper has the sole
+        # exception: one recorded relaunch before readiness after this dismissal.
     finally:
         dismissing_onboarding = False
 
@@ -363,6 +519,8 @@ def ui(label, dpad=False, exact=False):
         for _ in range(50):
             nodes = hierarchy()
             if any(node_matches(n, label) and n.get('focused') == 'true' for n in nodes):
+                if label == 'Save and start frontend':
+                    begin_startup()
                 key('KEYCODE_DPAD_CENTER')
                 return
             focused = next((n for n in nodes if n.get('focused') == 'true'), None)
@@ -385,12 +543,15 @@ def ui(label, dpad=False, exact=False):
     matches = [n for n in nodes if smoke_checks.exact_label(n, label)]
     node = matches[0] if matches else next(n for n in nodes if node_matches(n, label))
     x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.attrib['bounds']))
+    if label == 'Save and start frontend':
+        begin_startup()
     shell('input', 'tap', str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(1)
 
 
 def start_entry(name='MainActivity', category='android.intent.category.LAUNCHER'):
     global startup_baseline
+    settle_session()
     if not shell('pidof', app, check=False).strip():
         startup_baseline = log()
     shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', category,
@@ -477,10 +638,11 @@ def grant_from_settings(app_label=None, recipient=False):
 def activity_records():
     dump = shell('dumpsys', 'activity', 'activities')
     records = []
-    for record in re.findall(r'Hist\s+#\d+: ActivityRecord\{([^}]+)\}', dump):
-        match = re.search(r'\bu\d+ ' + re.escape(app) + r'/([^\s]+) t(\d+)', record)
-        if match:
-            records.append((match[1].rsplit('.', 1)[-1], match[2], record))
+    # Some Android versions print the task ID after the ActivityRecord brace.
+    for record, task in re.findall(r'Hist\s+#\d+: ActivityRecord\{([^}\n]+)\}(?: t(\d+)\b[^}\n]*\})?', dump):
+        match = re.search(r'\bu\d+ ' + re.escape(app) + r'/([^\s]+)(?: t(\d+))?', record)
+        if match and (match[2] or task):
+            records.append((match[1].rsplit('.', 1)[-1], match[2] or task, record))
     return dump, records
 
 
@@ -585,6 +747,7 @@ def real_system_home():
         shell('am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME', '-n', stock)
         width, height = map(int, re.findall(r'(\d+)x(\d+)', shell('wm', 'size'))[-1])
         shell('input', 'swipe', str(width // 2), str(height - 100), str(width // 2), '100', '500')
+        begin_startup()  # The stock drawer starts the app through its icon, not am start.
         ui(label, exact=True)
         configured_system('system-home-drawer-launch')
         pid = shell('pidof', app).strip()
@@ -668,6 +831,7 @@ def owned_fixture(action, directory):
 
 
 def clear_app():
+    settle_session()
     shell('am', 'force-stop', app)
     shell('pm', 'clear', app)
     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'cleared app process stopped')
@@ -677,13 +841,13 @@ def clear_app():
 
 
 def configured_system(name, audio_relaunch=False):
-    global startup_baseline
+    global startup_baseline, startup_monitoring
     if audio_relaunch:
         startup_baseline = log()
         audio_smoke.startup(globals(), name, startup_baseline, home=True,
                             description='fresh configured system view')
     else:
-        wait_for(lambda: log() != startup_baseline and 'Application startup time:' in log(), 'fresh configured system view')
+        wait_for(current_startup_ready, 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
     def focused():
@@ -712,6 +876,10 @@ def configured_system(name, audio_relaunch=False):
         ui('Got it')
     screenshot(name)
     save_logs(name)
+    if not current_startup_ready():
+        capture_startup_failure(name + '-readiness-lost', startup_log_marker)
+        raise fresh_session_checks.ReadinessTimeout('Configured frontend lost startup readiness')
+    startup_monitoring = False
 
 
 def launch_contract_probes(mode):
@@ -1092,7 +1260,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 31 and API 34 still fail without a product launch retry.
+                raise  # API 33 and API 34 still fail without a product launch retry.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')
@@ -1160,7 +1328,7 @@ try:
                 (evidence / 'tv-onboarding-preamble.txt').write_text(
                     'Actual stock TV HOME UI verified without onboarding before frontend smoke; focused late stock dialogs are dismissed without relaunching the frontend or weakening its assertions.\n' +
                     (evidence / 'latest-ui.txt').read_text())
-    if phase == 'integration' and device_api in (31, 34):
+    if phase == 'integration' and device_api in (33, 34):
         import update_smoke
         update_record = pathlib.Path('android/evidence/update-identity.txt')
         if update_record.resolve() != (evidence / update_record.name).resolve():
@@ -1168,6 +1336,8 @@ try:
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
+    if phase == 'assets':
+        print(adb('install', '-r', 'android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
     api = device_api
     shared = '/sdcard/ESDEPlusSmoke'
@@ -1221,9 +1391,34 @@ try:
         shell('wm', 'density', str(density))
     if api >= 31:
         previous_weight = shell('settings', 'get', 'secure', 'font_weight_adjustment').strip()
+        # Keep a non-default draft so the forced-process-restart path must
+        # restore actual selections, not just display an empty configurator.
+        ui('Use app-owned storage', dpad=True)
+        ui('Create system folders', dpad=True)
+        scoped_path = shell('readlink', '-f', roms).strip()
+        assert scoped_path, 'Missing canonical scoped ROM directory'
+        draft_before = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
+        assert ('Create system folders', 'false') in draft_before, draft_before
+        assert ('scoped_path', scoped_path) in draft_before, draft_before
+        held_pid = shell('pidof', app).strip()
         before_records = activity_records()[1]
-        adb('logcat', '-c')
+        held_task = next(r[1] for r in before_records if r[0] != 'ConfiguratorActivity')
+        (evidence / 'font-weight-before-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
+        (evidence / 'font-weight-before-overlays.txt').write_text(shell('cmd', 'overlay', 'list'))
+        (evidence / 'font-weight-before-package.txt').write_text(shell('dumpsys', 'package', app))
+        (evidence / 'font-weight-before-application-info.txt').write_text(shell(
+            'cmd', 'package', 'resolve-activity', '--query-flags', '1024', '-n', activity))
+        (evidence / 'font-weight-before-draft.txt').write_text(json.dumps(draft_before) + '\n')
+        # Keep session logcat intact. A unique marker delimits this assertion;
+        # the wrapper also streams all buffers from before the first app action.
+        marker = 'ESDE_FONT_WEIGHT_' + str(time.monotonic_ns())
+        shell('log', '-t', 'ESDE-Smoke', marker)
+        def font_log():
+            output = adb('logcat', '-d', '-v', 'threadtime')
+            assert marker in output, 'Font-weight log marker missing'
+            return output.split(marker, 1)[1]
         requested_weight = '300' if previous_weight != '300' else '0'
+        outcome = None
         try:
             shell('settings', 'put', 'secure', 'font_weight_adjustment',
                   requested_weight)
@@ -1232,21 +1427,67 @@ try:
             # Make the hidden host process its pending configuration through a
             # real re-entry; it immediately re-presents the held configurator.
             start_entry('HomeEntry', 'android.intent.category.HOME')
-            wait_for(lambda: 'SDL activity configuration handled' in adb('logcat', '-d'),
+            def font_changed():
+                return fresh_session_checks.font_outcome(font_log(), held_pid, held_task)
+            wait_for(font_changed,
                      'held SDL host handles the actual font-weight change')
-            assert shell('pidof', app).strip() == held_pid
+            outcome = fresh_session_checks.font_outcome(font_log(), held_pid, held_task)
+            if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH':
+                # This is a different environmental outcome with strict
+                # recovery requirements, never a retry of the font action.
+                (evidence / 'font-weight-outcome.txt').write_text(json.dumps(outcome) + '\nRecovery pending\n')
+                print('G-29 ' + json.dumps(outcome), flush=True)
+                wait_for(lambda: bool(shell('pidof', app, check=False).strip()) and
+                         shell('pidof', app, check=False).strip() != held_pid,
+                         'forced assets-path relaunch has a new frontend PID')
+                wait_for(lambda: any(n.get('package') == app and n.get('text') == 'Create system folders'
+                                     for n in hierarchy()), 'configurator after forced assets-path relaunch')
+                # The visible configurator proves binding has completed; early
+                # process-name snapshots can transiently miss a live process.
+                recovered_pid = shell('pidof', app).strip()
+            screenshot('font-weight-held')
             after_records = activity_records()[1]
-            assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
-                r for r in before_records if r[0] != 'ConfiguratorActivity'), (before_records, after_records)
-            assert 'Creating sole SDL activity' not in adb('logcat', '-d')
+            draft_after = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
+            output = font_log()
+            if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH':
+                fresh_session_checks.font_recovery(held_pid, recovered_pid, held_task,
+                    after_records, 'ConfiguratorActivity' in focused_window(),
+                    draft_after == draft_before, output, app)
+                assert shell('pidof', app).strip() == recovered_pid, 'Forced recovery replaced its new frontend PID'
+            else:
+                # Re-read the destroy mask after UI inspection too; a handled
+                # callback must not conceal a subsequent declared-bits relaunch.
+                fresh_session_checks.font_in_place(output, held_pid, held_task)
+                assert shell('pidof', app).strip() == held_pid
+                assert next(r for r in after_records if r[0] != 'ConfiguratorActivity') == next(
+                    r for r in before_records if r[0] != 'ConfiguratorActivity'), (before_records, after_records)
+                assert 'Creating sole SDL activity' not in output
+                assert draft_after == draft_before, (draft_before, draft_after)
+            (evidence / 'font-weight-step-logcat.txt').write_text(output)
+            (evidence / 'font-weight-outcome.txt').write_text(json.dumps(dict(
+                **outcome, recovery=('PASS' if outcome['outcome'] == 'ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH'
+                                    else 'NOT_REQUIRED_IN_PLACE'),
+                before_pid=held_pid, after_pid=shell('pidof', app).strip(),
+                task=held_task, draft=draft_after)) + '\n')
             (evidence / 'font-weight-held-activities.txt').write_text(activity_records()[0])
             save_logs('font-weight-held')
-            screenshot('font-weight-held')
         finally:
-            if previous_weight == 'null':
-                shell('settings', 'delete', 'secure', 'font_weight_adjustment')
-            else:
-                shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
+            try:
+                # Preserve and classify late/second destroys even on a failed
+                # readiness/PID assertion, before restoring the font setting.
+                final_font_log = font_log()
+                (evidence / 'font-weight-step-logcat.txt').write_text(final_font_log)
+                (evidence / 'font-weight-environmental-count.txt').write_text(json.dumps(dict(
+                    g29_environmental_outcomes=fresh_session_checks.font_environmental_count(final_font_log))) + '\n')
+                fresh_session_checks.font_subsequent_destroys(final_font_log, held_pid, held_task)
+                if outcome and outcome['outcome'] == 'IN_PLACE':
+                    fresh_session_checks.font_in_place(final_font_log, held_pid, held_task)
+            finally:
+                if previous_weight == 'null':
+                    shell('settings', 'delete', 'secure', 'font_weight_adjustment')
+                else:
+                    shell('settings', 'put', 'secure', 'font_weight_adjustment', previous_weight)
+        ui('Create system folders', dpad=True)
     ui('Use app-owned storage', dpad=True)
     ui('Create system folders', dpad=True)
     destroy_held('destroy-initial-held')
@@ -1511,27 +1752,28 @@ try:
              'process-death configurator return starts recorded HOME entry on one SDL host')
     save_logs('scoped-save-releases-grants')
     shell('am', 'force-stop', app)
+    wait_for(lambda: not shell('pidof', app, check=False).strip(), 'previous copy-probe process stopped')
     # Resource installation is uncommitted on a fresh start; remove resources
     # solely to guarantee a real copy for the interruption probe.
     private('rm', '-rf', 'files/resources', 'files/themes', 'files/resources-installed')
     # Interrupt an actual first-run copy through ActivityManager. Inspect the
     # partial installation after the process is stopped, never before it.
     adb('logcat', '-c')
-    shell('am', 'start', '-n', activity)
-    wait_for(lambda: shell('pidof', app, check=False).strip().isdigit(), 'copy-probe process started')
-    copy_pid = shell('pidof', app).strip()
-    # PID filtering also excludes messages already buffered by the prior
-    # configurator process; clearing logcat alone does not bind this probe.
-    follower = subprocess.Popen(['adb', 'logcat', '--pid=' + copy_pid, '-v', 'brief', 'ES-DE-Plus:I', '*:S'],
+    # Start following before launch, and select the PID from the actual copy
+    # event. A newborn process's name can be transient while it initialises;
+    # two pidof samples are neither an atomic observation nor a copy barrier.
+    follower = subprocess.Popen(['adb', 'logcat', '-v', 'threadtime', 'ES-DE-Plus:I', '*:S'],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     deadline = time.monotonic() + 60
     observed = b''
     try:
+        shell('am', 'start', '-n', activity)
         while time.monotonic() < deadline:
             readable, _, _ = select.select([follower.stdout], [], [], 1)
             if readable:
                 observed += follower.stdout.read1(65536)
-                if b'Installed resource: fonts/' in observed:
+                copy_pid = fresh_session_checks.copy_pid(observed.decode(errors='replace'))
+                if copy_pid:
                     assert shell('pidof', app).strip() == copy_pid, 'Copy-probe process changed'
                     shell('am', 'force-stop', app)
                     wait_for(lambda: not shell('pidof', app, check=False).strip(), 'resource-copy process stopped')
@@ -1543,7 +1785,7 @@ try:
     finally:
         follower.terminate()
         follower.wait(timeout=10)
-    (evidence / 'interrupted-copy-logcat.txt').write_text(observed.decode(errors='replace'))
+        (evidence / 'interrupted-copy-logcat.txt').write_text(observed.decode(errors='replace'))
     print('PASS: killed during real copy, partial fonts exist, marker absent', flush=True)
     adb('logcat', '-c')
     launch()
@@ -1575,17 +1817,8 @@ try:
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
     # Missing-emulator errors are expected in this phase; startup errors were checked above.
     key('KEYCODE_ENTER')  # Dismiss the existing missing-emulator message.
-    key('KEYCODE_ESCAPE')
-    for _ in range(3):  # SEARCH, SCRAPER, UI SETTINGS, then SOUND SETTINGS.
-        key('KEYCODE_DPAD_DOWN')
-    key('KEYCODE_ENTER')
-    key('KEYCODE_DPAD_DOWN')  # Audio driver, then navigation volume.
-    key('KEYCODE_DPAD_LEFT')
-    screenshot('changed-sound-setting')
-    # Upstream's keyboard Back action is Backspace; Escape maps to Start and
-    # does not close GuiSettings. Closing the settings GUI runs its save funcs.
-    key('KEYCODE_DEL')
-    key('KEYCODE_DEL')
+    import settings_navigation
+    settings_navigation.change_navigation_volume(globals())
     def volume_saved():
         value = re.search(r'<int name="SoundVolumeNavigation" value="(\d+)"',
                           shell('cat', settings, check=False))
