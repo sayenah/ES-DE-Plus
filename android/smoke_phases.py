@@ -55,8 +55,6 @@ def run(phase, harness):
         forced_relaunch_smoke.run(harness)
     elif phase == 'lifecycle':
         h.lifecycle_smoke.run(harness)
-        import clear_task_smoke
-        clear_task_smoke.run(harness)
     elif phase == 'clear-task':
         import clear_task_smoke
         clear_task_smoke.run(harness)

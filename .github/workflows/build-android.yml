@@ -532,6 +532,41 @@ jobs:
             android/evidence/lifecycle-emulator-result.txt
             android/evidence/lifecycle-command-costs.txt
           retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator clear-task smoke
+        id: smoke-clear-task
+        timeout-minutes: 40
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-clear-task
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            python3 android/smoke_session.py clear-task -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase clear-task
+      - name: Record clear-task emulator result
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        run: python3 android/smoke_session.py emulator-result clear-task "${{ steps.smoke-clear-task.outcome }}"
+      - name: Upload clear-task session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-clear-task-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/clear-task/*.txt
+            android/evidence/clear-task/*.png
+            android/evidence/clear-task-session-*.txt
+            android/evidence/clear-task-emulator-result.txt
+            android/evidence/clear-task-command-costs.txt
+          retention-days: 7
       - name: ${{ matrix.image }} fresh-emulator integration smoke
         id: smoke-integration
         timeout-minutes: 20
