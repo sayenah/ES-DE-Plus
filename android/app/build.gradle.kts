@@ -94,7 +94,7 @@ android {
     ndkVersion = "28.2.13676358"
     defaultConfig {
         applicationId = appId
-        minSdk = 31
+        minSdk = 33
         targetSdk = 36
         versionCode = appVersion
         versionName = appVersionName

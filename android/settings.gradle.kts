@@ -10,3 +10,4 @@ include(":app")
 include(":stub-emulator")
 
 include(":handler-stub")
+include(":forced-relaunch-overlay")
