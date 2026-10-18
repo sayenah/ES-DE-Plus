@@ -441,8 +441,10 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
+Emulator steps are bounded to 60/40/60/35/60/20 minutes for core/lifecycle/integration/
 PDF-direct/PDF-scoped/assets; API 34 core uses 80 minutes under D-024 am. 16.
+Integration and scoped-PDF use 60-minute teardown backstops under D-012 am. 12;
+measured passes took 41m45s and 35m43s. In-harness readiness/probe deadlines stay unchanged.
 The core step reached 51.8 minutes on API 34 in round 4 (push run 39046156277),
 leaving 8.2 minutes under the earlier 60-minute cap. Readiness/probe deadlines
 remain unchanged. Re-measure core on API 33 after platform PR #27 integrates. Earlier

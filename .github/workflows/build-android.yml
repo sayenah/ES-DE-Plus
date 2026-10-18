@@ -527,7 +527,7 @@ jobs:
           retention-days: 7
       - name: ${{ matrix.image }} fresh-emulator integration smoke
         id: smoke-integration
-        timeout-minutes: 20
+        timeout-minutes: 60
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
@@ -673,7 +673,7 @@ jobs:
           retention-days: 7
       - name: ${{ matrix.image }} fresh-emulator pdf-scoped smoke
         id: smoke-pdf-scoped
-        timeout-minutes: 35
+        timeout-minutes: 60
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
