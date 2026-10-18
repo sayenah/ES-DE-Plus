@@ -55,3 +55,24 @@ jobs:
 
       - name: Verify unchanged desktop theme downloader preprocessor output
         run: python3 tests/theme-repository-trust/desktop.py
+
+      - name: Audio teardown positive control and regression (real SDL dummy driver)
+        run: python3 tests/audio-deinit/run.py 063e454da build/audio-deinit
+
+      - name: Build DEINIT_ON_LAUNCH and exercise a real launch and desktop exit
+        run: |
+          cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release -DDEINIT_ON_LAUNCH=ON
+          cmake --build build --parallel 2
+          python3 tests/audio-deinit/desktop.py ./es-de build/audio-deinit/fixed/libaudio-desktop-probe.so build/audio-desktop
+
+      - name: Retain audio detector evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: audio-deinit-linux-${{ github.run_id }}
+          path: |
+            build/audio-deinit/*.txt
+            build/audio-desktop/*.txt
+            build/audio-desktop/home/ES-DE/logs/es_log.txt
+          if-no-files-found: error
+          retention-days: 7
