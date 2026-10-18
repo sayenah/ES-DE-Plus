@@ -31,7 +31,7 @@ def require(condition, message):
 
 def eligible(repository, event, ref, image, rebuild='', failure='none', publish=False):
     return (repository == REPOSITORY and event == 'workflow_dispatch' and publish is True and
-            ref == 'refs/heads/main' and image == 'api34' and not rebuild and failure in ('', 'none'))
+            ref == 'refs/heads/main' and image == 'publish' and not rebuild and failure in ('', 'none'))
 
 
 def stable_run():

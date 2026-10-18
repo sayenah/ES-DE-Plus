@@ -2,11 +2,12 @@
 # ES-DE-Plus — written for ES-DE-Plus. Additive PR path → fresh-session map (WO-21).
 # Every PR starts with api33/core. All matching rules add sessions; no rule subtracts.
 # fnmatch globs are repository-relative; * also matches directory separators.
-# Images default to api33. Explicit extra images apply only to that rule's sessions.
+# Every rule selects API 33 sessions only. android15 adds informational API 35 core.
 
 [[rule]]
 paths = ["android/app/src/main/*.kt", "android/app/src/main/*.java", "android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/values/*.xml"]
 sessions = ["lifecycle", "assets", "clear-task"]
+android15 = true
 reason = "Host lifecycle, configuration, entry and restart paths; debug/minified destruction and forced asset relaunch"
 
 [[rule]]
@@ -17,8 +18,7 @@ reason = "PDF renderer/viewer/close contracts, fixtures and storage/recipient tr
 [[rule]]
 paths = ["android/app/src/main/AndroidManifest.xml", "android/network*", "android/update_smoke.py", "android/test_signing.py", "android/app/src/main/*Network*", "android/app/src/main/*Update*", "es-app/src/*/GuiThemeDownloader*", "es-app/src/*/GuiScraper*", "es-app/src/*ApplicationUpdater*", "es-app/src/scrapers/*", "es-core/src/*HttpReq*", "resources/certificates/*"]
 sessions = ["integration"]
-images = ["api33", "api34"]
-reason = "Update/signature continuity and live HTTPS themes/scraper; API 34 owns gating remote/negative controls"
+reason = "Update/signature continuity and live HTTPS themes/scraper"
 
 [[rule]]
 paths = ["android/lifecycle_smoke.py", "android/app/src/debug/*/StartupProbeActivity.kt", "android/stub-emulator/*/LifecycleProbe.kt"]
@@ -33,18 +33,18 @@ reason = "Forced ASSETS_PATHS recreation and preview/cancel/committed return pro
 [[rule]]
 paths = ["android/predictive_back_smoke.py", "android/stub-emulator/*/PredictiveBackActivity.kt"]
 sessions = ["assets"]
-images = ["api34"]
-reason = "API 34 has a distinct platform launch-behind evidence contract"
+android15 = true
+reason = "Android 15 platform launch-behind and predictive-back compatibility"
 
 [[rule]]
 paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
 sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "clear-task"]
+android15 = true
 reason = "Shared runtime harness, fresh guest/logcat/settle, recipient/configuration grants or shared component declarations used by every session"
 
 [[rule]]
 paths = ["android/app/src/main/res/drawable/tv_*", "android/icon_smoke.py"]
 sessions = ["core"]
-images = ["tv36"]
 reason = "Leanback banner and stock TV launcher icon/entry observations"
 
 # Workflow/selector/build/audit changes alone use the mandatory core baseline.
