@@ -253,9 +253,10 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs six gating smoke phases, each in a distinct cold AVD: `core`
+CI runs seven gating smoke phases, each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
-RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
+RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
+(24 return/join/retirement and single-new-main chains), `integration`
 (update continuity on API 33/34 and network checks), `pdf-direct`,
 `pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
 relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
@@ -396,8 +397,13 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
-PDF-direct/PDF-scoped/assets. The core step reached 51.8 minutes on API 34 in
+Emulator steps are bounded to 60/40/40/20/35/35/20 minutes for core/lifecycle/
+clear-task/integration/PDF-direct/PDF-scoped/assets. The combined lifecycle and
+clear-task step took 35.6–39.5 minutes in PR #28's round-1 matrices
+(39051707636 and 39051710800), or 89–99% of the 40-minute cap introduced by PR #24.
+The clear-task chains therefore run in their own gating cold-AVD session; the
+existing lifecycle assertions and every in-harness deadline stay unchanged.
+The core step reached 51.8 minutes on API 34 in
 round 4 (push run 39046156277), leaving 8.2 minutes under its unchanged 60-minute
 cap. Re-measure core on API 33 after platform PR #27 integrates. Earlier
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
