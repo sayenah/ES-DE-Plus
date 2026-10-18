@@ -305,8 +305,8 @@ every D-020 gate; its serialization group never cancels an active publication.
 Default branch full dispatches are used for on-demand regression evidence;
 branch/PR/targeted runs never upload an APK.
 
-The full matrix runs seven gating smoke phases on each of its three images,
-each in a distinct cold AVD: `core`
+The full matrix runs seven gating smoke phases on each of its three images
+(21 sessions), each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
 (24 return/join/retirement and single-new-main chains), `integration`
