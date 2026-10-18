@@ -482,15 +482,43 @@ def controls():
         assert active_tracks(header + '\n' + row, '123') == {'7': 0x1234}
         assert not active_tracks(header + '\n' + row, '555')
         assert not active_tracks(header + '\n' + row.replace('yes', ' no'), '123')
-    return 'PASS: app crash/log boundary; GL no-progress proof and healthy negative; bounded onboarding eligibility; app audio-track controls.\n'
+    # A one-pixel column between the old 32x18 sample points changes 1/64
+    # of this image. Its real RGB distance must not disappear through aliasing.
+    plain = (64, 36, 3, [bytes(64 * 3)] * 36)
+    column = (64, 36, 3, [bytes(3) + bytes([255] * 3) + bytes(62 * 3)] * 36)
+    changed = pixel_distance(plain, column)
+    assert changed == 1 / 64 and changed > .01
+    assert pixel_distance(plain, plain) == 0  # Missing Enter stays a failure.
+    assert pixel_distance(plain, column) >= changed / 2  # Missing Back stays a failure.
+    assert pixel_distance((1, 1, 4, [bytes([1, 2, 3, 0])]),
+                          (1, 1, 4, [bytes([1, 2, 3, 255])])) == 0
+    for invalid in ((32, 36, 3, plain[3]), (64, 36, 3, [b''] * 36)):
+        try:
+            pixel_distance(plain, invalid)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Mismatched or incomplete image accepted')
+    return 'PASS: app crash/log boundary; GL no-progress proof and healthy negative; bounded onboarding eligibility; app audio-track and full-frame RGB controls.\n'
 
 
 def image_distance(first, second):
-    def samples(png):
-        width, height, channels, rows = pdf_smoke.pixels(png)
-        return [rows[int(y * (height - 1) / 17)][int(x * (width - 1) / 31) * channels + c]
-                for y in range(18) for x in range(32) for c in range(3)]
-    return sum(abs(a - b) for a, b in zip(samples(first), samples(second))) / (32 * 18 * 3 * 255)
+    return pixel_distance(pdf_smoke.pixels(first), pdf_smoke.pixels(second))
+
+
+def pixel_distance(first, second):
+    width, height, channels, rows = first
+    other_width, other_height, other_channels, other_rows = second
+    assert (width, height) == (other_width, other_height) and width > 0 and height > 0
+    assert channels in (3, 4) and other_channels in (3, 4)
+    assert len(rows) == len(other_rows) == height
+    difference = 0
+    for row, other in zip(rows, other_rows):
+        assert len(row) == width * channels and len(other) == width * other_channels
+        for channel in range(3):
+            difference += sum(abs(a - b) for a, b in zip(row[channel::channels],
+                                                        other[channel::other_channels]))
+    return difference / (width * height * 3 * 255)
 
 
 def video_visible(png):
