@@ -212,6 +212,19 @@ def self_test():
                 assert not expected, environment
             else:
                 assert expected, environment
+    # GitHub's implicit success() can suppress a terminal job after skipped
+    # publication ancestors. Use an explicit status function and then require
+    # all three immediate proof gates; no failed/partial run may mark full proof.
+    import release_controls
+    marker = workflow.split('  full-matrix-evidence:\n', 1)[1].split('  publication-result:\n', 1)[0]
+    condition = marker.split('    if: ${{ ', 1)[1].split(' }}', 1)[0]
+    assert 'always()' in condition and '!cancelled()' in condition
+    for selected, selection, tier, publication in itertools.product((True, False), states, states, states):
+        value = release_controls.evaluate(condition, {
+            'needs.selection.outputs.full': str(selected).lower(), 'needs.selection.result': selection,
+            'needs.tier-result.result': tier, 'needs.publication-result.result': publication})
+        assert bool(value) == (selected and selection == tier == publication == 'success')
+    print('PASS: actual full-proof marker guard, 128 full-selection/job-outcome combinations; explicit cancellation/status checks')
     print('PASS: actual tier-result guard, 2048 selection/job-outcome combinations')
     print('PASS: CI map representative cases (including this workflow-only PR → api33/core), targeted validation, publication refusal and exact-SHA nightly full-proof controls')
 

@@ -966,7 +966,7 @@ jobs:
   full-matrix-evidence:
     name: Full Android matrix evidence
     needs: [selection, tier-result, publication-result]
-    if: ${{ needs.selection.outputs.full == 'true' }}
+    if: ${{ always() && !cancelled() && needs.selection.outputs.full == 'true' && needs.selection.result == 'success' && needs.tier-result.result == 'success' && needs.publication-result.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - run: echo 'PASS all three images × all six unchanged sessions and publication gates'
