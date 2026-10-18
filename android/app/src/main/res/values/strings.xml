@@ -78,7 +78,9 @@ How to add games: copy them here with USB file transfer or a file manager, in sy
     <string name="overlapping_folders">Application-data and ROM folders must be separate; neither may contain the other.</string>
     <string name="media_override">Existing MediaDirectory override: %1$s. Media stays there; the selected ROM folder remains authoritative.</string>
     <string name="media_unavailable">MediaDirectory points to inaccessible storage: %1$s. Restore this folder or correct MediaDirectory in es_settings.xml, then retry. No replacement media folder will be selected.</string>
-    <string name="invalid_adopted_settings">Cannot read the selected settings file. Correct es_settings.xml or select another data folder.</string>
+    <string name="invalid_adopted_settings">Cannot read settings: %1$s. Restore access or correct this file. To reset settings, back it up and rename or delete it, then retry. You can also choose another data folder. No settings file will be silently substituted.</string>
+    <string name="media_inside_roms">MediaDirectory %1$s is inside the ROM folder %2$s. Choose a media folder outside the ROM folder in es_settings.xml, then retry. ROM storage requires read access only.</string>
+    <string name="data_control_character_refused">The application-data folder path contains a control character. Choose a folder without control characters.</string>
     <string name="frontend_restart_waiting">Waiting for the frontend to close before restarting…</string>
     <string name="frontend_restart_recovery">The frontend could not restart yet. Retry after it closes, or return to your home screen and open the app again. Your games and settings are kept.</string>
 </resources>

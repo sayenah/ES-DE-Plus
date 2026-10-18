@@ -89,7 +89,7 @@ class ConfiguratorActivity : Activity() {
         setIntent(intent)
         if (sessionId != ConfiguratorSession.session(this)) restoreSelection(null)
         resourceError = ConfiguratorSession.resourceFailure != null
-        message = intent.getStringExtra("message") ?: storage.problem()
+        message = intent.getStringExtra("message") ?: storage.problem(checkContents = false)
         if (message != null) storageRestartRequired = true
         render()
     }
@@ -345,7 +345,7 @@ class ConfiguratorActivity : Activity() {
 
     private fun guardedMediaDisclosure() {
         try {
-            storage.validateDataContents(java.io.File(dataPath))?.let {
+            storage.mediaOverride(java.io.File(dataPath))?.let {
                 text(getString(R.string.media_override, it))
             }
         } catch (error: Exception) { text(error.message ?: getString(R.string.configuration_failed)) }

@@ -107,6 +107,7 @@ class StorageModel(private val context: Context) {
         if (parts.size != 2 || parts[0].isEmpty()) throw failure(R.string.invalid_tree)
         val relative = parts[1]
         val segments = relative.split('/')
+        if (data && relative.any { it.isISOControl() }) throw failure(R.string.data_control_character_refused)
         if (data && relative.contains('"')) throw failure(R.string.shared_data_quote_refused)
         if (relative.isEmpty() || segments.any { it.isEmpty() || it == "." || it == ".." ||
                 it.contains('\\') || it.contains('\u0000') })
@@ -124,10 +125,18 @@ class StorageModel(private val context: Context) {
     // access probe at the candidate. The exact mapped path is shown for consent.
     fun structuralPath(path: String, data: Boolean = false, readOnly: Boolean = false): File {
         if (!broadAccess()) throw failure(R.string.direct_not_granted)
+        if (data && path.any { it.isISOControl() }) throw failure(R.string.data_control_character_refused)
         if (!path.startsWith('/') || path.contains('\u0000') || path.contains('\\'))
             throw failure(R.string.absolute_path_required)
-        val mapped = if (path == "/sdcard" || path.startsWith("/sdcard/"))
-            volumeRoot("primary", readOnly).path + path.removePrefix("/sdcard") else path
+        // Resolve only the SDK/mount prefix before consent, never the proposed
+        // destination or any of its children. The dialog shows the mapped path.
+        val aliases = listOf(Environment.getExternalStorageDirectory().path, "/sdcard", "/storage/self/primary")
+        val alias = aliases.firstOrNull { path == it || path.startsWith(it + "/") }
+        val mapped = if (alias != null) {
+            val primary = volumeRoot("primary", readOnly)
+            if (File(alias).canonicalFile != primary) throw failure(R.string.folder_mapping_changed)
+            primary.path + path.removePrefix(alias)
+        } else path
         val candidate = File(mapped)
         val manager = context.getSystemService(StorageManager::class.java)
         val roots = manager.storageVolumes.mapNotNull { volume ->
@@ -164,14 +173,15 @@ class StorageModel(private val context: Context) {
     // separation on a case-insensitive volume or through another filesystem alias.
     fun verifyDisjoint(data: File, roms: File) {
         disjoint(data, roms)
+        if (inside(data, roms) || inside(roms, data))
+            throw failure(R.string.overlapping_folders)
+    }
+
+    private fun inside(child: File, root: File): Boolean {
         fun identity(directory: File): Pair<Long, Long>? = if (directory.isDirectory)
             Os.stat(directory.path).let { it.st_dev to it.st_ino } else null
-        val dataIdentity = identity(data)
-        val romIdentity = identity(roms)
-        fun inside(child: File, root: Pair<Long, Long>?): Boolean = root != null &&
-            generateSequence(child) { it.parentFile }.any { identity(it) == root }
-        if (inside(data, romIdentity) || inside(roms, dataIdentity))
-            throw failure(R.string.overlapping_folders)
+        val rootIdentity = identity(root) ?: return false
+        return generateSequence(child) { it.parentFile }.any { identity(it) == rootIdentity }
     }
 
     // This is the only shared-data provisioning entry point. The configurator
@@ -180,18 +190,24 @@ class StorageModel(private val context: Context) {
         val directory = inspectedPath(destination, data = true)
         if (roms.isNotEmpty()) verifyDisjoint(directory, File(roms).canonicalFile)
         verifyDirectory(directory, create = true)
-        validateDataContents(directory)
+        validateDataContents(directory, roms.takeIf { it.isNotEmpty() }?.let(::File))
         Log.i("ES-DE-Plus", "Application-data destination confirmed: $directory")
         return directory
     }
 
-    fun validateDataContents(directory: File): String? {
+    fun validateDataContents(directory: File, roms: File? = null): String? {
         for (name in listOf("settings", "logs", "gamelists", "collections", "themes",
                 "custom_systems", "scripts", "screensavers", "screensavers/custom_slideshow", "controllers")) {
             val child = File(directory, name)
             if (child.exists()) verifyDirectory(child)
         }
-        for (name in listOf("settings/es_settings.xml", "es_settings.xml", "settings/es_input.xml", "es_input.xml",
+        val settings = AdoptedSettings.settingsFile(directory)
+        if (settings.exists()) {
+            val accessible = try { settings.isFile && Os.access(settings.path, OsConstants.R_OK or OsConstants.W_OK) }
+                catch (_: Exception) { false }
+            if (!accessible) throw failure(R.string.invalid_adopted_settings, settings)
+        }
+        for (name in listOf("settings/es_input.xml", "es_input.xml",
                 "logs/es_log.txt", "logs/es_log.txt.bak", "controllers/es_controller_mappings.cfg",
                 "es_controller_mappings.cfg")) {
             val child = File(directory, name)
@@ -199,17 +215,24 @@ class StorageModel(private val context: Context) {
                     OsConstants.R_OK or OsConstants.W_OK)))
                 throw failure(R.string.directory_access_failed, child)
         }
-        val media = try { AdoptedSettings.mediaDirectory(directory) }
-            catch (error: Exception) { throw failure(R.string.invalid_adopted_settings) }
+        val media = mediaOverride(directory)?.let(::File)
         if (media == null) {
             val defaultMedia = File(directory, "downloaded_media")
             if (defaultMedia.exists()) verifyDirectory(defaultMedia)
             return null
         }
+        if (roms != null && inside(media.canonicalFile, roms.canonicalFile))
+            throw failure(R.string.media_inside_roms, media, roms)
         try { verifyDirectory(media) }
         catch (error: Exception) { throw failure(R.string.media_unavailable, media) }
         return media.path
     }
+
+    // Disclosure only, after consent. Rendering the configurator never probes
+    // writes throughout the adopted directory tree.
+    fun mediaOverride(directory: File): String? = try {
+        AdoptedSettings.mediaDirectory(directory)?.path
+    } catch (_: Exception) { throw failure(R.string.invalid_adopted_settings, AdoptedSettings.settingsFile(directory)) }
 
     fun acceptTree(uri: Uri, flags: Int): File {
         if (!broadAccess()) throw failure(R.string.direct_not_granted)
@@ -235,7 +258,9 @@ class StorageModel(private val context: Context) {
     // Missing picker fallback is an explicitly typed path, still resolved through
     // the same current-user volume list and access checks. Never invent a URI grant.
     fun acceptPath(path: String): File {
-        return verifyDirectory(inspectedPath(path, readOnly = true), readOnly = true)
+        if (!path.startsWith('/') || path.contains('\u0000') || path.contains('\\'))
+            throw failure(R.string.absolute_path_required)
+        return verifyDirectory(inspectedPath(File(path).canonicalPath, readOnly = true), readOnly = true)
     }
 
     fun load(): Configuration? {
@@ -275,16 +300,16 @@ class StorageModel(private val context: Context) {
         Log.i("ES-DE-Plus", "Persisted tree grant count=${context.contentResolver.persistedUriPermissions.size}")
     }
 
-    fun validate(configuration: Configuration): File {
+    fun validate(configuration: Configuration, checkContents: Boolean = true): File {
         // Validation never creates a missing root or substitutes another root.
         if (configuration.mode == "direct" && !broadAccess()) throw failure(R.string.direct_access_revoked)
         val selectedData = dataDirectory(configuration)
         val data = if (configuration.mode == "direct") inspectedPath(selectedData.path, data = true) else selectedData.canonicalFile
         if (data.path != configuration.data) throw failure(R.string.selected_folder_changed)
         verifyDirectory(data)
-        validateDataContents(data)
         val roms = validateROMs(configuration)
         verifyDisjoint(data, roms)
+        if (checkContents) validateDataContents(data, roms)
         return roms
     }
 
@@ -312,9 +337,9 @@ class StorageModel(private val context: Context) {
         }
     }
 
-    fun problem(): String? = try {
+    fun problem(checkContents: Boolean = true): String? = try {
         val config = load() ?: throw failure(R.string.storage_choice_required)
-        validate(config)
+        validate(config, checkContents)
         null
     } catch (error: Exception) { error.message ?: context.getString(R.string.storage_validation_failed) }
 

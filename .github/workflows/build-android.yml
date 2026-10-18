@@ -308,7 +308,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk .deps/update/lower-unsigned.apk
           ./gradlew --no-daemon ${GRADLE_NETWORK_ARGS:-} :app:assembleDebug 2>&1 | tee assemble-restore.log
       - name: Build runner-only pre-fix ownership control (API 33 and API 34)
-        if: ${{ success() && (matrix.image == 'api33' || matrix.image == 'api34') && !(github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish) }}
+        if: ${{ success() && github.event_name == 'pull_request' && (matrix.image == 'api33' || matrix.image == 'api34') }}
         run: |
           set -o pipefail
           python3 android/theme-owner-control.py 2>&1 | tee android/theme-owner-control.log

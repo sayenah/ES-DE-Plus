@@ -3,6 +3,7 @@
 # ES-DE-Plus — written for ES-DE-Plus. Real frontend HTTPS smoke and permission control.
 import contextlib
 import json
+import os
 import pathlib
 import re
 import shlex
@@ -47,6 +48,21 @@ def root_destinations(api, removable_roots):
     if removable_roots:
         result.append((removable_roots[0] + '/ESDEPlus removable café', 'removable'))
     return result
+
+
+def required_theme_controls(api, scoped, event):
+    required = {'extended-update'} if api in (33, 34, 36) else set()
+    if api in (33, 34) and not scoped and event == 'pull_request':
+        required.add('historical-owner')
+    return required
+
+
+def completed_theme_controls(required, completed):
+    assert required <= completed, 'Required theme controls skipped: ' + ', '.join(sorted(required - completed))
+
+
+def require_owner_baseline(path):
+    assert path.is_file(), 'Missing required historical ownership-control APK: ' + str(path)
 
 
 def process_stacks(text, pid, app):
@@ -144,6 +160,28 @@ def scraper_reply(output):
 
 
 def controls():
+    for api in (33, 34):
+        assert required_theme_controls(api, False, 'pull_request') == {'historical-owner', 'extended-update'}
+        assert required_theme_controls(api, True, 'pull_request') == {'extended-update'}
+        assert required_theme_controls(api, False, 'push') == {'extended-update'}
+    for missing in ({'historical-owner'}, {'extended-update'}):
+        try:
+            completed_theme_controls({'historical-owner', 'extended-update'}, missing)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Skipped required control escaped')
+    completed_theme_controls({'historical-owner', 'extended-update'}, {'historical-owner', 'extended-update'})
+    with tempfile.TemporaryDirectory(prefix='theme-required-control-') as directory:
+        fixture = pathlib.Path(directory) / 'baseline-presence-fixture.txt'
+        try:
+            require_owner_baseline(fixture)
+        except AssertionError as error:
+            assert 'Missing required' in str(error)
+        else:
+            raise AssertionError('Missing historical APK escaped the production guard')
+        fixture.write_text('ES-DE-Plus authored file-presence control, not an APK')
+        require_owner_baseline(fixture)
     assert resolve_error("Couldn't resolve host name")
     assert resolve_error("failed to resolve address for gitlab.com: Permission denied")
     for value in ['Permission denied', 'TLS certificate verification failed',
@@ -340,6 +378,13 @@ def run_checks(harness, scoped=False):
     diagnostic_repository = [None]
     trust_controls_complete = False
     owner_leftover = False
+    required_controls = required_theme_controls(h.api, scoped, os.environ.get('GITHUB_EVENT_NAME', 'local'))
+    completed_controls = set()
+    def control_evidence():
+        h.evidence.joinpath('theme-required-controls.txt').write_text(json.dumps(dict(
+            event=os.environ.get('GITHUB_EVENT_NAME', 'local'), api=h.api, scoped=scoped,
+            required=sorted(required_controls), completed=sorted(completed_controls)), indent=2) + '\n')
+    control_evidence()
 
     def begin(operation):
         attempts[operation] = attempts.get(operation, 0) + 1
@@ -607,8 +652,10 @@ def run_checks(harness, scoped=False):
     def owner_positive_control():
         nonlocal owner_leftover
         baseline = pathlib.Path('android/.deps/theme-owner/prefix.apk')
-        if scoped or h.api not in (33, 34) or not baseline.is_file():
-            return  # TV36 already has the required historical 438bf5927 evidence.
+        if 'historical-owner' not in required_controls:
+            record('NOT REQUIRED: historical ownership build is PR-only on direct API33/API34; TV has the recorded exact-head control.')
+            return
+        require_owner_baseline(baseline)
         begin('historical-owner-control')
         # user_file() stopped the frontend after preparing DebugMode. Load it
         # before theme_path() requires the native directory record in its log.
@@ -630,6 +677,8 @@ def run_checks(harness, scoped=False):
         h.shell('test', '-d', theme_path('themes-list/.git'))
         capture('historical-owner-error')
         record('PASS: exact pre-fix 438bf5927 rejects direct themes-list clone with GIT_EOWNER -36; partial metadata retained.')
+        completed_controls.add('historical-owner')
+        control_evidence()
         h.shell('am', 'force-stop', h.app)
         h.adb('install', '-r', str(h.apk))
         owner_leftover = True
@@ -787,6 +836,8 @@ def run_checks(harness, scoped=False):
             record(f'PASS: shared-data theme update seconds={time.monotonic() - update_began:.3f}; '
                    f'HEAD {rewind["previous"]} -> {rewind["latest"]}; '
                    f'core.filemode={rewind["core.filemode"]}; no spurious local changes or disabled rename')
+            completed_controls.add('extended-update')
+            control_evidence()
         if extended and h.api == 34 and not scoped:
             # Model a manual download using only this run's new clone. Preserve
             # its metadata and authored marker in the directory being renamed.
@@ -1124,6 +1175,8 @@ def run_checks(harness, scoped=False):
             remote_attempts(lambda: scraper(False), restart_remote, record, 'scraper')
         except RemoteFailure as error:
             remote_outcome(h.api, error, record)
+        control_evidence()
+        completed_theme_controls(required_controls, completed_controls)
     except BaseException:
         try:
             with wall_budget(60, 'live failure evidence before cleanup', reserve=True):

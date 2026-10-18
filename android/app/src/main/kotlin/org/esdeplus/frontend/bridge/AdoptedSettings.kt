@@ -13,9 +13,13 @@ import java.nio.charset.Charset
 // of record; this preflight prevents an inaccessible media override falling
 // through to native startup's best-effort directory creation.
 internal object AdoptedSettings {
-    fun mediaDirectory(root: File): File? {
+    fun settingsFile(root: File): File {
         val current = File(root, "settings/es_settings.xml")
-        val file = if (current.exists()) current else File(root, "es_settings.xml")
+        return if (current.exists()) current else File(root, "es_settings.xml")
+    }
+
+    fun mediaDirectory(root: File): File? {
+        val file = settingsFile(root)
         if (!file.exists()) return null
         val bytes = file.readBytes()
         fun prefix(vararg values: Int) = bytes.size >= values.size &&

@@ -151,6 +151,20 @@ internal object AppDataSmoke {
             val quotedResume = try { storage.validate(accepted.copy(data = quoted.path)); null }
                 catch (error: IOException) { error }
             check(quotedResume?.message == quoteMessage) { "Quoted saved path did not give actionable recovery" }
+            for (control in listOf('\n', '\t', '\u001b', '\u007f')) {
+                val invalid = File(sandbox, "control${control}data")
+                val expected = context.getString(R.string.data_control_character_refused)
+                probe.runOnMainSync {
+                    configurator!!.findViewById<EditText>(R.string.data_path_hint).setText(invalid.path)
+                    configurator!!.findViewById<Button>(R.string.confirm_data_folder).performClick()
+                }
+                probe.waitForIdleSync()
+                windowWithText(expected)
+                check(storage.load() == accepted)
+                val failure = try { storage.validate(accepted.copy(data = invalid.path)); null }
+                    catch (error: IOException) { error }
+                check(failure?.message == expected)
+            }
             probe.runOnMainSync {
                 configurator!!.findViewById<EditText>(R.string.data_path_hint).setText(candidate.path)
                 configurator!!.findViewById<Button>(R.string.confirm_data_folder).performClick()
@@ -167,6 +181,9 @@ internal object AppDataSmoke {
             }
             probe.waitForIdleSync()
             windowWithText("Choose and confirm the application-data folder")
+            val relativeCandidate = candidate.relativeTo(storage.defaultData().parentFile!!).path
+            for (alias in listOf("/sdcard", "/storage/self/primary"))
+                check(storage.structuralPath("$alias/$relativeCandidate", data = true) == candidate)
             drain()
             val beforeHash = events.toList()
             observers.forEach { it.stopWatching() }
@@ -216,6 +233,33 @@ internal object AppDataSmoke {
                         override fun getExternalFilesDir(type: String?): File? = alias
                     })
                     val configuration = StorageModel.Configuration("scoped", scopedROMs.path, "", false, scopedData.path)
+                    val romMedia = File(scopedROMs, "media").apply { check(mkdir()) }
+                    val localSettings = File(scopedData, "es_settings.xml")
+                    localSettings.writeText("<string name=\"MediaDirectory\" value=\"${romMedia.path}\"/>")
+                    val mediaFailure = try { scoped.validate(configuration); null }
+                        catch (error: IOException) { error }
+                    check(mediaFailure?.message == context.getString(R.string.media_inside_roms, romMedia, scopedROMs))
+                    check(romMedia.list()!!.isEmpty())
+                    check(romMedia.delete())
+                    localSettings.writeText("<string name=\"MediaDirectory\" value=\"\"/>")
+                    Os.chmod(localSettings.path, 0)
+                    try {
+                        val settingsFailure = try { scoped.validate(configuration); null }
+                            catch (error: IOException) { error }
+                        check(settingsFailure?.message == context.getString(R.string.invalid_adopted_settings, localSettings))
+                        check(settingsFailure?.message?.contains("rename or delete") == true)
+                    } finally { Os.chmod(localSettings.path, 0x180) }
+                    check(localSettings.delete())
+                    check(scoped.validate(configuration) == scopedROMs) // Explicit reset recovery.
+                    val readonlyChild = File(scopedData, "themes").apply { check(mkdir()) }
+                    Os.chmod(readonlyChild.path, 0x140)
+                    try {
+                        check(scoped.validate(configuration, checkContents = false) == scopedROMs)
+                        val fullFailure = try { scoped.validate(configuration); null }
+                            catch (error: Exception) { error }
+                        check(fullFailure != null) { "Full preflight missed read-only child positive control" }
+                        check(readonlyChild.list()!!.isEmpty())
+                    } finally { Os.chmod(readonlyChild.path, 0x1c0); check(readonlyChild.delete()) }
                     check(android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK))
                     android.system.Os.chmod(scopedROMs.path, 0x140) // 0500: real read/search, no write.
                     val denial = try { android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK); null }
@@ -291,6 +335,7 @@ internal object AppDataSmoke {
                 "flat/wrapped and legacy-root settings, conflicting ROM, media overrides, missing media/root, " +
                 "obstructed themes, unavailable volume and overlap guards.\n" +
                 "PASS: quoted shared data refused in real configurator and resume validation; actionable error, no access/mutation/fallback; valid destination review positive control passed.\n" +
+                "PASS: control-character paths refused in real configurator; mount aliases mapped without candidate access; unreadable settings name the file and explicit reset recovery works; resume checks only root writability; media inside ROM storage refused before a write probe.\n" +
                 "Settings read rejected by no-access assertion: $readEvents\n" +
                 "Directory enumeration rejected by no-access assertion: $enumerationEvents\n"
         } finally {

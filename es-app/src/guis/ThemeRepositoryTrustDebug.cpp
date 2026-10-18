@@ -438,7 +438,7 @@ namespace
                         "and overlength names blocked at filesystem boundaries; reserved/other "
                         "themes unchanged\n";
         }
-        // Reproduce the API 31 metadata-persistence failure without retries:
+        // Repeated metadata-persistence and real update controls without retries:
         // every clone, rewind, fetch and forward reset must independently pass.
         for (int cycle {0}; cycle < 16; ++cycle) {
             if (cycle != 0) {

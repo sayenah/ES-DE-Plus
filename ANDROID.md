@@ -25,7 +25,7 @@ This is basically the onboarding process, and ES-DE should now start up. Just be
 
 Also note that ES-DE does not install any emulators, you need to install those separately. There is more information about that topic later in this document.
 
-If you need to re-run the configurator for some reason then the easiest way is to go into the Android Apps setting screen and revoke the storage access permissions under _Special app access_. This will make the configurator run automatically next time you start ES-DE. Another way to force it to start is to clear the app's storage under _Storage & cache_ but this deletes private data and the accepted folder selections; shared data and its downloaded themes remain in the selected folder. A third option would be to rename either the ES-DE or ROMs directory as this will also trigger the configurator on next app startup.
+If you need to re-run the configurator for some reason then the easiest way is to go into the Android Apps setting screen and revoke the storage access permissions under _Special app access_. This will make the configurator run automatically next time you start ES-DE. Another way to force it to start is to clear the app's storage under _Storage & cache_ but this deletes private data and the accepted folder selections; shared data and its downloaded themes remain in the selected folder. Renaming the selected application-data folder or ROM folder also triggers the configurator on startup; reselect the intended folders afterwards.
 
 ## Touch input overlay
 
@@ -38,6 +38,8 @@ Apart from this there are numerous options for the touch overlay, like the abili
 ## Retention of files and data
 
 In ES-DE Plus, files in a selected shared application data folder survive uninstall, including downloaded themes under its `themes/` directory. App-private data and ROMs are deleted on uninstall. Changing folders never automatically copies, moves or deletes data between roots; back up and close other frontends before adopting shared data.
+
+Testers upgrading from app-private data should close the frontend and back up `Android/data/org.esdeplus.frontend/files/ES-DE-Plus` before clearing storage or uninstalling. Copy its contents to the intended shared data folder using USB file transfer or `adb`, then choose and confirm that folder in the configurator. The app copies nothing automatically; verify the adopted settings, media and themes before removing the backup.
 
 Shared application data folder names cannot contain double quotation marks: Android refuses file renames through those paths. The configurator asks you to choose another folder instead.
 

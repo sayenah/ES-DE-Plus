@@ -14,9 +14,11 @@ import org.esdeplus.frontend.bridge.GameLauncher
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 
 class NativeBridge(private val context: Context, private val recoverStartup: Boolean = false) {
     private val storage = StorageModel(context)
+    private val checkingStorage = AtomicBoolean(false)
     // Once any root has crossed JNI, the native side may have cached it.
     @Volatile var pathsSelected = false
         private set
@@ -190,8 +192,16 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun startConfigurator() { ConfiguratorSession.open(context, storage.problem()) }
     fun onNativeFrontendResume() { checkStorageOnResume() }
     fun checkStorageOnResume() {
-        if (pathsSelected && !ConfiguratorSession.configuring) storage.problem()?.let {
-            ConfiguratorSession.open(context, it)
-        }
+        if (!pathsSelected || ConfiguratorSession.configuring || !checkingStorage.compareAndSet(false, true)) return
+        Thread({
+            try {
+                val selected = storage.load()
+                // Startup/Save perform the complete preflight. A game return
+                // checks only the data-root write probe and ROM read access.
+                val problem = storage.problem(checkContents = false)
+                if (problem != null && selected == storage.load() && !ConfiguratorSession.configuring &&
+                    !MainActivity.destructionRequested()) ConfiguratorSession.open(context, problem)
+            } finally { checkingStorage.set(false) }
+        }, "StorageResumeCheck").start()
     }
 }

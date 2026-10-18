@@ -318,8 +318,11 @@ requires every phase and all existing D-020 gates.
 
 Theme trust controls run in the integration session under the app UID, using
 ES-DE-Plus-authored Git/JSON fixtures, explicit failure injection and clone/worker
-barriers. API 33/34 additionally build the exact historical `438bf5927` ownership
-control on the runner; no control APK is uploaded. The framework-free policy and
+barriers. Pull requests on API 33/34 additionally build the exact historical
+`438bf5927` ownership control on the runner; a missing required APK or skipped
+extended-update control fails the session, with its required/completed evidence
+recorded. Main pushes do not rebuild the historical control. No control APK is
+uploaded. The framework-free policy and
 Git operation target runs on Linux with:
 `cmake -S tests/theme-repository-trust -B build/theme-trust -DCMAKE_BUILD_TYPE=Release -DTHEME_TRUST_RUNTIME=ON`,
 `cmake --build build/theme-trust`, then
@@ -401,6 +404,20 @@ The app-data, integration, core, lifecycle, assets and two PDF smoke sessions ea
 The API 34 special-character fixture uses emulated shared storage with `#`, `;`, space and `é`. D-012 amendment 5 excludes quotes from shared data paths because Android's MediaProvider refuses renames through those components. The configurator and resume probe require an actionable rejection, no destination access or mutation and no fallback, then prove valid-folder review still works. Native controls clone/fetch/reset actual quoted and backslash-containing app-private Git paths and parse their exact `safe.directory` entries through libgit2; framework-free tests also cover escaping. The integration emulator provisions a 2 GiB card for the retained list repository, the large theme and temporary clone files. A mounted removable volume additionally gets its own clone/select/load fixture with a portable filename; SDK card images use [FAT32](https://developer.android.com/tools/mksdcard), whose [filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file) exclude quotes. API 33/34 historical ownership controls require `python3 android/theme-owner-control.py` before the signing fixture; this builds exact archived `438bf5927` locally on the runner, with no APK upload.
 
 The API 34 integration session also force-stops a real in-place large-theme clone after Git initialization and before tracked content is present. A fresh frontend must offer the ordinary explicit corrupt-repository recovery, rename once and finish the download through the UI without filesystem repair. This is process-interruption evidence for D-012 am. 3; no Android 12 staging or retirement path is used.
+
+When upgrading from app-private data, close the app and copy the contents of
+`Android/data/org.esdeplus.frontend/files/ES-DE-Plus` to the intended shared data
+folder using USB or `adb` before uninstalling or clearing app storage. Select
+that folder in the configurator and verify the settings/media/themes before
+removing the backup. Folder selection never copies the old data for you.
+
+Unreadable or invalid adopted settings name the selected file and explain how
+to restore access or explicitly reset it by backing up and renaming/deleting
+it. Resume checks run off the UI thread and probe only the data root for writes;
+startup and Save retain the full preflight. Media overrides inside the ROM
+folder are refused before any media write probe. Typed mount aliases are mapped
+without inspecting an unconfirmed destination, and data paths containing
+control characters are refused in the configurator.
 
 The nonpublishing API 34 job collects all gating smoke sessions even after an early-leg failure; cancellation still stops it. The overall matrix result and protected publication continue to require successful early legs. This preserves required API 34 diagnostic evidence when an unsupported-platform failure or a recorded early-leg infrastructure failure occurs.
 
