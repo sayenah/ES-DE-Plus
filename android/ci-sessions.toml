@@ -6,7 +6,7 @@
 
 [[rule]]
 paths = ["android/app/src/main/*.kt", "android/app/src/main/*.java", "android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/values/*.xml"]
-sessions = ["lifecycle", "assets", "clear-task"]
+sessions = ["lifecycle", "assets", "app-data", "clear-task"]
 android15 = true
 reason = "Host lifecycle, configuration, entry and restart paths; debug/minified destruction and forced asset relaunch"
 
@@ -38,7 +38,7 @@ reason = "Android 15 platform launch-behind and predictive-back compatibility"
 
 [[rule]]
 paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
-sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "clear-task"]
+sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task"]
 android15 = true
 reason = "Shared runtime harness, fresh guest/logcat/settle, recipient/configuration grants or shared component declarations used by every session"
 
@@ -59,3 +59,14 @@ reason = "Clear-task entry redirects, native return/join/retirement and one-new-
 paths = ["android/audio_smoke.py", "es-core/src/AudioManager.*", "tests/audio-deinit/*"]
 sessions = ["integration"]
 reason = "Audio teardown, window reload and launch regression exercised by integration"
+
+[[rule]]
+paths = ["android/app_data_smoke.py", "android/app/src/main/*/bridge/AdoptedSettings.kt", "android/app/src/main/*/bridge/StorageModel.kt", "android/app/src/debug/*/AppDataSmoke.kt"]
+sessions = ["app-data"]
+reason = "Application-data consent, adoption, root recovery and retained data"
+
+[[rule]]
+paths = [".github/workflows/build-android.yml", "android/ci_apks.py", "android/ci_apks_test.py"]
+sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task"]
+android15 = true
+reason = "Shared parallel build, APK transfer and session invocation affect every job"

@@ -80,7 +80,26 @@ open class MainActivity : SDLActivity() {
         observeCommittedEntry()
         // Re-present a pending startup screen after backgrounding or unlock;
         // user interaction never expires and HOME is still set only by entry.
-        if (!awaitingCommittedEntry && ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+        if (!awaitingCommittedEntry) {
+            if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
+            else bridge.checkStorageOnResume()
+        }
+    }
+    // Framework recreation retires the old native process and restores
+    // the recorded entry. Cached native settings/paths never switch in place.
+    internal val nativePathsSelected: Boolean get() = bridge.pathsSelected
+    internal val storageRecoveryVisible: Boolean get() = resumedForRestart && hasWindowFocus() &&
+        !destroying && !isFinishing && !awaitingCommittedEntry
+    internal fun restartAfterStorageSelection(): Boolean {
+        if (!bridge.pathsSelected) return false
+        Log.i("ES-DE-Plus", "Storage selection requires a fresh frontend start")
+        // Save has validated and committed both roots. The configurator is in
+        // front, so ordinary onStop visibility cannot authorize this restart.
+        configured = true
+        restartRequested = true
+        prepareRestart()
+        recreate()
+        return true
     }
     override fun onPause() {
         resumedForRestart = false
@@ -91,7 +110,10 @@ open class MainActivity : SDLActivity() {
         // The recreated activity is a Java-side gate over retired native
         // globals. Neither focus nor a surface may start a second native main.
         if (!awaitingCommittedEntry) super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) observeCommittedEntry()
+        if (hasFocus) {
+            observeCommittedEntry()
+            if (!awaitingCommittedEntry) bridge.checkStorageOnResume()
+        }
     }
     override fun resumeNativeThread() {
         if (!awaitingCommittedEntry) super.resumeNativeThread()

@@ -15,14 +15,14 @@ def run(harness):
     h.adb('install', 'android/.deps/update/lower.apk')
     h.start_entry()
     h.ui('Use app-owned storage')
-    h.ui('Create system folders')
+    h.ui('Create system folders', dpad=True)
     h.shell('mkdir', '-p', h.roms + '/nes')
     dummy = h.evidence / 'update-dummy.nes'
     dummy.write_bytes(b'\0')
     for name in ('Smoke Alpha.nes', 'Smoke Beta.nes'):
         h.adb('push', str(dummy), h.roms + '/nes/' + name)
     dummy.unlink()
-    h.ui('Save and start frontend')
+    h.ui('Save and start frontend', dpad=True)
     h.wait_for(lambda: 'Application startup time:' in h.log(), 'lower-code frontend startup')
     h.configured_system('update-lower-system')
     h.shell('am', 'force-stop', h.app)

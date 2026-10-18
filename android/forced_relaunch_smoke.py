@@ -20,6 +20,12 @@ def frontend_stopped(dump, record):
                re.search(r'\bstate=STOPPED\b', section) for section in sections[1:])
 
 
+def configurator_focused(window, app):
+    focus = next((line for line in window.splitlines() if 'mCurrentFocus=' in line), '')
+    return bool(re.search(r'\s' + re.escape(app) + r'/(?:\.|' + re.escape(app) +
+                          r'\.)ConfiguratorActivity[\s}]', focus))
+
+
 def destruction_evidence(logs, old):
     # Bind the PID column of logcat threadtime, never a TID or a payload number.
     prefix = r'^\S+\s+\S+\s+' + re.escape(old) + r'\s+\d+\s+[VDIWEF]\s'
@@ -51,6 +57,11 @@ def restoration_evidence(logs, old):
 
 
 def controls():
+    for component in ('.ConfiguratorActivity', 'smoke.app.ConfiguratorActivity'):
+        assert configurator_focused('mCurrentFocus=Window{1 u0 smoke.app/' + component + '}', 'smoke.app')
+    for component in ('.MainActivity', '.ConfiguratorActivityExtra'):
+        assert not configurator_focused('mCurrentFocus=Window{1 u0 smoke.app/' + component +
+                                        '}\nmFocusedApp=smoke.app/.ConfiguratorActivity', 'smoke.app')
     import predictive_back_smoke
     preview_controls = predictive_back_smoke.controls()
     logs = ('01-01 00:00:00.000 123 124 V SDL: Running main function\n'
@@ -168,8 +179,11 @@ def run(harness):
                 h.shell('am', 'start', '-n', 'org.esdeplus.stub/.RecipientActivity')
             elif mode == 'configurator':
                 h.shell('touch', '/data/local/tmp/esde-assets-configurator')
-                h.wait_for(lambda: any(h.node_matches(n, 'Save and start frontend') for n in h.hierarchy()),
-                           name + ' configurator visible', timeout=30)
+                h.wait_for(lambda: configurator_focused(h.focused_window(), h.app),
+                           name + ' configurator focused', timeout=30)
+                # Data-folder disclosure makes Save scroll below the viewport.
+                # Reach it using real D-pad navigation, without activating it.
+                h.ui('Save and start frontend', dpad=True, focus_only=True)
             if mode in ('game', 'configurator'):
                 h.wait_for(lambda: frontend_stopped(h.activity_records()[0], frontend[0][2]),
                            name + ' frontend STOPPED', timeout=30)
@@ -258,6 +272,16 @@ def run(harness):
             capture(name + '-result')
         except Exception as error:
             capture(name + '-failure')
+            try:
+                h.screenshot(name + '-failure')
+            except Exception as diagnostic:
+                (h.evidence / (name + '-failure-screenshot-error.txt')).write_text(str(diagnostic))
+            try:
+                h.hierarchy()
+                (h.evidence / (name + '-failure-ui.txt')).write_bytes(
+                    (h.evidence / 'latest-ui.txt').read_bytes())
+            except Exception as diagnostic:
+                (h.evidence / (name + '-failure-ui-error.txt')).write_text(str(diagnostic))
             failures.append(name + ': ' + str(error))
         finally:
             stop_sampling.set()

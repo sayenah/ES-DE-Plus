@@ -9,7 +9,7 @@ Published CI debug APKs use one stable **test** key held only in GitHub's
 `test-signing` environment (the `main` branch only). Certificate SHA-256:
 `6bd277aa2b4feb1bd4eae5524defff7be22600c043aaa5e7d9e675aee6920ff0`.
 When moving from older throwaway-key builds, **back up and uninstall once**:
-uninstall deletes app-owned ROMs, settings, collections, media and logs. ROMs in
+uninstall deletes app-owned ROMs, settings, collections, media and logs. Data and ROMs in
 selected shared folders survive. Higher-version stable-key builds then update in
 place and preserve app data. This is test signing; production/store signing
 requires a separate Founder decision. Missing, lost, corrupt or compromised key
@@ -63,28 +63,69 @@ then launches the higher build. Stable-key custody, real release API publication
 and retries, and continuity across two stable-key publications require real
 main-run evidence after merge; branch fixtures do not prove those outcomes.
 
-On first launch choose a storage mode before granting permissions. Application
-settings, collections and logs stay in the current user's app-specific external
-`ES-DE-Plus` directory. Official ES-DE application data is never adopted or migrated.
+On first launch choose storage access, then the application-data folder, then the
+ROM folder. The native frontend uses the selected data folder for settings, media,
+gamelists, collections, downloaded themes, scripts and `custom_systems`.
 
-- **App-owned storage (default):** ROMs live in the app-specific external `ROMs`
-  directory. The configurator shows its exact path and how to populate it: install
-  Android platform tools on a computer, enable USB debugging, authorize that
-  computer, then use `adb push your-ROM-folder/. <displayed-ROM-path>/`. Organize
-  games into system folders such as `nes`. Uninstalling removes these games.
-  SAF import is deferred.
-- **Direct filesystem compatibility (explicit choice):** Open the app's
-  all-files-access settings, falling back to the generic settings page if the
-  app-specific page is unavailable. Select a local shared ROM folder through the system
-  picker, then copy games there using USB file transfer or a file manager. Only
-  external-storage-provider trees on a verified mounted current-user volume can
-  be mapped to a native path. Both persisted URI grants and actual filesystem
-  read/write access are checked. A SAF grant alone does not enable native access.
-  If the picker is missing, enter an absolute local folder path; this fallback
-  verifies the same volumes/access and creates no URI grant. If all-files settings
-  are both missing, use app-owned storage or grant access through device settings.
-  Accepting another folder releases superseded pending grants; cancel keeps the
-  displayed selection and its grant. Saving app-owned mode releases the old shared grant.
+- **Full file access (first, recommended choice):** explicitly grant all-files access. Confirm the
+  proposed `<current-user primary volume>/ES-DE-Plus` data folder, or choose a
+  different local folder through the picker or the D-pad-accessible typed path.
+  The default takes a create/use confirmation; every other destination takes an
+  adoption warning **before the app inspects or writes anything there**. An existing
+  `ES-DE` or `.emulationstation` folder can be used in place after that warning.
+  Existing settings, theme repositories and custom event scripts take effect; normal writes and upstream
+  migrations happen. Back up first and close the other frontend: concurrent use can
+  lose or corrupt changes. The app never automatically copies, moves or deletes
+  data between roots. The previous private location is shown and is deleted on
+  uninstall. A changed destination needs new consent.
+- **App-owned storage (secondary choice):** settings stay in the current user's
+  app-specific external `ES-DE-Plus` directory and ROMs in its `ROMs` sibling.
+  Both are deleted on uninstall. The configurator shows their paths. To provision
+  games, enable USB debugging, authorize a computer with Android platform tools,
+  then use `adb push your-ROM-folder/. <displayed-ROM-path>/`, with system folders
+  such as `nes`. SAF import is deferred.
+
+Shared-folder writers (including other all-files-access apps and USB/MTP) control
+theme contents, settings and event scripts. The downloader retains libgit2 owner
+validation and manages exact `safe.directory` entries in app-private
+`files/libgit2/.gitconfig`; it checks name admission, repository identity at open
+and clone initialization, and the actual remote immediately before fetch. Failed
+configuration/admission blocks all downloader operations, including cleanup, and
+permits a later retry. This is path-based trust, accepted in D-012 amendments 3–4,
+not isolation from shared writers. Initialization writes metadata before its final
+identity check; concurrent redirection can race those writes into other app-accessible
+locations, and later filesystem operations can also race; URL equality does not authenticate local contents, and non-HTTPS URLs
+have no TLS protection. Close other writers and back up shared data before adoption.
+Every libgit2 upgrade must recheck the protected config levels, exact canonical
+workdir matching, quoting and search-path reinitialization used by this policy.
+
+Data and ROM folders must be separate folders on verified current-user volumes,
+not volume roots or volume-relative `Android/` paths. ROM selection also refuses
+legacy frontend data directory names. A SAF tree is picker UX and ROM interop; it
+never substitutes for native filesystem access. Only the ROM selection keeps a
+persisted URI grant; data selection creates no extra persisted grant. Missing
+picker or all-files settings screens have typed-path or app-owned alternatives.
+Changing ROM folders releases superseded pending grants; saving app-owned mode
+releases the accepted shared grant.
+
+An existing direct-mode configuration without a data selection returns to the new
+data step while keeping its ROM folder. Mode, data folder, ROM folder and system
+creation request commit together. Unfinished steps and destination consent are a
+separate private draft, restored across Activity recreation/process death.
+Cancelling never accepts the draft. Missing, read-only, revoked or obstructed
+data storage, or unreadable ROM storage, opens recoverable configuration; validation never recreates a missing root
+or silently substitutes another one. Changing roots after native startup restarts
+the frontend in a fresh process.
+
+The configurator's ROM selection overrides XML `ROMDirectory` without rewriting
+that setting. An existing `MediaDirectory` override stays authoritative and is
+shown after consent; restore an inaccessible override or correct the settings file
+before retrying. Both `settings/es_settings.xml` and the upstream legacy root file
+are supported, with the normal upstream migration. Formats stay unchanged.
+
+ES-DE-Plus stores downloaded themes in `<selected application-data folder>/themes`.
+In shared mode these survive uninstall together with the rest of that folder;
+only bundled resources and the private draft/preferences are app-owned.
 
 **Create system folders** is a one-shot request on configuration save. The request
 is persisted as consumed before native creation begins. Later starts never
@@ -120,7 +161,9 @@ installs. Exact Gradle cache hits resolve offline. Dispatch
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
 then drives real configurator/permission screens on API 33, API 34 and Android TV
-API 36 x86_64. API 34 runs last on its own runner, after the API 33 and TV legs pass. After
+API 36 x86_64. API 34 runs last on its own runner after the first phone and TV legs
+finish. Its nonpublishing job also runs after an early-leg failure; final matrix
+success and publication still require every leg to pass. After
 same-commit Linux success and all Android checks, CI uploads and validates the
 source artefact on both dry-run and publication paths. Only an eligible
 `publish: true` dispatch then uploads the exact smoked debug APK; every other
@@ -148,7 +191,7 @@ symlink escapes and writes, and checks containment each time a file is opened.
 Its URI retains a root-identity segment and separate relative path segments,
 ending in the file name. Queries return the requested display name and size
 columns, ignoring unknown columns for FileProvider compatibility. Provider and
-launch access checks only read; configuration still verifies read/write access.
+launch and configuration ROM access checks only read; configuration independently verifies writable application data.
 The grant covers one file: siblings such as a `.bin` beside a `.cue` receive no
 access. A grant from a previous ROM-directory selection cannot expose a file
 with the same relative name in a new selection. Multi-file games need emulator-side access through `%ROMSAF%` or a
@@ -269,8 +312,9 @@ runs build per session and upload evidence only. Session checks, stable signer,
 Linux provenance, matching source and four immutable release assets still gate
 publication.
 
-The default matrix runs seven smoke phases on each of its two phone images
-(14 sessions), each in a distinct cold AVD: `core`
+The default matrix runs eight phases on each phone (16 jobs), each in a distinct
+cold AVD: `app-data` (consent, adoption, recovery and retained data), `core`
+
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
 (24 return/join/retirement and single-new-main chains), `integration`
@@ -300,6 +344,18 @@ verifies a clean guest and distinct boot identity, and records read-only QEMU
 RSS, host available memory and wrapped-ADB command counts/durations. Each
 phase's evidence is uploaded before the next AVD starts; publication still
 requires every phase and all existing D-020 gates.
+
+Theme trust controls run in the integration session under the app UID, using
+ES-DE-Plus-authored Git/JSON fixtures, explicit failure injection and clone/worker
+barriers. Pull requests on API 33/34 additionally build the exact historical
+`438bf5927` ownership control on the runner; a missing required APK or skipped
+extended-update control fails the session, with its required/completed evidence
+recorded. Main pushes do not rebuild the historical control. No control APK is
+uploaded. The framework-free policy and
+Git operation target runs on Linux with:
+`cmake -S tests/theme-repository-trust -B build/theme-trust -DCMAKE_BUILD_TYPE=Release -DTHEME_TRUST_RUNTIME=ON`,
+`cmake --build build/theme-trust`, then
+`ctest --test-dir build/theme-trust --output-on-failure`.
 
 Before the first frontend launch or instrumentation, each fresh session samples
 `cmd overlay list` and the installed frontend's ApplicationInfo. Three consecutive
@@ -390,7 +446,10 @@ harness's onboarding relaunch. Startup readiness after a host restart requires
 the framework's helper START request, evidence that the helper actually started,
 the helper's old-PID-retired record, creation of a new live frontend PID, and
 `Application startup time:` without `Error:`. Missing links fail; the harness
-never supplies the absent restart. Start markers include configurator Save/start
+never supplies the absent restart. Application-data re-selection may request the
+helper before SDL destruction: only the exact storage-restart marker from the
+same old PID admits that order. Helper start, retirement after destruction, a
+new live frontend and fresh native-log evidence are still required. Start markers include configurator Save/start
 and explicit frontend entries, and timeout evidence precedes caller cleanup.
 CI controls replay the G-30 exclusion and reject each missing restart link.
 Classification merges the kept session stream with the live capture, so buffer
@@ -414,15 +473,26 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/40/60/35/60/20 minutes (D-012 am. 12) for core/lifecycle/
-clear-task/integration/PDF-direct/PDF-scoped/assets. The combined lifecycle and
-clear-task step took 35.6–39.5 minutes in PR #28's round-1 matrices
-(39051707636 and 39051710800), or 89–99% of the 40-minute cap introduced by PR #24.
-The clear-task chains therefore run in their own gating cold-AVD session; the
-existing lifecycle assertions and every in-harness deadline stay unchanged.
-The core step reached 51.8 minutes on API 34 in
-round 4 (push run 39046156277), leaving 8.2 minutes under its unchanged 60-minute
-cap. Re-measure core on API 33 after platform PR #27 integrates. Earlier
+The combined lifecycle and clear-task step took 35.6–39.5 minutes in PR #28's
+round-1 matrices (39051707636 and 39051710800), or 89–99% of the 40-minute cap
+introduced by PR #24. The clear-task chains therefore run in their own gating
+cold-AVD session with a 40-minute step cap; existing lifecycle assertions and
+every in-harness deadline stay unchanged.
+Its initial instrumented or ordinary entry uses the shared bounded startup
+policy: one proven stock-onboarding preemption before readiness may recover;
+crashes, exits, host failures and later failures stay hard. The clear-task action
+itself is issued once, after readiness, with every retirement assertion retained.
+Its proof starts at the successful initial-entry marker; any earlier preempted
+startup remains in the full captures and shared startup-outcome records.
+
+Emulator steps are bounded to 60/40/40/60/35/60/20 minutes for core/lifecycle/clear-task/
+integration/PDF-direct/PDF-scoped/assets; API 34 core uses 80 minutes under D-024 am. 16.
+Integration and scoped-PDF use 60-minute teardown backstops under D-012 am. 12;
+measured passes took 41m45s and 35m43s. In-harness readiness/probe deadlines stay unchanged.
+The core step reached 51.8 minutes on API 34 in round 4 (push run 39046156277),
+leaving 8.2 minutes under the earlier 60-minute cap. Readiness/probe deadlines
+remain unchanged. The API 33 baseline runs the same core controls. Earlier
+
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
 (run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
 An action failure or timeout after the
@@ -444,6 +514,7 @@ android/gradlew -p android --no-daemon -Pesde.versionCode=$((esde_smoke_code - 1
 cp android/app/build/outputs/apk/debug/app-debug.apk android/.deps/update/lower-unsigned.apk
 android/gradlew -p android --no-daemon :app:assembleDebug
 python3 android/network-control.py
+python3 android/theme-owner-control.py
 python3 android/test_signing.py fixtures
 python3 android/smoke_session.py integration -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase integration
 ```
@@ -499,3 +570,30 @@ Upstream's GPL converter/Poppler and standalone Poppler-only codecs are excluded
 from every Android variant. libgit2 retains its GPL linking exception; LGPL
 runtime libraries stay shared. The platform renderer adds no application dependency. CI generates PDF fixtures without a third-party PDF library and checks
 native input/licence closure, JNI contracts and viewer behaviour on all three images.
+
+The app-data, integration, core, lifecycle, clear-task, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Integration runs before the longer core/lifecycle sessions so downloader failures surface earlier. The five-hour outer emulator-job budget covers all eight sessions and the extended network controls; individual session/probe deadlines and failure gates are unchanged (D-012 amendment 11). The measured predecessor API 34 job took 230m01s, leaving 69m59s at the new limit; the earlier phone job took 194m31s (only about 45 minutes remained at 240), and TV took 159m17s. The same APK stays on its runner throughout all sessions; no inter-job APK transfer is used. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
+
+The API 34 special-character fixture uses emulated shared storage with `#`, `;`, space and `é`. D-012 amendment 5 excludes quotes from shared data paths because Android's MediaProvider refuses renames through those components. The configurator and resume probe require an actionable rejection, no destination access or mutation and no fallback, then prove valid-folder review still works. Native controls clone/fetch/reset actual quoted and backslash-containing app-private Git paths and parse their exact `safe.directory` entries through libgit2; framework-free tests also cover escaping. The integration emulator provisions a 2 GiB card for the retained list repository, the large theme and temporary clone files. A mounted removable volume additionally gets its own clone/select/load fixture with a portable filename; SDK card images use [FAT32](https://developer.android.com/tools/mksdcard), whose [filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file) exclude quotes. API 33/34 historical ownership controls require `python3 android/theme-owner-control.py` before the signing fixture; this builds exact archived `438bf5927` locally on the runner, with no APK upload.
+
+The API 34 integration session also force-stops a real in-place large-theme clone after Git initialization and before tracked content is present. A fresh frontend must offer the ordinary explicit corrupt-repository recovery, rename once and finish the download through the UI without filesystem repair. This is process-interruption evidence for D-012 am. 3; no Android 12 staging or retirement path is used.
+
+When upgrading from app-private data, close the app and copy the contents of
+`Android/data/org.esdeplus.frontend/files/ES-DE-Plus` to the intended shared data
+folder using USB or `adb` before uninstalling or clearing app storage. Select
+that folder in the configurator and verify the settings/media/themes before
+removing the backup. Folder selection never copies the old data for you.
+
+Unreadable or invalid adopted settings name the selected file and explain how
+to restore access or explicitly reset it by backing up and renaming/deleting
+it. Frontend resume checks run off the UI thread and probe only the data root
+for writes; child paths retain read/structure checks, including obstruction
+recovery. Errors are presented only to the current resumed, focused frontend;
+focus return rechecks a discarded asynchronous result. Startup and Save retain
+the full preflight. Media overrides inside the ROM
+folder are refused before any media write probe. Typed mount aliases are mapped
+without inspecting an unconfirmed destination, and data paths containing
+control characters are refused in the configurator.
+
+The nonpublishing API 34 job collects all gating smoke sessions even after an early-leg failure; cancellation still stops it. The overall matrix result and protected publication continue to require successful early legs. This preserves required API 34 diagnostic evidence when an unsupported-platform failure or a recorded early-leg infrastructure failure occurs.
+
+Network-menu probes verify the rendered main-menu selection and THEME DOWNLOADER row before activation, using the existing JDK screenshot classifier. Delayed frames are observed without replaying navigation actions; wrong menus and QUIT refuse activation. The ASSETS configurator probe reaches Save by D-pad scrolling. Saving an unchanged healthy configuration resumes the existing frontend; explicit folder reconfirmation, storage-error recovery and changed configuration still request a fresh process so cached state cannot survive recovery. The restart intent survives draft recreation, and app-data smoke checks fresh processes for both same-folder recovery and a different folder.

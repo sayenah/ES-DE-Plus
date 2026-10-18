@@ -20,7 +20,7 @@ IMAGES = {
     'tv36': dict(image='tv36', api=36, target='android-tv', profile='tv_1080p'),
 }
 CAPS = {'core': 60, 'lifecycle': 40, 'clear-task': 40, 'integration': 60,
-        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20}
+        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60}
 
 
 def values(raw, allowed):
@@ -95,12 +95,13 @@ def self_test():
            'android/ci_selection.py', 'android/ci-sessions.toml', 'android/README.md',
            'android/release_controls.py', 'android/distribution.py', 'android/ci_apks.py', 'android/test_signing.py']
     assert path_plan(['docs/protocol.md'])[0] == {'api33': ['core']}
-    assert path_plan(own)[0] == {'api33': ['core', 'integration']}
+    assert path_plan(own)[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt'])[0] == {
-        'api33': ['core', 'lifecycle', 'assets', 'clear-task'], 'api35': ['core']}
+        'api33': ['core', 'lifecycle', 'assets', 'app-data', 'clear-task'], 'api35': ['core']}
     assert path_plan(['android/pdf_smoke.py'])[0] == {'api33': ['core', 'pdf-direct', 'pdf-scoped']}
     assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/clear_task_smoke.py'])[0] == {'api33': ['core', 'clear-task']}
+    assert path_plan(['android/app_data_smoke.py'])[0] == {'api33': ['core', 'app-data']}
     assert path_plan(['android/audio_smoke.py'])[0] == {'api33': ['core', 'integration']}
     assert set(dispatch_plan('all', 'all')) == {'api33', 'api35'}
     assert set(dispatch_plan('api34,tv36', 'assets')) == {'api34', 'tv36'}

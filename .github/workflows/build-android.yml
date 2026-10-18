@@ -813,6 +813,11 @@ jobs:
           set -o pipefail
           python3 android/network-control.py 2>&1 | tee android/network-control.log
           git diff --exit-code -- android/app/src/main/AndroidManifest.xml
+      - name: Build runner-only pre-fix ownership control (PR integration)
+        if: ${{ needs.selection.outputs.publish != 'true' && success() && github.event_name == 'pull_request' && matrix.session == 'integration' && (matrix.image == 'api33' || matrix.image == 'api34') }}
+        run: |
+          set -o pipefail
+          python3 android/theme-owner-control.py 2>&1 | tee android/theme-owner-control.log
       - name: Throwaway signing, update pair and real signature rejection/cleanup controls
         if: ${{ needs.selection.outputs.publish != 'true' }}
         run: |
@@ -983,7 +988,7 @@ jobs:
           avd-name: esde-${{ matrix.session }}
           force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          sdcard-path-or-size: 512M
+          sdcard-path-or-size: ${{ matrix.session == 'integration' && '2048M' || '512M' }}
           disable-animations: true
           cores: 4
           ram-size: 4096M

@@ -5,6 +5,8 @@ package org.esdeplus.frontend
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.util.AtomicFile
 import android.util.Log
 import org.esdeplus.frontend.bridge.StorageModel
@@ -14,9 +16,14 @@ import org.esdeplus.frontend.bridge.GameLauncher
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 
 class NativeBridge(private val context: Context, private val recoverStartup: Boolean = false) {
     private val storage = StorageModel(context)
+    private val checkingStorage = AtomicBoolean(false)
+    // Once any root has crossed JNI, the native side may have cached it.
+    @Volatile var pathsSelected = false
+        private set
     @Volatile var windowSnapshot: IntArray = intArrayOf(0, 0)
     private var earlyCopyFailed = false
     private val tag = "ES-DE-Plus"
@@ -133,10 +140,30 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
             }
         }
     }
-    fun getAppDataDirectory(): String = storage.verifyDirectory(storage.appData(), true).path
+    private fun <T> withStorageRecovery(query: () -> T): T {
+        while (true) {
+            try { return query() }
+            catch (error: Exception) {
+                if (!recoverStartup) throw error
+                Log.w(tag, "Storage requires configuration: ${error.message}")
+                ConfiguratorSession.open(context, error.message)
+                MainActivity.nativeWaitForConfiguration()
+            }
+        }
+    }
+    fun getAppDataDirectory(): String = withStorageRecovery {
+        val config = storage.load() ?: throw IOException(context.getString(R.string.storage_choice_required))
+        storage.validate(config)
+        pathsSelected = true
+        config.data
+    }
     // FileData/createSystemDirectories require the final slash.
-    fun getROMDirectory(): String = storage.validate(storage.load()
-        ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
+    fun getROMDirectory(): String = withStorageRecovery {
+        val roms = storage.validate(storage.load()
+            ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
+        pathsSelected = true
+        roms
+    }
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")
@@ -165,5 +192,26 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun getCellularStatus(): Int = 0
     fun getBatteryStatus(): IntArray = intArrayOf(-1, -1)
     fun startConfigurator() { ConfiguratorSession.open(context, storage.problem()) }
-    fun onNativeFrontendResume() {}
+    fun onNativeFrontendResume() { checkStorageOnResume() }
+    fun checkStorageOnResume() {
+        val frontend = MainActivity.liveInstance() ?: return
+        if (!pathsSelected || ConfiguratorSession.configuring || !checkingStorage.compareAndSet(false, true)) return
+        Thread({
+            try {
+                val selected = storage.load()
+                // Startup/Save perform the complete preflight. A game return
+                // writes only the data-root probe. Child paths and ROMs keep
+                // their read/structure checks so obstruction stays recoverable.
+                val problem = storage.problem(probeChildren = false)
+                if (problem != null) Handler(Looper.getMainLooper()).post {
+                    // An asynchronous result must not pull the frontend over
+                    // a game or act on a retired activity/configuration. Focus
+                    // return schedules a new check if this result is discarded.
+                    if (frontend === MainActivity.liveInstance() && frontend.storageRecoveryVisible &&
+                        selected == storage.load() && !ConfiguratorSession.configuring)
+                        ConfiguratorSession.open(context, problem)
+                }
+            } finally { checkingStorage.set(false) }
+        }, "StorageResumeCheck").start()
+    }
 }

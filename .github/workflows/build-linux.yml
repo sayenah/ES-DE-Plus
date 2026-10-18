@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — framework-free theme trust checks written for ES-DE-Plus.
 name: Build Linux
 
 on:
@@ -45,10 +47,19 @@ jobs:
           done
 
       - name: Configure
-        run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Theme repository policy and operation controls (framework free)
+        run: |
+          cmake -S tests/theme-repository-trust -B build/theme-trust -DCMAKE_BUILD_TYPE=Release -DTHEME_TRUST_RUNTIME=ON
+          cmake --build build/theme-trust --parallel 2
+          ctest --test-dir build/theme-trust --output-on-failure
 
       - name: Build
         run: cmake --build build --parallel 2
+
+      - name: Verify unchanged desktop theme downloader preprocessor output
+        run: python3 tests/theme-repository-trust/desktop.py
 
       - name: Audio teardown positive control and regression (real SDL dummy driver)
         run: python3 tests/audio-deinit/run.py 063e454da build/audio-deinit
