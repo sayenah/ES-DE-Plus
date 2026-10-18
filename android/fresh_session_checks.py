@@ -118,8 +118,9 @@ def startup_restart(output, app, current_pid='', ready=None):
             # the SDL host. Bind that earlier request to this old PID's marker;
             # ordinary configuration destroys still need their later request.
             storage = next((n for n in range(index - 1, -1, -1)
-                            if re.search(r'\bI ES-DE-Plus: Storage selection requires a fresh frontend start$', lines[n]) and
-                            (actor := re.match(thread, lines[n])) and actor[1] == pid), None)
+                            if (actor := re.match(thread + r'\s*\d+\s+I ES-DE-Plus: '
+                                                  r'Storage selection requires a fresh frontend start$', lines[n])) and
+                            actor[1] == pid), None)
             prior = [n for n in range(storage + 1, index)
                      if re.search(r'\bSTART u\d+ .*cmp=' + helper, lines[n])] if storage is not None else []
             if len(prior) == 1:
@@ -518,6 +519,8 @@ def startup_restart_controls(zone=''):
     storage_bad.extend([
         [storage[0].replace('2001 2001', '2099 2099')] + storage[1:],
         [storage[0].replace('I ES-DE-Plus:', 'I OtherLog:')] + storage[1:],
+        [storage[0].replace('I ES-DE-Plus:', 'I OtherLog: I ES-DE-Plus:')] + storage[1:],
+        [storage[0].replace('I ES-DE-Plus:', 'I ES-DE-Plus: Root named I ES-DE-Plus:')] + storage[1:],
         [storage[1], storage[0]] + storage[2:],  # A request before this marker is stale.
         storage[:2] + [storage[1]] + storage[2:],  # Ambiguous helper requests.
         storage[:3] + [storage[5]] + storage[3:5] + storage[6:],  # Retirement before destruction.
