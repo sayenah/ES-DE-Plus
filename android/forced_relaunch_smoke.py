@@ -52,7 +52,7 @@ def restoration_evidence(logs, old):
 
 def controls():
     import predictive_back_smoke
-    applicability = predictive_back_smoke.controls()
+    preview_controls = predictive_back_smoke.controls()
     logs = ('01-01 00:00:00.000 123 124 V SDL: Running main function\n'
             '01-01 00:00:00.001 123 123 I ES-DE-Plus: Destroying SDL activity held=false finishing=false changingConfigurations=true '
             'configurationChanges=0x-80000000\n'
@@ -66,6 +66,7 @@ def controls():
         ('helperStarted=false', 'helperStarted=true'), ('START', 'NOT_STARTED'),
         ('SDL process 123 retired;', 'SDL process 999 retired;'),
         ('configurationChanges=0x-80000000', 'configurationChanges=0x10000000'),
+        ('configurationChanges=0x-80000000', 'configurationChanges=0x-7fffff80'),
         ('finishing=false', 'finishing=true'), ('changingConfigurations=true', 'changingConfigurations=false'))]
     mutants.append(logs.replace('held=false', 'held=true'))
     mutants += [logs + '01-01 00:00:00.006 123 124 V SDL: Running main function\n',
@@ -97,7 +98,7 @@ def controls():
     assert not frontend_stopped(dump.replace('state=STOPPED', 'state=RESUMED'), 'frontend')
     assert not frontend_stopped(dump, 'game')
     return (f'PASS: {len(mutants)} broken restore chains rejected; matching Hist state checked; '
-            'no recovery or action retry\n' + applicability)
+            'no recovery or action retry\n' + preview_controls)
 
 
 def run(harness):

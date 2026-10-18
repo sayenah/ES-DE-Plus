@@ -101,6 +101,7 @@ def framework_recreation(harness, variant, failures, home=False, background=Fals
         # AOSP's CoreSettings observer requests a real local relaunch when
         # this app's view-attribute flag changes. No target instrumentation,
         # injected quit, Activity retry or harness relaunch is involved.
+        h.begin_startup()
         h.shell('settings', 'put', 'global', setting, h.app)
         def destroyed():
             background_focus()
@@ -287,6 +288,7 @@ def expired_restart_resume(harness, variant, failures):
     h.adb('logcat', '-c')
     harness['startup_baseline'] = h.log()
     h.dismiss_stock_onboarding(force=True)
+    h.begin_startup()
     # A real isolated shell process supplies a parent whose death does not
     # make instrumentation teardown remove the helper. No native main runs
     # until that process is gone and the existing helper regains focus.

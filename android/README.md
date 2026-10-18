@@ -258,11 +258,21 @@ CI runs six gating smoke phases, each in a distinct cold AVD: `core`
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 (update continuity on API 33/34 and network checks), `pdf-direct`,
 `pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
-relaunches plus predictive-back cancellation on API 33/34). A stopped frontend's
-asset relaunch waits for a resumed, focused entry before using the existing
-restart helper; a back preview never starts another native main. Predictive
-back cancellation runs on both supported phone images; edge gestures are not a
-TV navigation mode.
+relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
+A stopped frontend's asset relaunch waits for a resumed, focused entry before
+using the existing restart helper; a back preview never starts another native
+main. The CI-only stub opts in at the application level because Android 13 ignores
+the activity-level opt-in. Both phone probes require a system Back callback,
+return-to-HOME and real HOME launch-behind before testing cancellation and committed
+restoration. API 34 must emit the platform launch-behind log. Later Android 13 uses
+a transition path without that log; its probe instead binds the platform's return
+destination to the original HOME task and requires that sole HOME record visible and PAUSED behind
+the game. ASSETS destruction/native join, recreation, continuous game focus,
+cancellation and committed restoration remain mandatory. A compat `TYPE_CALLBACK`
+fails the probe. Edge gestures are not a TV navigation mode.
+The CI probe game uses HOME's sensor-portrait orientation, and the harness checks
+equal HOME/game screen dimensions before the gesture. This keeps orientation
+changes out of the strict ASSETS_PATHS-only destruction assertion.
 The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass
@@ -272,6 +282,130 @@ verifies a clean guest and distinct boot identity, and records read-only QEMU
 RSS, host available memory and wrapped-ADB command counts/durations. Each
 phase's evidence is uploaded before the next AVD starts; publication still
 requires every phase and all existing D-020 gates.
+
+Before the first frontend launch or instrumentation, each fresh session samples
+`cmd overlay list` and the installed frontend's ApplicationInfo. Three consecutive
+unchanged samples must also have host `/proc/pressure/cpu` `some avg10 < 20%`.
+Only the per-query ApplicationInfo `createTimestamp` is excluded from comparison;
+raw samples retain it. Resource, overlay and shared-library fields remain compared.
+Samples are five seconds apart; this selects the lower-pressure band observed in
+run 38841218615 (API 34 core: 2.8–67.03%). The 120-second deadline is non-gating:
+expiry is recorded and the original assertions still run. `session-settle-*.txt`
+and each phase's session summary record the outcome and elapsed time. A continuous
+`PHASE-session-logcat.txt` preserves all buffers from session start, including
+before older checks clear their assertion buffers.
+The existing capability controls deliberately restart adbd with `root`/`unroot`.
+`session_logcat.py` reconnects the read-only observer only after an owned reset
+request, completed `wait-for-device` and verified UID change overlapping its
+disconnect. This proof does not depend on the reset client's message/exit code. Retained
+buffers append to the kept file; startup classification deduplicates overlaps.
+Repeated backfilled markers cannot discard earlier captured destroy/helper events.
+An unexplained stream exit is a hard `SESSION_EVIDENCE_FAILURE` even if the child
+passed; a failed child keeps its original status. The stock app-drawer icon tap
+also gets its own startup marker before activation, just like explicit starts.
+
+Every successful `adb install` also waits for package resource processing before
+returning to its caller. This covers initial installs, lower/higher update builds,
+debug/release reinstalls and the interactive emulator install through the shared
+ADB helpers, including PDF callers and the assets session's test overlay. Both
+assets workflows install that overlay inside the session so its wait and logcat
+are recorded before the first frontend start. `cmd overlay list --user USER android` and
+the overlay dump identify enabled framework overlay paths. Only mutable framework
+overlays belong in per-package state. Android 12/13 filters immutable framework
+entries in `OverlayManagerSettings`; Android 14+ requests
+`includeImmutableOverlays=false` in `OverlayManagerService.updatePackageManagerLocked`.
+An empty public list can therefore coexist with immutable raw-dump entries.
+TV's enabled framework overlays are immutable APK overlays, so its per-package
+set is empty; mutable phone palette overlays must be present. This uses overlay
+metadata, without an image-name or SDK exception.
+`dumpsys package` user state must contain the expected
+paths in `overlay paths` (fabricated) or `legacy overlay paths` (APK/resourceDirs),
+and omit known disabled framework paths. Two consecutive qualifying samples are required (one-second
+poll interval). Stable pre-broadcast state with missing paths cannot qualify.
+An empty applicable set qualifies only with valid package/version/user and overlay
+queries. The 120-second deadline records expiry and continues the original test;
+rejected installs do not create a new installed resource state. Raw per-install
+samples are `install-N-settle-samples.txt`; `install-settle-outcomes.txt` and the
+session summary's `install_settles` record each successful install and wait.
+
+The navigation-volume persistence probe uses `settings_navigation.py` and the
+importer's screenshot focus reader. Each menu input is preceded by a fresh
+verified label, including the volume adjustment and Back actions that save it.
+The screenshots and `navigation-volume-focus-trace.txt` retain those observations.
+A dropped key or wrong submenu fails without replay; the persistence assertion
+is unchanged. `SmokeMenuFocus.java` separates label ink from right-hand values,
+recognizes settings labels, and retains its distance and ambiguity thresholds.
+
+The held-host font-weight probe captures activity override configuration, overlays,
+package resources and ApplicationInfo before the change. An ASSETS_PATHS destroy
+mask is labelled `ENVIRONMENTAL_ASSETS_PATHS_RELAUNCH` (G-29); it still requires
+a new PID, the same task, a focused configurator with its non-default draft kept,
+and no frontend ANR or crash. Every other relaunch fails immediately. CI's
+`smoke_session.py self-test` runs rejection and acceptance controls for the mask,
+recovery and settle conditions, saved in `fresh-session-controls.txt`. A later
+ASSETS_PATHS destroy after in-place handling and a second destroy of the replacement
+host are labelled hard failures. In-place handling records `NOT_REQUIRED_IN_PLACE`
+for recovery; session summaries count every observed ASSETS_PATHS destroy as
+`g29_environmental_outcomes`, including late/second destroys on a failed session.
+
+The shared frontend startup path also records `startup-outcomes.txt`. A startup
+timeout captures the live screenshot, focused window, activity state and logcat
+tail before cleanup. It permits one relaunch only if the shared TV guard actually
+dismissed a stock tutorial during that start and the frontend has never logged
+startup readiness. The captured live window must show stock launcher/HOME focus,
+or the complete log since the start marker must show no frontend activity
+creation. Any frontend process death or SDL finishing destroy in that whole
+start vetoes recovery. App-owned splash/starting windows and null or missing
+focus count as frontend focus. Frontend focus at timeout makes the timeout hard,
+including a created activity with hung native startup. Readiness is checked again
+after capture; a crash/ANR in the marked start window, a stale dismissal, any timeout after readiness, and a second
+timeout stay hard failures. The original 90 s readiness bound applies to each
+attempt. Session summaries count `stock_onboarding_relaunches`, including zero;
+the CI self-test exercises the allowed case and each exclusion. The resource-copy
+interruption probe selects its PID from the real font-copy log event (with a
+matching copy-required event), after waiting for the prior process to stop.
+
+A configuration destroy followed by frontend process death without a helper
+START is a hard `G-30 CONFIGURATION_DESTROY_WITHOUT_HELPER`, even after a stock
+tutorial dismissal with HOME focused. An existing host relaunch also vetoes the
+harness's onboarding relaunch. Startup readiness after a host restart requires
+the framework's helper START request, evidence that the helper actually started,
+the helper's old-PID-retired record, creation of a new live frontend PID, and
+`Application startup time:` without `Error:`. Missing links fail; the harness
+never supplies the absent restart. Start markers include configurator Save/start
+and explicit frontend entries, and timeout evidence precedes caller cleanup.
+CI controls replay the G-30 exclusion and reject each missing restart link.
+Classification merges the kept session stream with the live capture, so buffer
+clears or eviction cannot hide a destroy. UTC/year/microsecond timestamps preserve order.
+For every newly observed PID, including instrumentation bootstrap starts and
+helper replacements, readiness requires a stable inode/size/mtime sample around
+reading `es_log`, with a modification after that host's logged creation. Creation
+comes from the complete kept session because an initially held host exists
+before its Save marker; G-30 restart classification remains scoped to the start.
+Native `Log::init` rotates the old file before writing a new one; a stale old startup
+line cannot satisfy this condition. A previously verified warm PID may retain
+its log. The CI self-test executes the actual predicate with the captured
+bootstrap/old-log/rotation sequence, plus held-before-Save, duplicate-backfill,
+fresh, partial, unstable, missing-create and changed-PID controls.
+No native logfile or logging setting is changed.
+
+The stock tutorial's separate supported HOME banner can arrive during the
+clear wait. The existing exact-resource, live-focus action is allowed once
+within that bounded condition. A stuck or unknown Dismiss control still times
+out, preserves its XML, and records no completed dismissal. CI replays early,
+late, absent, stuck and unknown banners through the actual shared guard; it
+never starts or retries the frontend itself.
+
+Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
+PDF-direct/PDF-scoped/assets. The core step reached 51.8 minutes on API 34 in
+round 4 (push run 39046156277), leaving 8.2 minutes under its unchanged 60-minute
+cap. Re-measure core on API 33 after platform PR #27 integrates. Earlier
+lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
+(run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
+An action failure or timeout after the
+child recorded exit 0 is recorded as `EMULATOR_SHUTDOWN_INFRASTRUCTURE` in
+`PHASE-emulator-result.txt`; a nonzero child remains `SESSION_FAILURE`. Either
+failure keeps the job red. This bounds teardown stalls without retrying sessions.
 
 For a local API 34 network smoke, start a fresh AVD and use a full-history checkout at the commit being tested.
 Follow the [workflow's dependency, emulator and fixture preparation](../.github/workflows/build-android.yml),
