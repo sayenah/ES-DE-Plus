@@ -54,7 +54,7 @@ permissions:
   actions: read
 jobs:
   selection:
-    if: ${{ !inputs.rebuild_run }}
+    if: ${{ !cancelled() && !inputs.rebuild_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -78,7 +78,7 @@ jobs:
 
   build:
     needs: selection
-    if: ${{ needs.selection.outputs.run_early == 'true' }}
+    if: ${{ !cancelled() && needs.selection.outputs.run_early == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
@@ -925,7 +925,7 @@ jobs:
   # artefact downloads, signing, release API access or a writing token.
   release-setup-dry-run:
     needs: selection
-    if: ${{ needs.selection.outputs.skip != 'true' && github.ref != 'refs/heads/main' && !inputs.rebuild_run }}
+    if: ${{ !cancelled() && needs.selection.outputs.skip != 'true' && github.ref != 'refs/heads/main' && !inputs.rebuild_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
