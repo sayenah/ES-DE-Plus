@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus Android data-folder passages adapted from this upstream MIT document. -->
 # ES-DE Frontend - User guide
 
 It's generally recommended to read the [Frequently Asked Questions (FAQ)](FAQ.md) document prior to diving into the information in this guide.
@@ -59,7 +60,7 @@ There's not really much to say about these operating systems, just install ES-DE
 
 _This section primarily covers the desktop ports of ES-DE, for Android there's a separate document with its own section for the onboarding and first startup that you can find [here](ANDROID.md#first-startup-and-onboarding)._
 
-Upon first startup, ES-DE will create its `~/ES-DE` application data directory.
+Upon first startup, ES-DE will create its `~/ES-DE` application data directory. On Android, ES-DE Plus instead asks for storage permission, the application data folder, then the ROM folder. Full file access is recommended; its proposed shared `ES-DE-Plus` folder is created only after confirmation. Other destinations require an adoption warning. App-private storage is the secondary option and is deleted on uninstall. Shared data, including downloaded themes under `themes/` and custom systems under `custom_systems/`, survives uninstall; changing roots does not transfer files.
 
 On Linux this means `/home/<username>/ES-DE`, on macOS `/Users/<username>/ES-DE` and on Windows `C:\Users\<username>\ES-DE` or `ES-DE\ES-DE` depending on whether the installer release or the portable release is used.
 

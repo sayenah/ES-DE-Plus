@@ -95,6 +95,37 @@ def held_restored(records, nodes, pid, old_pid, app):
                n.get('text', '').startswith('Configure ') for n in nodes), nodes
 
 
+def storage_configurator_returned(nodes, app):
+    # Small viewports can show the data-stage heading while its folder controls
+    # are below the fold. Require the app's title and stage, not a hidden button.
+    texts = [n.get('text', '').casefold() for n in nodes if n.get('package') == app]
+    return (any(text.startswith('configure ') for text in texts) and
+            any(text in {'choose shared rom folder', 'choose application-data folder',
+                         '2. choose the application-data folder before the rom folder.'}
+                for text in texts))
+
+
+def permission_revocation_return(nodes, old_pid, new_pid, logcat, app):
+    # A reset of a stale Settings switch can revoke access, kill its UID and
+    # return to the recoverable configurator. Never infer this from UI alone.
+    return (old_pid.isdigit() and new_pid.isdigit() and old_pid != new_pid and
+            any('Killing ' + old_pid + ':' + app + '/' in line and
+                'MANAGE_EXTERNAL_STORAGE changed.' in line for line in logcat.splitlines()) and
+            any(n.get('package') == app and n.get('resource-id') == app + ':string/grant_access' and
+                n.get('text', '').casefold() == 'grant direct filesystem access' and
+                n.get('clickable') == 'true' for n in nodes))
+
+
+def focus_direction(current, target):
+    current_x, current_y = current[0] + current[2], current[1] + current[3]
+    target_x, target_y = target[0] + target[2], target[1] + target[3]
+    # Dialog actions can share a horizontal row. Navigate with the same real
+    # D-pad a TV user has, including left/right between those actions.
+    if current_y == target_y and current_x != target_x:
+        return 'KEYCODE_DPAD_LEFT' if target_x < current_x else 'KEYCODE_DPAD_RIGHT'
+    return 'KEYCODE_DPAD_UP' if target_y < current_y else 'KEYCODE_DPAD_DOWN'
+
+
 def positive_controls():
     rejected = []
 
@@ -118,6 +149,10 @@ def positive_controls():
         reject('missing entry diagnostic', lambda: warm_entry(f'HOME={str(home).lower()}', home))
         reject('wrong HOME state', lambda: warm_entry(f'Focused redirect forwarding; HOME={str(not home).lower()}', home))
     grants(1, 1)
+    assert focus_direction([100, 400, 200, 460], [0, 400, 90, 460]) == 'KEYCODE_DPAD_LEFT'
+    assert focus_direction([0, 400, 90, 460], [100, 400, 200, 460]) == 'KEYCODE_DPAD_RIGHT'
+    assert focus_direction([0, 400, 200, 460], [0, 200, 200, 260]) == 'KEYCODE_DPAD_UP'
+    assert focus_direction([0, 200, 200, 260], [0, 400, 200, 460]) == 'KEYCODE_DPAD_DOWN'
     # UIAutomator buttons are XML leaves: Element truthiness is false even
     # when the actual system action was found. Test the real node shape.
     tutorial = ET.fromstring('<node text="Got it" package="android" />')
@@ -193,6 +228,29 @@ def positive_controls():
     reject('two frontend records', lambda: held_restored([records[0], records[0]], nodes, '200', '100', 'smoke.app'))
     reject('redirect substituted for native host', lambda: held_restored([('FrontendRedirectActivity', '7'), records[1]], nodes, '200', '100', 'smoke.app'))
     reject('stock launcher obscures configuration', lambda: held_restored(records, [], '200', '100', 'smoke.app'))
+    returned = [{'package': 'smoke.app', 'text': 'Configure ES-DE Plus'},
+                {'package': 'smoke.app', 'text': '2. Choose the application-data folder before the ROM folder.'}]
+    def storage_return(nodes=returned):
+        probe_passed('returned' if storage_configurator_returned(nodes, 'smoke.app') else '', 'returned')
+    storage_return()
+    reject('return needs configurator title', lambda: storage_return(returned[1:]))
+    reject('return needs storage stage', lambda: storage_return(returned[:1]))
+    reject('return rejects Settings or another app', lambda: storage_return(
+        [dict(node, package='com.android.settings') for node in returned]))
+    permission_nodes = [{'package': 'smoke.app', 'resource-id': 'smoke.app:string/grant_access',
+                         'text': 'GRANT DIRECT FILESYSTEM ACCESS', 'clickable': 'true'}]
+    killed = 'ActivityManager: Killing 100:smoke.app/u0a1 (adj 100): MANAGE_EXTERNAL_STORAGE changed.'
+    def revocation(nodes=permission_nodes, old='100', new='200', trace=killed):
+        probe_passed('proof' if permission_revocation_return(nodes, old, new, trace, 'smoke.app') else '', 'proof')
+    revocation()
+    reject('revocation needs new process', lambda: revocation(new='100'))
+    reject('revocation needs live process', lambda: revocation(new=''))
+    reject('revocation needs exact killed PID', lambda: revocation(trace=killed.replace('100:', '101:')))
+    reject('revocation needs permission cause', lambda: revocation(trace=killed.replace('MANAGE_EXTERNAL_STORAGE changed.', 'other cause')))
+    for field, wrong in [('package', 'other.app'), ('resource-id', 'smoke.app:string/create_systems'),
+                         ('text', 'Other control'), ('clickable', 'false')]:
+        reject('revocation wrong recovery ' + field,
+               lambda field=field, wrong=wrong: revocation(nodes=[dict(permission_nodes[0], **{field: wrong})]))
     return 'PASS: production smoke assertions reject: ' + ', '.join(rejected) + '.\n'
 
 

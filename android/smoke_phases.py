@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Independent fresh-AVD regression sessions.
-PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets',
+PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets', 'app-data',
           'manager-direct', 'manager-scoped')
 
 
@@ -26,7 +26,11 @@ def prepare(harness, mode):
         h.adb('push', str(dummy), root + '/nes/' + name)
     dummy.unlink()
     if mode == 'direct':
-        h.ui('Absolute shared ROM folder path', dpad=h.television)
+        h.ui('Review application-data folder', dpad=True)
+        h.ui('Confirm and use this data folder', dpad=True)
+        h.select_data_root('/sdcard/ES-DE-Plus')
+        h.settings = harness['settings']
+        h.ui('Absolute shared ROM folder path', dpad=True)
         h.shell('input', 'text', h.shared)
         h.key('KEYCODE_BACK')
         h.ui('Use typed folder path', dpad=True)
@@ -64,6 +68,10 @@ def run(phase, harness):
         h.emulator_manager_smoke.run('scoped', harness)
         h.emulator_manager_smoke.run('scoped-minified', harness, minified=True)
     else:
+        if phase == 'pdf-scoped':
+            # The same fresh, genuinely scoped session also exercises ordinary
+            # downloader clone/update with ownership validation still enabled.
+            h.network_smoke.run(harness, scoped=True)
         h.pdf_smoke.run('scoped' if phase == 'pdf-scoped' else 'direct', harness)
         if phase == 'pdf-scoped':
             h.pdf_smoke.release(harness)

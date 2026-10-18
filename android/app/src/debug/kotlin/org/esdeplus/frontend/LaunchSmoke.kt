@@ -125,11 +125,15 @@ object LaunchSmoke {
         val configuration = storage.load()!!
         val directories = listOf(File(configuration.roms), storage.appData())
         val writes = AtomicInteger()
+        val romWrites = AtomicInteger()
         val barrier = AtomicReference<CountDownLatch>()
         val observers = directories.map { directory ->
             object : FileObserver(directory, FileObserver.CREATE or FileObserver.DELETE) {
                 override fun onEvent(event: Int, path: String?) {
-                    if (event and FileObserver.CREATE != 0 && path?.startsWith(".esdeplus-access-") == true) writes.incrementAndGet()
+                    if (event and FileObserver.CREATE != 0 && path?.startsWith(".esdeplus-access-") == true) {
+                        writes.incrementAndGet()
+                        if (directory == directories.first()) romWrites.incrementAndGet()
+                    }
                     if (event and FileObserver.DELETE != 0 && path == ".esdeplus-observer-barrier") barrier.get()?.countDown()
                 }
             }.apply { startWatching() }
@@ -147,7 +151,8 @@ object LaunchSmoke {
         try {
             storage.validate(configuration)
             drain()
-            equal(writes.get() >= directories.size, true, "Observer detects full-validator write positive control")
+            equal(writes.get() > 0, true, "Observer detects data-validator write positive control")
+            equal(romWrites.get(), 0, "Startup/resume validator never write-probes ROMs")
             writes.set(0)
             val transport = RomTransport(context)
             equal(transport.root(), File(configuration.roms).canonicalFile, "Read root preserves selection")
@@ -544,7 +549,12 @@ object LaunchSmoke {
             equal(bridge.checkRACoreInstalled("org.esdeplus.missing", "test_libretro_android.so"), -2, "Absent package query")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", "wrong", stub, true), -2, "Wrong sender reply")
             equal(CoreQuery.reply(Intent(CoreQuery.RESULT).putExtra("CORES", emptyArray<String>()), "test_libretro_android.so", stub, stub, true), 0, "Authenticated empty reply positive control")
-            val missing = RomTransport(object : ContextWrapper(context) { override fun getExternalFilesDir(type: String?): File? = null })
+            // Both scoped storage and direct storage's SDK volume verification
+            // must lose their actual mount information in this unavailable case.
+            val missing = RomTransport(object : ContextWrapper(context) {
+                override fun getExternalFilesDir(type: String?): File? = null
+                override fun getExternalFilesDirs(type: String?): Array<File?> = emptyArray()
+            })
             refused("Unavailable selected storage") { missing.provider(rom.path) }
             val emulatorRecords = AppDiscovery(context).emulatorActivities(arrayOf("/storage/emulated/0/ROMs/test/example.zip", "/storage/emulated/0/ROMs/test/example.ZIP"))
             val stubRecords = emulatorRecords.filter { it.packageName == stub }

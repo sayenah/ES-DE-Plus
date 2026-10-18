@@ -20,7 +20,7 @@ class SmokeMenuFocus {
         "SEARCH", "SCRAPER", "UI SETTINGS", "SOUND SETTINGS", "INPUT DEVICE SETTINGS",
         "GAME COLLECTION SETTINGS", "OTHER SETTINGS", "UTILITIES", "QUIT ES-DE",
         "GAME IMPORTER", "ORPHANED DATA CLEANUP", "CREATE/UPDATE SYSTEM DIRECTORIES",
-        "RESCAN ROM DIRECTORY", "ALTERNATIVE EMULATORS", "EMULATOR MANAGER",
+        "RESCAN ROM DIRECTORY", "THEME DOWNLOADER", "ALTERNATIVE EMULATORS", "EMULATOR MANAGER",
         "AUDIO DRIVER (REQUIRES RESTART)", "NAVIGATION SOUNDS VOLUME",
         "CONTROLLER TYPE", "TOUCH OVERLAY SIZE"
     };
@@ -120,8 +120,16 @@ class SmokeMenuFocus {
                 while (right + 1 < w && gray(image, right + 1, y - 2) == above) right++;
                 if (right - left < w / 3) continue;
                 // Exclude the right-hand arrow, retain the complete label.
-                BufferedImage word = labelColumn(image.getSubimage(left + 2, y,
-                        right - left - Math.max(8, w / 25), end - y));
+                BufferedImage word;
+                try {
+                    word = labelColumn(image.getSubimage(left + 2, y,
+                            right - left - Math.max(8, w / 25), end - y));
+                } catch (IllegalArgumentException empty) {
+                    // An empty footer can share selector geometry. Readable
+                    // unknown/ambiguous labels below must still fail.
+                    y = end;
+                    continue;
+                }
                 String best = "";
                 double score = 1, second = 1;
                 for (String label : LABELS) {
@@ -149,9 +157,11 @@ class SmokeMenuFocus {
         int left = w / 20, width = w * 9 / 10, top = h / 5;
         int row = Math.round(Math.min(w, h) * 0.06f);
         g.setColor(new Color(25, 25, 25));
-        g.fillRect(left, top, width, row * 5);
+        g.fillRect(left, top, width, row * 7);
         g.setColor(selected ? Color.BLACK : new Color(25, 25, 25));
         g.fillRect(left, top + row * 2, width, row);
+        g.setColor(Color.BLACK);
+        g.fillRect(left, top + row * 5, width, row); // Empty footer-like band.
         g.setColor(new Color(128, 128, 128));
         g.setFont(font.deriveFont(Map.of(TextAttribute.KERNING, TextAttribute.KERNING_ON)));
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -194,8 +204,20 @@ class SmokeMenuFocus {
                 selected(fixture("UTILITIES", font, w, h, false), font);
                 throw new AssertionError("Unselected UTILITIES escaped");
             } catch (IllegalArgumentException expected) { }
+            BufferedImage multiple = fixture("SEARCH", font, w, h, true);
+            Graphics2D g = multiple.createGraphics();
+            g.setColor(new Color(128, 128, 128));
+            g.setFont(font);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            int row = Math.round(Math.min(w, h) * 0.06f);
+            g.drawString("UI SETTINGS", w / 20 + 12, h / 5 + row * 6 - row / 4);
+            g.dispose();
+            try {
+                selected(multiple, font);
+                throw new AssertionError("Multiple selected labels escaped");
+            } catch (IllegalArgumentException expected) { }
         }
-        System.out.println("PASS: every known label including QUIT recognized at three resolutions; unknown/unselected labels rejected");
+        System.out.println("PASS: every known label including QUIT recognized at three resolutions with empty bands; unknown/unselected/multiple labels rejected");
     }
 
     public static void main(String[] args) throws Exception {

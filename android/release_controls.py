@@ -45,12 +45,13 @@ def workflow_eligibility():
     return expressions, workflow
 
 
-def evaluate(expression, values):
+def evaluate(expression, values, cancelled=False):
     # This evaluator covers only the operators/context lookups used by these
     # eligibility expressions. Unsupported syntax fails rather than being ignored.
     expression = re.sub(r'\b(?:github|inputs|matrix|env|steps)\.[\w.-]+',
                         lambda match: repr(values[match[0]]), expression)
     expression = expression.replace('success()', 'True').replace('always()', 'True')
+    expression = expression.replace('cancelled()', repr(cancelled))
     expression = expression.replace('&&', ' and ').replace('||', ' or ')
     expression = re.sub(r'!(?!=)', ' not ', expression)
     return eval(expression.strip(), {'__builtins__': {}}, {})
@@ -88,6 +89,8 @@ def eligibility_controls():
             else:
                 verdict = expected
             assert result == verdict, (label, case, result, verdict)
+            if label.startswith('api34-dry-run:'):
+                assert not evaluate(expression, values, cancelled=True), 'Cancelled evidence job started'
         assert test_signing.eligible(*case[:6], publish) == (expected and image == 'api34'), case
         assert distribution.permitted_publication(repository, event, ref, publish, rebuild, failure) == expected, case
         environment = {'GITHUB_REPOSITORY': repository, 'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref,
