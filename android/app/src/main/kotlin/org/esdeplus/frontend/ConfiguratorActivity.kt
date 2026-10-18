@@ -89,7 +89,7 @@ class ConfiguratorActivity : Activity() {
         setIntent(intent)
         if (sessionId != ConfiguratorSession.session(this)) restoreSelection(null)
         resourceError = ConfiguratorSession.resourceFailure != null
-        message = intent.getStringExtra("message") ?: storage.problem(checkContents = false)
+        message = intent.getStringExtra("message") ?: storage.problem(probeChildren = false)
         if (message != null) storageRestartRequired = true
         render()
     }

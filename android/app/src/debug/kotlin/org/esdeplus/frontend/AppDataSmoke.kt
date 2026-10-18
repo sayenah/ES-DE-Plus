@@ -254,12 +254,16 @@ internal object AppDataSmoke {
                     val readonlyChild = File(scopedData, "themes").apply { check(mkdir()) }
                     Os.chmod(readonlyChild.path, 0x140)
                     try {
-                        check(scoped.validate(configuration, checkContents = false) == scopedROMs)
+                        check(scoped.validate(configuration, probeChildren = false) == scopedROMs)
                         val fullFailure = try { scoped.validate(configuration); null }
                             catch (error: Exception) { error }
                         check(fullFailure != null) { "Full preflight missed read-only child positive control" }
                         check(readonlyChild.list()!!.isEmpty())
                     } finally { Os.chmod(readonlyChild.path, 0x1c0); check(readonlyChild.delete()) }
+                    readonlyChild.writeText("ES-DE-Plus authored obstructed-directory control")
+                    try {
+                        rejected { scoped.validate(configuration, probeChildren = false) }
+                    } finally { check(readonlyChild.delete()) }
                     check(android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK))
                     android.system.Os.chmod(scopedROMs.path, 0x140) // 0500: real read/search, no write.
                     val denial = try { android.system.Os.access(scopedROMs.path, android.system.OsConstants.W_OK); null }

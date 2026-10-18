@@ -72,6 +72,8 @@ open class MainActivity : SDLActivity() {
     // Framework recreation retires the old native process and restores
     // the recorded entry. Cached native settings/paths never switch in place.
     internal val nativePathsSelected: Boolean get() = bridge.pathsSelected
+    internal val storageRecoveryVisible: Boolean get() = resumedForRestart && hasWindowFocus() &&
+        !destroying && !isFinishing && !awaitingCommittedEntry
     internal fun restartAfterStorageSelection(): Boolean {
         if (!bridge.pathsSelected) return false
         Log.i("ES-DE-Plus", "Storage selection requires a fresh frontend start")
@@ -92,7 +94,10 @@ open class MainActivity : SDLActivity() {
         // The recreated activity is a Java-side gate over retired native
         // globals. Neither focus nor a surface may start a second native main.
         if (!awaitingCommittedEntry) super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) observeCommittedEntry()
+        if (hasFocus) {
+            observeCommittedEntry()
+            if (!awaitingCommittedEntry) bridge.checkStorageOnResume()
+        }
     }
     override fun resumeNativeThread() {
         if (!awaitingCommittedEntry) super.resumeNativeThread()

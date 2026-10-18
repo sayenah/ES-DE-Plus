@@ -5,6 +5,8 @@ package org.esdeplus.frontend
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.util.AtomicFile
 import android.util.Log
 import org.esdeplus.frontend.bridge.StorageModel
@@ -192,15 +194,23 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun startConfigurator() { ConfiguratorSession.open(context, storage.problem()) }
     fun onNativeFrontendResume() { checkStorageOnResume() }
     fun checkStorageOnResume() {
+        val frontend = MainActivity.liveInstance() ?: return
         if (!pathsSelected || ConfiguratorSession.configuring || !checkingStorage.compareAndSet(false, true)) return
         Thread({
             try {
                 val selected = storage.load()
                 // Startup/Save perform the complete preflight. A game return
-                // checks only the data-root write probe and ROM read access.
-                val problem = storage.problem(checkContents = false)
-                if (problem != null && selected == storage.load() && !ConfiguratorSession.configuring &&
-                    !MainActivity.destructionRequested()) ConfiguratorSession.open(context, problem)
+                // writes only the data-root probe. Child paths and ROMs keep
+                // their read/structure checks so obstruction stays recoverable.
+                val problem = storage.problem(probeChildren = false)
+                if (problem != null) Handler(Looper.getMainLooper()).post {
+                    // An asynchronous result must not pull the frontend over
+                    // a game or act on a retired activity/configuration. Focus
+                    // return schedules a new check if this result is discarded.
+                    if (frontend === MainActivity.liveInstance() && frontend.storageRecoveryVisible &&
+                        selected == storage.load() && !ConfiguratorSession.configuring)
+                        ConfiguratorSession.open(context, problem)
+                }
             } finally { checkingStorage.set(false) }
         }, "StorageResumeCheck").start()
     }

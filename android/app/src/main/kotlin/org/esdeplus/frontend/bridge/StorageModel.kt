@@ -195,15 +195,16 @@ class StorageModel(private val context: Context) {
         return directory
     }
 
-    fun validateDataContents(directory: File, roms: File? = null): String? {
+    fun validateDataContents(directory: File, roms: File? = null, readOnly: Boolean = false): String? {
         for (name in listOf("settings", "logs", "gamelists", "collections", "themes",
                 "custom_systems", "scripts", "screensavers", "screensavers/custom_slideshow", "controllers")) {
             val child = File(directory, name)
-            if (child.exists()) verifyDirectory(child)
+            if (child.exists()) verifyDirectory(child, readOnly = readOnly)
         }
         val settings = AdoptedSettings.settingsFile(directory)
         if (settings.exists()) {
-            val accessible = try { settings.isFile && Os.access(settings.path, OsConstants.R_OK or OsConstants.W_OK) }
+            val accessible = try { settings.isFile && Os.access(settings.path,
+                OsConstants.R_OK or (if (readOnly) 0 else OsConstants.W_OK)) }
                 catch (_: Exception) { false }
             if (!accessible) throw failure(R.string.invalid_adopted_settings, settings)
         }
@@ -212,18 +213,18 @@ class StorageModel(private val context: Context) {
                 "es_controller_mappings.cfg")) {
             val child = File(directory, name)
             if (child.exists() && (!child.isFile || !Os.access(child.path,
-                    OsConstants.R_OK or OsConstants.W_OK)))
-                throw failure(R.string.directory_access_failed, child)
+                    OsConstants.R_OK or (if (readOnly) 0 else OsConstants.W_OK))))
+                throw failure(if (readOnly) R.string.directory_read_failed else R.string.directory_access_failed, child)
         }
         val media = mediaOverride(directory)?.let(::File)
         if (media == null) {
             val defaultMedia = File(directory, "downloaded_media")
-            if (defaultMedia.exists()) verifyDirectory(defaultMedia)
+            if (defaultMedia.exists()) verifyDirectory(defaultMedia, readOnly = readOnly)
             return null
         }
         if (roms != null && inside(media.canonicalFile, roms.canonicalFile))
             throw failure(R.string.media_inside_roms, media, roms)
-        try { verifyDirectory(media) }
+        try { verifyDirectory(media, readOnly = readOnly) }
         catch (error: Exception) { throw failure(R.string.media_unavailable, media) }
         return media.path
     }
@@ -300,7 +301,7 @@ class StorageModel(private val context: Context) {
         Log.i("ES-DE-Plus", "Persisted tree grant count=${context.contentResolver.persistedUriPermissions.size}")
     }
 
-    fun validate(configuration: Configuration, checkContents: Boolean = true): File {
+    fun validate(configuration: Configuration, probeChildren: Boolean = true): File {
         // Validation never creates a missing root or substitutes another root.
         if (configuration.mode == "direct" && !broadAccess()) throw failure(R.string.direct_access_revoked)
         val selectedData = dataDirectory(configuration)
@@ -309,7 +310,7 @@ class StorageModel(private val context: Context) {
         verifyDirectory(data)
         val roms = validateROMs(configuration)
         verifyDisjoint(data, roms)
-        if (checkContents) validateDataContents(data, roms)
+        validateDataContents(data, roms, readOnly = !probeChildren)
         return roms
     }
 
@@ -337,9 +338,9 @@ class StorageModel(private val context: Context) {
         }
     }
 
-    fun problem(checkContents: Boolean = true): String? = try {
+    fun problem(probeChildren: Boolean = true): String? = try {
         val config = load() ?: throw failure(R.string.storage_choice_required)
-        validate(config, checkContents)
+        validate(config, probeChildren)
         null
     } catch (error: Exception) { error.message ?: context.getString(R.string.storage_validation_failed) }
 

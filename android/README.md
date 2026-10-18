@@ -413,8 +413,11 @@ removing the backup. Folder selection never copies the old data for you.
 
 Unreadable or invalid adopted settings name the selected file and explain how
 to restore access or explicitly reset it by backing up and renaming/deleting
-it. Resume checks run off the UI thread and probe only the data root for writes;
-startup and Save retain the full preflight. Media overrides inside the ROM
+it. Frontend resume checks run off the UI thread and probe only the data root
+for writes; child paths retain read/structure checks, including obstruction
+recovery. Errors are presented only to the current resumed, focused frontend;
+focus return rechecks a discarded asynchronous result. Startup and Save retain
+the full preflight. Media overrides inside the ROM
 folder are refused before any media write probe. Typed mount aliases are mapped
 without inspecting an unconfirmed destination, and data paths containing
 control characters are refused in the configurator.
