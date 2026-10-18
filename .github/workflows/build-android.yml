@@ -45,7 +45,7 @@ jobs:
   build:
     if: ${{ !inputs.rebuild_run }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
@@ -743,7 +743,7 @@ jobs:
       apk_id: ${{ steps.apk-upload.outputs.artifact-id }}
       origin_attempt: ${{ github.run_attempt }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 300
     strategy: &api34_strategy
       matrix:
         include:
@@ -765,7 +765,7 @@ jobs:
     needs: build
     if: ${{ !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 300
     strategy: *api34_strategy
     env: *api34_env
     steps: *android_steps
