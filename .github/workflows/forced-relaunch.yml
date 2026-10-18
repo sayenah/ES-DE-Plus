@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - {name: api31, api: 31, target: google_apis, profile: pixel_2}
+          - {name: api33, api: 33, target: google_apis, profile: pixel_2}
           - {name: api34, api: 34, target: google_apis, profile: pixel_2}
           - {name: tv36, api: 36, target: android-tv, profile: tv_1080p}
     env:
@@ -69,7 +69,7 @@ jobs:
           path: |
             android/.deps/install
             android/libs
-          key: android-ndk28.2.13676358-api31-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
+          key: android-ndk28.2.13676358-api33-${{ hashFiles('tools/Android_dependencies_*.sh', 'android/package-dependencies.py', 'android/license-inputs.py', 'android/license-tool.py') }}
       - name: Build dependencies on cache miss
         if: steps.deps.outputs.cache-hit != 'true'
         run: |

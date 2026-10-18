@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. -->
 # ES-DE Plus Android host
 
-The open-source Android host supports Android 12 (API 31) and later.
+The open-source Android host supports Android 13 (API 33) and later.
 
 ES-DE-Plus is a fork whose own source remains MIT-licensed. Apart from libgit2 under GPL-2.0 with its linking exception and the RetroArch-derived scanline shader `resources/shaders/glsl/scanlines.glsl` under GPL-2.0-or-later, its Android APK's code contains no GPL code; the shader ships as its own source text and is compiled by the GPU driver at runtime. The APK also includes permissive and Apache-2.0 components and LGPL-2.1 shared libraries. FreeImage offers FIPL, GPL-2.0 or GPL-3.0 (FIPL selected), FreeType's FTL and CImg's CeCILL-C options are selected, and LibRaw inside FreeImage offers LGPL-2.1 or CDDL-1.0 (LGPL-2.1 selected). Bundled fonts, sounds, themes and certificates keep their own licences, including Debian's patched GNU FreeFont (patch series in the manifest; GPL-3.0). Every published APK has a matching source artefact in the same CI run, including pinned third-party sources and build recipes. See [the Android dependency inventory](DEPENDENCY-LICENSES.md) for component terms.
 
@@ -57,7 +57,7 @@ D-013 am. 2. A compromise stops publication for a Founder ruling on rotation,
 which requires another uninstall. Release signing is a separate Founder decision
 and cannot reuse this arrangement without a fresh ruling.
 
-CI proves replacement on API 31/34 with two version codes and one throwaway key:
+CI proves replacement on API 33/34 with two version codes and one throwaway key:
 `adb install -r` retains settings, accepted storage configuration and app data,
 then launches the higher build. Stable-key custody, real release API publication
 and retries, and continuity across two stable-key publications require real
@@ -119,8 +119,8 @@ installs. Exact Gradle cache hits resolve offline. Dispatch
 
 The host uses the pinned wrapper/toolchain in `gradle.properties` and
 `app/build.gradle.kts`. CI builds Linux, both Android ABIs and minified release,
-then drives real configurator/permission screens on API 31, API 34 and Android TV
-API 36 x86_64. API 34 runs last on its own runner, after the API 31 and TV legs pass. After
+then drives real configurator/permission screens on API 33, API 34 and Android TV
+API 36 x86_64. API 34 runs last on its own runner, after the API 33 and TV legs pass. After
 same-commit Linux success and all Android checks, CI uploads and validates the
 source artefact on both dry-run and publication paths. Only an eligible
 `publish: true` dispatch then uploads the exact smoked debug APK; every other
@@ -195,7 +195,7 @@ When the emulator presents Play Protect's older-Android-target warning, CI uses
 the visible installation confirmation for this pinned APK. Package verification
 stays enabled and the APK is not modified.
 Under D-010 am. 1, the pinned stable RetroArch exact-ROM receipt gates on the
-API 31 and API 34 phone images. It still runs on TV as a clearly labelled
+API 33 and API 34 phone images. It still runs on TV as a clearly labelled
 non-gating diagnostic, with outcome, live logs and backtrace capability gaps
 in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
@@ -205,7 +205,7 @@ The network smoke opens the real theme downloader, clones the canonical HTTPS
 themes list with the bundled CA bundle, downloads and selects one live theme,
 and submits a real ScreenScraper HTTPS search without an account. A result or
 service-level reply proves scraper reachability. API 34 gates these checks;
-API 31 and TV record exhausted remote failures as non-gating diagnostics.
+API 33 and TV record exhausted remote failures as non-gating diagnostics.
 Each remote operation has at most three attempts with 5 seconds between attempts:
 300 seconds per clone and 90 seconds per scraper request, plus UI, health-check
 and evidence-capture time. During a request the same process must remain alive,
@@ -256,12 +256,23 @@ after an exhausted non-gating theme failure.
 CI runs six gating smoke phases, each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
-(update continuity on API 31/34 and network checks), `pdf-direct`,
+(update continuity on API 33/34 and network checks), `pdf-direct`,
 `pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
-relaunches plus predictive-back cancellation on API 34). A stopped frontend's
-asset relaunch waits for a resumed, focused entry before using the existing
-restart helper; a back preview never starts another native main. Predictive
-back is absent on API 31 and edge gestures are not a TV navigation mode.
+relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
+A stopped frontend's asset relaunch waits for a resumed, focused entry before
+using the existing restart helper; a back preview never starts another native
+main. The CI-only stub opts in at the application level because Android 13 ignores
+the activity-level opt-in. Both phone probes require a system Back callback,
+return-to-HOME and real HOME launch-behind before testing cancellation and committed
+restoration. API 34 must emit the platform launch-behind log. Later Android 13 uses
+a transition path without that log; its probe instead binds the platform's return
+destination to the original HOME task and requires that sole HOME record visible and PAUSED behind
+the game. ASSETS destruction/native join, recreation, continuous game focus,
+cancellation and committed restoration remain mandatory. A compat `TYPE_CALLBACK`
+fails the probe. Edge gestures are not a TV navigation mode.
+The CI probe game uses HOME's sensor-portrait orientation, and the harness checks
+equal HOME/game screen dimensions before the gesture. This keeps orientation
+changes out of the strict ASSETS_PATHS-only destruction assertion.
 The same built APK is installed
 in each fresh guest; configuration and grants are established through the UI.
 The default `smoke.py APK` command runs core only. For another phase, pass
