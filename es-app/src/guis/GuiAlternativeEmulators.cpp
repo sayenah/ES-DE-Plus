@@ -9,6 +9,10 @@
 
 #include "guis/GuiAlternativeEmulators.h"
 
+#if defined(__ANDROID__)
+#include "guis/GuiEmulatorManager.h"
+#endif
+
 #include "GamelistFileParser.h"
 #include "SystemData.h"
 #include "utils/LocalizationUtil.h"
@@ -20,6 +24,17 @@ GuiAlternativeEmulators::GuiAlternativeEmulators()
 {
     addChild(&mMenu);
     mMenu.addButton(_("BACK"), _("back"), [this] { delete this; });
+
+#if defined(__ANDROID__)
+    ComponentListRow managerRow;
+    managerRow.addElement(std::make_shared<TextComponent>(_("EMULATOR MANAGER"),
+                                                          Font::get(FONT_SIZE_MEDIUM),
+                                                          mMenuColorPrimary),
+                          true);
+    managerRow.addElement(mMenu.makeArrow(), false);
+    managerRow.makeAcceptInputHandler([this] { mWindow->pushGui(new GuiEmulatorManager); });
+    mMenu.addRow(managerRow);
+#endif
 
     // Horizontal sizes for the system and label entries.
     float systemSizeX {mMenu.getSize().x / 3.27f};

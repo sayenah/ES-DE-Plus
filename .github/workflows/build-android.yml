@@ -58,7 +58,7 @@ jobs:
             api: 36
             target: android-tv
             profile: tv_1080p
-    env:
+    env: &android_env
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
       EARLY_LEGS_RESULT: not-applicable
       IMAGE: ${{ matrix.image }}
@@ -519,9 +519,46 @@ jobs:
           name: android-phone-insets-attempt${{ github.run_attempt }}
           path: android/evidence/configurator-insets/*.txt
           retention-days: 7
+      # D-026: run the required core gate before informational sessions.
+      - name: ${{ matrix.image }} fresh-emulator core smoke
+        id: smoke-core
+        # D-024 am.16: teardown backstop; readiness/probe bounds unchanged.
+        timeout-minutes: ${{ matrix.api == 34 && 80 || 60 }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-core
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Record core emulator result
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
+        run: python3 android/smoke_session.py emulator-result core "${{ steps.smoke-core.outcome }}"
+      - name: Upload core session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-core-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/**/*.txt
+            android/evidence/**/*.png
+            android/evidence/core-session-*.txt
+            android/evidence/core-command-costs.txt
+          retention-days: 7
       - name: ${{ matrix.image }} fresh-emulator app-data smoke
         id: smoke-app-data
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -540,10 +577,10 @@ jobs:
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke_session.py app-data -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase app-data
       - name: Record app-data emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result app-data "${{ steps.smoke-app-data.outcome }}"
       - name: Upload app-data session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-app-data-attempt${{ github.run_attempt }}
@@ -557,7 +594,7 @@ jobs:
       - name: ${{ matrix.image }} fresh-emulator integration smoke
         id: smoke-integration
         timeout-minutes: 60
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -578,10 +615,10 @@ jobs:
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke_session.py integration -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase integration
       - name: Record integration emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result integration "${{ steps.smoke-integration.outcome }}"
       - name: Upload integration session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-integration-attempt${{ github.run_attempt }}
@@ -594,46 +631,10 @@ jobs:
             android/evidence/integration-emulator-result.txt
             android/evidence/integration-command-costs.txt
           retention-days: 7
-      - name: ${{ matrix.image }} fresh-emulator core smoke
-        id: smoke-core
-        # D-024 am.16: teardown backstop; readiness/probe bounds unchanged.
-        timeout-minutes: ${{ matrix.api == 34 && 80 || 60 }}
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        with:
-          api-level: ${{ matrix.api }}
-          arch: x86_64
-          target: ${{ matrix.target }}
-          profile: ${{ matrix.profile }}
-          avd-name: esde-core
-          force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          sdcard-path-or-size: 512M
-          disable-animations: true
-          cores: 4
-          ram-size: 4096M
-          script: |
-            python3 android/smoke_support.py boot
-            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            python3 android/smoke_session.py core -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk
-      - name: Record core emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
-        run: python3 android/smoke_session.py emulator-result core "${{ steps.smoke-core.outcome }}"
-      - name: Upload core session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: android-session-${{ matrix.image }}-core-attempt${{ github.run_attempt }}
-          path: |
-            android/evidence/**/*.txt
-            android/evidence/**/*.png
-            android/evidence/core-session-*.txt
-            android/evidence/core-command-costs.txt
-          retention-days: 7
       - name: ${{ matrix.image }} fresh-emulator lifecycle smoke
         id: smoke-lifecycle
         timeout-minutes: 40
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -652,10 +653,10 @@ jobs:
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke_session.py lifecycle -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase lifecycle
       - name: Record lifecycle emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result lifecycle "${{ steps.smoke-lifecycle.outcome }}"
       - name: Upload lifecycle session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-lifecycle-attempt${{ github.run_attempt }}
@@ -669,7 +670,7 @@ jobs:
       - name: ${{ matrix.image }} fresh-emulator clear-task smoke
         id: smoke-clear-task
         timeout-minutes: 40
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -687,10 +688,10 @@ jobs:
             python3 android/smoke_support.py boot
             python3 android/smoke_session.py clear-task -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase clear-task
       - name: Record clear-task emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result clear-task "${{ steps.smoke-clear-task.outcome }}"
       - name: Upload clear-task session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-clear-task-attempt${{ github.run_attempt }}
@@ -704,7 +705,7 @@ jobs:
       - name: ${{ matrix.image }} fresh-emulator pdf-direct smoke
         id: smoke-pdf-direct
         timeout-minutes: 35
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -723,10 +724,10 @@ jobs:
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke_session.py pdf-direct -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase pdf-direct
       - name: Record pdf-direct emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result pdf-direct "${{ steps.smoke-pdf-direct.outcome }}"
       - name: Upload pdf-direct session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-pdf-direct-attempt${{ github.run_attempt }}
@@ -740,7 +741,7 @@ jobs:
       - name: ${{ matrix.image }} fresh-emulator pdf-scoped smoke
         id: smoke-pdf-scoped
         timeout-minutes: 60
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -759,10 +760,10 @@ jobs:
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
             python3 android/smoke_session.py pdf-scoped -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase pdf-scoped
       - name: Record pdf-scoped emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result pdf-scoped "${{ steps.smoke-pdf-scoped.outcome }}"
       - name: Upload pdf-scoped session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-pdf-scoped-attempt${{ github.run_attempt }}
@@ -776,7 +777,7 @@ jobs:
       - name: ${{ matrix.image }} fresh-emulator assets smoke
         id: smoke-assets
         timeout-minutes: 20
-        if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: ${{ matrix.api }}
@@ -794,10 +795,10 @@ jobs:
             python3 android/smoke_support.py boot
             python3 android/smoke_session.py assets -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase assets
       - name: Record assets emulator result
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         run: python3 android/smoke_session.py emulator-result assets "${{ steps.smoke-assets.outcome }}"
       - name: Upload assets session evidence (no APK)
-        if: ${{ always() && steps.assemble.outcome == 'success' }}
+        if: ${{ always() && steps.assemble.outcome == 'success' && !startsWith(matrix.image, 'manager-') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-session-${{ matrix.image }}-assets-attempt${{ github.run_attempt }}
@@ -807,6 +808,66 @@ jobs:
             android/evidence/assets-session-*.txt
             android/evidence/assets-emulator-result.txt
             android/evidence/assets-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator manager-direct smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && startsWith(matrix.image, 'manager-') }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-manager-direct
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py manager-direct -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase manager-direct
+      - name: Upload manager-direct session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' && startsWith(matrix.image, 'manager-') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-manager-direct-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/manager-direct/*.txt
+            android/evidence/manager-direct/*.png
+            android/evidence/manager-direct-session-*.txt
+            android/evidence/manager-direct-command-costs.txt
+          retention-days: 7
+      - name: ${{ matrix.image }} fresh-emulator manager-scoped smoke
+        if: ${{ !cancelled() && steps.assemble.outcome == 'success' && startsWith(matrix.image, 'manager-') }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-manager-scoped
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py manager-scoped -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase manager-scoped
+      - name: Upload manager-scoped session evidence (no APK)
+        if: ${{ always() && steps.assemble.outcome == 'success' && startsWith(matrix.image, 'manager-') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-session-${{ matrix.image }}-manager-scoped-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/manager-scoped/*.txt
+            android/evidence/manager-scoped/*.png
+            android/evidence/manager-scoped-session-*.txt
+            android/evidence/manager-scoped-command-costs.txt
           retention-days: 7
       - name: Check tracked subtree integrity
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
@@ -902,10 +963,35 @@ jobs:
           APK_ARTIFACT_ID: ${{ steps.apk-upload.outputs.artifact-id }}
         run: python3 android/distribution.py publication "$FAILURE"
 
-  # Only this job references the protected environment. The non-publishing twin
-  # cannot reach it; both execute the identical steps above.
+  # The manager has a separate bounded job; both sessions cold-boot a new guest.
+  # Its image labels cannot enter any API 34 signing/publication step.
+  emulator-manager:
+    if: ${{ !inputs.rebuild_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: manager-api33
+            api: 33
+            target: google_apis
+            profile: pixel_2
+          - image: manager-tv36
+            api: 36
+            target: android-tv
+            profile: tv_1080p
+          - image: manager-api34
+            api: 34
+            target: google_apis
+            profile: pixel_2
+    env: *android_env
+    steps: *android_steps
+
+  # Only this job references the protected environment. Its non-publishing twin
+  # executes identical steps; both require every baseline and manager leg.
   api34:
-    needs: build
+    needs: [build, emulator-manager]
     if: ${{ github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none') }}
     environment: test-signing
     outputs:
@@ -934,7 +1020,7 @@ jobs:
   # Collect supported-phone evidence even when an early runtime session fails.
   # This job never publishes; publication-result still requires all early legs green.
   api34-dry-run:
-    needs: build
+    needs: [build, emulator-manager]
     if: ${{ !cancelled() && !inputs.rebuild_run && !(github.repository == 'sayenah/ES-DE-Plus' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild_run && (inputs.failure == '' || inputs.failure == 'none')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 300
@@ -1045,13 +1131,14 @@ jobs:
       - *release_setup_check
 
   publication-result:
-    needs: [build, api34, api34-dry-run, release]
+    needs: [build, emulator-manager, api34, api34-dry-run, release]
     if: ${{ always() && !inputs.rebuild_run }}
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful eligible publisher, or completed non-writing dry run
         env:
           EARLY_LEGS: ${{ needs.build.result }}
+          MANAGER_LEGS: ${{ needs.emulator-manager.result }}
           FINAL_LEG: ${{ needs.api34.result }}
           DRY_LEG: ${{ needs.api34-dry-run.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
@@ -1060,6 +1147,7 @@ jobs:
           python3 - <<'PYCODE'
           import os
           assert os.environ['EARLY_LEGS'] == 'success', 'Required Android early legs failed/skipped'
+          assert os.environ['MANAGER_LEGS'] == 'success', 'Required emulator-manager legs failed/skipped'
           if os.environ['ELIGIBLE'] == 'true':
               assert os.environ['FINAL_LEG'] == 'success' and os.environ['RELEASE_RESULT'] == 'success', 'Eligible run missed required publication'
               assert os.environ['DRY_LEG'] == 'skipped'

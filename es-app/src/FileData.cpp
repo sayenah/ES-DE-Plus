@@ -28,6 +28,7 @@
 #include "views/ViewController.h"
 
 #if defined(__ANDROID__)
+#include "EmulatorManagerRuntime.h"
 #include "utils/PlatformUtilAndroid.h"
 #endif
 
@@ -1054,6 +1055,11 @@ void FileData::launchGame()
 
     if (command.empty())
         command = mEnvData->mLaunchCommands.front().first;
+
+#if defined(__ANDROID__)
+    if (EmulatorManagerRuntime::testing)
+        command = EmulatorManagerRuntime::testCommand;
+#endif
 
     std::string commandRaw {command};
     std::string romPath {Utils::FileSystem::getEscapedPath(mPath)};
@@ -2171,9 +2177,12 @@ void FileData::launchGame()
     if (!runInBackground)
         Renderer::getInstance()->swapBuffers();
 
-    Scripting::fireEvent("game-start", romPath, getSourceFileData()->metadata.get("name"),
-                         getSourceFileData()->getSystem()->getName(),
-                         getSourceFileData()->getSystem()->getFullName());
+#if defined(__ANDROID__)
+    if (!EmulatorManagerRuntime::testing)
+#endif
+        Scripting::fireEvent("game-start", romPath, getSourceFileData()->metadata.get("name"),
+                             getSourceFileData()->getSystem()->getName(),
+                             getSourceFileData()->getSystem()->getFullName());
     int returnValue {0};
 
     LOG(LogDebug) << "Raw emulator launch command:";
@@ -2287,8 +2296,12 @@ void FileData::launchGame()
 
     // Possibly keep ES-DE running in the background while the game is launched.
 
-    Settings::getInstance()->setInt(
-        "GameLaunchTime", static_cast<int>(Utils::Time::DateTime(Utils::Time::now()).getTime()));
+#if defined(__ANDROID__)
+    if (!EmulatorManagerRuntime::testing)
+#endif
+        Settings::getInstance()->setInt(
+            "GameLaunchTime",
+            static_cast<int>(Utils::Time::DateTime(Utils::Time::now()).getTime()));
 
 #if defined(_WIN64)
     returnValue = Utils::Platform::launchGameWindows(
@@ -2299,6 +2312,10 @@ void FileData::launchGame()
         androidPackage, androidActivity, androidAction, androidCategory, androidMimeType,
         androidData, mEnvData->mStartPath, romRaw, androidExtrasString, androidExtrasStringArray,
         androidExtrasInteger, androidExtrasBool, androidActivityFlags, launchOnOtherScreen);
+    if (EmulatorManagerRuntime::testing) {
+        EmulatorManagerRuntime::testResult = returnValue;
+        return;
+    }
 #else
 
 #if defined(DEINIT_ON_LAUNCH)

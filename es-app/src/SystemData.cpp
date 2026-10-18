@@ -534,7 +534,12 @@ SystemData::SystemData(const std::string& name,
                        SystemEnvironmentData* envData,
                        const std::string& themeFolder,
                        bool CollectionSystem,
-                       bool CustomCollectionSystem)
+                       bool CustomCollectionSystem
+#if defined(__ANDROID__)
+                       ,
+                       bool managerTransient
+#endif
+                       )
     : mName {name}
     , mFullName {fullName}
     , mSortName {sortName}
@@ -542,6 +547,9 @@ SystemData::SystemData(const std::string& name,
     , mThemeFolder {themeFolder}
     , mSymlinkMaxDepthReached {false}
     , mIsCollectionSystem {CollectionSystem}
+#if defined(__ANDROID__)
+    , mManagerTransient {managerTransient}
+#endif
     , mIsCustomCollectionSystem {CustomCollectionSystem}
     , mIsGroupedCustomCollectionSystem {false}
     , mIsGameSystem {true}
@@ -586,7 +594,10 @@ SystemData::SystemData(const std::string& name,
         new FileData(PLACEHOLDER, "<" + _("No Entries Found") + ">", getSystemEnvData(), this);
 
     setIsGameSystemStatus();
-    loadTheme(ThemeTriggers::TriggerType::NONE);
+#if defined(__ANDROID__)
+    if (!mManagerTransient)
+#endif
+        loadTheme(ThemeTriggers::TriggerType::NONE);
 }
 
 SystemData::~SystemData()
@@ -596,7 +607,11 @@ SystemData::~SystemData()
             writeMetaData();
     }
 
-    if (!mEnvData->mStartPath.empty())
+    if (!mEnvData->mStartPath.empty()
+#if defined(__ANDROID__)
+        || mManagerTransient
+#endif
+    )
         delete mEnvData;
     delete mRootFolder;
     delete mPlaceholder;

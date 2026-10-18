@@ -10,6 +10,8 @@ import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.Uri
+import android.webkit.MimeTypeMap
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
@@ -26,7 +28,7 @@ class AppDiscovery(private val context: Context) {
         require(packageName.matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")))
         val intent = if (activityName.isNotEmpty()) {
             val name = if (activityName.startsWith('.')) packageName + activityName else activityName
-            require(name.matches(Regex("[A-Za-z_][A-Za-z0-9_.$]*")))
+            require(name.isNotEmpty() && name.none { it.isISOControl() || it == '/' })
             Intent(Intent.ACTION_MAIN).setComponent(ComponentName(packageName, name))
         } else {
             val tv = context.getSystemService(UiModeManager::class.java).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
@@ -95,6 +97,73 @@ class AppDiscovery(private val context: Context) {
         }
         return result.toTypedArray()
     }
+
+    data class EmulatorActivity(val label: String, val packageName: String,
+                                val activityName: String, val declaredHandler: Boolean)
+
+    // No importer files or artwork are created. URI probes describe declarations,
+    // never compatibility, archive support, or actual access to a game.
+    @Suppress("DEPRECATION")
+    fun emulatorActivities(paths: Array<String>): List<EmulatorActivity> {
+        require(paths.size <= 128 && paths.all { it.startsWith('/') && it.length <= 4096 && !it.contains('\u0000') })
+        val entries = sortedMapOf<String, EmulatorActivity>()
+        fun query(intent: Intent, handler: Boolean) {
+            for (resolved in pm.queryIntentActivities(intent, 0)) {
+                val info = resolved.activityInfo ?: continue
+                if (info.packageName == context.packageName) continue
+                try {
+                    validate(info)
+                    val component = ComponentName(info.packageName, info.name).flattenToString()
+                    val label = info.loadLabel(pm).toString().take(512)
+                    val previous = entries[component]
+                    entries[component] = EmulatorActivity(label, info.packageName, info.name,
+                        handler || previous?.declaredHandler == true)
+                } catch (error: Exception) {
+                    Log.w("ES-DE-Plus", "Ignoring unavailable emulator activity ${info.packageName}")
+                }
+            }
+        }
+        for (category in listOf(Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER))
+            query(Intent(Intent.ACTION_MAIN).addCategory(category), false)
+        for (path in paths.distinct()) {
+            val file = File(path)
+            val extension = file.extension.lowercase(Locale.ROOT)
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            val mimes = listOfNotNull(mime, "application/octet-stream",
+                if (extension == "zip") "application/zip" else null,
+                if (extension == "zip") "application/x-zip-compressed" else null).distinct()
+            val uris = mutableListOf(Uri.fromFile(file),
+                Uri.Builder().scheme("content").authority(context.packageName + ".roms")
+                    .appendPath("rom").appendPath("probe").apply {
+                        path.trimStart('/').split('/').forEach { appendPath(it) }
+                    }.build())
+            try {
+                val volume = context.getSystemService(android.os.storage.StorageManager::class.java).getStorageVolume(file)
+                if (volume != null) {
+                    val id = if (volume.isPrimary) "primary" else volume.uuid
+                    if (id != null) {
+                        val volumeRoot = StorageModel(context).volumeRoot(id, readOnly = true)
+                        if (path.startsWith(volumeRoot.path + "/"))
+                            uris.add(android.provider.DocumentsContract.buildDocumentUri(
+                                "com.android.externalstorage.documents", id + ":" + path.removePrefix(volumeRoot.path + "/")))
+                    }
+                }
+            } catch (unavailable: Exception) {
+                // The file and provider probes still describe handlers; a missing
+                // volume never removes manual app selection or claims access.
+            }
+            for (uri in uris) {
+                query(Intent(Intent.ACTION_VIEW).setData(uri).addCategory(Intent.CATEGORY_DEFAULT), true)
+                for (type in mimes)
+                    query(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addCategory(Intent.CATEGORY_DEFAULT), true)
+            }
+        }
+        return entries.values.sortedWith(compareByDescending<EmulatorActivity> { it.declaredHandler }
+            .thenBy { it.label.lowercase(Locale.ROOT) }.thenBy { it.packageName }.thenBy { it.activityName })
+    }
+
+    fun emulatorActivityRecords(paths: Array<String>): Array<String> = emulatorActivities(paths)
+        .flatMap { listOf(it.label, it.packageName, it.activityName, if (it.declaredHandler) "1" else "0") }.toTypedArray()
 
     companion object {
         fun filename(label: String): String {

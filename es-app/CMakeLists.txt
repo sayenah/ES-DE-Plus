@@ -142,6 +142,18 @@ elseif(WIN32)
     target_link_libraries(ES-DE ${COMMON_LIBRARIES} es-core lunasvg::lunasvg)
     set_target_properties(ES-DE PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 elseif(ANDROID)
+    list(APPEND ES_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerConfig.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorLaunchProfile.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerTouch.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerRuntime.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiEmulatorManager.cpp)
+    list(APPEND ES_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorLaunchProfile.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerTouch.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerRuntime.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiEmulatorManager.h)
+    list(APPEND ES_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/src/EmulatorManagerConfig.h)
     # Android-only shared theme repository trust hooks written for ES-DE-Plus.
     list(APPEND ES_SOURCES src/guis/ThemeRepositoryTrust.cpp
          src/guis/ThemeRepositoryTrustDebug.cpp)
