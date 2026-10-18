@@ -266,7 +266,7 @@ in its log and run summary; the build job also self-tests the map.
 
 Map rules are additive repository-relative Python `fnmatch` globs (`*` also
 matches `/`). API 33 `core` is always selected for a PR. Host Kotlin/Java
-and configuration resources add `lifecycle` and `assets`; PDF renderer,
+and configuration resources add `lifecycle`, `assets` and `clear-task`; PDF renderer,
 viewer, fixtures (including `pdf-fixtures.py`), runtime PDF probes and storage
 transports add both PDF sessions; network, updater, signing/update fixtures and theme/scraper code add `integration` on API 33 and
 API 34 (where the remote checks gate). A session's harness module selects that
@@ -275,6 +275,9 @@ API 33. The native bridge, shared recipient and application manifest also select
 all sessions;
 the manifest adds API 34 integration for its network/permission declarations.
 The `forced-relaunch-overlay` module and its diagnostic workflow select assets.
+Clear-task probes select `clear-task`; audio teardown/reload code, its controls
+and `AudioManager.cpp` select `integration`. Manual audio controls run only
+when integration is selected (as they do in the default full dispatch).
 Predictive-back code also adds API 34 `assets`; TV banner/icon paths add TV `core`. Overlapping rules accumulate. Other native/build/audit/workflow and
 uncovered paths use core only unless another rule matches; workflow changes
 still run all pre-emulator controls. This CI-only PR is a representative
@@ -284,7 +287,7 @@ proof beyond the map.
 
 Manual dispatch defaults to `images=all`, `sessions=all` (the full matrix).
 For a targeted branch proof, use unique comma-separated image names `api33`,
-`api34`, `tv36` and session names from the six phases below, or the literal
+`api34`, `tv36` and session names from the seven phases below, or the literal
 `all`. Unknown, empty, duplicate and trailing-comma values fail before builds.
 For example:
 
@@ -302,10 +305,11 @@ every D-020 gate; its serialization group never cancels an active publication.
 Default branch full dispatches are used for on-demand regression evidence;
 branch/PR/targeted runs never upload an APK.
 
-The full matrix runs six gating smoke phases on each of its three images,
+The full matrix runs seven gating smoke phases on each of its three images,
 each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
-RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
+RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
+(24 return/join/retirement and single-new-main chains), `integration`
 (update continuity on API 33/34 and network checks), `pdf-direct`,
 `pdf-scoped` (including minified PDF/Unicode), and `assets` (four forced asset-path
 relaunches plus full predictive-back preview/cancel/committed-return on API 33/34).
@@ -446,8 +450,13 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/20/35/35/20 minutes for core/lifecycle/integration/
-PDF-direct/PDF-scoped/assets. The core step reached 51.8 minutes on API 34 in
+Emulator steps are bounded to 60/40/40/20/35/35/20 minutes for core/lifecycle/
+clear-task/integration/PDF-direct/PDF-scoped/assets. The combined lifecycle and
+clear-task step took 35.6–39.5 minutes in PR #28's round-1 matrices
+(39051707636 and 39051710800), or 89–99% of the 40-minute cap introduced by PR #24.
+The clear-task chains therefore run in their own gating cold-AVD session; the
+existing lifecycle assertions and every in-harness deadline stay unchanged.
+The core step reached 51.8 minutes on API 34 in
 round 4 (push run 39046156277), leaving 8.2 minutes under its unchanged 60-minute
 cap. Re-measure core on API 33 after platform PR #27 integrates. Earlier
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes

@@ -128,21 +128,26 @@ def self_test():
            'android/release_controls.py', 'android/distribution.py']
     assert path_plan(own)[0] == {'api33': ['core']}
     host = path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt'])[0]
-    assert host == {'api33': ['core', 'lifecycle', 'assets']}
+    assert host == {'api33': ['core', 'lifecycle', 'assets', 'clear-task']}
     assert path_plan(['android/app/src/main/java/org/libsdl/app/SDLActivity.java'])[0] == host
     for path, sessions in [('android/lifecycle_smoke.py', ['core', 'lifecycle']),
                            ('android/pdf_smoke.py', ['core', 'pdf-direct', 'pdf-scoped']),
-                           ('android/forced_relaunch_smoke.py', ['core', 'assets'])]:
+                           ('android/forced_relaunch_smoke.py', ['core', 'assets']),
+                           ('android/clear_task_smoke.py', ['core', 'clear-task']),
+                           ('android/audio_smoke.py', ['core', 'integration']),
+                           ('es-core/src/AudioManager.cpp', ['core', 'integration'])]:
         assert path_plan([path])[0] == {'api33': sessions}
     assert path_plan(['es-core/src/HttpReq.cpp'])[0] == {'api33': ['core', 'integration'], 'api34': ['integration']}
     assert path_plan(['es-app/src/ApplicationUpdater.cpp'])[0] == {'api33': ['core', 'integration'], 'api34': ['integration']}
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/bridge/PdfManual.kt'])[0] == {
-        'api33': ['core', 'lifecycle', 'pdf-direct', 'pdf-scoped', 'assets']}
+        'api33': ['core', 'lifecycle', 'pdf-direct', 'pdf-scoped', 'assets', 'clear-task']}
     assert path_plan(['android/predictive_back_smoke.py'])[0] == {'api33': ['core', 'assets'], 'api34': ['assets']}
     # Bind fixture/probe cases to real files so a misspelled module path does
     # not silently turn a dedicated regression surface into core-only evidence.
     cases = {
         'es-core/src/utils/PlatformUtilAndroid.cpp': {'api33': list(PHASES)},
+        'android/stub-emulator/src/main/kotlin/org/esdeplus/stub/ClearTaskProbe.kt': {'api33': ['core', 'clear-task']},
+        'android/app/src/debug/res/values/clear_task_probe.xml': {'api33': ['core', 'assets', 'clear-task']},
         '.github/workflows/forced-relaunch.yml': {'api33': ['core', 'assets']},
         'android/pdf-fixtures.py': {'api33': ['core', 'pdf-direct', 'pdf-scoped']},
         'es-pdf-converter/CMakeLists.txt': {'api33': ['core', 'pdf-direct', 'pdf-scoped']},

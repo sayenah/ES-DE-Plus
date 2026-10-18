@@ -6,7 +6,7 @@
 
 [[rule]]
 paths = ["android/app/src/main/*.kt", "android/app/src/main/*.java", "android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/values/*.xml"]
-sessions = ["lifecycle", "assets"]
+sessions = ["lifecycle", "assets", "clear-task"]
 reason = "Host lifecycle, configuration, entry and restart paths; debug/minified destruction and forced asset relaunch"
 
 [[rule]]
@@ -38,7 +38,7 @@ reason = "API 34 has a distinct platform launch-behind evidence contract"
 
 [[rule]]
 paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
-sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets"]
+sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "clear-task"]
 reason = "Shared runtime harness, fresh guest/logcat/settle, recipient/configuration grants or shared component declarations used by every session"
 
 [[rule]]
@@ -49,3 +49,13 @@ reason = "Leanback banner and stock TV launcher icon/entry observations"
 
 # Workflow/selector/build/audit changes alone use the mandatory core baseline.
 # They still execute every pre-emulator control; changes to session code match above.
+
+[[rule]]
+paths = ["android/clear_task_smoke.py", "android/stub-emulator/*/ClearTaskProbe.kt", "android/app/src/debug/res/anim/clear_task_probe_hold.xml", "android/app/src/debug/res/values/clear_task_probe.xml"]
+sessions = ["clear-task"]
+reason = "Clear-task entry redirects, native return/join/retirement and one-new-main chains"
+
+[[rule]]
+paths = ["android/audio_smoke.py", "es-core/src/AudioManager.*", "tests/audio-deinit/*"]
+sessions = ["integration"]
+reason = "Audio teardown, window reload and launch regression exercised by integration"

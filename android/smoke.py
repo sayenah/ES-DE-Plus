@@ -20,13 +20,14 @@ import fresh_session_checks
 import install_settle
 import smoke_phases
 import network_smoke
+import audio_smoke
 import importer_navigation
 import json
 import os
 import tempfile
 
 phase = sys.argv[3] if len(sys.argv) == 4 and sys.argv[2] == '--phase' else 'core'
-assert sys.argv[2:] == [] or (len(sys.argv) == 4 and sys.argv[2] == '--phase' and
+assert sys.argv[2:] in ([], ['--audio-control']) or (len(sys.argv) == 4 and sys.argv[2] == '--phase' and
                               phase in smoke_phases.PHASES), 'Usage: smoke.py APK [--phase PHASE]'
 apk = pathlib.Path(sys.argv[1]).resolve()
 app = next(line.split('=', 1)[1] for line in pathlib.Path('android/gradle.properties').read_text().splitlines()
@@ -49,6 +50,8 @@ onboarding_guard = False
 dismissing_onboarding = False
 last_onboarding_check = 0.0
 onboarding_dismissals = 0
+readiness_waits = evidence / ('audio-control-readiness-waits.txt' if '--audio-control' in sys.argv
+                              else 'readiness-waits.txt')
 onboarding_dismissal_marker = ''
 startup_number = 0
 startup_log_marker = ''
@@ -169,11 +172,11 @@ def wait_for(condition, description, timeout=90):
         if timeout >= 30:
             dismiss_stock_onboarding()
         if condition():
-            with (evidence / 'readiness-waits.txt').open('a') as output:
+            with readiness_waits.open('a') as output:
                 output.write(f'READY {time.monotonic() - started:.3f}s: {description}\n')
             return
         time.sleep(0.25)
-    with (evidence / 'readiness-waits.txt').open('a') as output:
+    with readiness_waits.open('a') as output:
         output.write(f'TIMEOUT {time.monotonic() - started:.3f}s: {description}\n')
     if timeout >= 30 and startup_monitoring and startup_log_marker:
         captured = capture_startup_failure('timeout-' + startup_log_marker, startup_log_marker)
@@ -195,8 +198,11 @@ def screenshot(name):
     (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
 
 
-def launch():
+def launch(audio_relaunch=None):
     global startup_number
+    if audio_relaunch:
+        launch_attempt(lambda: None, audio_relaunch)
+        return
     startup_number += 1
     name = f'startup-{startup_number}'
     marker = begin_startup()
@@ -282,12 +288,15 @@ def current_startup_ready():
     return True
 
 
-def launch_attempt(reached_readiness):
+def launch_attempt(reached_readiness, audio_relaunch=None):
     # Each stopped-process restart must produce new startup evidence.
     global startup_baseline, startup_monitoring
     startup_baseline = log()
-    shell('am', 'start', '-n', activity)
-    wait_for(current_startup_ready, 'fresh frontend startup/system loading')
+    if audio_relaunch:
+        audio_smoke.startup(globals(), audio_relaunch, startup_baseline)
+    else:
+        shell('am', 'start', '-n', activity)
+        wait_for(current_startup_ready, 'fresh frontend startup/system loading')
     reached_readiness()
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
@@ -581,10 +590,11 @@ def grant_from_settings(app_label=None, recipient=False):
     if permission_toggle(app_label) is None:
         ui(app_label or label)
     wait_for(lambda: permission_toggle(app_label) is not None, 'app-associated all-files switch')
-    def recipient_granted():
+    def access_granted():
+        target = 'org.esdeplus.stub' if recipient else app
         return bool(re.search(r'\bMANAGE_EXTERNAL_STORAGE:\s*allow\b',
-                    shell('appops', 'get', '--uid', 'org.esdeplus.stub', 'MANAGE_EXTERNAL_STORAGE')))
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and recipient_granted():
+                    shell('appops', 'get', '--uid', target, 'MANAGE_EXTERNAL_STORAGE')))
+    if recipient and permission_toggle(app_label).get('checked') == 'true' and access_granted():
         screenshot('recipient-all-files-already-granted')
         key('KEYCODE_BACK')
         return
@@ -605,13 +615,14 @@ def grant_from_settings(app_label=None, recipient=False):
             key('KEYCODE_DPAD_DOWN')
         else:
             raise AssertionError('TV D-pad cannot reach our all-files switch')
-    if recipient and permission_toggle(app_label).get('checked') == 'true' and not recipient_granted():
-        # Settings can retain a checked preference across recipient reinstall,
+    if permission_toggle(app_label).get('checked') == 'true' and not access_granted():
+        # Settings can retain a checked preference across reinstall,
         # while the actual app-op is reset. Resynchronize through the real UI.
         toggle_switch()
-        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale recipient switch reset')
+        wait_for(lambda: permission_toggle(app_label).get('checked') == 'false', 'stale permission switch reset')
     toggle_switch()
-    wait_for(lambda: permission_toggle(app_label) is not None and permission_toggle(app_label).get('checked') == 'true',
+    wait_for(lambda: permission_toggle(app_label) is not None and
+             permission_toggle(app_label).get('checked') == 'true' and access_granted(),
              'real app all-files grant')
     screenshot('recipient-all-files-granted' if recipient else 'all-files-granted')
     key('KEYCODE_BACK')
@@ -829,9 +840,14 @@ def clear_app():
     time.sleep(1)
 
 
-def configured_system(name):
-    global startup_monitoring
-    wait_for(current_startup_ready, 'fresh configured system view')
+def configured_system(name, audio_relaunch=False):
+    global startup_baseline, startup_monitoring
+    if audio_relaunch:
+        startup_baseline = log()
+        audio_smoke.startup(globals(), name, startup_baseline, home=True,
+                            description='fresh configured system view')
+    else:
+        wait_for(current_startup_ready, 'fresh configured system view')
     assert 'Error:' not in log(), log()
     assert re.search(r'Total game count: 2\s', log()), log()
     def focused():
@@ -1561,6 +1577,8 @@ try:
     configured_system('direct-system-view')
     completion = adb('logcat', '-d')
     assert completion.index('Storage configuration committed mode=direct') < completion.index('Native startup hold released'), completion
+    if '--audio-control' in sys.argv:
+        audio_smoke.run_control(globals())
     launch_contract_probes('direct')
     shell('am', 'force-stop', app)
     revoked_tree = shell('am', 'instrument', '-w', '-e', 'mode', 'revoke-tree',
@@ -1931,6 +1949,8 @@ try:
     (evidence / 'smoke-summary.txt').write_text('PASS: interruption/recovery, system view, keyboard SEARCH, missing-emulator attempt, second launch, settings, deleted-file repair, user theme, CheckJNI/Unicode/resource-failure probes, cheap normal-start and hash/size repair, recoverable data/ROM-directory failure, real configurator, both storage modes, entry aliases, revoked permission, one-shot folders in both modes, actual destruction during both native holds, retained typed text/focus, stale-grant release; PR-C recipient probes and native gamelist/provider/app-importer launches in both modes; pinned stable RetroArch timeout and actual activity launch; API 34 additionally real system HOME over drawer launch. Saved-state and image capability outcomes are recorded separately.\n')
     with (evidence / 'smoke-summary.txt').open('a') as output:
         output.write((evidence / 'real-retroarch-receipt-result.txt').read_text())
+except audio_smoke.ControlComplete:
+    pass
 except SystemExit:
     raise
 except BaseException:
