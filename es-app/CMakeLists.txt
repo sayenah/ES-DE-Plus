@@ -142,6 +142,11 @@ elseif(WIN32)
     target_link_libraries(ES-DE ${COMMON_LIBRARIES} es-core lunasvg::lunasvg)
     set_target_properties(ES-DE PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
 elseif(ANDROID)
+    # Android-only shared theme repository trust hooks written for ES-DE-Plus.
+    list(APPEND ES_SOURCES src/guis/ThemeRepositoryTrust.cpp
+         src/guis/ThemeRepositoryTrustDebug.cpp)
+    list(APPEND ES_HEADERS src/guis/ThemeRepositoryTrust.h
+         src/guis/ThemeRepositoryTrustDebug.h)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_library(main MODULE ${ES_SOURCES} ${ES_HEADERS})
     target_link_libraries(main PRIVATE ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS}

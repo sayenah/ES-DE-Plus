@@ -13,7 +13,7 @@ import java.security.MessageDigest
 
 class RomTransport(private val context: Context) {
     private val storage = StorageModel(context)
-    fun root(): File = storage.validate(storage.load() ?: error("Storage is not configured"), readOnly = true)
+    fun root(): File = storage.validateROMs(storage.load() ?: error("Storage is not configured"))
 
     fun file(path: String): File = fileInside(root(), path)
 

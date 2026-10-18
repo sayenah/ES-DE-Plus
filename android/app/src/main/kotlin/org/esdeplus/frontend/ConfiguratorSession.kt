@@ -21,7 +21,7 @@ object ConfiguratorSession {
     @Volatile private var entry = Intent()
     @Volatile var home = false
         private set
-    private val draftStrings = listOf("mode", "path", "tree", "typedPath", "message")
+    private val draftStrings = listOf("mode", "path", "tree", "typedPath", "message", "dataPath", "dataConsent", "step")
     private val draftBooleans = listOf("createSystems", "permissionPending", "resourceError")
     @Volatile private var pendingDraft: Bundle? = null
     private var currentSession: String? = null

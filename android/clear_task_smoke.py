@@ -1,11 +1,50 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. G-32 real task-clear positive control and regression probe.
+import json
 import os
+import pathlib
 import re
 import shlex
 import subprocess
+import tempfile
 import time
+
+import fresh_session_checks
+
+
+def configured_start(harness, name, start, stop):
+    # Instrumentation owns this initial launch, so launch() cannot issue it.
+    # Use the same bounded pre-readiness policy as ordinary frontend starts.
+    h = type('Harness', (), harness)
+    marker = ''
+    def attempt(ready):
+        nonlocal marker
+        harness['startup_baseline'] = h.log()
+        marker = h.begin_startup()
+        start()
+        h.configured_system(name + '-before')
+        ready()
+    def record(result):
+        result.update(start=name, marker=marker, readiness_deadline_seconds=90)
+        with (h.evidence / 'startup-outcomes.txt').open('a') as output:
+            output.write(json.dumps(result) + '\n')
+    fresh_session_checks.startup(
+        attempt, lambda: harness['onboarding_dismissals'],
+        lambda number: h.capture_startup_failure(
+            f'{name}-startup-attempt-{number + 1}-failure', marker),
+        stop, record, h.app, h.current_startup_ready)
+    return marker
+
+
+def initial_start_trace(logs, marker):
+    # A permitted pre-readiness recovery is a separate failed startup, already
+    # captured and classified. The task-clear proof starts at its ready entry.
+    lines = logs.splitlines(keepends=True)
+    pattern = r'^\S+\s+\S+\s+\d+\s+\d+\s+I\s+ESDE-Smoke\s*:\s*' + re.escape(marker) + r'\s*$'
+    boundaries = [i for i, line in enumerate(lines) if re.match(pattern, line)]
+    assert len(boundaries) == 1, 'Initial startup marker missing or ambiguous'
+    return ''.join(lines[boundaries[0] + 1:])
 
 
 def pid_lines(logs, pid):
@@ -65,7 +104,78 @@ def controls():
             pass
         else:
             raise AssertionError('Broken clear-task chain escaped')
-    return f'PASS: {len(mutants)} broken clear-task chains rejected\n'
+    marker = 'ESDE_STARTUP_control'
+    boundary = f'01-01 00:00:00.000 42 42 I ESDE-Smoke: {marker}\n'
+    previous = '01-01 00:00:00.000 99 99 I SDL: Running main function\n'
+    completed(initial_start_trace(previous + boundary + logs, marker), '123', '789')
+    for invalid in (logs, boundary + boundary + logs,
+                    boundary.replace('ESDE-Smoke:', 'Other:') + logs,
+                    boundary.replace(': ' + marker, ': embedded ' + marker) + logs):
+        try:
+            initial_start_trace(invalid, marker)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Missing or forged initial startup boundary escaped')
+    try:
+        completed(initial_start_trace(boundary + logs + previous, marker), '123', '789')
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('Unexpected native main after startup boundary escaped')
+    startup_controls()
+    return (f'PASS: {len(mutants)} broken clear-task chains rejected; '
+            'instrumented startup uses bounded pre-readiness recovery\n')
+
+
+def startup_controls():
+    def exercise(dismiss=True, ready=False, twice=False, crash='', died=False, normal=False, initial=0,
+                 focus='com.google.android.tvlauncher/.MainActivity'):
+        events = []
+        with tempfile.TemporaryDirectory(dir=pathlib.Path(__file__).parent) as directory:
+            def begin():
+                events.append('marker')
+                return 'control-' + str(events.count('marker'))
+            def configured(name):
+                events.append('wait')
+                if normal or events.count('wait') == 2 and not twice:
+                    return
+                if dismiss:
+                    harness['onboarding_dismissals'] += 1
+                raise fresh_session_checks.ReadinessTimeout('control')
+            def capture(name, marker):
+                assert marker == 'control-' + str(events.count('marker'))
+                events.append('capture')
+                death = ('Process org.esdeplus.frontend (pid 123) has died' if died else '')
+                return dict(logcat=crash + death, after_dismissal='' if dismiss else None,
+                            focus='WINDOW MANAGER DISPLAY CONTENTS\n mCurrentFocus=Window{aa u0 ' + focus + '}')
+            harness = dict(app='org.esdeplus.frontend', evidence=pathlib.Path(directory),
+                           onboarding_dismissals=initial, log=lambda: 'old log', begin_startup=begin,
+                           configured_system=configured, capture_startup_failure=capture,
+                           current_startup_ready=lambda: ready)
+            failed = False
+            try:
+                marker = configured_start(harness, 'control', lambda: events.append('start'),
+                                          lambda: events.append('stop'))
+                assert marker == 'control-' + str(events.count('marker'))
+            except (fresh_session_checks.ReadinessTimeout, fresh_session_checks.HostStartupFailure):
+                failed = True
+            records = [json.loads(line) for line in
+                       (pathlib.Path(directory) / 'startup-outcomes.txt').read_text().splitlines()]
+        return failed, events, records
+    failed, events, records = exercise()
+    assert not failed and events == ['marker', 'start', 'wait', 'capture', 'stop', 'marker', 'start', 'wait']
+    assert [r['outcome'] for r in records] == ['RELAUNCH_STOCK_ONBOARDING', 'READY']
+    failed, events, records = exercise(normal=True)
+    assert not failed and events == ['marker', 'start', 'wait'] and records[0]['outcome'] == 'READY'
+    for options in (dict(dismiss=False), dict(dismiss=False, initial=1), dict(ready=True), dict(crash='FATAL EXCEPTION'),
+                    dict(died=True), dict(focus='org.esdeplus.frontend/.MainActivity')):
+        failed, events, records = exercise(**options)
+        assert failed and events.count('start') == 1 and 'stop' not in events
+        assert records[-1]['outcome'] == 'HARD_TIMEOUT'
+    failed, events, records = exercise(twice=True)
+    assert failed and events.count('start') == 2 and events.count('stop') == 1
+    assert records[-1]['outcome'] == 'HARD_TIMEOUT'
 
 
 def run(harness):
@@ -108,16 +218,25 @@ def _run(harness):
         scheduled = baseline or cycle < 20
         name = f'clear-task-{cycle + 1:02d}-{source}-{target}'
         process = None
+        starts = 0
         h.shell('am', 'force-stop', h.app)
         h.adb('logcat', '-c')
-        try:
-            harness['startup_baseline'] = h.log()
+        def stop_startup():
+            nonlocal process
+            h.shell('am', 'force-stop', h.app)
+            if process is not None:
+                process.wait(timeout=15)
+                process = None
+        def start_initial():
+            nonlocal process, starts
+            starts += 1
             if scheduled:
                 # --no-restart avoids instrumentation cleanup force-stopping
                 # the surviving private helper when the old frontend exits.
                 h.shell('am', 'start', '-W', '-n',
                         h.app + '/org.esdeplus.frontend.ForcedRelaunchBootstrapActivity')
-                output = (h.evidence / (name + '-instrumentation.txt')).open('w')
+                suffix = '-instrumentation.txt' if starts == 1 else '-instrumentation-startup-recovery.txt'
+                output = (h.evidence / (name + suffix)).open('w')
                 process = subprocess.Popen(['adb', 'shell', shlex.join([
                     'am', 'instrument', '--no-restart', '-w', '-e', 'entry', source,
                     'org.esdeplus.stub/.ClearTaskProbe'])], stdout=output, stderr=subprocess.STDOUT)
@@ -125,7 +244,8 @@ def _run(harness):
             else:
                 category = {'MainActivity': 'LAUNCHER', 'HomeEntry': 'HOME', 'LeanbackEntry': 'LEANBACK_LAUNCHER'}[source]
                 h.start_entry(source, 'android.intent.category.' + category)
-            h.configured_system(name + '-before')
+        try:
+            initial_marker = configured_start(harness, name, start_initial, stop_startup)
             old = h.shell('pidof', h.app).strip()
             assert old.isdigit(), old
             capture(name + '-before-clear')
@@ -140,7 +260,7 @@ def _run(harness):
                 until = time.monotonic() + 10
                 while time.monotonic() < until:
                     time.sleep(0.25)
-                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                logs = initial_start_trace(h.adb('logcat', '-d', '-v', 'threadtime'), initial_marker)
                 capture(name + '-positive-control')  # Before any cleanup.
                 before = pid_lines(logs, old)
                 assert 'Clear-task replacement transition barrier armed' in before, 'Scheduling seam not reached'
@@ -160,7 +280,7 @@ def _run(harness):
                            h.smoke_checks.package_window_focused(h.focused_window(), h.app),
                            name + ' automatic new frontend', timeout=90)
                 new = h.shell('pidof', h.app).strip()
-                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                logs = initial_start_trace(h.adb('logcat', '-d', '-v', 'threadtime'), initial_marker)
                 completed(logs, old, new, helper_required=scheduled)
                 if scheduled:
                     assert 'Clear-task replacement transition barrier armed' in pid_lines(logs, old), 'Scheduling seam not reached'
