@@ -53,6 +53,22 @@ open class MainActivity : SDLActivity() {
         ConfiguratorSession.recordEntry(intent)
         if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
     }
+    internal fun retireForEntry(intent: Intent) {
+        setIntent(intent)
+        ConfiguratorSession.recordEntry(intent)
+        // This is an explicit new session, including when another entry task
+        // was cleared. A foreground owner in the existing private helper VM
+        // lets Android finish the old record before starting any new native main.
+        // Unlike a configuration restore, an explicit entry also preserves a
+        // pending configurator draft through the ordinary destruction path.
+        deferringRestart = false
+        deferredRestart = null
+        if (restartPrepared.compareAndSet(false, true)) {
+            FrontendRestartActivity.prepare(applicationContext, ConfiguratorSession.restartEntry())
+            Log.i("ES-DE-Plus", "Clear-task entry retiring SDL session task=$taskId")
+        }
+        finish()
+    }
     override fun onConfigurationChanged(configuration: Configuration) {
         super.onConfigurationChanged(configuration)
         if (!awaitingCommittedEntry) updateWindowSize()
