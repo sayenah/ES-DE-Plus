@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. Debug-only window transition. -->
+<resources>
+    <style name="ClearTaskProbeAnimations" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:activityOpenExitAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:activityCloseEnterAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:activityCloseExitAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:taskOpenEnterAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:taskOpenExitAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:taskCloseEnterAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:taskCloseExitAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/clear_task_probe_hold</item>
+        <item name="android:taskToFrontExitAnimation">@anim/clear_task_probe_hold</item>
+    </style>
+</resources>
