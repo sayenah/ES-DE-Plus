@@ -459,14 +459,25 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/40/60/35/60/20 minutes for core/lifecycle/clear-task/integration/
-PDF-direct/PDF-scoped/assets; API 34 core uses 80 minutes under D-024 am. 16.
+The combined lifecycle and clear-task step took 35.6–39.5 minutes in PR #28's
+round-1 matrices (39051707636 and 39051710800), or 89–99% of the 40-minute cap
+introduced by PR #24. The clear-task chains therefore run in their own gating
+cold-AVD session with a 40-minute step cap; existing lifecycle assertions and
+every in-harness deadline stay unchanged.
+Its initial instrumented or ordinary entry uses the shared bounded startup
+policy: one proven stock-onboarding preemption before readiness may recover;
+crashes, exits, host failures and later failures stay hard. The clear-task action
+itself is issued once, after readiness, with every retirement assertion retained.
+Its proof starts at the successful initial-entry marker; any earlier preempted
+startup remains in the full captures and shared startup-outcome records.
+
+Emulator steps are bounded to 60/40/40/60/35/60/20 minutes for core/lifecycle/clear-task/
+integration/PDF-direct/PDF-scoped/assets; API 34 core uses 80 minutes under D-024 am. 16.
 Integration and scoped-PDF use 60-minute teardown backstops under D-012 am. 12;
 measured passes took 41m45s and 35m43s. In-harness readiness/probe deadlines stay unchanged.
 The core step reached 51.8 minutes on API 34 in round 4 (push run 39046156277),
 leaving 8.2 minutes under the earlier 60-minute cap. Readiness/probe deadlines
-remain unchanged. Re-measure core on API 33 after platform PR #27 integrates. Earlier
-Clear-task chains run in their own cold-AVD session; all lifecycle assertions remain in place.
+remain unchanged. The API 33 baseline runs the same core controls. Earlier
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
 (run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
 An action failure or timeout after the
@@ -557,7 +568,7 @@ focus capture before activation. Focus traces and screenshots accompany failures
 Touch coverage is confined to manager dialogs until the frontend overlay lands
 (D-018 (3)); the parent menus and no-games entry use keyboard/controller input.
 
-The app-data, integration, core, lifecycle, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Core runs before app-data and integration so the D-026 PR gate starts before informational sessions; every existing session still runs. The five-hour outer emulator-job budget covers all seven sessions and the extended network controls; individual session/probe deadlines and failure gates are unchanged (D-012 amendment 11). The measured predecessor API 34 job took 230m01s, leaving 69m59s at the new limit; the earlier phone job took 194m31s (only about 45 minutes remained at 240), and TV took 159m17s. The same APK stays on its runner throughout all sessions; no inter-job APK transfer is used. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
+The app-data, integration, core, lifecycle, clear-task, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Core runs before app-data and integration so the D-026 PR gate starts before informational sessions; every existing session still runs. The five-hour outer emulator-job budget covers all eight sessions and the extended network controls; individual session/probe deadlines and failure gates are unchanged (D-012 amendment 11). The measured predecessor API 34 job took 230m01s, leaving 69m59s at the new limit; the earlier phone job took 194m31s (only about 45 minutes remained at 240), and TV took 159m17s. The same APK stays on its runner throughout all sessions; no inter-job APK transfer is used. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
 
 The API 34 special-character fixture uses emulated shared storage with `#`, `;`, space and `é`. D-012 amendment 5 excludes quotes from shared data paths because Android's MediaProvider refuses renames through those components. The configurator and resume probe require an actionable rejection, no destination access or mutation and no fallback, then prove valid-folder review still works. Native controls clone/fetch/reset actual quoted and backslash-containing app-private Git paths and parse their exact `safe.directory` entries through libgit2; framework-free tests also cover escaping. The integration emulator provisions a 2 GiB card for the retained list repository, the large theme and temporary clone files. A mounted removable volume additionally gets its own clone/select/load fixture with a portable filename; SDK card images use [FAT32](https://developer.android.com/tools/mksdcard), whose [filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file) exclude quotes. API 33/34 historical ownership controls require `python3 android/theme-owner-control.py` before the signing fixture; this builds exact archived `438bf5927` locally on the runner, with no APK upload.
 
