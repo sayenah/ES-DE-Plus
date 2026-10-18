@@ -1499,6 +1499,9 @@ try:
                 # The visible configurator proves binding has completed; early
                 # process-name snapshots can transiently miss a live process.
                 recovered_pid = shell('pidof', app).strip()
+            # Rebuilding the configurator resets its ScrollView to the top.
+            # Expose the same draft control without toggling it before comparing.
+            ui('Create system folders', dpad=True, focus_only=True)
             screenshot('font-weight-held')
             after_records = activity_records()[1]
             draft_after = fresh_session_checks.font_draft(hierarchy(), app, scoped_path)
