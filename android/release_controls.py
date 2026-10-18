@@ -145,7 +145,7 @@ def eligibility_controls():
     # results: only complete publication or complete dry-run outcomes may pass.
     block = workflow.split('  publication-result:\n', 1)[1].split('  rebuild-source:\n', 1)[0]
     script = textwrap.dedent(block.split("          python3 - <<'PYCODE'\n", 1)[1].split('          PYCODE', 1)[0])
-    script = compile(script.replace("print('PASS: all API 33 sessions gate; API 35 informational results retained; publication complete or no APK uploaded')", ''),
+    script = compile(script.replace("print('PASS: all API 33 sessions gate; API 35 results retained; publication complete or no APK uploaded')", ''),
                      'publication-result', 'exec')
     for eligible, selection, sessions, build, apk, release in itertools.product(
             (True, False), *([('success', 'failure', 'skipped', 'cancelled')] * 5)):
@@ -153,6 +153,7 @@ def eligibility_controls():
                            BUILD=build, APK=apk, RELEASE=release)
         required = 'success' if eligible else 'skipped'
         expected = selection == sessions == 'success' and build == apk == release == required
+
         with mock.patch.dict(os.environ, environment):
             try:
                 exec(script, {})
@@ -161,6 +162,7 @@ def eligibility_controls():
             else:
                 assert expected, environment
     print('PASS: actual parallel publication-result script, 2048 job-outcome combinations')
+
 
 
 def check():

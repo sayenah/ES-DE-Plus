@@ -20,7 +20,8 @@ class SmokeMenuFocus {
         "SEARCH", "SCRAPER", "UI SETTINGS", "SOUND SETTINGS", "INPUT DEVICE SETTINGS",
         "GAME COLLECTION SETTINGS", "OTHER SETTINGS", "UTILITIES", "QUIT ES-DE",
         "GAME IMPORTER", "ORPHANED DATA CLEANUP", "CREATE/UPDATE SYSTEM DIRECTORIES",
-        "RESCAN ROM DIRECTORY", "THEME DOWNLOADER", "AUDIO DRIVER (REQUIRES RESTART)", "NAVIGATION SOUNDS VOLUME",
+        "RESCAN ROM DIRECTORY", "THEME DOWNLOADER", "ALTERNATIVE EMULATORS", "EMULATOR MANAGER",
+        "AUDIO DRIVER (REQUIRES RESTART)", "NAVIGATION SOUNDS VOLUME",
         "CONTROLLER TYPE", "TOUCH OVERLAY SIZE"
     };
 
@@ -220,8 +221,10 @@ class SmokeMenuFocus {
     }
 
     public static void main(String[] args) throws Exception {
+        // Match the frontend's HarfBuzz-shaped text, including standard kerning.
         Font font = Font.createFont(Font.TRUETYPE_FONT,
-                new File("resources/fonts/Akrobat-SemiBold.ttf"));
+                new File("resources/fonts/Akrobat-SemiBold.ttf"))
+                .deriveFont(Map.of(TextAttribute.KERNING, TextAttribute.KERNING_ON));
         if (args[0].equals("--controls")) {
             controls(font, new File(args[1]));
             return;

@@ -12,7 +12,7 @@ import tomllib
 from smoke_phases import PHASES
 
 # API 35 first full session set green: dispatch 39161875992 (8fc9afde7).
-# Set False only under a new Founder ruling; new sessions now gate too.
+# Newly added sessions gate too.
 API35_GATING = True
 IMAGES = {
     'api33': dict(image='api33', api=33, target='google_apis', profile='pixel_2'),
@@ -21,7 +21,7 @@ IMAGES = {
     'tv36': dict(image='tv36', api=36, target='android-tv', profile='tv_1080p'),
 }
 CAPS = {'core': 60, 'lifecycle': 40, 'clear-task': 40, 'integration': 60,
-        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60}
+        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60, 'manager-direct': 180, 'manager-scoped': 180}
 
 
 def values(raw, allowed):
@@ -58,7 +58,8 @@ def dispatch_plan(images, sessions, publish=False):
 
 def matrix(plan):
     return {'include': [dict(IMAGES[image], session=session,
-                             cap=80 if image == 'api34' and session == 'core' else CAPS[session], informational=image == 'api35' and not API35_GATING)
+                             cap=80 if image == 'api34' and session == 'core' else CAPS[session],
+                             job_cap=180 if session.startswith('manager-') else 300, informational=image == 'api35' and not API35_GATING)
                         for image, sessions in plan.items() for session in sessions]}
 
 
@@ -98,13 +99,15 @@ def self_test():
     assert path_plan(['docs/protocol.md'])[0] == {'api33': ['core']}
     assert path_plan(own)[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt'])[0] == {
-        'api33': ['core', 'lifecycle', 'assets', 'app-data', 'clear-task'], 'api35': ['core']}
+        'api33': ['core', 'lifecycle', 'assets', 'app-data', 'clear-task', 'manager-direct', 'manager-scoped'], 'api35': ['core']}
     assert path_plan(['android/pdf_smoke.py'])[0] == {'api33': ['core', 'pdf-direct', 'pdf-scoped']}
     assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/clear_task_smoke.py'])[0] == {'api33': ['core', 'clear-task']}
     assert path_plan(['android/network_navigation.py'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}
     assert path_plan(['es-app/src/guis/ThemeRepositoryTrust.cpp'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/NativeBridge.kt'])[0] == {'api33': list(PHASES), 'api35': ['core']}
+    assert path_plan(['android/emulator_manager_smoke.py'])[0] == {'api33': ['core', 'manager-direct', 'manager-scoped']}
+    assert path_plan(['es-app/src/guis/GuiEmulatorManager.cpp'])[0] == {'api33': ['core', 'manager-direct', 'manager-scoped']}
     assert path_plan(['android/app_data_smoke.py'])[0] == {'api33': ['core', 'app-data']}
     assert path_plan(['android/audio_smoke.py'])[0] == {'api33': ['core', 'integration']}
     assert set(dispatch_plan('all', 'all')) == {'api33', 'api35'}

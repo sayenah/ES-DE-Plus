@@ -30,6 +30,9 @@
 #include "animations/MoveCameraAnimation.h"
 #include "guis/GuiApplicationUpdater.h"
 #include "guis/GuiGameImporter.h"
+#if defined(__ANDROID__)
+#include "guis/GuiEmulatorManager.h"
+#endif
 #include "guis/GuiMenu.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
@@ -277,6 +280,9 @@ void ViewController::noGamesDialog()
         [this, gameImporterUpdateFunc] {
             mWindow->pushGui(new GuiGameImporter(_("GAME IMPORTER"), gameImporterUpdateFunc));
         },
+#if defined(__ANDROID__)
+        _("EMULATORS"), [this] { mWindow->pushGui(new GuiEmulatorManager); },
+#endif
 #else
     mNoGamesMessageBox = new GuiMsgBox(
         mNoGamesErrorMessage + mRomDirectory, _("IMPORT"),
@@ -392,7 +398,12 @@ void ViewController::noGamesDialog()
             quit.type = SDL_QUIT;
             SDL_PushEvent(&quit);
         },
-#if defined(__ANDROID__) || defined(__IOS__)
+#if defined(__ANDROID__)
+        nullptr, true, false,
+        (mRenderer->getIsVerticalOrientation() ?
+             0.90f :
+             0.58f * (1.778f / mRenderer->getScreenAspectRatio())));
+#elif defined(__IOS__)
         "", nullptr, nullptr, true, false,
         (mRenderer->getIsVerticalOrientation() ?
              0.90f :

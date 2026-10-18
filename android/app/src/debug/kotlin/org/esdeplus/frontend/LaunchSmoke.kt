@@ -5,6 +5,7 @@ package org.esdeplus.frontend
 import android.app.Instrumentation
 import android.app.BroadcastOptions
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -55,7 +56,7 @@ object LaunchSmoke {
         // App-owned user configuration must be prepared through the actual
         // application's UID; adb sync cannot write it on all Android images.
         equal(relative in listOf("custom_systems/es_systems.xml", "custom_systems/es_find_rules.xml",
-            "settings/es_settings.xml"), true, "Probe user-file scope")
+            "settings/es_settings.xml", "gamelists/ps3/gamelist.xml"), true, "Probe user-file scope")
         val file = File(StorageModel(context).appData(), relative)
         if (contents == null) {
             if (file.exists()) equal(file.delete(), true, "Remove probe user file")
@@ -294,6 +295,8 @@ object LaunchSmoke {
                 equal(bridge.checkEmulatorInstalled(stub, activity), false, "Invalid target discovery $activity")
                 equal(bridge.launchGame(base(activity = activity), empty, empty, empty, empty, empty, false), -1, "Invalid target launch $activity")
             }
+            for (activity in listOf(".RecipientActivity/other", ".RecipientActivity\u0000", ".RecipientActivity\n", ".RecipientActivity\u0085"))
+                equal(bridge.checkEmulatorInstalled(stub, activity), false, "Malformed explicit target")
             equal(bridge.checkEmulatorInstalled("org.esdeplus.missing", ""), false, "Missing package")
             val launcher = GameLauncher(context)
             val expectedHash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -553,6 +556,27 @@ object LaunchSmoke {
                 override fun getExternalFilesDirs(type: String?): Array<File?> = emptyArray()
             })
             refused("Unavailable selected storage") { missing.provider(rom.path) }
+            val emulatorRecords = AppDiscovery(context).emulatorActivities(arrayOf("/storage/emulated/0/ROMs/test/example.zip", "/storage/emulated/0/ROMs/test/example.ZIP"))
+            val stubRecords = emulatorRecords.filter { it.packageName == stub }
+            for (activity in listOf("RecipientActivity", "TelevisionOnly", "CollisionOne", "CollisionTwo", "ZipMime", "WildcardMime", "ZipPath"))
+                equal(stubRecords.any { it.activityName == "$stub.$activity" }, true, "Emulator activity $activity")
+            for (activity in listOf("ZipMime", "WildcardMime", "ZipPath"))
+                equal(stubRecords.single { it.activityName == "$stub.$activity" }.declaredHandler, true, "Declared file handler $activity")
+            equal(stubRecords.any { it.activityName == "$stub.NonMatchingMime" }, false, "Unrelated handler")
+            for (activity in listOf("DisabledActivity", "ProtectedActivity", "PrivateActivity"))
+                equal(stubRecords.any { it.activityName == "$stub.$activity" }, false, "Inaccessible emulator activity $activity")
+            equal(stubRecords.filter { it.label == "ZIP handler" }.map { it.activityName }.distinct().size, 2, "Equal labels keep components")
+            val handlersOnly = emulatorRecords.filter { it.packageName == "org.esdeplus.handlerstub" }
+            for (activity in listOf("ZipMime", "WildcardMime", "ZipPath", "HandlerAlias_雪"))
+                equal(handlersOnly.single { it.activityName == "$stub.$activity" }.declaredHandler, true, "No-launcher package discovered: $activity")
+            val alias = handlersOnly.single { it.activityName == "$stub.HandlerAlias_雪" }
+            equal(bridge.checkEmulatorInstalled(alias.packageName, alias.activityName), true, "Unicode alias target")
+            equal(AppDiscovery(context).target(alias.packageName, alias.activityName).component,
+                ComponentName(alias.packageName, alias.activityName), "Exact Unicode alias component")
+            equal(handlersOnly.any { it.activityName == "$stub.NonMatchingMime" }, false, "No-launcher nonmatching handler")
+            equal(context.packageManager.getLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no launcher")
+            equal(context.packageManager.getLeanbackLaunchIntentForPackage("org.esdeplus.handlerstub"), null, "File-only fixture has no Leanback entry")
+            evidence.append("PASS: PR-I typed activity records, launcher/Leanback/file-only handlers, MIME/wildcard/path suggestions, equal labels and inaccessible activities\n")
             return "PASS: PR-C launch/discovery/provider/query probes; assertion positive controls rejected\n" + evidence
         } finally {
             context.unregisterReceiver(receiver)

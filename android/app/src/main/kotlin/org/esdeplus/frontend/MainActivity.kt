@@ -262,6 +262,7 @@ open class MainActivity : SDLActivity() {
     fun getCellularStatus() = bridge.getCellularStatus()
     fun getCreateSystemDirectories() = bridge.getCreateSystemDirectories()
     fun getExternalDirectory() = bridge.getExternalDirectory()
+    fun getEmulatorActivities(paths: Array<String>) = bridge.getEmulatorActivities(paths)
     fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean) = bridge.getInstalledApps(gamesOnly, includeMedia)
     fun getInternalDirectory() = bridge.getInternalDirectory()
     fun getWifiStatus() = bridge.getWifiStatus()

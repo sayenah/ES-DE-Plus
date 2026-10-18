@@ -529,7 +529,7 @@ jobs:
     if: ${{ !cancelled() && needs.selection.result == 'success' && (needs.selection.outputs.publish != 'true' || needs.build-publish.result == 'success') }}
     name: ${{ matrix.image }} / ${{ matrix.session }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: ${{ matrix.job_cap }}
     continue-on-error: ${{ matrix.informational }}
     strategy:
       fail-fast: false
@@ -1171,7 +1171,7 @@ jobs:
           assert os.environ['SELECTION'] == os.environ['SESSIONS'] == 'success'
           expected = 'success' if os.environ['ELIGIBLE'] == 'true' else 'skipped'
           assert all(os.environ[key] == expected for key in ('BUILD', 'APK', 'RELEASE'))
-          print('PASS: all API 33 sessions gate; API 35 informational results retained; publication complete or no APK uploaded')
+          print('PASS: all API 33 sessions gate; API 35 results retained; publication complete or no APK uploaded')
           PYCODE
 
   rebuild-source:

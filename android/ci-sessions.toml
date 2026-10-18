@@ -6,7 +6,7 @@
 
 [[rule]]
 paths = ["android/app/src/main/*.kt", "android/app/src/main/*.java", "android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/values/*.xml"]
-sessions = ["lifecycle", "assets", "app-data", "clear-task"]
+sessions = ["lifecycle", "assets", "app-data", "clear-task", "manager-direct", "manager-scoped"]
 android15 = true
 reason = "Host lifecycle, configuration, entry and restart paths; debug/minified destruction and forced asset relaunch"
 
@@ -37,8 +37,8 @@ android15 = true
 reason = "Android 15 platform launch-behind and predictive-back compatibility"
 
 [[rule]]
-paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/*/NativeBridge.kt", "android/app/src/main/*/bridge/StorageModel.kt", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
-sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task"]
+paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/*/NativeBridge.kt", "android/app/src/main/*/bridge/StorageModel.kt", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/launch_checks.py", "android/smoke_checks.py", "android/importer_navigation.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
+sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task", "manager-direct", "manager-scoped"]
 android15 = true
 reason = "Shared runtime harness, fresh guest/logcat/settle, recipient/configuration grants or shared component declarations used by every session"
 
@@ -67,7 +67,7 @@ reason = "Application-data consent, adoption, root recovery and retained data"
 
 [[rule]]
 paths = [".github/workflows/build-android.yml", "android/ci_apks.py", "android/ci_apks_test.py"]
-sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task"]
+sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task", "manager-direct", "manager-scoped"]
 android15 = true
 reason = "Shared parallel build, APK transfer and session invocation affect every job"
 
@@ -75,3 +75,8 @@ reason = "Shared parallel build, APK transfer and session invocation affect ever
 paths = ["android/network_smoke.py", "android/network_navigation.py", "android/theme_trust_smoke.py", "android/theme-owner-control.py", "android/app/src/debug/*/ThemeTrustSmoke.kt", "es-app/src/guis/ThemeRepositoryTrust*"]
 sessions = ["integration", "pdf-scoped"]
 reason = "Shared downloader/trust controls run in direct integration and scoped-PDF sessions"
+
+[[rule]]
+paths = ["android/emulator_manager_smoke.py", "android/emulator-manager-probe.cpp", "android/app/src/debug/*/EmulatorManagerSmoke.kt", "android/app/src/debug/*/LaunchSmoke.kt", "android/app/src/main/*/bridge/AppDiscovery.kt", "android/handler-stub/*", "es-app/src/EmulatorManager*", "es-app/src/EmulatorLaunchProfile*", "es-app/src/guis/GuiEmulatorManager*", "es-app/src/FileData.*", "es-app/src/SystemData.*", "es-app/src/views/ViewController.*"]
+sessions = ["manager-direct", "manager-scoped"]
+reason = "Manager discovery, profile persistence, direct and scoped/minified native GUI contracts"

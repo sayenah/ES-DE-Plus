@@ -38,6 +38,12 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode in listOf("emulator-manager-prepare", "emulator-manager-read", "emulator-manager-cleanup",
+                "emulator-manager-default-block", "emulator-manager-default-unblock")) {
+                result.putString("stream", EmulatorManagerSmoke.fixture(targetContext, followupMode!!))
+                finish(-1, result)
+                return
+            }
             if (followupMode in listOf("theme-volumes", "theme-path-clipboard", "theme-remote-restore")) {
                 result.putString("stream", when (followupMode) {
                     "theme-volumes" -> ThemeTrustSmoke.volumes(targetContext)

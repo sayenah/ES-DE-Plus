@@ -210,9 +210,11 @@ or permission-protected targets produce the existing error popup. Returning
 from an emulator resumes the frontend. Other-screen launching remains deferred.
 
 Build-time package visibility includes every emulator package in the bundled
-Android find rules and both phone and Leanback launcher signatures, without
-`QUERY_ALL_PACKAGES`. Custom emulator packages outside those rules are visible
-only when they match a launcher signature. The Android-apps importer deduplicates
+Android find rules, phone/Leanback launcher signatures and VIEW file/content URI
+signatures with and without MIME types, without `QUERY_ALL_PACKAGES`. The emulator
+manager also offers matching exported file handlers, keeping each actual component;
+"declares it opens these files" does not promise emulation or archive support.
+The Android-apps importer deduplicates
 components and uses sanitised labels as filenames, preserving Unicode. Only
 colliding labels receive a short deterministic component suffix. Icons are
 always staged; its banner/logo option controls additional artwork only.
@@ -244,6 +246,7 @@ in the evidence and CI summary. Frontend launch, stub-recipient, provider,
 core-query and host lifecycle checks stay gating on every image; no product
 assertion is retried.
 
+The `handler-stub` module reuses the MIT recipient implementation with only file-handler aliases, no launcher or Leanback entry and no package-specific query declaration; it proves generic file-handler visibility. Both fixture APKs stay on the CI runner and never enter the frontend APK or publication.
 The network smoke opens the real theme downloader, clones the canonical HTTPS
 themes list with the bundled CA bundle, downloads and selects one live theme,
 and submits a real ScreenScraper HTTPS search without an account. A result or
@@ -312,8 +315,9 @@ runs build per session and upload evidence only. Session checks, stable signer,
 Linux provenance, matching source and four immutable release assets still gate
 publication.
 
-The default matrix runs eight phases on each phone (16 jobs), each in a distinct
+The default matrix runs ten phases on each phone (20 jobs), each in a distinct
 cold AVD: `app-data` (consent, adoption, recovery and retained data), `core`
+
 
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
@@ -571,7 +575,19 @@ from every Android variant. libgit2 retains its GPL linking exception; LGPL
 runtime libraries stay shared. The platform renderer adds no application dependency. CI generates PDF fixtures without a third-party PDF library and checks
 native input/licence closure, JNI contracts and viewer behaviour on all three images.
 
-The app-data, integration, core, lifecycle, clear-task, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Integration runs before the longer core/lifecycle sessions so downloader failures surface earlier. The five-hour outer emulator-job budget covers all eight sessions and the extended network controls; individual session/probe deadlines and failure gates are unchanged (D-012 amendment 11). The measured predecessor API 34 job took 230m01s, leaving 69m59s at the new limit; the earlier phone job took 194m31s (only about 45 minutes remained at 240), and TV took 159m17s. The same APK stays on its runner throughout all sessions; no inter-job APK transfer is used. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
+The emulator-manager regression runs in separate bounded jobs on every image,
+with fresh `manager-direct` and `manager-scoped` sessions. The scoped session
+also exercises the minified manager; all three flows gate each image. The
+baseline integration and PDF sessions retain all their existing checks.
+Each manager session records its boot identity, duration and child exit status;
+API 34 publication or its non-writing dry run requires every baseline and
+manager job to pass. Menu entry reads the focused label from a fresh screenshot
+before each Down or activation; manager rows are checked against a fresh native Debug
+focus capture before activation. Focus traces and screenshots accompany failures.
+Touch coverage is confined to manager dialogs until the frontend overlay lands
+(D-018 (3)); the parent menus and no-games entry use keyboard/controller input.
+
+The app-data, integration, core, lifecycle, clear-task, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Core runs before app-data and integration so the D-026 PR gate starts before informational sessions; every existing session still runs. The five-hour outer emulator-job budget covers all eight sessions and the extended network controls; individual session/probe deadlines and failure gates are unchanged (D-012 amendment 11). The measured predecessor API 34 job took 230m01s, leaving 69m59s at the new limit; the earlier phone job took 194m31s (only about 45 minutes remained at 240), and TV took 159m17s. The same APK stays on its runner throughout all sessions; no inter-job APK transfer is used. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
 
 The API 34 special-character fixture uses emulated shared storage with `#`, `;`, space and `é`. D-012 amendment 5 excludes quotes from shared data paths because Android's MediaProvider refuses renames through those components. The configurator and resume probe require an actionable rejection, no destination access or mutation and no fallback, then prove valid-folder review still works. Native controls clone/fetch/reset actual quoted and backslash-containing app-private Git paths and parse their exact `safe.directory` entries through libgit2; framework-free tests also cover escaping. The integration emulator provisions a 2 GiB card for the retained list repository, the large theme and temporary clone files. A mounted removable volume additionally gets its own clone/select/load fixture with a portable filename; SDK card images use [FAT32](https://developer.android.com/tools/mksdcard), whose [filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file) exclude quotes. API 33/34 historical ownership controls require `python3 android/theme-owner-control.py` before the signing fixture; this builds exact archived `438bf5927` locally on the runner, with no APK upload.
 

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import smoke_checks
 import launch_checks
 import pdf_smoke
+import emulator_manager_smoke
 import app_data_smoke
 import icon_smoke
 import lifecycle_smoke
@@ -40,6 +41,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'followups-assertion-positive-controls.txt').write_text(smoke_checks.positive_controls())
 (evidence / 'launch-assertion-positive-controls.txt').write_text(launch_checks.positive_controls())
 (evidence / 'importer-navigation-positive-controls.txt').write_text(importer_navigation.controls())
+(evidence / 'emulator-manager-navigation-controls.txt').write_text(emulator_manager_smoke.navigation_controls())
 (evidence / 'fresh-session-controls.txt').write_text(fresh_session_checks.controls())
 external = f'/sdcard/Android/data/{app}/files'
 roms = external + '/ROMs'
@@ -1398,6 +1400,7 @@ try:
         update_smoke.run(globals())
     print(adb('install', '-r', str(apk)), flush=True)
     print(adb('install', '-r', 'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk'), flush=True)
+    print(adb('install', '-r', 'android/handler-stub/build/outputs/apk/debug/handler-stub-debug.apk'), flush=True)
     if phase == 'assets':
         print(adb('install', '-r', 'android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk'), flush=True)
     shell('setprop', 'debug.checkjni', '1')
@@ -1513,8 +1516,8 @@ try:
                 # The visible configurator proves binding has completed; early
                 # process-name snapshots can transiently miss a live process.
                 recovered_pid = shell('pidof', app).strip()
-            # Rebuilding the configurator resets its ScrollView to the top.
-            # Expose the same draft control without toggling it before comparing.
+            # Recreation can return a tall form to its top. Observe the draft
+            # at the same visible controls without activating the checkbox.
             ui('Create system folders', dpad=True, focus_only=True)
             screenshot('font-weight-held')
             after_records = activity_records()[1]
