@@ -279,6 +279,10 @@ Upstream ES-DE has no automated test suite; ES-DE-Plus evidence is built from th
 4. **B-4 Runtime smoke** — the built binary is launched and the feature exercised: on desktop, against a ROM directory populated by `tools/create_dummy_game_files.sh`; on Android, installed on an emulator or device and driven through the first-run configurator to the system view and through the feature's user path. Evidence is the `es_log.txt` excerpt and screenshots attached to the PR (not committed to the repository).
 5. **B-5 Clean-room and licence audit** — every new or changed Android-side file is checked for provenance and header; the diff is grepped for `org.es_de.frontend`, upstream trademarks, and identifiers that exist only in the official package; new third-party code carries its licence in `licenses/`.
 
+### Android CI tiers (D-026)
+
+Android emulator evidence is tiered, not repeated: every PR runs the **PR gate** (Linux build, Android build with all pre-emulator audits and self-tests, the `core` session on the minimum API, plus the sessions the checked-in path → session map selects from the diff); a slice's work order names any further sessions it must prove by targeted dispatch; the **full matrix** (every image × every session) runs only on `main` — nightly when `main` moved, on every publication dispatch, and on demand. §12.12's required checks are the PR gate plus the work order's named sessions at the head. A red full run on `main` is a `main` defect, never a reason to re-run a PR's matrix.
+
 ### Evidence
 
 A passing build is necessary evidence, not permission to hard-code around a failing path. The implementation must solve the accepted behaviour generally; special-casing a device, an emulator or a fixture directory to hit its expected result is a defect.
