@@ -48,12 +48,13 @@ def workflow_eligibility():
 def evaluate(expression, values):
     # This evaluator covers only the operators/context lookups used by these
     # eligibility expressions. Unsupported syntax fails rather than being ignored.
-    expression = re.sub(r'\b(?:github|inputs|matrix|env|steps)\.[\w.-]+',
+    expression = re.sub(r'\b(?:github|inputs|matrix|env|steps|needs)\.[\w.-]+',
                         lambda match: repr(values[match[0]]), expression)
-    expression = expression.replace('success()', 'True').replace('always()', 'True')
+    expression = expression.replace('success()', 'True').replace('always()', 'True').replace('cancelled()', 'False')
+    expression = re.sub(r'\bformat\(', 'str.format(', expression)
     expression = expression.replace('&&', ' and ').replace('||', ' or ')
     expression = re.sub(r'!(?!=)', ' not ', expression)
-    return eval(expression.strip(), {'__builtins__': {}}, {})
+    return eval(expression.strip(), {'__builtins__': {}, 'str': str}, {})
 
 
 def eligibility_controls():
@@ -71,7 +72,9 @@ def eligibility_controls():
         expected = (repository == test_signing.REPOSITORY and event == 'workflow_dispatch' and
                     ref == 'refs/heads/main' and publish is True and rebuild == '' and failure in ('', 'none'))
         values = {'github.repository': repository, 'github.event_name': event, 'github.ref': ref,
-                  'github.run_id': '123456', 'inputs.publish': publish, 'inputs.rebuild_run': rebuild,
+                  'github.run_id': '123456', 'github.event.pull_request.number': 29,
+                  'needs.selection.result': 'success', 'needs.selection.outputs.run_api34': 'true',
+                  'needs.build.result': 'success', 'inputs.publish': publish, 'inputs.rebuild_run': rebuild,
                   'inputs.failure': failure, 'matrix.image': image, 'env.EARLY_LEGS_RESULT': 'success',
                   'steps.source-validate.outcome': 'success'}
         case = (repository, event, ref, image, rebuild, failure, publish)
@@ -80,7 +83,7 @@ def eligibility_controls():
             if label != 'concurrency':
                 result = bool(result)
             if label == 'concurrency':
-                verdict = 'main-publication' if expected else '123456'
+                verdict = 'main-publication' if expected else ('pr-29' if event == 'pull_request' else '123456')
             elif label.startswith('api34-dry-run:'):
                 verdict = not rebuild and not expected
             elif label.startswith('build:'):

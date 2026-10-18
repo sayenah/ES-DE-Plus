@@ -505,6 +505,8 @@ def linux_gate(injection):
     payload = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     head = payload['pull_request']['head']['sha'] if event == 'pull_request' else os.environ['GITHUB_SHA']
     expected_event = 'pull_request' if event == 'pull_request' else 'push'
+    if event == 'workflow_dispatch' and os.environ['GITHUB_REF'] != 'refs/heads/main':
+        expected_event = 'workflow_dispatch'
     commit = run('git', 'rev-parse', 'HEAD')
     deadline = time.monotonic() + 1800
     while time.monotonic() < deadline:

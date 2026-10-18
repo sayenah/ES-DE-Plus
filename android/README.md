@@ -253,7 +253,54 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs six gating smoke phases, each in a distinct cold AVD: `core`
+CI evidence is tiered (D-026). Branch pushes do not run Android or Linux CI.
+A PR runs Linux, every existing Android build/audit/fixture/self-test before the
+first emulator, and API 33 `core` plus the sessions selected by
+[`ci-sessions.toml`](ci-sessions.toml). A newer PR head cancels its superseded
+runs. Every push to `main` runs API 33 `core` as a merge smoke. Nightly CI runs
+the full matrix only if that exact `main` SHA has no successful run with the
+`Full Android matrix evidence` completion job. A green PR, targeted dispatch,
+skipped marker, failed full run or another SHA cannot suppress the nightly.
+The selection job prints the selected images/sessions and every matching rule
+in its log and run summary; the build job also self-tests the map.
+
+Map rules are additive repository-relative Python `fnmatch` globs (`*` also
+matches `/`). API 33 `core` is always selected for a PR. Host Kotlin/Java,
+manifest and configuration resources add `lifecycle` and `assets`; PDF renderer,
+viewer, fixtures and storage transports add both PDF sessions; network, updater,
+signing/update fixtures and theme/scraper code add `integration` on API 33 and
+API 34 (where the remote checks gate). A session's harness module selects that
+session; shared runtime harness/guest/logcat/settle code selects all sessions on
+API 33. Predictive-back code also adds API 34 `assets`; TV banner/icon paths add
+TV `core`. Overlapping rules accumulate. Other native/build/audit/workflow and
+uncovered paths use core only unless another rule matches; workflow changes
+still run all pre-emulator controls. This CI-only PR is a representative
+core-only map self-test. Add a rule and representative self-test when a new
+session surface is introduced. The work order can require further targeted
+proof beyond the map.
+
+Manual dispatch defaults to `images=all`, `sessions=all` (the full matrix).
+For a targeted branch proof, use unique comma-separated image names `api33`,
+`api34`, `tv36` and session names from the six phases below, or the literal
+`all`. Unknown, empty, duplicate and trailing-comma values fail before builds.
+For example:
+
+```sh
+gh workflow run build-linux.yml --ref feature/example
+gh workflow run build-android.yml --ref feature/example -f images=api33,tv36 -f sessions=lifecycle,assets
+```
+
+When API 34 is selected on a branch dispatch, dispatch Linux at the same branch
+head too: its gate requires a successful Linux dispatch with the exact tested
+checkout. Main publication retains its original exact-commit Linux push gate.
+A non-default image/session input with `publish=true` is rejected before any
+build or protected signing job. Publication still requires the full matrix and
+every D-020 gate; its serialization group never cancels an active publication.
+Default branch full dispatches are used for on-demand regression evidence;
+branch/PR/targeted runs never upload an APK.
+
+The full matrix runs six gating smoke phases on each of its three images,
+each in a distinct cold AVD: `core`
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `integration`
 (update continuity on API 33/34 and network checks), `pdf-direct`,
