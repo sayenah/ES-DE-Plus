@@ -27,13 +27,24 @@ def configured_start(harness, name, start, stop):
         ready()
     def record(result):
         result.update(start=name, marker=marker, readiness_deadline_seconds=90)
-        with (h.evidence / 'clear-task-startup-outcomes.txt').open('a') as output:
+        with (h.evidence / 'startup-outcomes.txt').open('a') as output:
             output.write(json.dumps(result) + '\n')
     fresh_session_checks.startup(
         attempt, lambda: harness['onboarding_dismissals'],
         lambda number: h.capture_startup_failure(
             f'{name}-startup-attempt-{number + 1}-failure', marker),
         stop, record, h.app, h.current_startup_ready)
+    return marker
+
+
+def initial_start_trace(logs, marker):
+    # A permitted pre-readiness recovery is a separate failed startup, already
+    # captured and classified. The task-clear proof starts at its ready entry.
+    lines = logs.splitlines(keepends=True)
+    pattern = r'^\S+\s+\S+\s+\d+\s+\d+\s+I\s+ESDE-Smoke\s*:\s*' + re.escape(marker) + r'\s*$'
+    boundaries = [i for i, line in enumerate(lines) if re.match(pattern, line)]
+    assert len(boundaries) == 1, 'Initial startup marker missing or ambiguous'
+    return ''.join(lines[boundaries[0] + 1:])
 
 
 def pid_lines(logs, pid):
@@ -93,6 +104,25 @@ def controls():
             pass
         else:
             raise AssertionError('Broken clear-task chain escaped')
+    marker = 'ESDE_STARTUP_control'
+    boundary = f'01-01 00:00:00.000 42 42 I ESDE-Smoke: {marker}\n'
+    previous = '01-01 00:00:00.000 99 99 I SDL: Running main function\n'
+    completed(initial_start_trace(previous + boundary + logs, marker), '123', '789')
+    for invalid in (logs, boundary + boundary + logs,
+                    boundary.replace('ESDE-Smoke:', 'Other:') + logs,
+                    boundary.replace(': ' + marker, ': embedded ' + marker) + logs):
+        try:
+            initial_start_trace(invalid, marker)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Missing or forged initial startup boundary escaped')
+    try:
+        completed(initial_start_trace(boundary + logs + previous, marker), '123', '789')
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('Unexpected native main after startup boundary escaped')
     startup_controls()
     return (f'PASS: {len(mutants)} broken clear-task chains rejected; '
             'instrumented startup uses bounded pre-readiness recovery\n')
@@ -125,12 +155,13 @@ def startup_controls():
                            current_startup_ready=lambda: ready)
             failed = False
             try:
-                configured_start(harness, 'control', lambda: events.append('start'),
-                                 lambda: events.append('stop'))
+                marker = configured_start(harness, 'control', lambda: events.append('start'),
+                                          lambda: events.append('stop'))
+                assert marker == 'control-' + str(events.count('marker'))
             except (fresh_session_checks.ReadinessTimeout, fresh_session_checks.HostStartupFailure):
                 failed = True
             records = [json.loads(line) for line in
-                       (pathlib.Path(directory) / 'clear-task-startup-outcomes.txt').read_text().splitlines()]
+                       (pathlib.Path(directory) / 'startup-outcomes.txt').read_text().splitlines()]
         return failed, events, records
     failed, events, records = exercise()
     assert not failed and events == ['marker', 'start', 'wait', 'capture', 'stop', 'marker', 'start', 'wait']
@@ -214,7 +245,7 @@ def _run(harness):
                 category = {'MainActivity': 'LAUNCHER', 'HomeEntry': 'HOME', 'LeanbackEntry': 'LEANBACK_LAUNCHER'}[source]
                 h.start_entry(source, 'android.intent.category.' + category)
         try:
-            configured_start(harness, name, start_initial, stop_startup)
+            initial_marker = configured_start(harness, name, start_initial, stop_startup)
             old = h.shell('pidof', h.app).strip()
             assert old.isdigit(), old
             capture(name + '-before-clear')
@@ -229,7 +260,7 @@ def _run(harness):
                 until = time.monotonic() + 10
                 while time.monotonic() < until:
                     time.sleep(0.25)
-                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                logs = initial_start_trace(h.adb('logcat', '-d', '-v', 'threadtime'), initial_marker)
                 capture(name + '-positive-control')  # Before any cleanup.
                 before = pid_lines(logs, old)
                 assert 'Clear-task replacement transition barrier armed' in before, 'Scheduling seam not reached'
@@ -249,7 +280,7 @@ def _run(harness):
                            h.smoke_checks.package_window_focused(h.focused_window(), h.app),
                            name + ' automatic new frontend', timeout=90)
                 new = h.shell('pidof', h.app).strip()
-                logs = h.adb('logcat', '-d', '-v', 'threadtime')
+                logs = initial_start_trace(h.adb('logcat', '-d', '-v', 'threadtime'), initial_marker)
                 completed(logs, old, new, helper_required=scheduled)
                 if scheduled:
                     assert 'Clear-task replacement transition barrier armed' in pid_lines(logs, old), 'Scheduling seam not reached'
