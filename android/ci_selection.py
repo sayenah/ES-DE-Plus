@@ -101,6 +101,8 @@ def self_test():
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt'])[0] == {
         'api33': ['core', 'lifecycle', 'assets', 'app-data', 'clear-task', 'manager-direct', 'manager-scoped'], 'api35': ['core']}
     assert path_plan(['android/pdf_smoke.py'])[0] == {'api33': ['core', 'pdf-direct', 'pdf-scoped']}
+    assert path_plan(['android/SmokeMenuFocus.java'])[0] == {'api33': list(PHASES), 'api35': ['core']}
+    assert path_plan(['android/app/src/debug/kotlin/org/esdeplus/frontend/RuntimeSmoke.kt'])[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/clear_task_smoke.py'])[0] == {'api33': ['core', 'clear-task']}
     assert path_plan(['android/network_navigation.py'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}

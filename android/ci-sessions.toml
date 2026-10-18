@@ -37,7 +37,7 @@ android15 = true
 reason = "Android 15 platform launch-behind and predictive-back compatibility"
 
 [[rule]]
-paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/*/NativeBridge.kt", "android/app/src/main/*/bridge/StorageModel.kt", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/launch_checks.py", "android/smoke_checks.py", "android/importer_navigation.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
+paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/*/NativeBridge.kt", "android/app/src/main/*/bridge/StorageModel.kt", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/SmokeMenuFocus.java", "android/app/src/debug/*/RuntimeSmoke.kt", "android/launch_checks.py", "android/smoke_checks.py", "android/importer_navigation.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
 sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task", "manager-direct", "manager-scoped"]
 android15 = true
 reason = "Shared runtime harness, fresh guest/logcat/settle, recipient/configuration grants or shared component declarations used by every session"
