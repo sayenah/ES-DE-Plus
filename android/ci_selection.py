@@ -102,6 +102,9 @@ def self_test():
     assert path_plan(['android/pdf_smoke.py'])[0] == {'api33': ['core', 'pdf-direct', 'pdf-scoped']}
     assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/clear_task_smoke.py'])[0] == {'api33': ['core', 'clear-task']}
+    assert path_plan(['android/network_navigation.py'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}
+    assert path_plan(['es-app/src/guis/ThemeRepositoryTrust.cpp'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}
+    assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/NativeBridge.kt'])[0] == {'api33': list(PHASES), 'api35': ['core']}
     assert path_plan(['android/app_data_smoke.py'])[0] == {'api33': ['core', 'app-data']}
     assert path_plan(['android/audio_smoke.py'])[0] == {'api33': ['core', 'integration']}
     assert set(dispatch_plan('all', 'all')) == {'api33', 'api35'}

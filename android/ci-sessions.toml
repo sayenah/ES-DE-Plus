@@ -37,7 +37,7 @@ android15 = true
 reason = "Android 15 platform launch-behind and predictive-back compatibility"
 
 [[rule]]
-paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
+paths = ["es-core/src/utils/PlatformUtilAndroid.*", "android/app/src/main/*/NativeBridge.kt", "android/app/src/main/*/bridge/StorageModel.kt", "android/app/src/main/AndroidManifest.xml", "android/stub-emulator/*/RecipientActivity.kt", "android/smoke.py", "android/smoke_session.py", "android/smoke_phases.py", "android/smoke_support.py", "android/session_logcat.py", "android/fresh_session_checks.py", "android/install_settle.py", "android/stub-emulator/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]
 sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task"]
 android15 = true
 reason = "Shared runtime harness, fresh guest/logcat/settle, recipient/configuration grants or shared component declarations used by every session"
@@ -70,3 +70,8 @@ paths = [".github/workflows/build-android.yml", "android/ci_apks.py", "android/c
 sessions = ["core", "lifecycle", "integration", "pdf-direct", "pdf-scoped", "assets", "app-data", "clear-task"]
 android15 = true
 reason = "Shared parallel build, APK transfer and session invocation affect every job"
+
+[[rule]]
+paths = ["android/network_smoke.py", "android/network_navigation.py", "android/theme_trust_smoke.py", "android/theme-owner-control.py", "android/app/src/debug/*/ThemeTrustSmoke.kt", "es-app/src/guis/ThemeRepositoryTrust*"]
+sessions = ["integration", "pdf-scoped"]
+reason = "Shared downloader/trust controls run in direct integration and scoped-PDF sessions"
