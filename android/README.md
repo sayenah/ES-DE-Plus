@@ -265,14 +265,17 @@ The selection job prints the selected images/sessions and every matching rule
 in its log and run summary; the build job also self-tests the map.
 
 Map rules are additive repository-relative Python `fnmatch` globs (`*` also
-matches `/`). API 33 `core` is always selected for a PR. Host Kotlin/Java,
-manifest and configuration resources add `lifecycle` and `assets`; PDF renderer,
-viewer, fixtures and storage transports add both PDF sessions; network, updater,
-signing/update fixtures and theme/scraper code add `integration` on API 33 and
+matches `/`). API 33 `core` is always selected for a PR. Host Kotlin/Java
+and configuration resources add `lifecycle` and `assets`; PDF renderer,
+viewer, fixtures (including `pdf-fixtures.py`), runtime PDF probes and storage
+transports add both PDF sessions; network, updater, signing/update fixtures and theme/scraper code add `integration` on API 33 and
 API 34 (where the remote checks gate). A session's harness module selects that
 session; shared runtime harness/guest/logcat/settle code selects all sessions on
-API 33. Predictive-back code also adds API 34 `assets`; TV banner/icon paths add
-TV `core`. Overlapping rules accumulate. Other native/build/audit/workflow and
+API 33. The native bridge, shared recipient and application manifest also select
+all sessions;
+the manifest adds API 34 integration for its network/permission declarations.
+The `forced-relaunch-overlay` module and its diagnostic workflow select assets.
+Predictive-back code also adds API 34 `assets`; TV banner/icon paths add TV `core`. Overlapping rules accumulate. Other native/build/audit/workflow and
 uncovered paths use core only unless another rule matches; workflow changes
 still run all pre-emulator controls. This CI-only PR is a representative
 core-only map self-test. Add a rule and representative self-test when a new

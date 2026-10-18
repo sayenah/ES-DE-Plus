@@ -139,6 +139,23 @@ def self_test():
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/bridge/PdfManual.kt'])[0] == {
         'api33': ['core', 'lifecycle', 'pdf-direct', 'pdf-scoped', 'assets']}
     assert path_plan(['android/predictive_back_smoke.py'])[0] == {'api33': ['core', 'assets'], 'api34': ['assets']}
+    # Bind fixture/probe cases to real files so a misspelled module path does
+    # not silently turn a dedicated regression surface into core-only evidence.
+    cases = {
+        'es-core/src/utils/PlatformUtilAndroid.cpp': {'api33': list(PHASES)},
+        '.github/workflows/forced-relaunch.yml': {'api33': ['core', 'assets']},
+        'android/pdf-fixtures.py': {'api33': ['core', 'pdf-direct', 'pdf-scoped']},
+        'es-pdf-converter/CMakeLists.txt': {'api33': ['core', 'pdf-direct', 'pdf-scoped']},
+        'android/forced-relaunch-overlay/src/main/res/values/probe.xml': {'api33': ['core', 'assets']},
+        'android/app/src/debug/kotlin/org/esdeplus/frontend/RuntimeSmoke.kt': {
+            'api33': ['core', 'pdf-direct', 'pdf-scoped']},
+        'android/stub-emulator/src/main/kotlin/org/esdeplus/stub/RecipientActivity.kt': {
+            'api33': list(PHASES)},
+        'android/app/src/main/AndroidManifest.xml': {'api33': list(PHASES), 'api34': ['integration']},
+    }
+    for path, expected in cases.items():
+        assert Path(path).is_file(), path
+        assert path_plan([path])[0] == expected, (path, path_plan([path])[0])
     assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES)}
     assert path_plan(['android/smoke.py'])[0] == {'api33': list(PHASES)}
     assert path_plan(['android/network_smoke.py'])[0] == {'api33': ['core', 'integration'], 'api34': ['integration']}
