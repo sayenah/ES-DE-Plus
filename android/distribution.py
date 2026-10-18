@@ -472,7 +472,7 @@ def provenance(path, tracked, audit):
 
 
 def permitted_publication(repository, event, ref, publish=False, rebuild='', failure='none'):
-    return test_signing.eligible(repository, event, ref, 'api34', rebuild, failure, publish)
+    return test_signing.eligible(repository, event, ref, 'publish', rebuild, failure, publish)
 
 
 def artifact_names(commit, run_id, attempt):
@@ -505,11 +505,15 @@ def linux_gate(injection):
     payload = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     head = payload['pull_request']['head']['sha'] if event == 'pull_request' else os.environ['GITHUB_SHA']
     expected_event = 'pull_request' if event == 'pull_request' else 'push'
+    # Docs-only main heads intentionally have no push run. An explicit Linux
+    # dispatch may prove the same exact checkout; never accept another event.
+    allowed_events = {expected_event, 'workflow_dispatch'} if event == 'workflow_dispatch' else {expected_event}
     commit = run('git', 'rev-parse', 'HEAD')
     deadline = time.monotonic() + 1800
     while time.monotonic() < deadline:
         candidates = api(f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/workflows/build-linux.yml/runs'
-                         f'?head_sha={head}&event={expected_event}&per_page=100')['workflow_runs']
+                         f'?head_sha={head}&per_page=100')['workflow_runs']
+        candidates = [candidate for candidate in candidates if candidate['event'] in allowed_events]
         if candidates:
             selected = max(candidates, key=lambda r: r['id'])
             print(f'Linux gate: {selected["html_url"]} SHA={head} status={selected["status"]}', flush=True)

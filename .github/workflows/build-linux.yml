@@ -6,9 +6,14 @@ on:
   push:
     branches:
       - main
-      - "feature/**"
-      - "fix/**"
+    paths-ignore: ["docs/**", "**/*.md", "**/*.markdown", "**/*.MD"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md", "**/*.markdown", "**/*.MD"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

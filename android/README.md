@@ -299,8 +299,26 @@ startup during recovery fails the leg, including an SDL lifecycle stall.
 The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
-CI runs eight baseline gating smoke phases, each in a distinct cold AVD: `app-data`
-(consent, adoption, root recovery and retained data after uninstall), `core`
+CI uses API 33 and API 35 phones, with one fresh-emulator job per session.
+API 33 and API 35 gate. `API35_GATING` in `ci_selection.py` was promoted
+after all API 35 sessions passed in run 39161875992. Main and default
+manual dispatch run every checked-in session; PRs run API 33 core plus the
+additive paths in `ci-sessions.toml`. Rules marked `android15` add API 35 core.
+API 34 and TV require explicit dispatch `images=api34,tv36`; no nightly runs.
+Both workflows skip docs/Markdown-only changes and branch pushes.
+
+Dispatch accepts `images=all` (API 33 + API 35) and `sessions=all`, or unique
+comma-separated names. Publication requires the defaults and an explicit main
+`publish=true` dispatch. It builds/signs once and transfers a SHA-256-bound APK
+set to parallel jobs; the final publisher verifies the same hashes. Branch dry
+runs build per session and upload evidence only. Session checks, stable signer,
+Linux provenance, matching source and four immutable release assets still gate
+publication.
+
+The default matrix runs ten phases on each phone (20 jobs), each in a distinct
+cold AVD: `app-data` (consent, adoption, recovery and retained data), `core`
+
+
 (configurator, storage, held destruction, process death, launch/importer and
 RetroArch), `lifecycle` (debug/minified stall and restart probes), `clear-task`
 (24 return/join/retirement and single-new-main chains), `integration`
@@ -478,6 +496,7 @@ measured passes took 41m45s and 35m43s. In-harness readiness/probe deadlines sta
 The core step reached 51.8 minutes on API 34 in round 4 (push run 39046156277),
 leaving 8.2 minutes under the earlier 60-minute cap. Readiness/probe deadlines
 remain unchanged. The API 33 baseline runs the same core controls. Earlier
+
 lifecycle/integration/PDF-direct/PDF-scoped maxima were 28/12/22/22 minutes
 (run 38904895297); assets reached 9 minutes 10 seconds in run 39005159816.
 An action failure or timeout after the
