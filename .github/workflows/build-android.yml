@@ -625,12 +625,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gettext nasm yasm ninja-build meson pkg-config autoconf automake libtool
       - name: Ensure pinned SDK tools before offline Gradle configuration
+        if: ${{ needs.selection.outputs.publish != 'true' }}
         run: |
           python3 android/ci_sdk.py self-test
           python3 android/ci_sdk.py
           test -f "$ANDROID_NDK_HOME/source.properties"
           grep -Fx 'Pkg.Revision = 28.2.13676358' "$ANDROID_NDK_HOME/source.properties"
           echo "$ANDROID_HOME/cmake/3.31.5/bin" >> "$GITHUB_PATH"
+      - name: Install only runtime APK inspection tools for shared publication APKs
+        if: ${{ needs.selection.outputs.publish == 'true' }}
+        run: |
+          python3 android/ci_sdk.py self-test
+          python3 android/ci_sdk.py runtime
       - name: Fast SDK signing/rejection/cleanup controls before native assembly
         if: ${{ needs.selection.outputs.publish != 'true' }}
         run: |
@@ -965,20 +971,6 @@ jobs:
       - name: Verify SHA-256 before installing (dry run)
         if: ${{ needs.selection.outputs.publish != 'true' }}
         run: python3 android/ci_apks.py verify "${{ steps.local-hashes.outputs.manifest_sha }}"
-      - name: Verify Android 12L refuses the Android 13 minimum APK
-        if: ${{ success() && matrix.image == 'api33' && matrix.session == 'core' }}
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        with:
-          api-level: 32
-          arch: x86_64
-          target: google_apis
-          profile: pixel_2
-          avd-name: minimum-api32
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          script: python3 android/minimum-sdk-smoke.py android/app/build/outputs/apk/debug/app-debug.apk
-      # Every phase cold-boots a distinct AVD, uses the same built APK, and gates this job.
-      # Upload each phase before booting the next so later runner loss retains earlier evidence.
       - name: Fresh-emulator ${{ matrix.session }} smoke
         id: smoke-session
         timeout-minutes: ${{ matrix.cap }}

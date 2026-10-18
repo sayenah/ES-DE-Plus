@@ -9,10 +9,11 @@ import sys
 SIGNATURE = 'Error on ZipFile unknown archive'
 
 
-def install(run=subprocess.run):
+def install(run=subprocess.run, runtime=False):
     sdk = Path(os.environ['ANDROID_HOME']) / 'cmdline-tools/latest/bin/sdkmanager'
-    command = [str(sdk), 'platforms;android-36', 'build-tools;36.0.0',
-               'ndk;28.2.13676358', 'cmake;3.31.5']
+    command = [str(sdk), 'platforms;android-36', 'build-tools;36.0.0']
+    if not runtime:
+        command += ['ndk;28.2.13676358', 'cmake;3.31.5']
     for attempt in range(3):
         result = run(command, capture_output=True, text=True)
         output = result.stdout + result.stderr
@@ -43,8 +44,13 @@ def self_test():
             else:
                 assert success
         assert len(calls) == count
+    with mock.patch.dict(os.environ, {'ANDROID_HOME': '/sdk'}), contextlib.redirect_stdout(io.StringIO()):
+        def runtime_run(command, **kwargs):
+            assert all(not p.startswith(('ndk;', 'cmake;')) for p in command)
+            return subprocess.CompletedProcess(command, 0, '', '')
+        install(runtime_run, runtime=True)
     print('PASS: only exact SDK corrupt-download signature retried; two-retry bound; all other SDK errors fail immediately')
 
 
 if __name__ == '__main__':
-    self_test() if sys.argv[1:] == ['self-test'] else install()
+    self_test() if sys.argv[1:] == ['self-test'] else install(runtime=sys.argv[1:] == ['runtime'])
