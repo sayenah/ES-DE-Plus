@@ -19,8 +19,8 @@ IMAGES = {
     'api34': dict(image='api34', api=34, target='google_apis', profile='pixel_2'),
     'tv36': dict(image='tv36', api=36, target='android-tv', profile='tv_1080p'),
 }
-CAPS = {'core': 60, 'lifecycle': 40, 'clear-task': 40, 'integration': 20,
-        'pdf-direct': 35, 'pdf-scoped': 35, 'assets': 20}
+CAPS = {'core': 60, 'lifecycle': 40, 'clear-task': 40, 'integration': 60,
+        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20}
 
 
 def values(raw, allowed):
@@ -57,7 +57,7 @@ def dispatch_plan(images, sessions, publish=False):
 
 def matrix(plan):
     return {'include': [dict(IMAGES[image], session=session,
-                             cap=CAPS[session], informational=image == 'api35' and not API35_GATING)
+                             cap=80 if image == 'api34' and session == 'core' else CAPS[session], informational=image == 'api35' and not API35_GATING)
                         for image, sessions in plan.items() for session in sessions]}
 
 

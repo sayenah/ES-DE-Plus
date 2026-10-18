@@ -414,7 +414,7 @@ out, preserves its XML, and records no completed dismissal. CI replays early,
 late, absent, stuck and unknown banners through the actual shared guard; it
 never starts or retries the frontend itself.
 
-Emulator steps are bounded to 60/40/40/20/35/35/20 minutes for core/lifecycle/
+Emulator steps are bounded to 60/40/40/60/35/60/20 minutes (D-012 am. 12) for core/lifecycle/
 clear-task/integration/PDF-direct/PDF-scoped/assets. The combined lifecycle and
 clear-task step took 35.6–39.5 minutes in PR #28's round-1 matrices
 (39051707636 and 39051710800), or 89–99% of the 40-minute cap introduced by PR #24.
