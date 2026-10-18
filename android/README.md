@@ -258,7 +258,7 @@ A PR runs Linux, every existing Android build/audit/fixture/self-test before the
 first emulator, and API 33 `core` plus the sessions selected by
 [`ci-sessions.toml`](ci-sessions.toml). A newer PR head cancels its superseded
 runs. Every push to `main` runs API 33 `core` as a merge smoke. Nightly CI runs
-the full matrix only if that exact `main` SHA has no successful run with the
+the full matrix at 05:17 UTC only if that exact `main` SHA has no successful run with the
 `Full Android matrix evidence` completion job. A green PR, targeted dispatch,
 skipped marker, failed full run or another SHA cannot suppress the nightly.
 The selection job prints the selected images/sessions and every matching rule
