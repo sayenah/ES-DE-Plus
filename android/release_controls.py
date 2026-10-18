@@ -46,6 +46,10 @@ def workflow_eligibility():
     assert '    needs: [selection, build-publish]' in workflow
     assert 'internal-publication-apks-' in workflow
     assert workflow.count('    environment: test-signing') == 1
+    builder = workflow.split('\n  build-publish:\n', 1)[1].split('\n  sessions:\n', 1)[0]
+    publisher = workflow.split('\n  publish-apk:\n', 1)[1].split('\n  release:\n', 1)[0]
+    assert 'origin_attempt: ${{ github.run_attempt }}' in builder
+    assert 'origin_attempt: ${{ needs.build-publish.outputs.origin_attempt }}' in publisher
     return expressions, workflow
 
 

@@ -79,6 +79,7 @@ jobs:
         include:
           - image: publish
     outputs:
+      origin_attempt: ${{ github.run_attempt }}
       transfer_id: ${{ steps.transfer.outputs.artifact-id }}
       manifest_sha: ${{ steps.hashes.outputs.manifest_sha }}
       source_id: ${{ steps.source-upload.outputs.artifact-id }}
@@ -1022,7 +1023,7 @@ jobs:
     outputs:
       source_id: ${{ needs.build-publish.outputs.source_id }}
       apk_id: ${{ steps.apk-upload.outputs.artifact-id }}
-      origin_attempt: ${{ github.run_attempt }}
+      origin_attempt: ${{ needs.build-publish.outputs.origin_attempt }}
     env:
       IMAGE: publish
       PUBLISH: ${{ inputs.publish || false }}
