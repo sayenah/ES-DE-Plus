@@ -11,8 +11,9 @@ import tomllib
 
 from smoke_phases import PHASES
 
-# Flip only after a complete API 35 run is green. Failures remain visible meanwhile.
-API35_GATING = False
+# API 35 first full session set green: dispatch 39161875992 (8fc9afde7).
+# Set False only under a new Founder ruling; new sessions now gate too.
+API35_GATING = True
 IMAGES = {
     'api33': dict(image='api33', api=33, target='google_apis', profile='pixel_2'),
     'api35': dict(image='api35', api=35, target='google_apis', profile='pixel_2'),

@@ -297,8 +297,8 @@ The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
 CI uses API 33 and API 35 phones, with one fresh-emulator job per session.
-API 33 gates; API 35 is informational until `API35_GATING` in
-`ci_selection.py` is switched after its first fully green run. Main and default
+API 33 and API 35 gate. `API35_GATING` in `ci_selection.py` was promoted
+after all API 35 sessions passed in run 39161875992. Main and default
 manual dispatch run every checked-in session; PRs run API 33 core plus the
 additive paths in `ci-sessions.toml`. Rules marked `android15` add API 35 core.
 API 34 and TV require explicit dispatch `images=api34,tv36`; no nightly runs.

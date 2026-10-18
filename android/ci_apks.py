@@ -24,7 +24,7 @@ def record():
              'android/app/build/outputs/apk/release/app-release-smoke.apk',
              'android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk',
              'android/forced-relaunch-overlay/build/outputs/apk/debug/forced-relaunch-overlay-debug.apk',
-             'android/.deps/update', 'android/.deps/network',
+             'android/.deps/update', 'android/.deps/network', 'android/.deps/theme-owner',
              'android/evidence/update-identity.txt',
              'android/evidence/test-signer.txt', 'android/.deps/distribution/apk']
     paths = set()
