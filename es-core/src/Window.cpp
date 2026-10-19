@@ -327,7 +327,7 @@ void Window::input(InputConfig* config, Input input)
     // inert over screensavers, viewers and menus, including device configuration.
     if (input.type == TYPE_TOUCH && input.id == TouchOverlay::SEARCH_BUTTON) {
         if (input.value && !isScreensaverActive() && !isMediaViewerActive() &&
-            !isPDFViewerActive() && peekGui())
+            !isPDFViewerActive() && !isLaunchScreenDisplayed() && peekGui())
             peekGui()->openSearch();
         return;
     }
