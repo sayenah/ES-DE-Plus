@@ -104,6 +104,8 @@ namespace
         match(core, "snes mario", MatchClass::OrderedWords);
         match(core, "mario snes", MatchClass::OrderedWords);
         match(core, "super nintendo mario", MatchClass::OrderedWords);
+        core.rebuild({game("Super Mario 64")});
+        match(core, "sm64", MatchClass::Acronym);
         core.rebuild({game("Final Fantasy VII")});
         match(core, "ff7", MatchClass::Acronym);
         match(core, "ffvii", MatchClass::Acronym);
@@ -316,11 +318,26 @@ namespace
         has("act", SuggestionKind::Genre, "Action Adventure");
         has("super n", SuggestionKind::System, "Super Nintendo");
         const auto complete {core.suggest("final fant", 100)};
-        require(std::any_of(complete.begin(), complete.end(),
-                            [](const Suggestion& s) { return s.text == "final fantasy"; }),
-                "complete current token preserving preceding words");
+        require(
+            std::any_of(complete.begin(), complete.end(),
+                        [](const Suggestion& s) { return normalize(s.text) == "final fantasy"; }),
+            "complete current token preserving preceding words");
+        const auto tokenOnly {core.suggest("fant v", 100)};
+        require(std::any_of(tokenOnly.begin(), tokenOnly.end(),
+                            [](const Suggestion& s) {
+                                return s.kind == SuggestionKind::Word && s.text == "fant vii";
+                            }),
+                "word insertion preserves the preceding query token");
         require(core.suggest("unrelated fant").empty(),
                 "preceding words cannot produce zero-result insertions");
+        core.rebuild({game("The Legend of Zelda")});
+        const auto articleCompletions {core.suggest("legend", 100)};
+        require(std::any_of(articleCompletions.begin(), articleCompletions.end(),
+                            [](const Suggestion& s) {
+                                return s.kind == SuggestionKind::Title &&
+                                       s.text == "The Legend of Zelda";
+                            }),
+                "whole-title completion ignores leading article");
         a.hidden = true;
         b.hidden = true;
         core.rebuild({a, b});

@@ -30,3 +30,6 @@ if(SEARCH_SANITIZERS)
     target_link_options(search_adapter_tests PRIVATE -fsanitize=address,undefined)
 endif()
 add_test(NAME search_adapter COMMAND search_adapter_tests)
+
+set_tests_properties(search_logic search_adapter PROPERTIES TIMEOUT 30)
+set_tests_properties(search_performance PROPERTIES TIMEOUT 60)
