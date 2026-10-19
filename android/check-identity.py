@@ -86,6 +86,7 @@ for prefix in ('Lorg/esdeplus/frontend/', 'Lorg/libsdl/app/', 'Lkotlin/', 'Lorg/
     print(f'DEX CLASSES {prefix}: {sum(name.startswith(prefix) for name in classes)}')
 assert 'Lorg/esdeplus/frontend/MainActivity;' in classes
 assert ('Lorg/esdeplus/frontend/RuntimeSmoke;' in classes) != release
+assert ('Lorg/esdeplus/frontend/StartupProbeActivity;' in classes) != release
 required_methods = {
     ('checkConfigurationNeeded', '()Z'),
     ('checkEmulatorInstalled', '(Ljava/lang/String;Ljava/lang/String;)Z'),
@@ -93,6 +94,7 @@ required_methods = {
     ('checkRACoreInstalled', '(Ljava/lang/String;Ljava/lang/String;)I'),
     ('getBatteryStatus', '()[I'), ('getBluetoothStatus', '()I'), ('getCellularStatus', '()I'),
     ('getCreateSystemDirectories', '()Z'), ('getExternalDirectory', '()Ljava/lang/String;'),
+    ('getEmulatorActivities', '([Ljava/lang/String;)[Ljava/lang/String;'),
     ('getInstalledApps', '(ZZ)[Ljava/lang/String;'), ('getInternalDirectory', '()Ljava/lang/String;'),
     ('getWifiStatus', '()I'), ('getWindowSize', '()[I'), ('getDeviceInfo', '()Ljava/lang/String;'),
     ('getInternalDataDirectory', '()Ljava/lang/String;'), ('getAppDataDirectory', '()Ljava/lang/String;'),
@@ -151,43 +153,105 @@ label = ET.parse('android/app/src/main/res/values/strings.xml').find("string[@na
 aapt = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0/aapt'
 badging = subprocess.check_output([str(aapt), 'dump', 'badging', str(apk)], text=True)
 print(badging)
-# Release resource optimization shortens filenames. Follow the manifest's real
-# icon entry and compare its compiled vector, rather than assuming a ZIP path.
-icons = set(re.findall(r"^application-icon-\d+:'([^']+)'$", badging, re.M))
-assert icons, 'No manifest-selected application icon'
-placeholder = ET.parse('android/app/src/main/res/drawable/placeholder_icon.xml').getroot()
-for icon in sorted(icons):
-    tree = subprocess.check_output([str(aapt), 'dump', 'xmltree', str(apk), icon], text=True)
-    print(f'PACKAGED ICON {icon}\n{tree}')
-    nodes = re.split(r'^\s*E:\s+(\w+).*$', tree, flags=re.M)[1:]
-    expected_nodes = list(placeholder.iter())
-    assert nodes[::2] == [node.tag for node in expected_nodes], (icon, 'Icon geometry differs')
+# Follow the resource table, including release-shortened ZIP paths. Validate
+# every compiled adaptive layer and mark selected by the packaged resources.
+resource_table = subprocess.check_output([str(aapt), 'dump', '--values', 'resources', str(apk)], text=True)
+pathlib.Path('android/evidence').mkdir(exist_ok=True)
+pathlib.Path('android/evidence/identity-resources' + ('-release' if release else '-debug') + '.txt').write_text(resource_table)
+resources = {}
+resource_names = {}
+current = None
+for line in resource_table.splitlines():
+    if re.match(r'\s*type \d+ ', line):
+        current = None
+    match = re.search(r'(?<!spec )resource (0x[0-9a-f]+) [^:]+:(\w+)/(\w+)', line)
+    if match:
+        current = match[2] + '/' + match[3] if match[2] in ('drawable', 'mipmap') else None
+    if match and current:
+        resource_names[int(match[1], 16)] = current
+        resources.setdefault(current, set())
+    if current:
+        resources[current].update(re.findall(r'\bres/[^\s"\)]+\.xml', line))
+
+def resource_reference(value):
+    match = re.search(r'@(?:0x)?([0-9a-f]{8})', value)
+    assert match, ('Not a packaged resource reference', value)
+    return resource_names[int(match[1], 16)]
+
+packaged_art = {}
+
+def compiled_art(name):
+    kind, basename = name.split('/')
+    directory = 'mipmap-anydpi' if kind == 'mipmap' else kind
+    source = pathlib.Path('android/app/src/main/res') / directory / (basename + '.xml')
+    expected_nodes = list(ET.parse(source).getroot().iter())
+    assert resources.get(name), ('Missing packaged art', name)
+    for path in sorted(resources[name]):
+        tree = subprocess.check_output([str(aapt), 'dump', 'xmltree', str(apk), path], text=True)
+        print(f'PACKAGED ART {name} {path}\n{tree}')
+        validate_art(name, tree, expected_nodes)
+        packaged_art[name] = (tree, expected_nodes)
+
+def validate_art(name, tree, expected_nodes):
+    nodes = re.split(r'^\s*E:\s+([\w-]+).*$', tree, flags=re.M)[1:]
+    assert nodes[::2] == [node.tag for node in expected_nodes], (name, 'Art geometry differs')
     for expected, body in zip(expected_nodes, nodes[1::2]):
         attributes = dict(re.findall(r'^\s*A:\s+android:(\w+)\([^)]*\)=(.*)$', body, re.M))
-        expected_attributes = {name.rsplit('}', 1)[-1]: value for name, value in expected.attrib.items()}
-        assert attributes.keys() == expected_attributes.keys(), (icon, attributes)
-        for name, value in expected_attributes.items():
-            actual = attributes[name]
-            if name == 'pathData':
-                assert re.match(r'^"([^"]*)"', actual).group(1) == value, (icon, name, actual)
+        expected_attributes = {key.rsplit('}', 1)[-1]: value for key, value in expected.attrib.items()}
+        assert attributes.keys() == expected_attributes.keys(), (name, attributes)
+        for key, value in expected_attributes.items():
+            actual = attributes[key]
+            if value.startswith('@'):
+                assert resource_reference(actual) == value[1:], (name, key, actual)
+                continue
+            if key == 'pathData':
+                assert re.match(r'^"([^"]*)"', actual)[1] == value, (name, key, actual)
                 continue
             kind, data = re.match(r'\(type 0x([0-9a-f]+)\)0x([0-9a-f]+)', actual).groups()
             kind, data = int(kind, 16), int(data, 16)
-            if name == 'fillColor':
-                assert 28 <= kind <= 31 and data == (int(value[1:], 16) | 0xff000000), (icon, name, actual)
-            elif name in ('width', 'height'):
-                # Android complex dimensions: signed 24-bit mantissa and radix.
+            if key in ('fillColor', 'strokeColor'):
+                colour = int(value[1:], 16) | (0xff000000 if len(value) == 7 else 0)
+                assert 28 <= kind <= 31 and data == colour, (name, key, actual)
+            elif key in ('strokeLineCap', 'strokeLineJoin'):
+                assert kind == 16 and data == {'round': 1}[value], (name, key, actual)
+            elif key in ('width', 'height'):
                 mantissa = struct.unpack('<i', struct.pack('<I', data))[0] >> 8
                 dimension = mantissa * (1, 1/128, 1/32768, 1/8388608)[(data >> 4) & 3]
-                assert kind == 5 and (data & 15) == 1 and value.endswith('dp') and dimension == float(value[:-2]), (icon, name, actual)
+                assert kind == 5 and (data & 15) == 1 and value.endswith('dp') and dimension == float(value[:-2]), (name, key, actual)
             else:
-                assert kind == 4 and struct.unpack('<f', struct.pack('<I', data))[0] == float(value), (icon, name, actual)
-print('PASS: manifest-selected compiled icon matches the original placeholder vector')
+                assert kind == 4 and abs(struct.unpack('<f', struct.pack('<I', data))[0] - float(value)) < 1e-6, (name, key, actual)
+
+for name in ['mipmap/ic_launcher', 'mipmap/ic_launcher_round', 'drawable/pixel_plus_background',
+             'drawable/pixel_plus_foreground', 'drawable/pixel_plus_monochrome',
+             'drawable/pixel_plus_mark', 'drawable/tv_banner']:
+    compiled_art(name)
+# Positive controls use the same validator and actual packaged trees: neither
+# changed colour data nor an absent adaptive monochrome layer may pass.
+controls = []
+tree, expected = packaged_art['drawable/pixel_plus_foreground']
+assert '0xff00d1ff' in tree, 'Colour control requires the compiled cyan block'
+controls.append(('altered colour', 'drawable/pixel_plus_foreground',
+                 tree.replace('0xff00d1ff', '0xff123456', 1), expected))
+tree, expected = packaged_art['mipmap/ic_launcher']
+missing = re.sub(r'(?ms)^\s*E: monochrome\b.*\Z', '', tree)
+assert missing != tree, 'Monochrome control requires the compiled layer'
+controls.append(('missing monochrome layer', 'mipmap/ic_launcher', missing, expected))
+for fault, name, tree, expected in controls:
+    try:
+        validate_art(name, tree, expected)
+    except AssertionError:
+        print('PASS: packaged art positive control rejected: ' + fault)
+    else:
+        raise AssertionError('Packaged art positive control escaped: ' + fault)
+icons = set(re.findall(r"^application-icon-\d+:'([^']+)'$", badging, re.M))
+assert icons and icons <= resources['mipmap/ic_launcher'] | resources['mipmap/ic_launcher_round'], icons
+assert 'placeholder_icon' not in resource_table, 'Placeholder identity art is still packaged'
+print('PASS: manifest-selected Pixel Plus adaptive/round icons, monochrome, marks and TV banner match the original vectors')
 assert ('application-debuggable' in badging) != release
 assert f"package: name='{application_id}'" in badging
 assert f"application-label:'{label}'" in badging
-assert "sdkVersion:'29'" in badging and "targetSdkVersion:'36'" in badging
-print(f'PASS APK identity audit: {application_id}, label={label}, original placeholder icon/splash; only exact upstream desktop literals allowed in libmain.so')
+assert "sdkVersion:'33'" in badging and "targetSdkVersion:'36'" in badging
+print(f'PASS APK identity audit: {application_id}, label={label}, original Pixel Plus icon/splash; only exact upstream desktop literals allowed in libmain.so')
 
 # Inspect packaged manifest values, including release output, rather than only
 # trusting the source declarations or aapt's selected launchable activity.
@@ -220,6 +284,10 @@ def integer_attribute(node, name):
 activities = {string_attribute(n, 'name'): n for n in manifest_nodes if n['tag'] == 'activity'}
 main = activities['org.esdeplus.frontend.MainActivity']
 configurator = activities['org.esdeplus.frontend.ConfiguratorActivity']
+restart = activities['org.esdeplus.frontend.FrontendRestartActivity']
+assert integer_attribute(restart, 'exported') == 0, 'Lifecycle restart must be private'
+assert string_attribute(restart, 'process') == ':lifecycle', 'Lifecycle restart must survive the SDL process exit'
+assert not restart['children'], 'Lifecycle restart must have no public intent filters'
 assert 'taskAffinity' not in configurator['attributes'], 'Configurator must share the SDL task affinity'
 assert integer_attribute(main, 'launchMode') == 2, 'SDL activity must be singleTask'
 assert integer_attribute(main, 'exported') == 0xffffffff
@@ -258,7 +326,11 @@ application = next(n for n in manifest_nodes if n['tag'] == 'application')
 assert string_attribute(application, 'appComponentFactory') == 'org.esdeplus.frontend.FrontendActivityFactory'
 assert ('nativeWaitForConfiguration', '()V') in classes['Lorg/esdeplus/frontend/MainActivity;']
 assert integer_attribute(application, 'requestLegacyExternalStorage') == 0xffffffff
-assert 'banner' in application['attributes']
+for attribute, expected in [('icon', 'mipmap/ic_launcher'), ('roundIcon', 'mipmap/ic_launcher_round'),
+                            ('banner', 'drawable/tv_banner')]:
+    actual = resource_reference(application['attributes'][attribute])
+    assert actual == expected, (attribute, actual)
+    print(f'PASS: packaged manifest {attribute}={actual}')
 features = {string_attribute(n, 'name'): n for n in manifest_nodes
             if n['tag'] == 'uses-feature' and 'name' in n['attributes']}
 assert integer_attribute(features['android.software.leanback'], 'required') == 0
@@ -276,10 +348,18 @@ def discovery_manifest(nodes):
                 if rule.get('type') == 'androidpackage' for entry in rule.findall('entry')}
     assert actual == expected, ('Emulator visibility differs from bundled find rules', expected - actual, actual - expected)
     signatures = {(tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'action'),
-                   tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'category'))
+                   tuple(string_attribute(c, 'name') for c in n['children'] if c['tag'] == 'category'),
+                   tuple((string_attribute(c, 'scheme') if 'scheme' in c['attributes'] else None,
+                          string_attribute(c, 'mimeType') if 'mimeType' in c['attributes'] else None,
+                          string_attribute(c, 'host') if 'host' in c['attributes'] else None)
+                         for c in n['children'] if c['tag'] == 'data'))
                   for n in queries['children'] if n['tag'] == 'intent'}
-    assert signatures == {(("android.intent.action.MAIN",), ("android.intent.category.LAUNCHER",)),
-                          (("android.intent.action.MAIN",), ("android.intent.category.LEANBACK_LAUNCHER",))}, signatures
+    assert signatures == {(("android.intent.action.MAIN",), ("android.intent.category.LAUNCHER",), ()),
+                          (("android.intent.action.MAIN",), ("android.intent.category.LEANBACK_LAUNCHER",), ()),
+                          (("android.intent.action.VIEW",), (), (("file", "*/*", "*"),)),
+                          (("android.intent.action.VIEW",), (), (("content", "*/*", "*"),)),
+                          (("android.intent.action.VIEW",), (), (("file", None, "*"),)),
+                          (("android.intent.action.VIEW",), (), (("content", None, "*"),))}, signatures
     assert all(not (n['tag'] == 'uses-permission' and
                    string_attribute(n, 'name') == 'android.permission.QUERY_ALL_PACKAGES') for n in nodes)
     provider = next(n for n in nodes if n['tag'] == 'provider' and

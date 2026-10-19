@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus Android data-folder passages adapted from this upstream MIT document. -->
 # ES-DE Frontend - User guide
 
 It's generally recommended to read the [Frequently Asked Questions (FAQ)](FAQ.md) document prior to diving into the information in this guide.
@@ -59,7 +60,7 @@ There's not really much to say about these operating systems, just install ES-DE
 
 _This section primarily covers the desktop ports of ES-DE, for Android there's a separate document with its own section for the onboarding and first startup that you can find [here](ANDROID.md#first-startup-and-onboarding)._
 
-Upon first startup, ES-DE will create its `~/ES-DE` application data directory.
+Upon first startup, ES-DE will create its `~/ES-DE` application data directory. On Android, ES-DE Plus instead asks for storage permission, the application data folder, then the ROM folder. Full file access is recommended; its proposed shared `ES-DE-Plus` folder is created only after confirmation. Other destinations require an adoption warning. App-private storage is the secondary option and is deleted on uninstall. Shared data, including downloaded themes under `themes/` and custom systems under `custom_systems/`, survives uninstall; changing roots does not transfer files.
 
 On Linux this means `/home/<username>/ES-DE`, on macOS `/Users/<username>/ES-DE` and on Windows `C:\Users\<username>\ES-DE` or `ES-DE\ES-DE` depending on whether the installer release or the portable release is used.
 
@@ -375,6 +376,8 @@ If you're using the AppImage release of ES-DE then the bundled es_systems.xml fi
 Although it's possible to make a copy of the bundled configuration file, to modify it and then place it in this directory, that is not how the system customization is designed to be used. Instead the intention is that the file in `custom_systems` complements the bundled configuration, meaning only systems that are to be customized should be included.
 
 For example you may want to replace the emulator launch command, modify the full name or change the supported file extensions for a single system. In this case it wouldn't make sense to copy the complete bundled file and just apply these minor modifications, instead an es_systems.xml file only containing the configuration for that single system should be placed in the custom_systems directory.
+
+On Android, ES-DE-Plus provides **Other settings → Alternative emulators → Emulator manager**, also accessible from **Emulators** when no games are recognised. Select any defined system, add an installed app/activity, configure or reuse its launch settings and add accepted file types such as `.zip .ZIP`. Select a matching draft test file and test before saving; acceptance of a launch request does not verify that the app can run the game. **Save and apply** refreshes find rules and rescans immediately. **Set system default** uses the usual `alternativeEmulator` gamelist setting; game-specific choices retain precedence. The manager preserves an existing custom entry and records copied bundled entries as explicit snapshots; a stale snapshot can be refreshed only when other hand edits are preserved, or its entire override can be reset after confirmation. See the Android launch configuration section of INSTALL.md for transport and save-failure details.
 
 Instructions on how to customize the es_systems.xml file can be found in [INSTALL.md](INSTALL.md#es_systemsxml).
 
@@ -4333,7 +4336,7 @@ How long, in seconds, to display the overlay before fading it. In ES-DE Plus, ze
 
 **Enable touch overlay** _(Android only)_
 
-The touch overlay applies a layer of virtual buttons on top of the ES-DE window. This makes it possible to use the application on devices that lack physical buttons, such as a mobile phone or tablet. Disabling it without another input device locks you out. In ES-DE Plus, temporarily connect a controller or keyboard to enable it again, or, using adb from a computer while the app is closed, set `InputTouchOverlay` to `true` in `settings/es_settings.xml` under the app-private `Android/data/org.esdeplus.frontend/files/ES-DE-Plus` folder. Android 11 and later restrict ordinary file-manager access to this folder. Clearing Android app storage deletes private data and app-owned ROMs and is not a recovery route. See [Touch input overlay](ANDROID.md#touch-input-overlay) for supported viewport sizes, fixed glyphs and inset limitations.
+The touch overlay applies virtual buttons on top of the ES-DE window for phones and tablets without physical controls. Disabling it without another input device locks you out. In ES-DE Plus, connect a controller or keyboard to enable it again, or close the app and set `InputTouchOverlay` to `true` in `settings/es_settings.xml` inside the selected application-data folder. Shared folders can be edited with a suitably authorised file manager or USB file transfer; app-private folders require a computer with `adb`. In direct storage mode, revoke full file access in Android settings and complete setup on the next start to enable touch again. See [Touch input overlay](ANDROID.md#touch-input-overlay) for recovery details, supported viewport sizes, fixed glyphs and inset limitations.
 
 **Only accept input from first controller**
 

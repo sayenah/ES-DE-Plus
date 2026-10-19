@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus — written for ES-DE-Plus. No launcher or package query exemption. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="ES-DE Plus file-handler recipient" android:allowBackup="false"
+        android:icon="@android:drawable/ic_menu_view" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".RecipientActivity" android:exported="false" android:launchMode="singleTask" />
+        <activity-alias android:name=".ZipMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/zip" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".HandlerAlias_雪" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Named ZIP alias">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/zip" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".WildcardMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="ZIP handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/*" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".ZipPath" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Path handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:scheme="file" android:host="*" android:pathPattern=".*\\.zip" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".NonMatchingMime" android:targetActivity=".RecipientActivity" android:exported="true" android:label="Unrelated image handler">
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="image/png" /></intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

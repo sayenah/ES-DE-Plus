@@ -46,6 +46,14 @@ namespace Utils
             int getCellularStatus();
             bool getCreateSystemDirectories();
             std::string getExternalDirectory();
+            struct EmulatorActivity {
+                std::string label;
+                std::string packageName;
+                std::string activityName;
+                bool declaredHandler;
+            };
+            bool getEmulatorActivities(const std::vector<std::string>& paths,
+                                       std::vector<EmulatorActivity>& activities);
             void getInstalledApps(std::vector<std::pair<std::string, std::string>>& appList,
                                   bool gamesOnly,
                                   bool includeMedia);

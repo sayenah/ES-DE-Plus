@@ -15,14 +15,18 @@ class RuntimeSmoke : Instrumentation() {
     private var ownedAction: String? = null
     private var ownedDirectory: String? = null
     private var followupMode: String? = null
+    private var insetRotation = 0
     private var userFileArguments: Bundle? = null
     private var importedTarget = ""
+    private var themeFixturePath = ""
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         if (arguments?.getString("mode") == "pdf-session") pdfArguments = arguments
         provisionOnly = arguments?.getString("mode") == "provision"
         storageOnly = arguments?.getString("mode") == "storage"
         followupMode = arguments?.getString("mode")
+        if (followupMode == "theme-path-clipboard") themeFixturePath = arguments?.getString("path").orEmpty()
+        insetRotation = arguments?.getString("rotation")?.toIntOrNull() ?: 0
         if (followupMode in listOf("write-user-file", "remove-user-file")) userFileArguments = arguments
         if (followupMode == "cleanup-importer") importedTarget = arguments?.getString("file").orEmpty()
         if (arguments?.getString("mode") == "owned-fixture") {
@@ -34,6 +38,21 @@ class RuntimeSmoke : Instrumentation() {
     override fun onStart() {
         val result = Bundle()
         try {
+            if (followupMode in listOf("emulator-manager-prepare", "emulator-manager-read", "emulator-manager-cleanup",
+                "emulator-manager-default-block", "emulator-manager-default-unblock")) {
+                result.putString("stream", EmulatorManagerSmoke.fixture(targetContext, followupMode!!))
+                finish(-1, result)
+                return
+            }
+            if (followupMode in listOf("theme-volumes", "theme-path-clipboard", "theme-remote-restore")) {
+                result.putString("stream", when (followupMode) {
+                    "theme-volumes" -> ThemeTrustSmoke.volumes(targetContext)
+                    "theme-remote-restore" -> ThemeTrustSmoke.restoreOrigin(targetContext)
+                    else -> ThemeTrustSmoke.clipboard(targetContext, themeFixturePath)
+                })
+                finish(-1, result)
+                return
+            }
             if (followupMode in listOf("pdf-unicode-prepare", "pdf-unicode-restore")) {
                 result.putString("stream", PdfSmoke.unicodeFixture(targetContext, followupMode == "pdf-unicode-restore"))
                 finish(-1, result)
@@ -63,6 +82,28 @@ class RuntimeSmoke : Instrumentation() {
                 result.putString("stream", LaunchSmoke.userFile(targetContext,
                     userFileArguments!!.getString("relative")!!,
                     if (followupMode == "write-user-file") userFileArguments!!.getString("contents")!! else null))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "legacy-direct-data") {
+                val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
+                val selected = storage.load() ?: error("Select storage through the real configurator first")
+                check(selected.mode == "direct" && selected.data.isNotEmpty())
+                // Model an upgrade from the old host preferences: remove only
+                // the newly introduced field, keep the real ROM/mode/grant.
+                check(targetContext.getSharedPreferences("storage", 0).edit().remove("data").commit())
+                check(storage.load() == selected.copy(data = ""))
+                result.putString("stream", "PASS: pre-data-folder direct preferences retained ROM=${selected.roms}\n")
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "configurator-insets") {
+                result.putString("stream", ConfiguratorInsetsSmoke.run(this, insetRotation))
+                finish(-1, result)
+                return
+            }
+            if (followupMode == "app-data-probe") {
+                result.putString("stream", AppDataSmoke.run(this))
                 finish(-1, result)
                 return
             }
@@ -204,7 +245,7 @@ class RuntimeSmoke : Instrumentation() {
                 // Create ordinary SDK-owned directories before adb pushes files.
                 // MainActivity is not launched and no resources/marker are installed.
                 val storage = org.esdeplus.frontend.bridge.StorageModel(targetContext)
-                storage.verifyDirectory(storage.appData(), true)
+                storage.verifyDirectory(storage.privateData(), true)
                 val roms = File(storage.ownedROMs(), "nes")
                 check(roms.mkdirs() || roms.isDirectory)
                 result.putString("stream", "PROVISIONED: ${roms.absolutePath}\n")
@@ -286,6 +327,7 @@ class RuntimeSmoke : Instrumentation() {
             result.putString("stream", "PASS: descriptors, CheckJNI 10000 calls, Unicode directory/file, sentinels, roots, real font-copy failure, cheap normal start, explicit hash/size repair, unavailable-storage rejection\n")
             finish(-1, result)
         } catch (error: Throwable) {
+            android.util.Log.e("ES-DE-Plus", "Runtime smoke probe failed", error)
             result.putString("stream", "FAIL: ${error.stackTraceToString()}\n")
             finish(0, result)
         }

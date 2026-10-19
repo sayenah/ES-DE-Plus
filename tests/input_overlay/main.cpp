@@ -7,6 +7,7 @@
 //
 
 #include "InputOverlayModel.h"
+#include "TouchOverlayReset.h"
 #include "layout_baseline.h"
 
 #include <algorithm>
@@ -396,6 +397,68 @@ static void sizeRegressions()
     std::puts("PASS: distinct sizes at 288..800 dp, four logical densities");
 }
 
+static void resetIntentRegressions()
+{
+    const std::string marker {"touch-reset-test.intent"};
+    auto write = [&](const std::string& value) {
+        std::ofstream output {marker, std::ios::binary};
+        output << value;
+    };
+    int applied {0};
+    auto apply = [&] {
+        ++applied;
+        return true;
+    };
+    require(!TouchOverlay::consumeReset(marker, "/selected", apply), "normal startup has no reset");
+    write("setup-session\n");
+    require(!TouchOverlay::consumeReset(marker, "/selected", apply),
+            "uncommitted draft cannot reset");
+    write("setup-session\n/selected");
+    require(!TouchOverlay::consumeReset(marker, "/other", apply),
+            "reset bound to selected data root");
+    require(!TouchOverlay::consumeReset(marker, "/selected", [] { return false; }),
+            "failed save retains pending reset");
+    require(TouchOverlay::consumeReset(marker, "/selected", apply),
+            "persisted reset survives process replacement and draft cleanup");
+    require(!TouchOverlay::consumeReset(marker, "/selected", apply) && applied == 1,
+            "consumed reset cannot enable a subsequently disabled overlay");
+    std::puts("PASS: setup intent binding, failed-save retry, fresh-process consume-once reset");
+}
+
+static void fittingSetRegressions()
+{
+    // Narrow bands missed by the 3% scan, plus 2.5..3.3:1 portraits that
+    // previously used artwork-only scaling despite a complete real family.
+    for (const auto viewport : {Point {316, 1241}, Point {330, 1298}, Point {337, 1326},
+                                Point {372, 1139}, Point {372, 1172}, Point {386, 1152}}) {
+        float previous {0};
+        for (auto size : {"x-small", "small", "medium", "large"}) {
+            Model m;
+            m.rebuild(geometry(static_cast<int>(viewport.x), static_cast<int>(viewport.y)),
+                      Options::parse(size, "normal", 6, false), 160);
+            require(m.supported() && !m.compact(),
+                    "fine scan preserves narrow normal fitting band");
+            require(m.diameter() + 0.01f >= previous * 1.1f,
+                    "fitting-set family has 10 percent steps");
+            if (viewport.x == 372)
+                require(std::abs(m.buttons()[5].centre.x - m.buttons()[6].centre.x -
+                                 2.1f * m.diameter()) < 0.02f,
+                        "search finds real diameter family before artwork-only fallback");
+            previous = m.diameter();
+        }
+    }
+    Model m;
+    m.rebuild(geometry(1080, 1920), Options::parse("medium", "normal", 2, false), 420);
+    for (const auto& button : m.buttons())
+        require(m.claims(m.geometry().toNormalized(button.centre)),
+                "overlay claims each rendered control first");
+    require(!m.claims({0.5f, 0.1f}), "visible overlay leaves direct GUI gestures unclaimed");
+    for (int i {0}; i < 5; ++i)
+        m.update(500);
+    require(m.claims({0.5f, 0.1f}), "hidden overlay owns complete waking gesture");
+    std::puts("PASS: fine fitting bands, real four-diameter families and overlay-first claims");
+}
+
 static void normalDeckRegressions()
 {
     for (const auto viewport : {Point {800, 1280}, Point {560, 1392}, Point {560, 1369},
@@ -614,6 +677,8 @@ int main()
     boundaries();
     layouts();
     sizeRegressions();
+    fittingSetRegressions();
+    resetIntentRegressions();
     normalDeckRegressions();
     outwardDrift();
     fading();

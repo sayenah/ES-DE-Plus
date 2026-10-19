@@ -42,7 +42,7 @@ def stub_components(observation, enabled):
     equal(observation['queryMode'], 'restore-launchers' if enabled else 'phone-off', 'Stub component control mode')
     equal(observation['uid'] >= 10000, True, 'Stub changes its components under application UID')
     equal(observation['componentStates'], {name: 0 if enabled else 2 for name in
-          ['RecipientActivity', 'CollisionOne', 'CollisionTwo']}, 'Actual stub component states')
+          ['RecipientActivity', 'CollisionOne', 'CollisionTwo', 'PrivateActivity', 'ProtectedActivity', 'DisabledActivity']}, 'Actual stub component states')
 
 
 def imported_app_name(name):
@@ -50,10 +50,10 @@ def imported_app_name(name):
 
 
 def activity_present(dump, package, activity):
-    for record in re.findall(r'\bActivityRecord\{([^}]+)\}', dump):
-        component = re.search(r'\bu\d+\s+([^/\s]+)/([^\s]+)\s+t\d+', record)
-        if component:
-            owner, name = component.groups()
+    for record, task in re.findall(r'\bActivityRecord\{([^}\n]+)\}(?: t(\d+)\b[^}\n]*\})?', dump):
+        component = re.search(r'\bu\d+\s+([^/\s]+)/([^\s]+)(?:\s+t(\d+))?', record)
+        if component and (component[3] or task):
+            owner, name = component[1], component[2]
             if name.startswith('.'):
                 name = owner + name
             if (owner, name) == (package, activity):
@@ -132,7 +132,7 @@ def positive_controls():
     reject('stale Settings switch without app-op', lambda: all_files_granted('No operations.\nDefault mode: default'))
     for enabled in (False, True):
         control = {'queryMode': 'restore-launchers' if enabled else 'phone-off', 'uid': 10002,
-                   'componentStates': {name: 0 if enabled else 2 for name in ['RecipientActivity', 'CollisionOne', 'CollisionTwo']}}
+                   'componentStates': {name: 0 if enabled else 2 for name in ['RecipientActivity', 'CollisionOne', 'CollisionTwo', 'PrivateActivity', 'ProtectedActivity', 'DisabledActivity']}}
         stub_components(control, enabled)
         for field, value in [('queryMode', 'other'), ('uid', 2000), ('componentStates', {})]:
             reject('wrong stub component ' + field, lambda field=field, value=value, control=control, enabled=enabled:
@@ -148,10 +148,14 @@ def positive_controls():
     equal([(n.tag, n.attrib) for n in after], [(n.tag, n.attrib) for n in before], 'Unrelated user settings preserved')
     package, activity = 'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'
     for name in ['.browser.retroactivity.RetroActivityFuture', activity]:
-        record = 'Hist #0: ActivityRecord{abc u0 ' + package + '/' + name + ' t95}'
-        equal(activity_present(record, package, activity), True, 'Exact Android activity record')
+        for suffix in [' t95}', '} t95}', '} t95 f}']:
+            record = 'Hist #0: ActivityRecord{abc u0 ' + package + '/' + name + suffix
+            equal(activity_present(record, package, activity), True, 'Exact Android activity record')
     for label, record in [('wrong activity package', 'ActivityRecord{abc u0 other/' + activity + ' t95}'),
                           ('wrong activity class', 'ActivityRecord{abc u0 com.retroarch/.Other t95}'),
+                          ('missing task ID', 'ActivityRecord{abc u0 ' + package + '/' + activity + '}'),
+                          ('wrong external-task package', 'ActivityRecord{abc u0 other/' + activity + '} t95}'),
+                          ('wrong external-task class', 'ActivityRecord{abc u0 com.retroarch/.Other} t95}'),
                           ('activity mentioned without record', package + '/' + activity)]:
         reject(label, lambda record=record: equal(activity_present(record, package, activity), True, label))
     warning = [{'text': t, 'package': 'com.android.vending'} for t in [

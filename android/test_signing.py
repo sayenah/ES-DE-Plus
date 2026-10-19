@@ -21,6 +21,7 @@ RELEASE = pathlib.Path('android/app/build/outputs/apk/release/app-release-smoke.
 UNSIGNED_RELEASE = RELEASE.with_name('app-release-unsigned.apk')
 UPDATE = pathlib.Path('android/.deps/update')
 NETWORK_CONTROL = pathlib.Path('android/.deps/network/no-internet.apk')
+LIFECYCLE_PROBE = pathlib.Path('android/stub-emulator/build/outputs/apk/debug/stub-emulator-debug.apk')
 
 
 def require(condition, message):
@@ -30,7 +31,7 @@ def require(condition, message):
 
 def eligible(repository, event, ref, image, rebuild='', failure='none', publish=False):
     return (repository == REPOSITORY and event == 'workflow_dispatch' and publish is True and
-            ref == 'refs/heads/main' and image == 'api34' and not rebuild and failure in ('', 'none'))
+            ref == 'refs/heads/main' and image == 'publish' and not rebuild and failure in ('', 'none'))
 
 
 def stable_run():
@@ -116,6 +117,22 @@ def sign_network_control(key, alias, password, certificate):
     print('PASS: no-INTERNET control shares the frontend signer and version; runner only')
 
 
+def sign_lifecycle_probe(key, alias, password, certificate):
+    # Android requires external instrumentation to share the target signer.
+    # This separate-UID recipient/probe remains on the runner, never uploaded.
+    require(LIFECYCLE_PROBE.is_file(), 'Missing required CI lifecycle probe')
+    sign(LIFECYCLE_PROBE, LIFECYCLE_PROBE, key, alias, password)
+    verified = subprocess.run([str(tools() / 'apksigner'), 'verify', '--verbose', '--print-certs',
+                               str(LIFECYCLE_PROBE)], capture_output=True, text=True)
+    fingerprints = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([a-f0-9]{64})$', verified.stdout, re.M)
+    require(verified.returncode == 0 and 'Number of signers: 1' in verified.stdout and
+            fingerprints == [certificate], 'CI lifecycle probe must share the sole frontend signer')
+    badging = subprocess.check_output([str(tools() / 'aapt2'), 'dump', 'badging', str(LIFECYCLE_PROBE)], text=True)
+    require(re.search(r"^package: name='org.esdeplus.stub' ", badging, re.M), 'Unexpected CI probe package')
+    pathlib.Path('android/evidence/lifecycle-probe-signer.txt').write_text(verified.stdout + badging)
+    print('PASS: runner-only lifecycle instrumentation shares the sole frontend signer; separate UID retained')
+
+
 @contextlib.contextmanager
 def credential_file(encoded, password):
     require(encoded and password, 'Missing signing credentials; no fallback key is permitted')
@@ -189,7 +206,7 @@ with test_signing.credential_file(base64.b64encode(b'non-secret fixture').decode
     print('PASS: actual SIGTERM cancellation removes credential directory; only non-secret result recorded')
 
 
-def fixture_signing():
+def fixture_signing(sdk_only=False):
     UPDATE.mkdir(parents=True, exist_ok=True)
     password = secrets.token_urlsafe(32)
     before = set(pathlib.Path(os.environ['RUNNER_TEMP']).glob('esdeplus-sign-*'))
@@ -215,6 +232,15 @@ def fixture_signing():
             sign(UNSIGNED_RELEASE, RELEASE, key, 'fixture', password)
             if NETWORK_CONTROL.is_file():
                 sign_network_control(key, 'fixture', password, cert)
+            owner_control = pathlib.Path('android/.deps/theme-owner/prefix.apk')
+            if not sdk_only and owner_control.is_file():
+                sign(owner_control, owner_control, key, 'fixture', password)
+                owner_record = inspect_apk(owner_control, cert)
+                require(owner_record['version_name'] == 'test-438bf5927', 'Wrong ownership control revision')
+                pathlib.Path('android/evidence/theme-owner-control-signer.txt').write_text(
+                    json.dumps(owner_record, indent=2))
+            if not sdk_only:
+                sign_lifecycle_probe(key, 'fixture', password, cert)
             pathlib.Path('android/evidence/test-signer.txt').write_text(cert + '\n')
         # Real signed APKs, not mocked verifier output.
         reject('ephemeral signer at the production pin', lambda: inspect_apk(UPDATE / 'higher.apk', TEST_CERT_SHA256), 'exactly one signer')
@@ -270,13 +296,13 @@ def sdk_controls():
             manifest = root / 'AndroidManifest.xml'
             manifest.write_text(f"""<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 package="org.esdeplus.frontend" android:versionCode="{code}" android:versionName="{version['version_name']}">
-<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36"/>
+<uses-sdk android:minSdkVersion="33" android:targetSdkVersion="36"/>
 <application android:label="@string/app_name" android:debuggable="{str(debug).lower()}"/>
 </manifest>""")
             subprocess.run([str(tools() / 'aapt2'), 'link', '--manifest', str(manifest), '-I',
                             str(pathlib.Path(os.environ['ANDROID_HOME']) / 'platforms/android-36/android.jar'),
                             '-o', str(destination), str(resources)], check=True)
-        fixture_signing()
+        fixture_signing(sdk_only=True)
     # No placeholder identity may survive into the real-APK gates/smoke.
     for name in ('test-signer.txt', 'update-identity.txt'):
         pathlib.Path('android/evidence', name).unlink(missing_ok=True)
@@ -295,6 +321,7 @@ def stable_signing():
         sign(UNSIGNED_RELEASE, RELEASE, key, alias, password)
         require(NETWORK_CONTROL.is_file(), 'Missing required no-INTERNET control')
         sign_network_control(key, alias, password, TEST_CERT_SHA256)
+        sign_lifecycle_probe(key, alias, password, TEST_CERT_SHA256)
     # Only public metadata remains when audits/runtime begin.
     for apk, debug in [(DEBUG, True), (RELEASE, False)]:
         record = inspect_apk(apk, TEST_CERT_SHA256, debug)

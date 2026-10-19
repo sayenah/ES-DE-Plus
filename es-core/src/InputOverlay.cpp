@@ -102,6 +102,11 @@ void InputOverlay::clearButtons()
     mDirty = true;
     LOG(LogDebug) << "InputOverlay: cleared";
 }
+bool InputOverlay::claimsTouch(float x, float y)
+{
+    refreshGeometry();
+    return mModel.claims({x, y});
+}
 void InputOverlay::cancelTouches() { mModel.cancel(); }
 void InputOverlay::onResume()
 {

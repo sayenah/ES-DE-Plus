@@ -9,4 +9,8 @@
         android:targetPackage="${applicationId}" />
     <instrumentation android:name="org.esdeplus.frontend.TouchSmoke"
         android:targetPackage="${applicationId}" />
+    <application>
+        <activity android:name="org.esdeplus.frontend.ForcedRelaunchBootstrapActivity"
+            android:exported="true" android:permission="android.permission.DUMP" />
+    </application>
 </manifest>

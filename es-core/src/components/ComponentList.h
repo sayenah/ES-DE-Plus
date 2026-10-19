@@ -89,6 +89,12 @@ public:
     bool moveCursor(int amount);
     int getCursorId() const { return mCursor; }
 
+#if defined(__ANDROID__)
+    bool getTouchFocused() const { return mFocused; }
+    float getTouchOffset() const { return mCameraOffset; }
+    int getTouchRow(float y) const { return static_cast<int>((y + mCameraOffset) / mRowHeight); }
+    const ComponentListRow& getTouchRowData(int row) const { return mEntries.at(row).data; }
+#endif
     const float getRowHeight() const { return mRowHeight; }
     void setRowHeight(float height) { mRowHeight = height; }
     const float getTotalRowHeight() const { return mRowHeight * mEntries.size(); }

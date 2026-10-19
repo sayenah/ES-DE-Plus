@@ -3,6 +3,7 @@
 package org.esdeplus.frontend
 
 import android.Manifest
+import android.app.AlertDialog
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -20,6 +21,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -29,6 +31,9 @@ class ConfiguratorActivity : Activity() {
     private lateinit var storage: StorageModel
     private lateinit var content: LinearLayout
     private var mode = ""
+    private var dataPath = ""
+    private var dataConsent = ""
+    private var step = "data"
     private var path = ""
     private var tree = ""
     private var createSystems = true
@@ -39,6 +44,8 @@ class ConfiguratorActivity : Activity() {
     private var focusId = 0
     private var pathInput: EditText? = null
     private var completed = false
+    private var restartFrontend = false
+    private var storageRestartRequired = false
     private lateinit var sessionId: String
 
     override fun onCreate(state: Bundle?) {
@@ -55,9 +62,12 @@ class ConfiguratorActivity : Activity() {
         val draft = restoredState ?: ConfiguratorSession.loadDraft(this, sessionId)
         val saved = storage.load()
         mode = draft?.getString("mode") ?: saved?.mode ?: ""
+        dataPath = draft?.getString("dataPath") ?: saved?.data.orEmpty()
+        dataConsent = draft?.getString("dataConsent") ?: saved?.data.orEmpty()
+        step = draft?.getString("step") ?: if (dataConsent.isEmpty()) "data" else "roms"
         path = draft?.getString("path") ?: saved?.roms ?: ""
         tree = draft?.getString("tree") ?: saved?.tree ?: ""
-        typedPath = draft?.getString("typedPath") ?: path
+        typedPath = draft?.getString("typedPath") ?: if (step == "data") dataPath else path
         focusId = draft?.getInt("focusId") ?: 0
         createSystems = draft?.getBoolean("createSystems") ?: saved?.createSystems ?: true
         permissionPending = draft?.getBoolean("permissionPending") ?: false
@@ -70,6 +80,7 @@ class ConfiguratorActivity : Activity() {
             val entry = draft.getParcelable<Intent>("entry")
             intent.putExtra("entry", entry)
         }
+        storageRestartRequired = draft?.getBoolean("storageRestartRequired") == true || message != null
         storage.releaseUnselectedGrants(tree)
     }
 
@@ -78,7 +89,8 @@ class ConfiguratorActivity : Activity() {
         setIntent(intent)
         if (sessionId != ConfiguratorSession.session(this)) restoreSelection(null)
         resourceError = ConfiguratorSession.resourceFailure != null
-        message = intent.getStringExtra("message") ?: storage.problem()
+        message = intent.getStringExtra("message") ?: storage.problem(probeChildren = false)
+        if (message != null) storageRestartRequired = true
         render()
     }
 
@@ -112,11 +124,15 @@ class ConfiguratorActivity : Activity() {
     private fun writeState(state: Bundle) {
         state.putString("session", sessionId)
         state.putString("mode", mode)
+        state.putString("dataPath", dataPath)
+        state.putString("dataConsent", dataConsent)
+        state.putString("step", step)
         state.putString("path", path)
         state.putString("tree", tree)
         state.putBoolean("createSystems", createSystems)
         state.putBoolean("permissionPending", permissionPending)
         state.putBoolean("resourceError", resourceError)
+        state.putBoolean("storageRestartRequired", storageRestartRequired)
         state.putString("message", message)
         state.putString("typedPath", typedPath)
         state.putInt("focusId", focusId)
@@ -125,11 +141,13 @@ class ConfiguratorActivity : Activity() {
         state.putParcelable("entry", entry)
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
     private fun text(value: String) {
         content.addView(TextView(this).apply {
             text = value
             textSize = 18f
-            setPadding(0, 8, 0, 8)
+            setPadding(0, dp(8), 0, dp(8))
         })
     }
     private fun button(label: Int, action: () -> Unit): Button = Button(this).also {
@@ -144,6 +162,7 @@ class ConfiguratorActivity : Activity() {
         try { action() }
         catch (error: Exception) {
             message = error.message ?: getString(R.string.configuration_failed)
+            storageRestartRequired = true
             render()
         }
     }
@@ -154,9 +173,28 @@ class ConfiguratorActivity : Activity() {
         pathInput = null
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 20, 32, 20)
+            setPadding(dp(32), dp(20), dp(32), dp(20))
         }
-        setContentView(ScrollView(this).apply { addView(content) })
+        setContentView(ScrollView(this).apply {
+            // Apply padding to the viewport so even its first/last controls stay
+            // inside bars/cutouts after scrolling, including edge-to-edge SDK 35+.
+            setOnApplyWindowInsetsListener { view, insets ->
+                val safe = if (Build.VERSION.SDK_INT >= 30)
+                    insets.getInsets(android.view.WindowInsets.Type.systemBars() or
+                        android.view.WindowInsets.Type.displayCutout())
+                else @Suppress("DEPRECATION") insets.systemWindowInsets
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
+            addView(content)
+            requestApplyInsets()
+        })
+        content.addView(ImageView(this).apply {
+            setImageResource(R.drawable.pixel_plus_mark)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            val size = (48 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size)
+        })
         text(getString(R.string.configure_title, getString(R.string.app_name)))
         message?.let(::text)
         if (resourceError) {
@@ -173,10 +211,29 @@ class ConfiguratorActivity : Activity() {
             return
         }
         text(getString(R.string.storage_choice))
-        val scoped = button(R.string.scoped_mode) {
+        val direct = button(R.string.direct_mode) {
             guarded {
-                val owned = storage.verifyDirectory(storage.ownedROMs(), true).path
+                ConfiguratorSession.requestTouchOverlayReset(this)
+                storageRestartRequired = true
+                if (mode != "direct") {
+                    path = ""; tree = ""; dataPath = ""; dataConsent = ""; typedPath = ""; step = "data"
+                }
+                mode = "direct"
+                pathInput = null
+                message = null
+                render()
+            }
+        }
+        button(R.string.scoped_mode) {
+            guarded {
+                ConfiguratorSession.requestTouchOverlayReset(this)
+                storageRestartRequired = true
+                dataPath = storage.verifyDirectory(storage.privateData(), true).path
+                dataConsent = dataPath
+                val owned = storage.verifyDirectory(storage.ownedROMs(), true, readOnly = true).path
                 mode = "scoped"
+                pathInput = null
+                step = "roms"
                 path = owned
                 tree = ""
                 storage.releaseUnselectedGrants()
@@ -184,19 +241,25 @@ class ConfiguratorActivity : Activity() {
                 render()
             }
         }
-        button(R.string.direct_mode) {
-            if (mode != "direct") { path = ""; tree = ""; typedPath = "" }
-            mode = "direct"
-            message = null
-            render()
-        }
         if (mode == "scoped") {
+            text(getString(R.string.private_data_warning, dataPath))
             text(getString(R.string.scoped_howto, path, path))
         } else if (mode == "direct") {
             text(getString(R.string.direct_explanation))
             if (!storage.broadAccess()) {
                 button(R.string.grant_access) { requestAccess() }
+            } else if (step == "data" || dataConsent.isEmpty()) {
+                try { renderDataSelection() }
+                catch (error: Exception) { text(error.message ?: getString(R.string.storage_validation_failed)) }
             } else {
+                text(getString(R.string.data_selected, dataPath))
+                button(R.string.change_data_folder) {
+                    step = "data"
+                    typedPath = dataPath
+                    pathInput = null
+                    render()
+                }
+                guardedMediaDisclosure()
                 val picker = button(R.string.choose_folder) { chooseFolder() }
                 text(getString(R.string.direct_howto, path.ifEmpty { getString(R.string.no_folder) }))
                 val input = EditText(this).apply {
@@ -237,6 +300,8 @@ class ConfiguratorActivity : Activity() {
                 val accept = button(R.string.use_path) {
                     guarded {
                         val selected = storage.acceptPath(input.text.toString())
+                        storage.verifyDisjoint(java.io.File(dataPath), selected)
+                        storageRestartRequired = true
                         path = selected.path
                         tree = ""
                         storage.releaseUnselectedGrants()
@@ -261,8 +326,18 @@ class ConfiguratorActivity : Activity() {
         })
         button(R.string.continue_frontend) {
             guarded {
-                storage.save(StorageModel.Configuration(mode, path, tree, createSystems))
+                ConfiguratorSession.requestTouchOverlayReset(this)
+                if (mode == "direct" && (dataConsent != dataPath || step != "roms"))
+                    throw java.io.IOException(getString(R.string.data_folder_required))
+                val selected = StorageModel.Configuration(mode, path, tree, createSystems, dataPath)
+                storage.save(selected)
+                ConfiguratorSession.requestTouchOverlayReset(this, selected.data)
                 ConfiguratorSession.clearDraft(this)
+                // Snapshot before releasing the startup hold: the initial native
+                // thread may select its paths immediately after that release.
+                // A setup reset also needs fresh Settings even if the roots did
+                // not change: the old process may have consumed startup already.
+                restartFrontend = MainActivity.liveInstance()?.nativePathsSelected == true
                 completed = true
                 ConfiguratorSession.finishConfiguration()
                 returnToFrontend()
@@ -270,8 +345,99 @@ class ConfiguratorActivity : Activity() {
         }
         button(R.string.cancel_configuration) { cancelled() }
         (content.findViewById<android.view.View>(retainedFocus)?.takeIf { it.isFocusable && it.isEnabled }
-            ?: scoped).requestFocus()
+            ?: direct).requestFocus()
         rememberDraft()
+    }
+
+    private fun guardedMediaDisclosure() {
+        try {
+            storage.mediaOverride(java.io.File(dataPath))?.let {
+                text(getString(R.string.media_override, it))
+            }
+        } catch (error: Exception) { text(error.message ?: getString(R.string.configuration_failed)) }
+    }
+
+    private fun renderDataSelection() {
+        text(getString(R.string.data_folder_step))
+        try { text(getString(R.string.previous_private_data, storage.privateData().path)) }
+        catch (error: java.io.IOException) { text(getString(R.string.private_location_unavailable)) }
+        if (typedPath.isEmpty()) {
+            typedPath = dataPath.ifEmpty {
+                try { storage.defaultData().path }
+                catch (error: java.io.IOException) {
+                    text(error.message ?: getString(R.string.volume_unavailable))
+                    ""
+                }
+            }
+        }
+        button(R.string.choose_data_folder) { chooseFolder(data = true) }
+        val input = EditText(this).apply {
+            id = R.string.data_path_hint
+            hint = getString(R.string.data_path_hint)
+            contentDescription = hint
+            setSingleLine(true)
+            setText(typedPath)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
+                    typedPath = value?.toString().orEmpty()
+                    if (typedPath != dataPath) dataConsent = ""
+                    rememberDraft()
+                }
+                override fun afterTextChanged(value: Editable?) {}
+            })
+            setOnFocusChangeListener { _, focused -> if (focused) rememberDraft() }
+            setOnKeyListener { _, code, event ->
+                when (code) {
+                    KeyEvent.KEYCODE_DPAD_CENTER -> {
+                        if (event.action == KeyEvent.ACTION_UP)
+                            getSystemService(InputMethodManager::class.java).showSoftInput(this, 0)
+                        true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (event.action == KeyEvent.ACTION_DOWN)
+                            focusSearch(if (code == KeyEvent.KEYCODE_DPAD_UP) View.FOCUS_UP else View.FOCUS_DOWN)?.requestFocus()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
+        pathInput = input
+        content.addView(input)
+        val accept = button(R.string.confirm_data_folder) { guarded { consentToData(input.text.toString()) } }
+        val picker = content.findViewById<Button>(R.string.choose_data_folder)
+        picker.nextFocusDownId = input.id
+        input.nextFocusUpId = picker.id
+        input.nextFocusDownId = accept.id
+        accept.nextFocusUpId = input.id
+    }
+
+    private fun consentToData(candidate: String) {
+        // Structural checks only. Even canonicalisation is deferred until the
+        // positive action; no metadata or contents from a proposed destination.
+        val destination = storage.structuralPath(candidate, data = true).path
+        if (path.isNotEmpty()) storage.disjoint(java.io.File(destination), java.io.File(path))
+        val ownDefault = try { destination == storage.defaultData().path }
+            catch (_: java.io.IOException) { false }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.confirm_data_folder)
+            .setMessage(getString(if (ownDefault) R.string.data_create_consent else R.string.data_adopt_consent,
+                destination))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.use_data_folder) { _, _ ->
+                guarded {
+                    val confirmed = storage.confirmData(destination, path)
+                    storageRestartRequired = true
+                    dataPath = confirmed.path
+                    dataConsent = dataPath
+                    step = "roms"
+                    typedPath = path
+                    pathInput = null
+                    message = null
+                    render()
+                }
+            }.show()
     }
 
     private fun requestAccess() {
@@ -312,12 +478,12 @@ class ConfiguratorActivity : Activity() {
         render()
     }
 
-    private fun chooseFolder() {
+    private fun chooseFolder(data: Boolean = false) {
         try {
             startActivityForResult(getSystemService(StorageManager::class.java).primaryStorageVolume
                 .createOpenDocumentTreeIntent().addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION), 2)
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION), if (data) 3 else 2)
         } catch (error: ActivityNotFoundException) {
             message = getString(R.string.no_picker)
             render()
@@ -328,7 +494,7 @@ class ConfiguratorActivity : Activity() {
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 2) return
+        if (requestCode != 2 && requestCode != 3) return
         if (resultCode != RESULT_OK || data?.data == null) {
             message = getString(R.string.picker_cancelled)
             render()
@@ -336,7 +502,18 @@ class ConfiguratorActivity : Activity() {
         }
         guarded {
             val uri = data.data!!
+            if (requestCode == 3) {
+                val destination = storage.resolveTree(uri, data = true).path
+                typedPath = destination
+                dataConsent = ""
+                pathInput = null
+                render()
+                consentToData(destination)
+                return@guarded
+            }
             val directory = storage.acceptTree(uri, data.flags)
+            storage.verifyDisjoint(java.io.File(dataPath), directory)
+            storageRestartRequired = true
             path = directory.path
             tree = uri.toString()
             pathInput = null
@@ -351,6 +528,10 @@ class ConfiguratorActivity : Activity() {
         // A live SDL caller resumes through its registered static callback.
         // After process death launch the recorded entry; HOME is never inferred
         // from a preference, Leanback, or the configurator's own intent.
+        if (restartFrontend && MainActivity.liveInstance()?.restartAfterStorageSelection() == true) {
+            finish()
+            return
+        }
         if (!ConfiguratorSession.configuring) {
             @Suppress("DEPRECATION")
             val entry = intent.getParcelableExtra<Intent>("entry")

@@ -1,12 +1,19 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — framework-free theme trust checks written for ES-DE-Plus.
 name: Build Linux
 
 on:
   push:
     branches:
       - main
-      - "feature/**"
-      - "fix/**"
+    paths-ignore: ["docs/**", "**/*.md", "**/*.markdown", "**/*.MD"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md", "**/*.markdown", "**/*.MD"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -19,6 +26,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Verify PDF-close failure propagation
+        run: python3 android/pdf_close_probe_test.py
 
       - name: Install build dependencies
         run: |
@@ -41,9 +51,42 @@ jobs:
           cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
           cmake --build build-input-overlay --parallel 2
           ctest --test-dir build-input-overlay --output-on-failure
+      - name: Emulator override persistence probe
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -Ies-app/src -Ies-core/src es-app/src/EmulatorManagerConfig.cpp es-app/src/EmulatorLaunchProfile.cpp android/emulator-manager-probe.cpp -lpugixml -o /tmp/emulator-manager-probe
+          /tmp/emulator-manager-probe /tmp/emulator-manager-fixtures
 
       - name: Configure
-        run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Theme repository policy and operation controls (framework free)
+        run: |
+          cmake -S tests/theme-repository-trust -B build/theme-trust -DCMAKE_BUILD_TYPE=Release -DTHEME_TRUST_RUNTIME=ON
+          cmake --build build/theme-trust --parallel 2
+          ctest --test-dir build/theme-trust --output-on-failure
 
       - name: Build
         run: cmake --build build --parallel 2
+
+      - name: Verify unchanged desktop theme downloader preprocessor output
+        run: python3 tests/theme-repository-trust/desktop.py
+      - name: Audio teardown positive control and regression (real SDL dummy driver)
+        run: python3 tests/audio-deinit/run.py 063e454da build/audio-deinit
+
+      - name: Build DEINIT_ON_LAUNCH and exercise a real launch and desktop exit
+        run: |
+          cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release -DDEINIT_ON_LAUNCH=ON
+          cmake --build build --parallel 2
+          python3 tests/audio-deinit/desktop.py ./es-de build/audio-deinit/fixed/libaudio-desktop-probe.so build/audio-desktop
+
+      - name: Retain audio detector evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: audio-deinit-linux-${{ github.run_id }}
+          path: |
+            build/audio-deinit/*.txt
+            build/audio-desktop/*.txt
+            build/audio-desktop/home/ES-DE/logs/es_log.txt
+          if-no-files-found: error
+          retention-days: 7

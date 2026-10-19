@@ -27,6 +27,7 @@ def workflow_eligibility():
     for line in workflow.splitlines():
         if re.fullmatch(r'  [\w-]+:', line):
             job = line.strip()[:-1]
+            step = ''
         if line.startswith('      - name:'):
             step = line.split('name:', 1)[1].strip()
         if 'github.repository ==' in line and job != 'rebuild-source':
@@ -34,26 +35,38 @@ def workflow_eligibility():
             if 'PUBLICATION:' in line or 'ELIGIBLE:' in line:
                 label = line.strip().split(':', 1)[0]
             expressions[label] = re.findall(r'\$\{\{ (.*?) \}\}', line)[-1]
-    assert len(expressions) == 8, expressions
+    assert len(expressions) == 6, expressions
     assert re.search(r'      publish:\n.*\n        type: boolean\n        default: false\n', workflow)
     # All Python guards must receive the same input, including the writing job.
-    assert len(re.findall(r'^      PUBLISH: \$\{\{ inputs.publish \|\| false \}\}$', workflow, re.M)) == 3
-    assert len(re.findall(r"^      FAILURE: \$\{\{ inputs.failure \|\| 'none' \}\}$", workflow, re.M)) == 3
-    assert len(re.findall(r'^      REBUILD_RUN: \$\{\{ inputs.rebuild_run \}\}$', workflow, re.M)) == 3
-    assert '    steps: *android_steps' in workflow and '    env: *api34_env' in workflow
+    assert len(re.findall(r'^      PUBLISH: \$\{\{ inputs.publish \|\| false \}\}$', workflow, re.M)) == 4
+    assert len(re.findall(r"^      FAILURE: \$\{\{ inputs.failure \|\| 'none' \}\}$", workflow, re.M)) == 4
+    assert len(re.findall(r'^      REBUILD_RUN: \$\{\{ inputs.rebuild_run \}\}$', workflow, re.M)) == 4
+    assert '    name: ${{ matrix.image }} / ${{ matrix.session }}' in workflow
+    assert '    continue-on-error: ${{ matrix.informational }}' in workflow
+    assert '    needs: [selection, build-publish]' in workflow
+    assert 'internal-publication-apks-' in workflow
     assert workflow.count('    environment: test-signing') == 1
+    builder = workflow.split('\n  build-publish:\n', 1)[1].split('\n  sessions:\n', 1)[0]
+    publisher = workflow.split('\n  publish-apk:\n', 1)[1].split('\n  release:\n', 1)[0]
+    assert 'Check tracked subtree integrity before source packaging' in builder
+    assert 'Check tracked subtree integrity after the session' in workflow
+    assert workflow.count('run: git diff --exit-code -- external/') == 2
+    assert 'origin_attempt: ${{ github.run_attempt }}' in builder
+    assert 'origin_attempt: ${{ needs.build-publish.outputs.origin_attempt }}' in publisher
     return expressions, workflow
 
 
-def evaluate(expression, values):
+def evaluate(expression, values, cancelled=False):
     # This evaluator covers only the operators/context lookups used by these
     # eligibility expressions. Unsupported syntax fails rather than being ignored.
-    expression = re.sub(r'\b(?:github|inputs|matrix|env|steps)\.[\w.-]+',
+    expression = re.sub(r'\b(?:github|inputs|matrix|env|steps|needs)\.[\w.-]+',
                         lambda match: repr(values[match[0]]), expression)
-    expression = expression.replace('success()', 'True').replace('always()', 'True')
+    expression = expression.replace('success()', 'True').replace('always()', 'True').replace('cancelled()', repr(cancelled))
+    expression = re.sub(r'\bformat\(', 'str.format(', expression)
+
     expression = expression.replace('&&', ' and ').replace('||', ' or ')
     expression = re.sub(r'!(?!=)', ' not ', expression)
-    return eval(expression.strip(), {'__builtins__': {}}, {})
+    return eval(expression.strip(), {'__builtins__': {}, 'str': str}, {})
 
 
 def eligibility_controls():
@@ -64,14 +77,16 @@ def eligibility_controls():
             (test_signing.REPOSITORY, 'someone/ES-DE-Plus'),
             ('push', 'workflow_dispatch', 'pull_request', 'pull_request_target'),
             ('refs/heads/main', 'refs/heads/fix/publish-on-demand', 'refs/pull/19/merge', 'refs/tags/main'),
-            ('api29', 'tv36', 'api34'), ('', '123'),
+            ('api33', 'api35', 'tv36', 'api34', 'publish'), ('', '123'),
             ('', 'none', 'android', 'linux', 'source-upload', 'source-validation', 'apk-upload'),
             ('', False, True)):
         evaluated += 1
         expected = (repository == test_signing.REPOSITORY and event == 'workflow_dispatch' and
                     ref == 'refs/heads/main' and publish is True and rebuild == '' and failure in ('', 'none'))
         values = {'github.repository': repository, 'github.event_name': event, 'github.ref': ref,
-                  'github.run_id': '123456', 'inputs.publish': publish, 'inputs.rebuild_run': rebuild,
+                  'github.run_id': '123456', 'github.event.pull_request.number': 29,
+                  'needs.selection.result': 'success', 'needs.sessions.result': 'success',
+                  'needs.build.result': 'success', 'inputs.publish': publish, 'inputs.rebuild_run': rebuild,
                   'inputs.failure': failure, 'matrix.image': image, 'env.EARLY_LEGS_RESULT': 'success',
                   'steps.source-validate.outcome': 'success'}
         case = (repository, event, ref, image, rebuild, failure, publish)
@@ -80,30 +95,29 @@ def eligibility_controls():
             if label != 'concurrency':
                 result = bool(result)
             if label == 'concurrency':
-                verdict = 'main-publication' if expected else '123456'
-            elif label.startswith('api34-dry-run:'):
-                verdict = not rebuild and not expected
-            elif label.startswith('build:'):
-                verdict = expected and image == 'api34'
+                verdict = 'main-publication' if expected else ('pr-29' if event == 'pull_request' else '123456')
+            elif label.startswith('build-publish:Sign both'):
+                verdict = expected and image == 'publish'
             else:
                 verdict = expected
             assert result == verdict, (label, case, result, verdict)
-        assert test_signing.eligible(*case[:6], publish) == (expected and image == 'api34'), case
+        assert test_signing.eligible(*case[:6], publish) == (expected and image == 'publish'), case
+
         assert distribution.permitted_publication(repository, event, ref, publish, rebuild, failure) == expected, case
         environment = {'GITHUB_REPOSITORY': repository, 'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref,
                        'IMAGE': image, 'REBUILD_RUN': rebuild, 'FAILURE': failure,
                        'PUBLISH': str(publish).lower()}
         with mock.patch.dict(os.environ, environment), mock.patch.object(release_pipeline, 'GitHub') as transport:
-            assert test_signing.stable_run() == (expected and image == 'api34'), case
+            assert test_signing.stable_run() == (expected and image == 'publish'), case
             try:
                 release_pipeline.publication_transport()
             except ValueError:
-                assert not (expected and image == 'api34'), case
+                assert not (expected and image == 'publish'), case
                 transport.assert_not_called()
             else:
-                assert expected and image == 'api34', case
+                assert expected and image == 'publish', case
                 transport.assert_called_once_with()
-        if expected and image == 'api34':
+        if expected and image == 'publish':
             accepted.append(case)
     assert len(accepted) == 2
     print(f'PASS: eligibility truth table, {evaluated} combinations across {len(expressions)} workflow expressions, '
@@ -138,14 +152,15 @@ def eligibility_controls():
     # results: only complete publication or complete dry-run outcomes may pass.
     block = workflow.split('  publication-result:\n', 1)[1].split('  rebuild-source:\n', 1)[0]
     script = textwrap.dedent(block.split("          python3 - <<'PYCODE'\n", 1)[1].split('          PYCODE', 1)[0])
-    script = compile(script.replace("print('PASS: all required build/publication outcomes present')", ''),
+    script = compile(script.replace("print('PASS: all API 33 sessions gate; API 35 results retained; publication complete or no APK uploaded')", ''),
                      'publication-result', 'exec')
-    for eligible, early, final, dry, release in itertools.product(
-            (True, False), *([('success', 'failure', 'skipped', 'cancelled')] * 4)):
-        environment = dict(ELIGIBLE=str(eligible).lower(), EARLY_LEGS=early, FINAL_LEG=final,
-                           DRY_LEG=dry, RELEASE_RESULT=release)
-        expected = early == 'success' and ((final, dry, release) ==
-                   (('success', 'skipped', 'success') if eligible else ('skipped', 'success', 'skipped')))
+    for eligible, selection, sessions, build, apk, release in itertools.product(
+            (True, False), *([('success', 'failure', 'skipped', 'cancelled')] * 5)):
+        environment = dict(ELIGIBLE=str(eligible).lower(), SELECTION=selection, SESSIONS=sessions,
+                           BUILD=build, APK=apk, RELEASE=release)
+        required = 'success' if eligible else 'skipped'
+        expected = selection == sessions == 'success' and build == apk == release == required
+
         with mock.patch.dict(os.environ, environment):
             try:
                 exec(script, {})
@@ -153,7 +168,8 @@ def eligibility_controls():
                 assert not expected, environment
             else:
                 assert expected, environment
-    print('PASS: actual publication-result script, 512 job-outcome combinations')
+    print('PASS: actual parallel publication-result script, 2048 job-outcome combinations')
+
 
 
 def check():

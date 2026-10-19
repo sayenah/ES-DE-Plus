@@ -22,6 +22,9 @@
 #include <memory>
 #include <string>
 
+#if defined(__ANDROID__)
+class GuiComponent;
+#endif
 class InputConfig;
 class Window;
 
@@ -81,6 +84,12 @@ private:
     std::unique_ptr<InputConfig> mTouchInputConfig;
 #if defined(__ANDROID__)
     std::array<bool, 14> mAcceptedTouch {};
+    struct TouchOwner {
+        int64_t finger {-1};
+        GuiComponent* gui {nullptr};
+        bool overlay {false};
+    };
+    std::array<TouchOwner, 32> mTouchOwners {};
 #endif
 
     std::map<std::pair<SDL_JoystickID, int>, int> mPrevAxisValues;

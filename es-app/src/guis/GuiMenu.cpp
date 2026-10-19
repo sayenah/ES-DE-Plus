@@ -129,11 +129,11 @@ void GuiMenu::openGlobalSearch()
     };
 
     if (Settings::getInstance()->getBool("VirtualKeyboard")) {
-        const float verticalPosition {
-            Renderer::getIsVerticalOrientation() ? mMenu.getPosition().y : 0.0f};
-        mWindow->pushGui(new GuiTextEditKeyboardPopup(
-            verticalPosition, _("SEARCH ALL GAMES"), "", searchCallback, false, _("SEARCH"),
-            _("START SEARCH?")));
+        const float verticalPosition {Renderer::getIsVerticalOrientation() ? mMenu.getPosition().y :
+                                                                             0.0f};
+        mWindow->pushGui(new GuiTextEditKeyboardPopup(verticalPosition, _("SEARCH ALL GAMES"), "",
+                                                      searchCallback, false, _("SEARCH"),
+                                                      _("START SEARCH?")));
     }
     else {
         mWindow->pushGui(new GuiTextEditPopup(_("SEARCH ALL GAMES"), "", searchCallback, false,
@@ -1519,12 +1519,21 @@ void GuiMenu::openInputDeviceOptions()
     auto inputTouchOverlayCallback = [this, inputTouchOverlay, touchOverlaySize,
                                       touchOverlayOpacity, touchOverlayFadeTime]() {
         if (!inputTouchOverlay->getState()) {
+#if defined(__ANDROID__)
+            const std::string message {
+                _("DISABLING TOUCH CAN LOCK YOU OUT OF ES-DE PLUS. RECOVER WITH A CONTROLLER "
+                  "OR KEYBOARD, OR CLOSE THE APP AND SET InputTouchOverlay TO true IN "
+                  "settings/es_settings.xml IN YOUR APPLICATION DATA FOLDER. FOR PRIVATE "
+                  "DATA, USE A COMPUTER WITH adb. IN DIRECT STORAGE MODE, REVOKE FULL FILE "
+                  "ACCESS IN ANDROID SETTINGS, THEN COMPLETE SETUP TO ENABLE TOUCH AGAIN.")};
+#else
             const std::string message {
                 _("DON'T DISABLE THE TOUCH OVERLAY UNLESS YOU ARE USING A CONTROLLER OR YOU WILL "
                   "LOCK YOURSELF OUT OF THE APP. IF THIS HAPPENS YOU WILL NEED TO TEMPORARILY "
                   "PLUG IN A CONTROLLER OR A KEYBOARD TO ENABLE THIS SETTING AGAIN, OR YOU "
                   "COULD CLEAR THE ES-DE STORAGE IN THE ANDROID APP SETTINGS TO FORCE THE "
                   "CONFIGURATOR TO RUN ON NEXT STARTUP")};
+#endif
 
             Window* window {mWindow};
             window->pushGui(

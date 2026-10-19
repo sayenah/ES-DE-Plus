@@ -363,7 +363,7 @@ def shader_mapping(source):
 
 
 def dependency_cache(key, hit):
-    require(isinstance(key, str) and re.fullmatch(r'android-ndk28\.2\.13676358-api29-[a-f0-9]{64}', key),
+    require(isinstance(key, str) and re.fullmatch(r'android-ndk28\.2\.13676358-api33-[a-f0-9]{64}', key),
             'Missing or invalid dependency-cache key')
     require(isinstance(hit, bool), 'Invalid dependency-cache hit state')
     return {'key': key, 'hit': hit}
@@ -472,7 +472,7 @@ def provenance(path, tracked, audit):
 
 
 def permitted_publication(repository, event, ref, publish=False, rebuild='', failure='none'):
-    return test_signing.eligible(repository, event, ref, 'api34', rebuild, failure, publish)
+    return test_signing.eligible(repository, event, ref, 'publish', rebuild, failure, publish)
 
 
 def artifact_names(commit, run_id, attempt):
@@ -505,11 +505,15 @@ def linux_gate(injection):
     payload = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     head = payload['pull_request']['head']['sha'] if event == 'pull_request' else os.environ['GITHUB_SHA']
     expected_event = 'pull_request' if event == 'pull_request' else 'push'
+    # Docs-only main heads intentionally have no push run. An explicit Linux
+    # dispatch may prove the same exact checkout; never accept another event.
+    allowed_events = {expected_event, 'workflow_dispatch'} if event == 'workflow_dispatch' else {expected_event}
     commit = run('git', 'rev-parse', 'HEAD')
     deadline = time.monotonic() + 1800
     while time.monotonic() < deadline:
         candidates = api(f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/workflows/build-linux.yml/runs'
-                         f'?head_sha={head}&event={expected_event}&per_page=100')['workflow_runs']
+                         f'?head_sha={head}&per_page=100')['workflow_runs']
+        candidates = [candidate for candidate in candidates if candidate['event'] in allowed_events]
         if candidates:
             selected = max(candidates, key=lambda r: r['id'])
             print(f'Linux gate: {selected["html_url"]} SHA={head} status={selected["status"]}', flush=True)
@@ -653,7 +657,7 @@ def make_bundle(apk):
         'meson': run('meson', '--version'), 'clang': run(str(pathlib.Path(os.environ['ANDROID_NDK_HOME']) /
             'toolchains/llvm/prebuilt/linux-x86_64/bin/clang'), '--version'),
         'Gradle': '8.13', 'AGP': '8.13.2', 'Kotlin': '2.2.21', 'SDK': '36',
-        'SDK CMake': '3.31.5', 'build-tools': '36.0.0', 'minSdk': '29',
+        'SDK CMake': '3.31.5', 'build-tools': '36.0.0', 'minSdk': '33',
     }
     require('Pkg.Revision = 28.2.13676358' in tools['NDK'], 'Unexpected NDK provenance')
     require(os.environ.get('DEPENDENCY_CACHE_HIT') in {'true', 'false'}, 'Missing cache restore result')
@@ -915,7 +919,7 @@ def gate_controls():
             print(f'PASS: missed/forbidden APK upload rejected: {error}')
         else:
             raise ValueError('APK publication control escaped')
-    key = 'android-ndk28.2.13676358-api29-' + 'a' * 64
+    key = 'android-ndk28.2.13676358-api33-' + 'a' * 64
     dependency_cache(key, True)
     dependency_cache(key, False)
     for invalid_key, invalid_hit in [('', False), (key, 'true')]:

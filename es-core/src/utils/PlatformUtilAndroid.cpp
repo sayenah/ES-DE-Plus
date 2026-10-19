@@ -39,6 +39,50 @@ namespace AndroidVariables
 
 namespace
 {
+    std::atomic<bool> sLifecycleEventsReady {false};
+    std::atomic<bool> sQuitRequested {false};
+    std::atomic<bool> sStartupDirectoriesRead {false};
+
+    Uint32 retainQuitRequest(Uint32 interval, void*)
+    {
+        // Upstream drains startup events before its application loop. Keep a
+        // destruction request available until that loop exits and SDL stops
+        // its timers; do not flush other events or invoke Java from this thread.
+        if (!SDL_HasEvent(SDL_QUIT)) {
+            SDL_Event event {};
+            event.type = SDL_QUIT;
+            SDL_PushEvent(&event);
+        }
+        return interval;
+    }
+
+    int observeQuitRequest(void*, SDL_Event* event)
+    {
+        if (event->type == SDL_QUIT && !sQuitRequested.exchange(true)) {
+            if (SDL_AddTimer(50, retainQuitRequest, nullptr) == 0)
+                __android_log_print(ANDROID_LOG_ERROR, ANDROID_APPLICATION_ID,
+                                    "Cannot retain Android destruction quit request: %s",
+                                    SDL_GetError());
+        }
+        return 0;
+    }
+
+    void prepareLifecycleEvents()
+    {
+        // Registration runs after SDL's JNI setup, before onResume can start
+        // SDLThread. Subsequent hold updates and native directory setup reuse
+        // the queue/watch; quit must survive even the first configuration query.
+        if (sLifecycleEventsReady)
+            return;
+        if (SDL_InitSubSystem(SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
+            __android_log_print(ANDROID_LOG_ERROR, ANDROID_APPLICATION_ID,
+                                "Cannot initialize Android lifecycle events: %s", SDL_GetError());
+            _exit(EXIT_FAILURE);
+        }
+        SDL_AddEventWatch(observeQuitRequest, nullptr);
+        sLifecycleEventsReady = true;
+    }
+
     void prepareConfigurationWait()
     {
         // Initial configuration and early font copying precede SDL video init.
@@ -413,9 +457,67 @@ namespace Utils
 
             int getCellularStatus() { return callInt("getCellularStatus"); }
 
-            bool getCreateSystemDirectories() { return callBool("getCreateSystemDirectories"); }
+            bool getCreateSystemDirectories()
+            {
+                // This is the first native checkpoint after setupResources has
+                // closed its files and committed its marker. No systems or
+                // user-facing frontend state have been loaded yet. Exit on
+                // this thread, as for the held configurator, before upstream
+                // discards quit or SDLMain requests another Activity finish.
+                if (!sStartupDirectoriesRead.exchange(true) && sQuitRequested) {
+                    __android_log_print(
+                        ANDROID_LOG_INFO, ANDROID_APPLICATION_ID,
+                        "SDL_QUIT observed before frontend initialization; configuration and "
+                        "resources saved; ending process");
+                    Log::flush();
+                    std::fflush(nullptr);
+                    _exit(EXIT_SUCCESS);
+                }
+                return callBool("getCreateSystemDirectories");
+            }
 
             std::string getExternalDirectory() { return callString("getExternalDirectory"); }
+
+            bool getEmulatorActivities(const std::vector<std::string>& paths,
+                                       std::vector<EmulatorActivity>& activities)
+            {
+                activities.clear();
+                ActivityContext context;
+                jmethodID id {getMethod(context, "getEmulatorActivities",
+                                        "([Ljava/lang/String;)[Ljava/lang/String;")};
+                if (id == nullptr)
+                    return false;
+                auto input = toStringArray(context.env, paths);
+                if (clearJavaException(context.env, "getEmulatorActivities") || input == nullptr)
+                    return false;
+                auto values = static_cast<jobjectArray>(
+                    context.env->CallObjectMethod(context.activity, id, input));
+                if (clearJavaException(context.env, "getEmulatorActivities") || values == nullptr)
+                    return false;
+                const jsize size {context.env->GetArrayLength(values)};
+                if (clearJavaException(context.env, "getEmulatorActivities") || size % 4 != 0 ||
+                    size > 65536)
+                    return false;
+                for (jsize i {0}; i < size; i += 4) {
+                    std::array<std::string, 4> fields;
+                    for (jsize j {0}; j < 4; ++j) {
+                        auto value =
+                            static_cast<jstring>(context.env->GetObjectArrayElement(values, i + j));
+                        if (clearJavaException(context.env, "getEmulatorActivities") ||
+                            value == nullptr)
+                            return false;
+                        fields[j] = fromJString(context.env, value);
+                        context.env->DeleteLocalRef(value);
+                        if (clearJavaException(context.env, "getEmulatorActivities"))
+                            return false;
+                    }
+                    if (fields[1].empty() || fields[2].empty() ||
+                        (fields[3] != "0" && fields[3] != "1"))
+                        return false;
+                    activities.push_back({fields[0], fields[1], fields[2], fields[3] == "1"});
+                }
+                return true;
+            }
 
             void getInstalledApps(std::vector<std::pair<std::string, std::string>>& appList,
                                   bool gamesOnly,
@@ -558,6 +660,7 @@ namespace Utils
 
             void setDataDirectories()
             {
+                prepareLifecycleEvents();
                 AndroidVariables::sInternalDataDirectory = callString("getInternalDataDirectory");
                 AndroidVariables::sExternalDataDirectory = callString("getAppDataDirectory");
 
@@ -600,8 +703,7 @@ namespace Utils
 extern "C" JNIEXPORT void JNICALL
 Java_org_esdeplus_frontend_MainActivity_nativeSetHold(JNIEnv*, jclass, jboolean hold)
 {
-    if (hold == JNI_TRUE)
-        prepareConfigurationWait();
+    prepareLifecycleEvents();
     AndroidVariables::sHold = hold == JNI_TRUE;
 }
 

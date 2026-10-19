@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT; ES-DE-Plus Android data-folder passages adapted from this upstream MIT document. -->
 # ES-DE Frontend - Android documentation
 
 This document contains information specific to the Android release, for more general ES-DE documentation refer to the [User guide](USERGUIDE.md) as well as the general [FAQ](FAQ.md).
@@ -14,7 +15,7 @@ Table of contents:
 
 When you first start ES-DE you will be greeted by a welcome screen, this is part of the _configurator_, the ES-DE onboarding interface. The configurator is easy to use and will guide you through the necessary setup steps.
 
-As a first step you need to give ES-DE the required storage access permission or it will not be able to function. Just enable the setting and the configurator will proceed to the next step. Next you will need to define an application data directory where your settings, scraped media, custom collections and so on will be stored. By default this will be placed in the _ES-DE_ directory in the root of your device's internal storage, and this directory will be created for you automatically.
+In ES-DE Plus the configurator asks for storage permission first (full file access is recommended), then the application data folder, then the ROM folder. The default data folder is _ES-DE-Plus_ at the root of the current user's primary storage, created only after confirmation. Every other destination, including an existing _ES-DE_ folder, requires the adoption warning before any inspection. App-private storage is the secondary option and is deleted on uninstall. Settings, scraped media, gamelists, collections, downloaded themes and custom systems use the selected data folder; valid media overrides remain authoritative.
 
 After this step you need to select a ROMs directory where your game files will be stored, by default this will be named _ROMs_ and will be located in the root of you device's internal storage. You can however choose to place this on an SD card if you want to, just change the path using the Android file selector GUI. If you do change the path to the SD card you will however need to manually create the ROMs directory as well as to delete the empty directory that was created for you on the built-in storage.
 
@@ -24,25 +25,31 @@ This is basically the onboarding process, and ES-DE should now start up. Just be
 
 Also note that ES-DE does not install any emulators, you need to install those separately. There is more information about that topic later in this document.
 
-For ES-DE Plus, revoking direct-filesystem storage access opens storage configuration on the next start. Clearing Android app storage deletes private application data and app-owned ROMs; it is not an overlay recovery route. Back up your application-data folder before changing storage configuration.
+To re-run the ES-DE Plus configurator in direct storage mode, close the app and revoke its full file access under Android's _Special app access_, then start it again and complete setup. Confirm the intended application-data and ROM folders; changing roots never automatically moves data. Keep backups before changing storage configuration.
 
 ## Touch input overlay
 
 By default the touch input overlay will be enabled which makes it possible to use ES-DE without a controller or physical keyboard by overlaying virtual buttons on top of the ES-DE interface. If you are using a device which has a built-in controller you may however want to disable this feature. That is done via the _Enable touch overlay_ option in the _Input device settings_ menu on the main menu. Just be aware that disabling this option on a device where you have no other input method than touch will lock you out of the application.
 
-If you accidentally disable the ES-DE Plus touch overlay, temporarily connect a controller or keyboard and enable it via its menu entry, or, using adb from a computer while the app is closed, change _InputTouchOverlay_ from _false_ to _true_ in _settings/es_settings.xml_ under the app-private _Android/data/org.esdeplus.frontend/files/ES-DE-Plus_ folder. Android 11 and later restrict ordinary file-manager access to this folder. Configurator-based reset is not yet available in ES-DE Plus.
+If you accidentally disable the ES-DE Plus touch overlay, temporarily connect a controller or keyboard and enable it via its menu entry. Alternatively, close the app and set _InputTouchOverlay_ to _true_ in _settings/es_settings.xml_ inside your selected application-data folder. Shared folders are reachable through USB file transfer or a file manager with the necessary access; app-private _Android/data/org.esdeplus.frontend/files/ES-DE-Plus_ requires a computer with `adb`. In direct storage mode, revoking full file access opens the configurator on the next start; completing setup enables the overlay in the selected data folder. The reset survives a setup restart and is consumed once, so later user changes are preserved.
 
 Apart from this there are numerous options for the touch overlay, like the ability to change its size, opacity and fade-out time. Setting the fade-out to zero will make it permanently visible. See the [User guide](USERGUIDE.md) for a complete reference of all app settings and features.
 
 ES-DE Plus provides fourteen controls with fixed A/B/X/Y glyphs; changing the controller type does not change these glyphs. Button swapping changes their actions. Thumbstick clicks and analog sticks are not provided. A fully faded overlay consumes the entire first touch gesture to wake; use a second, non-launch control to dismiss a screensaver. On Android TV automatic startup/resume wakes stay hidden unless fade-out is zero; explicit touch or menu changes show the controls.
 
-The four size choices grow by at least 10% per step. Where the 48 dp target floor constrains spacing, the normal deck keeps its safe hit areas while its artwork changes size. The compact grid is used only when the normal deck cannot fit.
+The four size choices grow by at least 10% per step. Where the 48 dp target floor constrains spacing, the normal deck keeps its safe hit areas while its artwork changes size. The normal-deck search checks narrow fitting bands at 0.01 dp resolution before using the compact grid.
 
 Controls use SDL's Android logical density and the visible renderer viewport, with a compact grid when the normal deck cannot fit. If SDL cannot report logical density, the shorter visible dimension divided by 411 is used as a logged estimate of pixels per dp. The supported visible viewport is at least 288 dp on each dimension; smaller panes have no overlay. Every supported hit target is at least 48 dp. Conservative fixed margins are not window-inset data: cutouts, rounded corners and gesture-navigation edges still need device validation in both orientations. No inset-safety guarantee is made by this implementation.
 
 ## Retention of files and data
 
-ES-DE Plus currently keeps settings, gamelists, downloaded themes and media in the app-private _Android/data/org.esdeplus.frontend/files/ES-DE-Plus_ folder in both storage modes. Android deletes this folder on uninstall or when app storage is cleared. The app-owned scoped-mode ROM folder is also deleted. Direct-mode ROMs in a separately selected shared-storage folder survive uninstall; keep backups.
+In ES-DE Plus, files in a selected shared application data folder survive uninstall, including downloaded themes under its `themes/` directory. App-private data and ROMs are deleted on uninstall. Changing folders never automatically copies, moves or deletes data between roots; back up and close other frontends before adopting shared data.
+
+Testers upgrading from app-private data should close the frontend and back up `Android/data/org.esdeplus.frontend/files/ES-DE-Plus` before uninstalling. Copy its contents to the intended shared data folder using USB file transfer or `adb`, then choose and confirm that folder in the configurator. The app copies nothing automatically; verify the adopted settings, media and themes before removing the backup.
+
+Shared application data folder names cannot contain double quotation marks: Android refuses file renames through those paths. The configurator asks you to choose another folder instead.
+
+ES-DE Plus trusts shared theme repositories by their exact paths, alongside the settings and custom event scripts in that folder. Other apps with all-files access and USB/MTP writers can change those contents. The downloader keeps libgit2 ownership validation enabled, uses an app-private allowlist, validates repository names and workdir/gitdir identities, and checks the actual remote URL before fetching. Failed trust setup stops operations, including cleanup, with a recoverable error. These checks do not isolate the app from shared-folder writers: initialization writes metadata before its post-initialization check, so concurrent redirection can race those writes into other app-accessible locations; later filesystem operations can also race. Close other writers and back up the folder before adoption. This path-based trust and its residual races were accepted by the Founder (D-012 amendments 3–4).
 
 ## Emulation on Android in general
 

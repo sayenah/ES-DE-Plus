@@ -5,6 +5,8 @@ package org.esdeplus.frontend
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.util.AtomicFile
 import android.util.Log
 import org.esdeplus.frontend.bridge.StorageModel
@@ -14,13 +16,22 @@ import org.esdeplus.frontend.bridge.GameLauncher
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 
 class NativeBridge(private val context: Context, private val recoverStartup: Boolean = false) {
     private val storage = StorageModel(context)
+    private val checkingStorage = AtomicBoolean(false)
+    // Once any root has crossed JNI, the native side may have cached it.
+    @Volatile var pathsSelected = false
+        private set
     @Volatile var windowSnapshot: IntArray = intArrayOf(0, 0)
     private var earlyCopyFailed = false
     private val tag = "ES-DE-Plus"
     private val marker get() = File(context.filesDir, "resources-installed")
+    private class CopyCancelled : Exception()
+    private fun checkResourceCancellation() {
+        if (MainActivity.destructionRequested()) throw CopyCancelled()
+    }
     private data class Resource(val hash: String, val size: Long, val path: String)
     private val manifest by lazy {
         context.assets.open("resource-manifest.tsv").bufferedReader().use { it.readText() }
@@ -52,7 +63,8 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         }
         return md.digest().joinToString("") { "%02x".format(it) }
     }
-    private fun installed(verifyHashes: Boolean = false): Boolean = entries.all { (hash, size, path) ->
+    private fun installed(verifyHashes: Boolean = false, cancelOnDestroy: Boolean = false): Boolean = entries.all { (hash, size, path) ->
+        if (cancelOnDestroy) checkResourceCancellation()
         val file = destination(path)
         file.isFile && file.length() == size && (!verifyHashes || digest(file) == hash)
     }
@@ -69,8 +81,11 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         try { write(stream); atomic.finishWrite(stream) }
         catch (error: Throwable) { atomic.failWrite(stream); throw error }
     }
-    private fun copyMatching(verifyHashes: Boolean, select: (String) -> Boolean) {
+    private fun copyMatching(verifyHashes: Boolean, cancelOnDestroy: Boolean = false, select: (String) -> Boolean) {
         entries.filter { select(it.path) }.forEach { (hash, size, path) ->
+            // Observe destruction only between complete AtomicFile operations;
+            // never abandon an open stream or partially commit a resource.
+            if (cancelOnDestroy) checkResourceCancellation()
             val output = destination(path)
             if (!output.isFile || output.length() != size || (verifyHashes && digest(output) != hash)) {
                 writeAtomic(output) { stream -> context.assets.open(path).use { it.copyTo(stream) } }
@@ -102,12 +117,22 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         if (earlyCopyFailed) return true
         while (true) {
             try {
-                copyMatching(true) { true }
-                if (!installed(true)) throw IOException(context.getString(R.string.resource_installation_incomplete))
+                copyMatching(true, cancelOnDestroy = true) { true }
+                if (!installed(true, cancelOnDestroy = true)) throw IOException(context.getString(R.string.resource_installation_incomplete))
+                checkResourceCancellation()
                 writeAtomic(marker) { it.write("$buildIdentifier\n$manifestHash".toByteArray(Charsets.UTF_8)) }
                 Log.i(tag, "Resource installation committed build=$buildIdentifier")
                 if (recoverStartup && !ConfiguratorSession.configuring) ConfiguratorSession.clearDraft(context)
                 return false
+            } catch (cancelled: CopyCancelled) {
+                // Every per-file stream is closed before this checkpoint.
+                // Absence of the existing marker persists repair for the next
+                // ordinary start. True retains the C++ copy-failure contract;
+                // upstream returns main and the destroying host joins/exits.
+                AtomicFile(marker).delete()
+                if (marker.exists()) Log.e(tag, "Cannot invalidate resource marker during destruction")
+                else Log.i(tag, "Resource copy cancelled for destruction; files closed; repair marker absent")
+                return true
             } catch (error: Exception) {
                 Log.e(tag, "Resource installation failed", error)
                 if (!recoverStartup) return true
@@ -115,17 +140,37 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
             }
         }
     }
-    fun getAppDataDirectory(): String = storage.verifyDirectory(storage.appData(), true).path
+    private fun <T> withStorageRecovery(query: () -> T): T {
+        while (true) {
+            try { return query() }
+            catch (error: Exception) {
+                if (!recoverStartup) throw error
+                Log.w(tag, "Storage requires configuration: ${error.message}")
+                ConfiguratorSession.open(context, error.message)
+                MainActivity.nativeWaitForConfiguration()
+            }
+        }
+    }
+    fun getAppDataDirectory(): String = withStorageRecovery {
+        val config = storage.load() ?: throw IOException(context.getString(R.string.storage_choice_required))
+        storage.validate(config)
+        pathsSelected = true
+        config.data
+    }
     // FileData/createSystemDirectories require the final slash.
-    fun getROMDirectory(): String = storage.validate(storage.load()
-        ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
+    fun getROMDirectory(): String = withStorageRecovery {
+        val roms = storage.validate(storage.load()
+            ?: throw IOException(context.getString(R.string.storage_choice_required))).path + "/"
+        pathsSelected = true
+        roms
+    }
     fun getInternalDataDirectory(): String = context.filesDir.absolutePath
     fun getInternalDirectory(): String = context.filesDir.parentFile!!.parentFile!!.absolutePath
     @Suppress("DEPRECATION")
     fun getExternalDirectory(): String = Environment.getExternalStorageDirectory().absolutePath
     fun getCreateSystemDirectories(): Boolean = storage.consumeCreateSystemDirectories()
     fun checkConfigurationNeeded(): Boolean {
-        val needed = storage.problem() != null
+        val needed = storage.problem() != null || ConfiguratorSession.hasUncommittedTouchReset(context)
         if (recoverStartup && !needed && !ConfiguratorSession.configuring)
             ConfiguratorSession.clearDraft(context)
         return needed
@@ -134,6 +179,8 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
         AppDiscovery(context).installed(packageName, activityName)
     fun checkRACoreInstalled(packageName: String, coreFile: String): Int =
         CoreQuery(context).query(packageName, coreFile)
+    fun getEmulatorActivities(paths: Array<String>): Array<String> =
+        AppDiscovery(context).emulatorActivityRecords(paths)
     fun getInstalledApps(gamesOnly: Boolean, includeMedia: Boolean): Array<String> =
         AppDiscovery(context).inventory(gamesOnly, includeMedia)
     fun launchGame(base: Array<String>, strings: Array<String>, lists: Array<String>, integers: Array<String>,
@@ -147,5 +194,26 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun getCellularStatus(): Int = 0
     fun getBatteryStatus(): IntArray = intArrayOf(-1, -1)
     fun startConfigurator() { ConfiguratorSession.open(context, storage.problem()) }
-    fun onNativeFrontendResume() {}
+    fun onNativeFrontendResume() { checkStorageOnResume() }
+    fun checkStorageOnResume() {
+        val frontend = MainActivity.liveInstance() ?: return
+        if (!pathsSelected || ConfiguratorSession.configuring || !checkingStorage.compareAndSet(false, true)) return
+        Thread({
+            try {
+                val selected = storage.load()
+                // Startup/Save perform the complete preflight. A game return
+                // writes only the data-root probe. Child paths and ROMs keep
+                // their read/structure checks so obstruction stays recoverable.
+                val problem = storage.problem(probeChildren = false)
+                if (problem != null) Handler(Looper.getMainLooper()).post {
+                    // An asynchronous result must not pull the frontend over
+                    // a game or act on a retired activity/configuration. Focus
+                    // return schedules a new check if this result is discarded.
+                    if (frontend === MainActivity.liveInstance() && frontend.storageRecoveryVisible &&
+                        selected == storage.load() && !ConfiguratorSession.configuring)
+                        ConfiguratorSession.open(context, problem)
+                }
+            } finally { checkingStorage.set(false) }
+        }, "StorageResumeCheck").start()
+    }
 }

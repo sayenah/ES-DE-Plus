@@ -122,6 +122,7 @@ namespace TouchOverlay
         bool supported() const { return mSupported; }
         bool compact() const { return mCompact; }
         bool tableFull() const { return mTableFull; }
+        bool claims(Point normalized) const;
         int tracked() const;
         int references(int index) const { return mReferences[index]; }
         bool highlighted(int index) const { return mReferences[index] && !mSuppressed[index]; }

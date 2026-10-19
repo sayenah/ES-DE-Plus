@@ -85,12 +85,18 @@ Window* Window::getInstance()
 
 void Window::pushGui(GuiComponent* gui)
 {
+#if defined(__ANDROID__)
+    InputManager::getInstance().cancelTouchInput();
+#endif
     mGuiStack.push_back(gui);
     gui->updateHelpPrompts();
 }
 
 void Window::removeGui(GuiComponent* gui)
 {
+#if defined(__ANDROID__)
+    InputManager::getInstance().cancelTouchInput();
+#endif
     for (auto it = mGuiStack.cbegin(); it != mGuiStack.cend(); ++it) {
         if (*it == gui) {
             it = mGuiStack.erase(it);
@@ -1087,6 +1093,9 @@ void Window::stopPDFViewer()
     }
 
     mRenderPDFViewer = false;
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "PDF viewer stopped ticks=" << SDL_GetTicks();
+#endif
 }
 
 void Window::displayLaunchScreen(FileData* game)

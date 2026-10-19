@@ -6,10 +6,11 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "org.esdeplus.stub"
-        minSdk = 29
+        minSdk = 33
         targetSdk = 36
         versionCode = 1
         versionName = "PR-C-probe"
+        manifestPlaceholders["frontendId"] = providers.gradleProperty("esde.applicationId").get()
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }

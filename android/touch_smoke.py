@@ -157,21 +157,41 @@ def run_fresh(namespace):
     dummy.write_bytes(b'\x00')
     for name in ('Smoke Alpha.nes', 'Smoke Beta.nes'):
         h.adb('push', str(dummy), shared + '/nes/' + name)
-    if namespace['api'] == 29:
-        h.shell('pm', 'grant', 'org.esdeplus.stub', 'android.permission.READ_EXTERNAL_STORAGE')
-    h.start_entry('HomeEntry', 'android.intent.category.HOME')
-    h.ui('Use direct filesystem compatibility', dpad=True)
+    import smoke_phases
+    smoke_phases.prepare(namespace, 'direct')
+    h = types.SimpleNamespace(**namespace)
+    assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
+    original = h.shell('cat', h.settings)
+    h.user_file('settings/es_settings.xml', configure(original, InputTouchOverlay=False))
+    h.launch()
+    assert 'InputOverlay: setup reset saved and consumed' not in h.log()
+    # Live recovery starts after native Settings initialization and must select
+    # a fresh process. No reset can be lost with the old draft/native boolean.
+    before_pid = h.shell('pidof', h.app).strip()
+    h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+    h.key('KEYCODE_HOME')
+    h.start_entry()
     h.ui('Grant direct filesystem access', dpad=True)
-    if namespace['api'] == 29:
-        h.ui('Allow')
-    else:
-        h.grant_from_settings()
-    h.ui('Absolute shared ROM folder path', dpad=namespace['television'])
-    h.shell('input', 'text', shared)
-    h.key('KEYCODE_BACK')
-    h.ui('Use typed folder path', dpad=True)
+    h.grant_from_settings()
+    h.ui('Use direct filesystem compatibility', dpad=True)
+    h.shell('am', 'force-stop', h.app)
+    h.start_entry()
     h.ui('Save and start frontend', dpad=True)
-    h.configured_system('touch-session-configured')
+    h.configured_system('touch-setup-reset-recovery')
+    assert h.shell('pidof', h.app).strip() != before_pid, 'Live recovery must use fresh native paths'
+    assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
+    restored = h.shell('cat', h.settings)
+    assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', restored) + '</f>').find(
+        "bool[@name='InputTouchOverlay']").get('value') == 'true', restored
+    h.user_file('settings/es_settings.xml', configure(restored, InputTouchOverlay=False))
+    h.launch()
+    disabled = h.shell('cat', h.settings)
+    assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', disabled) + '</f>').find(
+        "bool[@name='InputTouchOverlay']").get('value') == 'false', disabled
+    assert 'InputOverlay: setup reset saved and consumed' not in h.log()
+    (h.evidence / 'touch-setup-reset.txt').write_text(
+        'PASS: initial setup consumes reset; normal startup preserves disabled setting; live permission recovery '
+        'after native Settings and process death after a qualifying action uses fresh PID and enables selected folder once; later disable survives startup.\n')
     run(namespace)
 
 
@@ -406,7 +426,8 @@ def run(namespace):
         touch_control(14, 2)
         touch_control(12, 2)
         touch_control(0)
-        touch_control(0)  # Confirm the warning; wording awaits PR #16 integration.
+        shot('touch-disable-recovery-warning')
+        touch_control(0)  # Confirm the non-destructive, localized recovery warning.
         touch_control(1)
         assert 'InputOverlay: cleared' in h.log(), h.log()
         saved = h.shell('cat', h.settings)
@@ -434,7 +455,7 @@ def run(namespace):
         start(InputTouchOverlay=True)
         centres = buttons(h.log())
 
-        if h.api == 34:
+        if h.api in (33, 35):
             root = h.logpath.rsplit('/logs/', 1)[0]
             override_names = ['custom_systems/es_systems.xml', 'custom_systems/es_find_rules.xml']
             overrides = {name: h.shell('cat', root + '/' + name, check=False) for name in override_names}
@@ -637,14 +658,37 @@ def run(namespace):
                 check_delta(before, [(button, 1), (button, 0)], name + ' id ' + str(button))
             record('touch-' + name)
 
-        # D-018 amendment 4 explicitly accepts the live-resize evidence dependency.
-        # The recorded resize reaches cancellation/reload, then aborts in SDL's
-        # audio thread. Its separate work order must merge before retrying AC-16.
-        (h.evidence / 'touch-live-resize-dependency.txt').write_text(
-            'DEPENDENT (not a pass): AC-16 live window-resize reload; D-018 am. 4(3).\n'
-            'Observed SIGABRT on SDLAudioP2: pthread_mutex_lock on destroyed mutex.\n'
-            'Run 38669095922, TV leg, head 0afde078c, artifact 11944726275.\n'
-            'No audio workaround. Retry held-pointer reload after its separate fix merges.\n')
+        # WO-15 is now merged: exercise the real held-pointer reload rather
+        # than retaining the obsolete pre-Android-13 audio dependency.
+        start(InputTouchOverlay=True, ScreenRotate=0)
+        surface_bounds_cached = surface_bounds()
+        pid = h.shell('pidof', h.app).strip()
+        p = buttons(h.log())[12]['norm']
+        x, y = (round(surface_bounds_cached[0] + p[0] * surface_bounds_cached[2]),
+                round(surface_bounds_cached[1] + p[1] * surface_bounds_cached[3]))
+        before = h.log()
+        h.shell('input', 'touchscreen', 'motionevent', 'DOWN', str(x), str(y))
+        h.wait_for(lambda: (12, 1) in transitions(h.log()[len(before):]), 'held Down before resize')
+        try:
+            h.shell('wm', 'size', '900x1600')
+            h.wait_for(lambda: 'reloading' in h.log()[len(before):] and
+                       'InputOverlay: layout ' in h.log()[h.log().rfind('reloading'):],
+                       'live resize completes renderer reload', timeout=60)
+            assert h.shell('pidof', h.app).strip() == pid, 'Resize changed native process'
+            h.shell('input', 'touchscreen', 'motionevent', 'MOVE', str(x), str(y))
+            h.shell('input', 'touchscreen', 'motionevent', 'UP', str(x), str(y))
+            time.sleep(1)
+            check_delta(before, [(12, 1), (12, 0)], 'reload cancels and residual motion stays inert')
+            record('touch-live-resize')
+            ready_surface_nodes = None
+            surface_bounds_cached = surface_bounds()
+            touch_control(6)
+            touch_control(1)
+        finally:
+            before_reset = h.log()
+            h.shell('wm', 'size', 'reset')
+            h.wait_for(lambda: 'reloading' in h.log()[len(before_reset):], 'reset renderer size', timeout=60)
+        record('touch-live-resize-reset')
 
         # Fade: one complete waking gesture is inert, including its motion and UP.
         output = start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2,
@@ -712,6 +756,47 @@ def run(namespace):
                         count += 1
             return total / count
 
+        # Stable ownership in both directions on actual manager dialogs. Direct
+        # targets use the renderer's same authoritative inverse mapping.
+        for enabled in (True, False):
+            start(InputTouchOverlay=enabled, ScreenRotate=0)
+            ready_surface_nodes = None
+            surface_bounds_cached = surface_bounds()
+            h.emulator_manager_smoke.manager_menus(h, 'touch-owner-' + str(enabled))
+            time.sleep(0.5)
+            if enabled:
+                before = h.log()
+                touch_control(12)
+                check_delta(before, [(12, 1), (12, 0)], 'overlay controls manager first')
+                assert 'owner=gui' not in h.log()[len(before):], 'Overlay gesture reached underlying manager'
+            pattern = r'Emulator manager touch target: (nes[^\t\r\n]*)\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)'
+            h.wait_for(lambda: re.search(pattern, h.log()) is not None, 'mapped manager system target')
+            match = list(re.finditer(pattern, h.log()))[-1]
+            nx, ny = float(match[2]), float(match[3])
+            s = surface_bounds_cached
+            target = (round(s[0] + nx * s[2]), round(s[1] + ny * s[3]))
+            before = h.log()
+            tap(target)
+            h.wait_for(lambda: 'Emulator manager page: system;' in h.log()[len(before):],
+                       'unclaimed direct manager gesture opens system')
+            assert not transitions(h.log()[len(before):]), 'Direct gesture also activated overlay'
+            assert 'owner=gui' in h.log()[len(before):]
+            h.key('KEYCODE_DEL')
+            if enabled:
+                # A direct gesture that crosses an overlay control retains its
+                # original owner; a routing change cancels its residual events.
+                before = h.log()
+                a = buttons(before)[0]['norm']
+                ax, ay = round(s[0] + a[0] * s[2]), round(s[1] + a[1] * s[3])
+                h.shell('input', 'touchscreen', 'motionevent', 'DOWN', str(target[0]), str(target[1]))
+                h.shell('input', 'touchscreen', 'motionevent', 'MOVE', str(ax), str(ay))
+                h.key('KEYCODE_DEL') # Close the manager during the direct gesture.
+                h.shell('input', 'touchscreen', 'motionevent', 'MOVE', str(ax), str(ay))
+                h.shell('input', 'touchscreen', 'motionevent', 'UP', str(ax), str(ay))
+                assert not transitions(h.log()[len(before):]), 'Cancelled GUI gesture leaked into overlay'
+            record('touch-manager-ownership-' + str(enabled))
+            neutral()
+
         for swapped in [False, True]:
             start(InputTouchOverlay=True, UIMode='full', InputSwapButtons=swapped)
             surface_bounds_cached = surface_bounds()
@@ -772,9 +857,8 @@ def run(namespace):
         (h.evidence / 'touch-summary.txt').write_text(
             'PASS: rendered fourteen-ID taps; empty space; lazy disabled textures; Android multi-pointer '
             'refcounts, index reordering, stationary slide-and-hold and ACTION_CANCEL; importer cancellation; rotations; wake-only fade.\n'
-            'DEPENDENT: live-resize reload awaits the separate SDL audio fix (D-018 am. 4).\n'
-            'OPEN: hardware ergonomics/multitouch, gesture-navigation/cutout safety; configurator reset after '
-            'PR #15; PR #16 ownership and lockout warning. See PR AC evidence for remaining checks.\n')
+            'PASS: held-pointer live resize; overlay-first/direct-manager ownership; non-destructive warning; setup reset.\n'
+            'OPEN: hardware ergonomics/multitouch, gesture-navigation/cutout safety. See PR AC evidence for remaining checks.\n')
     finally:
         try:
             if h.shell('pidof', h.app, check=False).strip():

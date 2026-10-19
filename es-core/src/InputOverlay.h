@@ -31,6 +31,7 @@ public:
     // SDL-thread integration drains release+press before the next external event.
     TouchOverlay::Transitions processEvent(int type, int finger, float x, float y);
     void cancelTouches();
+    bool claimsTouch(float x, float y);
     void onResume();
     std::uint64_t epoch() const { return mModel.epoch(); }
 

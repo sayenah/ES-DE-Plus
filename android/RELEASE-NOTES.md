@@ -3,7 +3,7 @@ Test build of the open-source ES-DE-Plus Android app from `main` at `@SHA@`,
 [CI run @RUN@, originating attempt @ATTEMPT@](https://github.com/sayenah/ES-DE-Plus/actions/runs/@RUN@/attempts/@ATTEMPT@).
 Version: `@VERSION@`, Android version code **@CODE@**.
 
-**Install:** download `@APK@` on Android 10 / API 29 or newer (arm64 phones,
+**Install:** download `@APK@` on Android 13 / API 33 or newer (arm64 phones,
 tablets and TV boxes; x86_64 emulators). Published test builds now use one stable
 **test** key. When moving from the older throwaway-key builds, back up and
 uninstall once: uninstall deletes app-owned ROMs, settings, collections, media
@@ -19,8 +19,6 @@ Intent/RetroArch launching, Android-app import, PDF manuals, TV and HOME entry.
 hardware coverage. Bluetooth/Wi-Fi/cellular/battery indicators are placeholders;
 other-screen launching and SAF import into app-owned ROMs are deferred. PDF
 rendering runs in process and visited-page memory is unbounded until close.
-Known issue pending PR #11: Android 10 can freeze when the SDL host is
-destroyed while the frontend runs.
 Consult the originating run and open issues for device or lifecycle limitations.
 
 **Licences and source:** ES-DE-Plus's own source is MIT. The APK includes

@@ -12,6 +12,11 @@
 //  starts listening to SDL events.
 //
 
+#if defined(__ANDROID__)
+#include "TouchOverlayReset.h"
+#include <pugixml.hpp>
+#endif
+
 #include "ApplicationUpdater.h"
 #include "ApplicationVersion.h"
 #include "AudioManager.h"
@@ -45,6 +50,7 @@
 
 #if defined(__ANDROID__)
 #include "utils/PlatformUtilAndroid.h"
+#include <chrono>
 #endif
 
 #if defined(__EMSCRIPTEN__)
@@ -71,6 +77,13 @@ namespace
 #if defined(__ANDROID__)
     int inputBlockTime {0};
     bool blockInput {false};
+
+    auto inputTraceUptime()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
 #endif
 
 #if defined(APPLICATION_UPDATER)
@@ -529,6 +542,8 @@ void applicationLoop()
                     blockInput = true;
                     inputBlockTime = 0;
                     window->setBlockInput(true);
+                    LOG(LogDebug) << "Android foreground input block started uptime_ms="
+                                  << inputTraceUptime();
                     // This sets the lastplayed and playtime metadata values.
                     if (Window::getInstance()->getGameLaunched() != nullptr) {
                         Window::getInstance()->getGameLaunched()->setPlayMetadata(true);
@@ -564,6 +579,8 @@ void applicationLoop()
                 inputBlockTime = 0;
                 blockInput = false;
                 window->setBlockInput(false);
+                LOG(LogDebug) << "Android foreground input block released uptime_ms="
+                              << inputTraceUptime();
             }
         }
 #endif
@@ -817,11 +834,27 @@ int main(int argc, char* argv[])
     }
 
 #if defined(__ANDROID__)
-    // Reset the touch overlay if at least the second screen of the configurator was reached.
-    if (AndroidVariables::sResetTouchOverlay) {
-        Settings::getInstance()->setBool("InputTouchOverlay", true);
-        Settings::getInstance()->saveFile();
-    }
+    // The accepted setup intent survives draft cleanup and fresh-process recovery.
+    // Retire it only after native Settings has saved and independently read it back,
+    // before any frontend input can disable the overlay again.
+    const bool resetConsumed {TouchOverlay::consumeReset(
+        AndroidVariables::sInternalDataDirectory + "/touch-overlay-reset",
+        Utils::FileSystem::getAppDataDirectory(), [] {
+            Settings::getInstance()->setBool("InputTouchOverlay", true);
+            Settings::getInstance()->saveFile();
+            pugi::xml_document saved;
+            if (!saved.load_file(
+                    (Utils::FileSystem::getAppDataDirectory() + "/settings/es_settings.xml")
+                        .c_str()))
+                return false;
+            for (auto node : saved.children("bool"))
+                if (std::string {node.attribute("name").as_string()} == "InputTouchOverlay")
+                    return node.attribute("value").as_bool();
+            return false;
+        })};
+    AndroidVariables::sResetTouchOverlay = false;
+    if (resetConsumed)
+        LOG(LogInfo) << "InputOverlay: setup reset saved and consumed";
 #endif
 
     {

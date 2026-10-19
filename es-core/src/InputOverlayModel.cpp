@@ -177,57 +177,76 @@ namespace TouchOverlay
         const float minimum {48 * mDensity / (std::sqrt(2.0f) * 1.05f)};
         const float maximum {84 * 1.2f * mDensity};
         constexpr std::array<float, 4> factors {0.7f, 0.85f, 1.0f, 1.2f};
-        // The symmetric inset is an alternate normal deck for tall panes whose
-        // fixed corner zones exclude the outer D-pad anchor.
-        for (bool insetPad : {false, true}) {
-            for (float probe {maximum};; probe = std::max(minimum, probe * 0.97f)) {
+        // Search each size's fitting set independently. fits() is not monotone:
+        // fixed corner zones can exclude a smaller deck while a larger one fits.
+        auto findFit = [&](float limit, bool insetPad) {
+            if (limit < minimum)
+                return 0.0f;
+            for (float probe {limit};; probe = std::max(minimum, probe * 0.97f)) {
                 layout(probe, insetPad);
-                if (!fits()) {
-                    if (probe == minimum)
-                        break;
-                    continue;
+                if (fits()) {
+                    float low {probe};
+                    float high {std::min(limit, probe / 0.97f)};
+                    for (int i {0}; i < 24; ++i) {
+                        const float middle {(low + high) / 2};
+                        layout(middle, insetPad);
+                        if (fits())
+                            low = middle;
+                        else
+                            high = middle;
+                    }
+                    return low;
                 }
-                float low {probe};
-                float high {std::min(maximum, probe / 0.97f)};
-                for (int i {0}; i < 24; ++i) {
-                    const float middle {(low + high) / 2};
-                    layout(middle, insetPad);
-                    if (fits())
-                        low = middle;
-                    else
-                        high = middle;
+                if (probe == minimum)
+                    break;
+            }
+            // A final 0.01 dp scan catches narrow fitting bands skipped by the
+            // fast 3% search. Keep the resolution explicit, not a monotonicity claim.
+            for (float probe {limit}; probe >= minimum; probe -= 0.01f * mDensity) {
+                layout(probe, insetPad);
+                if (fits())
+                    return probe;
+            }
+            return 0.0f;
+        };
+        float fallback {0};
+        bool fallbackInset {false};
+        // Prefer a real four-diameter normal family at either anchor before
+        // retaining fixed hit spacing and scaling only the artwork.
+        for (bool insetPad : {false, true}) {
+            std::array<float, 4> family {};
+            float limit {maximum};
+            bool valid {true};
+            const float base {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity)};
+            for (int i {3}; i >= 0; --i) {
+                family[i] = findFit(std::min(base * factors[i], limit), insetPad);
+                if (i == 3 && family[i] > fallback) {
+                    fallback = family[i];
+                    fallbackInset = insetPad;
                 }
-                const float upper {low};
-                std::array<float, 4> family {};
-                bool valid {true};
-                const float base {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity)};
-                for (int i {0}; i < 4; ++i) {
-                    family[i] = std::min(base * factors[i],
-                                         upper / std::pow(1.1f, static_cast<float>(3 - i)));
-                    layout(family[i], insetPad);
-                    valid = valid && fits() && family[i] <= 84 * mDensity * factors[i] + 0.01f &&
-                            (i == 0 || family[i] + 0.01f >= family[i - 1] * 1.1f);
-                }
-                if (valid) {
-                    layout(family[3 - steps], insetPad);
-                    mSupported = true;
+                if (family[i] == 0) {
+                    valid = false;
                     break;
                 }
-                // A narrow fitting interval can constrain spacing at the 48 dp hit
-                // floor. Retain that safe normal deck for the whole family and scale
-                // only its artwork, rather than replacing it with a compact grid.
-                layout(upper, insetPad);
-                const float scale {family[3 - steps] / upper};
-                for (auto& button : mButtons) {
-                    button.width *= scale;
-                    button.height *= scale;
-                }
-                mDiameter = family[3 - steps];
-                mSupported = fits();
+                limit = family[i] / 1.1f;
+            }
+            if (valid) {
+                layout(family[3 - steps], insetPad);
+                mSupported = true;
                 break;
             }
-            if (mSupported)
-                break;
+        }
+        if (!mSupported && fallback > 0) {
+            layout(fallback, fallbackInset);
+            const float diameter {
+                std::min(requested, fallback / std::pow(1.1f, static_cast<float>(steps)))};
+            const float scale {diameter / fallback};
+            for (auto& button : mButtons) {
+                button.width *= scale;
+                button.height *= scale;
+            }
+            mDiameter = diameter;
+            mSupported = fits();
         }
         if (!mSupported) {
             mCompact = true;
@@ -463,6 +482,13 @@ namespace TouchOverlay
         f.held = index;
         if (mReferences[index]++ == 0)
             result.add(IDS[index], 1);
+    }
+
+    bool Model::claims(Point normalized) const
+    {
+        Point logical;
+        return mSupported && (mFade == Fade::HIDDEN ||
+                              (mGeometry.toLogical(normalized, logical) && capture(logical) >= 0));
     }
 
     Transitions Model::input(Event event, int id, Point normalized, bool legacySingle)
