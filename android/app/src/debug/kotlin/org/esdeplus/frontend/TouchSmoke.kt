@@ -200,7 +200,7 @@ class TouchSmoke : Instrumentation() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             startupOwner.writeText("${android.os.Process.myPid()} ${activity.taskId}")
             val deadline = SystemClock.elapsedRealtime() + 60_000
-            val log = File(activity.getAppDataDirectory(), "logs/es_log.txt")
+            val log = File(StorageModel(targetContext).appData(), "logs/es_log.txt")
             while (SystemClock.elapsedRealtime() < deadline) {
                 runOnMainSync { surface = findSurface(activity.window.decorView) }
                 if (surface != null && log.isFile && log.readText() != previousLog &&

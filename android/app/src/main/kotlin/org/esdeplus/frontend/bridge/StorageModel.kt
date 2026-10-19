@@ -11,12 +11,26 @@ import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
+import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
 import org.esdeplus.frontend.R
 import java.io.File
 import java.io.IOException
+
+// Log rotation can remove a child after exists() but before access(). Only
+// ENOENT means absent; permission/I/O errors must retain their original outcome.
+internal fun accessibleDataChild(child: File, mode: Int,
+                                 access: (String, Int) -> Boolean = Os::access): Boolean {
+    if (!child.exists()) return true
+    return try {
+        (child.isFile && access(child.path, mode)) || !child.exists()
+    } catch (error: ErrnoException) {
+        if (error.errno != OsConstants.ENOENT) throw error
+        true
+    }
+}
 
 class StorageModel(private val context: Context) {
     data class Configuration(val mode: String, val roms: String, val tree: String,
@@ -212,8 +226,8 @@ class StorageModel(private val context: Context) {
                 "logs/es_log.txt", "logs/es_log.txt.bak", "controllers/es_controller_mappings.cfg",
                 "es_controller_mappings.cfg")) {
             val child = File(directory, name)
-            if (child.exists() && (!child.isFile || !Os.access(child.path,
-                    OsConstants.R_OK or (if (readOnly) 0 else OsConstants.W_OK))))
+            if (!accessibleDataChild(child,
+                    OsConstants.R_OK or (if (readOnly) 0 else OsConstants.W_OK)))
                 throw failure(if (readOnly) R.string.directory_read_failed else R.string.directory_access_failed, child)
         }
         val media = mediaOverride(directory)?.let(::File)

@@ -7,11 +7,14 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.os.FileObserver
 import android.os.SystemClock
+import android.system.ErrnoException
 import android.system.Os
+import android.system.OsConstants
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Button
 import android.widget.EditText
 import org.esdeplus.frontend.bridge.StorageModel
+import org.esdeplus.frontend.bridge.accessibleDataChild
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -82,6 +85,31 @@ internal object AppDataSmoke {
         }
         var configurator: ConfiguratorActivity? = null
         try {
+            val rotating = File(sandbox, "rotating-log")
+            val mode = OsConstants.R_OK or OsConstants.W_OK
+            rotating.writeText("log")
+            var raced = false
+            check(accessibleDataChild(rotating, mode) { path, flags ->
+                check(rotating.exists() && rotating.delete())
+                raced = true
+                Os.access(path, flags) // Real ENOENT between exists() and access().
+            })
+            check(raced && !rotating.exists())
+            check(accessibleDataChild(rotating, mode) { _, _ -> error("Absent child accessed") })
+            rotating.writeText("log")
+            check(accessibleDataChild(rotating, mode) { _, _ -> throw ErrnoException("access", OsConstants.ENOENT) })
+            check(!accessibleDataChild(rotating, mode) { _, _ -> false })
+            for (errno in listOf(OsConstants.EACCES, OsConstants.EIO, OsConstants.ENOTDIR)) {
+                val expected = ErrnoException("access", errno)
+                try {
+                    accessibleDataChild(rotating, mode) { _, _ -> throw expected }
+                    error("Non-ENOENT errno was swallowed: $errno")
+                } catch (actual: ErrnoException) { check(actual === expected) }
+            }
+            check(rotating.delete())
+            check(rotating.mkdir())
+            check(!accessibleDataChild(rotating, mode)) // Existing non-file still rejected.
+            check(rotating.delete())
             val candidate = File(sandbox, "ES-DE").apply { check(mkdir()) }
             val settings = File(candidate, "settings/es_settings.xml")
             check(settings.parentFile!!.mkdir())
@@ -338,7 +366,8 @@ internal object AppDataSmoke {
             })
             rejected { unavailable.validate(accepted) }
             check(storage.load() == accepted)
-            return "PASS: real consent cancellation has no FileObserver access and identical tree hash; " +
+            return "PASS: vanished log child accepted after real ENOENT; absent child not accessed, denied access and non-file rejected; EACCES/EIO/ENOTDIR exceptions unchanged.\n" +
+                "PASS: real consent cancellation has no FileObserver access and identical tree hash; " +
                 "both positive controls; accepted configuration unchanged; renamed/legacy destinations, " +
                 "flat/wrapped and legacy-root settings, conflicting ROM, media overrides, missing media/root, " +
                 "obstructed themes, unavailable volume and overlap guards.\n" +

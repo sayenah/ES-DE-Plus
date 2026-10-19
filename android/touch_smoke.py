@@ -179,7 +179,7 @@ def reset_failure_probe(h):
     # leaving the directories writable so earlier startup preflights still pass.
     h.shell('am', 'force-stop', h.app)
     previous = h.shell('cat', h.settings)
-    enabled = configure(previous, CustomEventScripts=True, DebugMode=True)
+    enabled = configure(previous, CustomEventScripts=True, DebugMode=True, ApplicationLanguage="fr_FR")
     h.user_file('settings/es_settings.xml', enabled)
     prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'reset-verification-prepare',
                        h.app + '/org.esdeplus.frontend.TouchSmoke')
@@ -202,6 +202,9 @@ def reset_failure_probe(h):
         assert h.private('cat', 'files/touch-overlay-reset') == intent
         logcat = h.adb('logcat', '-d', '--pid', pid)
         assert 'Finished main function' not in logcat, 'Failure exited before acknowledgement'
+        localized = h.log()
+        assert localized.index('Application language set to \"fr_FR\"') < localized.index(
+            'Unable to persist or acknowledge'), 'Failure translated before locale initialization'
         h.ui('OK', exact=True)
         h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d', '--pid', pid),
                    'acknowledged reset failure exits native')
@@ -621,7 +624,20 @@ def run(namespace):
             f'PASS: modal interior {rect}: {changed} changed channels with overlay visible/faded; '
             'text and confirmation take visual priority.\n')
         tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))  # Wake-only.
-        touch_control(0)  # Confirm the non-destructive, localized recovery warning.
+        outside_before = h.log()
+        touch_control(12)
+        check_delta(outside_before, [(12, 1), (12, 0)], 'exposed D-pad still works beside modal')
+        before_confirm = h.log()
+        ok = re.findall(r'GuiMsgBox: button=OK norm=([0-9.eE+-]+),([0-9.eE+-]+)', before_confirm)[-1]
+        ok_point = (surface[0] + float(ok[0]) * surface[2], surface[1] + float(ok[1]) * surface[3])
+        assert x <= ok_point[0] <= x + w and y <= ok_point[1] <= y + height
+        tap(ok_point)  # The visible OK, including its overlap with hidden Start/Back.
+        check_delta(before_confirm, [], 'modal OK does not press hidden overlay controls')
+        h.wait_for(lambda: 'GuiMsgBox: direct touch confirmed OK' in h.log()[len(before_confirm):],
+                   'visible modal OK confirms directly')
+        assert 'owner=gui' in h.log()[len(before_confirm):]
+        with (h.evidence / 'touch-modal-priority.txt').open('a') as evidence:
+            evidence.write(f'PASS: visible OK at {ok_point} confirmed by direct touch; no overlay input.\n')
         touch_control(1)
         assert 'InputOverlay: cleared' in h.log(), h.log()
         saved = h.shell('cat', h.settings)
@@ -1003,6 +1019,31 @@ def run(namespace):
                        'unclaimed direct manager gesture opens system')
             assert not transitions(h.log()[len(before):]), 'Direct gesture also activated overlay'
             assert 'owner=gui' in h.log()[len(before):]
+            # Exercise an actual manager confirmation, including its own direct-
+            # touch implementation, with and without the overlay enabled.
+            h.wait_for(lambda: 'Emulator manager touch target: ADD EMULATOR\t' in h.log()[len(before):],
+                       'manager add-emulator row rendered')
+            add = re.findall(r'Emulator manager touch target: ADD EMULATOR\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)',
+                             h.log()[len(before):])[-1]
+            tap((s[0] + float(add[0]) * s[2], s[1] + float(add[1]) * s[3]))
+            h.wait_for(lambda: 'Emulator manager page: draft;' in h.log()[len(before):], 'manager draft opened')
+            for label in ('CANCEL', 'CONTINUE'):
+                before_dialog = h.log()
+                h.key('KEYCODE_DEL') # Real discard-draft confirmation.
+                pattern = r'Emulator manager touch target: ' + label + r'\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)'
+                h.wait_for(lambda: re.search(pattern, h.log()[len(before_dialog):]) is not None,
+                           'manager confirmation ' + label + ' rendered')
+                confirm = re.findall(pattern, h.log()[len(before_dialog):])[-1]
+                target_confirm = (s[0] + float(confirm[0]) * s[2], s[1] + float(confirm[1]) * s[3])
+                shot('touch-manager-confirm-' + str(enabled) + '-' + label)
+                before_tap = h.log()
+                tap(target_confirm)
+                check_delta(before_tap, [], 'direct manager confirmation does not press hidden controls')
+                assert 'owner=gui' in h.log()[len(before_tap):]
+                if label == 'CONTINUE':
+                    h.wait_for(lambda: 'Emulator manager page: system;' in h.log()[len(before_tap):],
+                               'direct manager confirm discards draft')
+            record('touch-manager-modal-' + str(enabled))
             h.key('KEYCODE_DEL')
             if enabled:
                 # A direct gesture that crosses an overlay control retains its

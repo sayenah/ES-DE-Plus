@@ -11,6 +11,9 @@
 
 #include "components/ButtonComponent.h"
 #include "components/MenuComponent.h"
+#if defined(__ANDROID__)
+#include "Log.h"
+#endif
 
 #define HORIZONTAL_PADDING_PX 20.0f
 #define VERTICAL_PADDING_MODIFIER 1.225f
@@ -66,6 +69,16 @@ GuiMsgBox::GuiMsgBox(const std::string& text,
 
     addChild(&mBackground);
     addChild(&mGrid);
+#if defined(__ANDROID__)
+    for (auto& button : mButtons) {
+        const auto centre = getTransform() * mGrid.getTransform() * mButtonGrid->getTransform() *
+                            button->getTransform() *
+                            glm::vec4 {button->getSize() / 2.0f, 0.0f, 1.0f};
+        const auto normalized {mRenderer->getTouchGeometry().toNormalized({centre.x, centre.y})};
+        LOG(LogDebug) << "GuiMsgBox: button=" << button->getText() << " norm=" << normalized.x
+                      << "," << normalized.y;
+    }
+#endif
 }
 
 void GuiMsgBox::calculateSize()
@@ -114,6 +127,9 @@ void GuiMsgBox::changeText(const std::string& newText)
 
 bool GuiMsgBox::input(InputConfig* config, Input input)
 {
+#if defined(__ANDROID__)
+    cancelNativeTouch();
+#endif
     if (!mDisableBackButton && config->isMappedTo("b", input) && input.value != 0) {
         if (mBackFunc)
             mBackFunc();
@@ -157,3 +173,56 @@ std::vector<HelpPrompt> GuiMsgBox::getHelpPrompts()
 
     return prompts;
 }
+
+#if defined(__ANDROID__)
+bool GuiMsgBox::containsTouch(float x, float y)
+{
+    TouchOverlay::Point point;
+    if (!mRenderer->getTouchGeometry().toLogical({x, y}, point))
+        return false;
+    const auto local = glm::inverse(getTransform()) * glm::vec4 {point.x, point.y, 0.0f, 1.0f};
+    return local.x >= 0 && local.y >= 0 && local.x < mSize.x && local.y < mSize.y;
+}
+
+bool GuiMsgBox::nativeTouch(int type, int64_t finger, float x, float y)
+{
+    TouchOverlay::Point point;
+    int target {-1};
+    if (mRenderer->getTouchGeometry().toLogical({x, y}, point)) {
+        for (size_t i {0}; i < mButtons.size(); ++i) {
+            const auto& button = mButtons[i];
+            const auto local = glm::inverse(getTransform() * mGrid.getTransform() *
+                                            mButtonGrid->getTransform() * button->getTransform()) *
+                               glm::vec4 {point.x, point.y, 0.0f, 1.0f};
+            if (button->getEnabled() && local.x >= 0 && local.y >= 0 &&
+                local.x < button->getSize().x && local.y < button->getSize().y)
+                target = static_cast<int>(i);
+        }
+    }
+    if (type == SDL_FINGERDOWN) {
+        if (mTouchFinger != -1 || !containsTouch(x, y))
+            return false;
+        mTouchFinger = finger;
+        mTouchButton = target;
+        return true;
+    }
+    if (finger != mTouchFinger || mTouchFinger == -1)
+        return false;
+    if (type == SDL_FINGERMOTION) {
+        if (target != mTouchButton)
+            mTouchButton = -1;
+        return true;
+    }
+    if (type != SDL_FINGERUP)
+        return false;
+    const int pressed {mTouchButton};
+    cancelNativeTouch();
+    if (pressed >= 0 && pressed == target) {
+        auto action = mButtons[pressed]->getPressedFunc();
+        LOG(LogDebug) << "GuiMsgBox: direct touch confirmed " << mButtons[pressed]->getText();
+        if (action)
+            action(); // May delete this dialog; retain no component references afterwards.
+    }
+    return true;
+}
+#endif

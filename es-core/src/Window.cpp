@@ -94,9 +94,10 @@ void Window::pushGui(GuiComponent* gui)
 #endif
     mGuiStack.push_back(gui);
 #if defined(__ANDROID__)
-    if (dynamic_cast<GuiMsgBox*>(gui))
+    if (dynamic_cast<GuiMsgBox*>(gui)) {
         LOG(LogDebug) << "InputOverlay: modal rect=" << gui->getPosition().x << ","
                       << gui->getPosition().y << "," << gui->getSize().x << "," << gui->getSize().y;
+    }
 #endif
     gui->updateHelpPrompts();
 }
