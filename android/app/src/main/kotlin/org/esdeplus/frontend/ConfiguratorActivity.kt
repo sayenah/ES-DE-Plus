@@ -167,6 +167,7 @@ class ConfiguratorActivity : Activity() {
     private fun guarded(action: () -> Unit) {
         try { action() }
         catch (error: Exception) {
+            if (BuildConfig.DEBUG) Log.w("ES-DE-Plus", "Configurator action refused", error)
             message = error.message ?: getString(R.string.configuration_failed)
             storageRestartRequired = true
             render()
@@ -331,6 +332,7 @@ class ConfiguratorActivity : Activity() {
             setOnFocusChangeListener { _, focused -> if (focused) rememberDraft() }
         })
         button(R.string.continue_frontend) {
+            if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Configurator Save mode=$mode data=$dataPath roms=$path")
             guarded {
                 ConfiguratorSession.requestTouchOverlayReset(this)
                 if (mode == "direct" && (dataConsent != dataPath || step != "roms"))

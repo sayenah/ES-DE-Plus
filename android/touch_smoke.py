@@ -232,6 +232,11 @@ def run_fresh(namespace):
         h.adb('push', str(dummy), h.roms + '/nes/' + name)
     h.select_data_root(private)
     h = types.SimpleNamespace(**namespace)
+    metadata = [private, private + '/settings', private + '/settings/es_settings.xml']
+    (h.evidence / 'touch-private-seed-access.txt').write_text(
+        h.shell('ls', '-ld', *metadata, check=False) + '\nApp UID:\n' +
+        h.shell('run-as', h.app, 'ls', '-ld', *metadata, check=False) + '\nSeed under app UID:\n' +
+        h.shell('run-as', h.app, 'cat', metadata[-1], check=False))
     h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app) and
                'ConfiguratorActivity' in h.focused_window(), 'private setup window focused before Save')
     (h.evidence / 'touch-private-before-save.txt').write_text(h.focused_window() + '\n' +
