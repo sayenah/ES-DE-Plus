@@ -258,15 +258,16 @@ def run_fresh(namespace):
     run(namespace)
     # Recover by editing the existing native-owned file, as documented. Close
     # the app first and require adb to preserve its owner; do not recreate it.
-    editing = h.evidence / 'touch-private-adb-edit.xml'
     receipts = []
     for enabled in (False, True):
         h.shell('am', 'force-stop', h.app)
         previous = h.shell('cat', h.settings)
         owner = h.shell('stat', '-c', '%u', h.settings).strip()
-        editing.write_text(configure(previous, InputTouchOverlay=enabled, DebugMode=True,
-                                     InputTouchOverlayFadeTime=0))
-        h.adb('push', str(editing), h.settings)
+        edited = configure(previous, InputTouchOverlay=enabled, DebugMode=True,
+                           InputTouchOverlayFadeTime=0)
+        # adb push replaces the destination inode/owner on these images. Shell
+        # redirection edits the existing file in place, preserving app ownership.
+        h.shell('sh', '-c', 'printf %s ' + shlex.quote(edited) + ' > ' + shlex.quote(h.settings))
         assert h.shell('stat', '-c', '%u', h.settings).strip() == owner, 'adb replaced the settings owner'
         h.launch()
         actual = ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', h.shell('cat', h.settings)) + '</f>')
