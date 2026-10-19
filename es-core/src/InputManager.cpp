@@ -603,21 +603,24 @@ bool InputManager::parseEvent(const SDL_Event& event)
 
             auto* previousGui {mWindow->peekGui()};
             const auto key {event.key.keysym.sym};
-            mWindow->input(getInputConfigByDevice(DEVICE_KEYBOARD),
-                           Input(DEVICE_KEYBOARD, TYPE_KEY, key, 1, false));
+            Input keyboardInput {DEVICE_KEYBOARD, TYPE_KEY, key, 1, false};
+            keyboardInput.modifiers = static_cast<SDL_Keymod>(event.key.keysym.mod);
+            mWindow->input(getInputConfigByDevice(DEVICE_KEYBOARD), keyboardInput);
+            // A text event from this same key must not enter the GUI it opened:
+            // the search field already has its seed, or a mapped action opened it empty.
             if (previousGui != mWindow->peekGui() &&
-                getInputConfigByDevice(DEVICE_KEYBOARD)
-                    ->getMappedTo(Input(DEVICE_KEYBOARD, TYPE_KEY, key, 1, false))
-                    .empty() &&
                 ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9) ||
                  key == SDLK_SLASH)) {
                 mOpeningText.assign(1, static_cast<char>(key));
-                if (event.key.keysym.mod & KMOD_SHIFT)
+                if (key >= SDLK_a && key <= SDLK_z &&
+                    static_cast<bool>(event.key.keysym.mod & KMOD_SHIFT) !=
+                        static_cast<bool>(event.key.keysym.mod & KMOD_CAPS))
                     mOpeningText = Utils::String::toUpper(mOpeningText);
             }
             return true;
         }
         case SDL_KEYUP: {
+            mOpeningText.clear();
             if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
                 return true;
 

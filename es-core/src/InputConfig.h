@@ -38,6 +38,7 @@ public:
     int id;
     int value;
     bool configured;
+    SDL_Keymod modifiers {KMOD_NONE}; // Snapshot for physical keyboard shortcuts.
 
     Input()
     {

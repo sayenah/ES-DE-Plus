@@ -4136,7 +4136,7 @@ This enables a virtual (on-screen) keyboard that can be used at various places t
 
 **Y button in game lists**
 
-_Select Search_ (the default) makes Y open Search; _Favorites_ restores the previous gamelist Y behavior, including the setting below. Y always opens Search in the system view.
+_Search_ (the default) makes Y open Search; _Favorites_ restores the previous gamelist Y behavior, including the setting below. Y always opens Search in the system view.
 
 **Enable toggle favorites button**
 

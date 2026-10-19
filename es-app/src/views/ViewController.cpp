@@ -1281,35 +1281,6 @@ bool ViewController::input(InputConfig* config, Input input)
         }
     }
 
-    if (input.value && mWindow->peekGui() == this && mCurrentView &&
-        !mWindow->isScreensaverActive() && !mWindow->isMediaViewerActive() &&
-        !mWindow->isPDFViewerActive()) {
-        const bool gameList {mState.viewing == ViewMode::GAMELIST};
-        if (config->isMappedTo("y", input) &&
-            !(gameList && CollectionSystemsManager::getInstance()->isEditing()) &&
-            (!gameList || Settings::getInstance()->getString("GamelistYButton") != "favorites")) {
-            openSearch();
-            return true;
-        }
-        // Explicit mappings always win, including letters mapped to navigation or Y.
-        if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
-            config->getMappedTo(input).empty() &&
-            !(SDL_GetModState() & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
-            if (input.id == SDLK_SLASH || input.id == SDLK_AC_SEARCH) {
-                openSearch();
-                return true;
-            }
-            if ((input.id >= SDLK_a && input.id <= SDLK_z) ||
-                (input.id >= SDLK_0 && input.id <= SDLK_9)) {
-                std::string initialText(1, static_cast<char>(input.id));
-                if (SDL_GetModState() & KMOD_SHIFT)
-                    initialText = Utils::String::toUpper(initialText);
-                openSearch(initialText);
-                return true;
-            }
-        }
-    }
-
     // Open the main menu.
     if (!(UIModeController::getInstance()->isUIModeKid() &&
           !Settings::getInstance()->getBool("EnableMenuKidMode")) &&
@@ -1351,6 +1322,38 @@ bool ViewController::input(InputConfig* config, Input input)
     if (UIModeController::getInstance()->listen(config, input))
         return true;
 
+    if (input.value && mWindow->peekGui() == this && mCurrentView &&
+        !mWindow->isScreensaverActive() && !mWindow->isMediaViewerActive() &&
+        !mWindow->isPDFViewerActive()) {
+        const bool gameList {mState.viewing == ViewMode::GAMELIST};
+        if (config->isMappedTo("y", input) &&
+            !(gameList && CollectionSystemsManager::getInstance()->isEditing()) &&
+            (!gameList || Settings::getInstance()->getString("GamelistYButton") != "favorites")) {
+            openSearch();
+            return true;
+        }
+        // Explicit mappings always win, including letters mapped to navigation or Y.
+        if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
+            config->getMappedTo(input).empty() &&
+            !(input.modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+            const auto modifiers {input.modifiers};
+            if ((input.id == SDLK_SLASH && !(modifiers & KMOD_SHIFT)) ||
+                input.id == SDLK_AC_SEARCH) {
+                openSearch();
+                return true;
+            }
+            const bool letter {input.id >= SDLK_a && input.id <= SDLK_z};
+            if (letter || (input.id >= SDLK_0 && input.id <= SDLK_9 && !(modifiers & KMOD_SHIFT))) {
+                std::string initialText(1, static_cast<char>(input.id));
+                if (letter && static_cast<bool>(modifiers & KMOD_SHIFT) !=
+                                  static_cast<bool>(modifiers & KMOD_CAPS))
+                    initialText = Utils::String::toUpper(initialText);
+                openSearch(initialText);
+                return true;
+            }
+        }
+    }
+
     if (mCurrentView)
         return mCurrentView->input(config, input);
 
@@ -1362,7 +1365,8 @@ void ViewController::openSearch(const std::string& initialText)
     if (mWindow->peekGui() != this || !mCurrentView ||
         (mState.viewing != ViewMode::SYSTEM_SELECT && mState.viewing != ViewMode::GAMELIST) ||
         mWindow->getBlockInput() || mWindow->isScreensaverActive() ||
-        mWindow->isMediaViewerActive() || mWindow->isPDFViewerActive())
+        mWindow->isMediaViewerActive() || mWindow->isPDFViewerActive() ||
+        mWindow->isLaunchScreenDisplayed())
         return;
     stopScrolling();
     cancelViewTransitions();
