@@ -508,12 +508,12 @@ def run(namespace):
             time.sleep(0.2)
 
     try:
-        # Exercise the new entry points first; restoration leaves the existing
-        # overlay suite's fixtures and assertions intact.
+        # Exercise search input/timing first, then shared entry points. Each fixture
+        # restores its files before the existing overlay assertions continue.
         start(InputTouchOverlay=True)
         surface_bounds_cached = surface_bounds()
-        search_entry_smoke.run(h, start, touch_control, shot, record)
         search_screen_smoke.run(h, start, touch_control, shot, record)
+        search_entry_smoke.run(h, start, touch_control, shot, record)
         diameters = []
         for size in ('x-small', 'small', 'medium', 'large'):
             sized = start(InputTouchOverlay=True, InputTouchOverlaySize=size)
