@@ -100,6 +100,9 @@ namespace
         match(core, "mraio", MatchClass::Typo);
         match(core, "nintendo", MatchClass::Metadata);
         match(core, "acme", MatchClass::Metadata);
+        match(core, "acmepublishing", MatchClass::Metadata);
+        match(core, "actionadventure", MatchClass::Metadata);
+        match(core, "supernintendo mario", MatchClass::OrderedWords);
         match(core, "adventure", MatchClass::Metadata);
         match(core, "snes mario", MatchClass::OrderedWords);
         match(core, "mario snes", MatchClass::OrderedWords);
@@ -137,6 +140,11 @@ namespace
             core.rebuild({game(std::string("Quest ") + numeral.first)});
             match(core, std::string("quest ") + numeral.second, MatchClass::Number);
         }
+        std::string optionalWords;
+        for (int n {0}; n < 1000; ++n)
+            optionalWords += "the ";
+        core.rebuild({game(optionalWords + "Mortal Kombat II")});
+        match(core, "mk2", MatchClass::Acronym);
         auto alias = game("Unrelated");
         alias.sortName = "Hidden Sort Alias";
         alias.fileStem = "filename";
@@ -165,6 +173,12 @@ namespace
         found = core.search("玛丽");
         require(!found.empty() && found[0].spans[0].begin == 6 && found[0].spans[0].end == 12,
                 "CJK byte ranges");
+        auto alias = game("Super Mario World");
+        alias.fileStem = "smw";
+        core.rebuild({alias});
+        found = core.search("smw");
+        require(found[0].kind == MatchClass::Exact && found[0].spans.size() == 3,
+                "display highlights survive a stronger file-stem match");
         core.rebuild({game("Super Mario Bros. 3")});
         found = core.search("smb3");
         require(found[0].spans.size() == 4, "acronym spans only matching initials and numeral");
@@ -248,6 +262,7 @@ namespace
         a.system = "nes";
         a.systemName = "Nintendo Entertainment System";
         core.rebuild({a, b});
+        require(core.game(core.search("mario")[0].index).id == "a", "system tie break");
         match(core, "snes mario", MatchClass::Exact, "b");
         match(core, "mario nes", MatchClass::Exact, "a");
         Filter f;
@@ -255,6 +270,16 @@ namespace
         require(core.search("mario", 200, f).size() == 1, "explicit system filter");
         f.favouritesOnly = true;
         require(core.search("mario", 200, f).empty(), "favourites filter");
+        auto accented = game("Élan", "accented");
+        accented.sortName = "a";
+        auto plain = game("Elan", "plain");
+        plain.sortName = "z";
+        core.rebuild({plain, accented});
+        require(core.game(core.search("elan")[0].index).id == "accented",
+                "title length counts Unicode characters before sort-name tie break");
+        accented.lastPlayed = "TTTTTTTTTTTTTTT";
+        core.rebuild({accented});
+        require(core.recentlyPlayed().empty(), "malformed lastplayed never enters the recent list");
         a = game("Mario", "normal");
         b = a;
         b.collection = true;
@@ -328,6 +353,8 @@ namespace
                                 return s.kind == SuggestionKind::Word && s.text == "fant vii";
                             }),
                 "word insertion preserves the preceding query token");
+        has("finalfantasy v", SuggestionKind::Title, "Final Fantasy VII");
+        has("acmep", SuggestionKind::Publisher, "Acme Publishing");
         require(core.suggest("unrelated fant").empty(),
                 "preceding words cannot produce zero-result insertions");
         core.rebuild({game("The Legend of Zelda")});
@@ -338,6 +365,37 @@ namespace
                                        s.text == "The Legend of Zelda";
                             }),
                 "whole-title completion ignores leading article");
+        auto older = game("Metal Adventure", "old");
+        older.lastPlayed = "20010101T120000";
+        auto newer = game("Metroid Prime", "new");
+        newer.lastPlayed = "20261019T120000";
+        std::vector<Game> weighted {older, newer};
+        for (int n {0}; n < 30; ++n) {
+            auto filler = game("Other Quest", "other" + std::to_string(n));
+            filler.lastPlayed = "20260101T120000";
+            weighted.push_back(filler);
+        }
+        auto wordPosition = [&](const std::string& word) {
+            const auto values = core.suggest("met", 100);
+            auto it = std::find_if(values.begin(), values.end(), [&](const Suggestion& s) {
+                return s.kind == SuggestionKind::Word && normalize(s.text) == word;
+            });
+            require(it != values.end(), "weighted word is suggested");
+            return std::distance(values.begin(), it);
+        };
+        core.rebuild(weighted);
+        require(wordPosition("metroid") < wordPosition("metal"),
+                "recent zero-state games boost vocabulary words");
+        weighted[0].favourite = true;
+        core.rebuild(weighted);
+        require(wordPosition("metal") < wordPosition("metroid"),
+                "favourites boost vocabulary words");
+        weighted[0].favourite = false;
+        for (int n {0}; n < 3; ++n)
+            weighted.push_back(game("Metal Adventure", "metal" + std::to_string(n)));
+        core.rebuild(weighted);
+        require(wordPosition("metal") < wordPosition("metroid"),
+                "vocabulary frequency counts distinct games");
         a.hidden = true;
         b.hidden = true;
         core.rebuild({a, b});
@@ -370,6 +428,10 @@ namespace
                 "game dedup MRU");
         require(!h.addGame({"snes", "../outside.zip"}) && !h.addGame({"snes", "/outside.zip"}),
                 "relative history path boundary");
+        require(h.addGame({"snes", "folder/Game: Special.zip"}),
+                "relative POSIX filename may contain a colon");
+        require(!h.addGame({"snes", "C:/outside.zip"}) && !h.addGame({"snes", "content://outside"}),
+                "drive and URI identities are not relative ROM paths");
         History restored(path);
         require(restored.queries() == h.queries() && restored.games().size() == 30, "roundtrip");
         restored.setAccess(true, true);
@@ -438,7 +500,7 @@ namespace
             core.rebuild({});
         }
     }
-    void performance()
+    void performance(bool diverse = false)
     {
         std::vector<Game> corpus;
         const std::vector<std::string> series {"Super Mario Bros",
@@ -464,11 +526,38 @@ namespace
         const std::vector<std::string> subtitles {
             "",      " Deluxe",  " Championship", " The Lost Worlds", " Adventure",
             " Gold", " Origins", " Remastered",   " Special Edition", " Tournament"};
+        const std::vector<std::string> adjectives {
+            "Crystal", "Shadow",  "Golden", "Mystic", "Silver", "Crimson", "Neon",
+            "Lost",    "Ancient", "Cosmic", "Wild",   "Brave",  "Emerald", "Cyber",
+            "Royal",   "Dark",    "Frozen", "Hidden", "Iron",   "Scarlet"};
+        const std::vector<std::string> nouns {
+            "Quest",   "Warriors", "Legends", "Racer",     "Adventure", "World", "Tactics",
+            "Knights", "Odyssey",  "Valley",  "Hearts",    "Arena",     "Stars", "Frontier",
+            "Island",  "Empire",   "Heroes",  "Chronicle", "Dreams",    "Forest"};
+        auto independentTitle = [&](int n) {
+            std::string result = adjectives[n % 20] + " " + nouns[n / 20 % 20] + " " +
+                                 std::to_string(1980 + n / 400 % 40);
+            if (n % 5 == 0) {
+                result += " A";
+                int value = n / 5;
+                for (int letter {0}; letter < 3; ++letter) {
+                    result += static_cast<char>('a' + value % 26);
+                    value /= 26;
+                }
+                result += "ia";
+            }
+            return result;
+        };
+        std::set<std::string> uniqueTitles;
         for (int n {0}; n < 50000; ++n) {
-            const auto title {series[n % series.size()] + " " + std::to_string(1 + n / 200 % 20) +
-                              subtitles[n / 20 % subtitles.size()]};
+            const auto title {diverse && n >= 25000 ? independentTitle(n) :
+                                                      series[n % series.size()] + " " +
+                                                          std::to_string(1 + n / 200 % 20) +
+                                                          subtitles[n / 20 % subtitles.size()]};
+            uniqueTitles.insert(title);
             auto g = game(title, std::to_string(n));
-            g.fileStem = "rom_" + std::to_string(n);
+            g.fileStem =
+                diverse ? title + (n % 4 == 0 ? " (USA)" : "") : "rom_" + std::to_string(n);
             g.system = "system" + std::to_string(n % 32);
             g.systemName = "Console " + std::to_string(n % 32);
             g.developer = std::vector<std::string> {"Nintendo", "Square Enix", "Capcom", "Sega",
@@ -493,14 +582,19 @@ namespace
         std::set<std::string> uniqueQueries;
         for (int n {0}; n < 200; ++n) {
             std::string query {series[n % series.size()] + " " + std::to_string(1 + n / 20)};
-            if (n % 10 == 0)
-                query = "smb" + std::to_string(1 + n / 10);
-            if (n % 10 == 1)
-                query = "metriod " + std::to_string(1 + n / 10);
-            if (n % 10 == 2)
-                query = "system" + std::to_string(n % 32) + " zelda " + std::to_string(1 + n / 10);
-            if (n % 10 == 3)
-                query = "square enix publisher " + std::to_string(n / 10);
+            if (diverse && n >= 100)
+                query = independentTitle(25000 + (n - 100) * 97);
+            else {
+                if (n % 10 == 0)
+                    query = "smb" + std::to_string(1 + n / 10);
+                if (n % 10 == 1)
+                    query = "metriod " + std::to_string(1 + n / 10);
+                if (n % 10 == 2)
+                    query =
+                        "system" + std::to_string(n % 32) + " zelda " + std::to_string(1 + n / 10);
+                if (n % 10 == 3)
+                    query = "square enix publisher " + std::to_string(n / 10);
+            }
             uniqueQueries.insert(query);
             for (size_t len {1}; len <= query.size(); ++len) {
                 const auto before {std::chrono::steady_clock::now()};
@@ -524,27 +618,37 @@ namespace
                         measurements[i].first);
         const auto p95 {times[static_cast<size_t>(times.size() * 0.95)]};
         const auto maximum {times.back()};
-        std::printf("PERF games=%zu systems=32 queries=200 prefixes=%zu build_ms=%.3f "
-                    "search_suggest_p95_ms=%.3f max_ms=%.3f checksum=%zu\n",
-                    core.size(), times.size(), buildMs, p95, maximum, checksum);
+        std::printf(
+            "PERF corpus=%s games=%zu titles=%zu systems=32 queries=200 prefixes=%zu build_ms=%.3f "
+            "search_suggest_p95_ms=%.3f max_ms=%.3f checksum=%zu\n",
+            diverse ? "varied-titles" : "unique-stems", core.size(), uniqueTitles.size(),
+            times.size(), buildMs, p95, maximum, checksum);
         require(uniqueQueries.size() == 200, "200 distinct representative queries");
         require(buildMs <= 300, "50k index build <= 300ms");
         require(p95 <= 5, "per-keystroke search + suggest p95 <= 5ms");
         require(maximum <= 20, "per-keystroke search + suggest max <= 20ms");
     }
 } // namespace
+static void runChecks(const char* name, void (*test)())
+{
+    const int before {checks};
+    test();
+    std::printf("PASS: %s checks=%d\n", name, checks - before);
+}
 int main(int argc, char** argv)
 {
-    if (argc > 1 && std::string(argv[1]) == "--performance")
+    if (argc > 1 && std::string(argv[1]) == "--performance") {
         performance();
+        performance(true);
+    }
     else {
-        normalization();
-        matching();
-        spans();
-        rankingAndFilters();
-        suggestions();
-        history();
-        lifecycle();
+        runChecks("normalization", normalization);
+        runChecks("matching", matching);
+        runChecks("UTF-8 spans", spans);
+        runChecks("ranking and filters", rankingAndFilters);
+        runChecks("suggestions", suggestions);
+        runChecks("history", history);
+        runChecks("lifecycle", lifecycle);
     }
     std::printf("PASS: %d search checks\n", checks);
 }

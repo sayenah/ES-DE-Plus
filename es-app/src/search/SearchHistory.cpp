@@ -28,7 +28,8 @@ namespace LibrarySearch
         {
             if (g.system.empty() || g.system.size() > 256 || g.path.empty() ||
                 g.path.size() > 4096 || g.path.front() == '/' ||
-                g.path.find('\\') != std::string::npos || g.path.find(':') != std::string::npos)
+                g.path.find('\\') != std::string::npos || (g.path.size() > 1 && g.path[1] == ':') ||
+                g.path.find("://") != std::string::npos)
                 return false;
             for (const auto& part : std::filesystem::u8path(g.path))
                 if (part == ".." || part == ".")

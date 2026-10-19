@@ -16,8 +16,6 @@
 #include <string>
 #include <vector>
 
-class FileData;
-
 class GuiGlobalSearch : public GuiComponent
 {
 public:

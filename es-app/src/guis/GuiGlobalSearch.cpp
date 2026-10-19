@@ -50,6 +50,7 @@ void GuiGlobalSearch::populateResults()
     mMenu.addRow(row);
 
     const auto& engine {LibrarySearch::engine()};
+    const auto generation {LibrarySearch::currentGeneration()};
     const auto results {
         engine.search(mQuery, MAX_SEARCH_RESULTS + 1, LibrarySearch::currentFilter())};
     LibrarySearch::history().addQuery(mQuery);
@@ -65,7 +66,7 @@ void GuiGlobalSearch::populateResults()
     const size_t resultCount {std::min(results.size(), MAX_SEARCH_RESULTS)};
 
     for (size_t i {0}; i < resultCount; ++i) {
-        const auto handle {LibrarySearch::handle(results[i].index)};
+        const auto handle {LibrarySearch::handle(results[i].index, generation)};
         FileData* game {LibrarySearch::resolve(handle)};
         if (!game)
             continue;
