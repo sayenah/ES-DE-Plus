@@ -163,9 +163,10 @@ GuiGamelistOptions::GuiGamelistOptions(SystemData* system)
                            Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary),
                        true);
         row.makeAcceptInputHandler([this] {
-            auto view {ViewController::getInstance()->getGamelistView(mSystem)};
-            // Commit menu sorting before the shared toggle chooses the next cursor.
+            SystemData* system {mSystem};
+            // Commit menu sorting/filter changes, then acquire the resulting view.
             delete this;
+            auto view {ViewController::getInstance()->getGamelistView(system)};
             view->toggleCollectionEntry(true);
         });
         mMenu.addRow(row);
