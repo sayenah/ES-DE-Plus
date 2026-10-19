@@ -108,6 +108,8 @@ public:
     void setBlockInput(const bool state);
     bool getBlockInput() const { return mBlockInput; }
     void releaseTouchInput(InputConfig* config, Input input);
+    // Window outlives InputManager; static GUI teardown must not call dead input state.
+    void setTouchInputActive(bool active) { mTouchInputActive = active; }
 #else
     void setBlockInput(const bool state) { mBlockInput = state; }
 #endif
@@ -268,6 +270,9 @@ private:
     unsigned int mTimeSinceLastInput;
 
     bool mBlockInput;
+#if defined(__ANDROID__)
+    bool mTouchInputActive {false};
+#endif
     bool mNormalizeNextUpdate;
 
     bool mRenderScreensaver;

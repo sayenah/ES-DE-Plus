@@ -21,6 +21,8 @@ IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101]
 MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
                           'leftshoulder', 'rightshoulder', 'lefttrigger', 'righttrigger']))
 TOUCH = re.compile(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=.*?value=([01])')
+MANAGER_SYSTEM_TARGET = re.compile(
+    r'Emulator manager touch target: ([^\t\r\n]* — [^\t\r\n]*)\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)')
 BUTTON = re.compile(r'InputOverlay: button id=(\d+) hit=([^ ]+) centre=([^ ]+) norm=([^\s]+)')
 
 
@@ -76,7 +78,10 @@ def assertion_controls():
         else:
             raise AssertionError('Touch balance positive control escaped')
     assert configure('', InputTouchOverlay=True).count('value="true"') == 1
-    return 'PASS: orphan release, double release and missing release rejected\n'
+    sample = 'Emulator manager touch target: 3do — 3DO\tx:540\ty:500\tnorm:0.5,0.26'
+    assert MANAGER_SYSTEM_TARGET.search(sample).group(1) == '3do — 3DO'
+    assert not MANAGER_SYSTEM_TARGET.search(sample.replace('3do — 3DO', 'FIND SYSTEM'))
+    return 'PASS: orphan release, double release and missing release rejected; visible manager system target parsed\n'
 
 
 def fallback_contrast(png, centre, hit_width):
@@ -169,16 +174,30 @@ def run_fresh(namespace):
     # intent is separate from the draft in both cases; later disable stays false.
     for kill_during_setup in (False, True):
         before_pid = h.shell('pidof', h.app).strip()
-        h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
-        h.key('KEYCODE_HOME')
-        h.start_entry()
+        if kill_during_setup:
+            # Android kills the app when all-files access is revoked. This is
+            # the cold/process-death route, not the live Settings consumer.
+            h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+            h.key('KEYCODE_HOME')
+            h.start_entry()
+        else:
+            # Lose and restore the selected data root while backgrounded, as
+            # the main app-data session does, without killing its consumer.
+            h.shell('am', 'start', '-a', 'android.settings.SETTINGS')
+            h.shell('mv', h.data_root, h.data_root + '.touch-unavailable')
+            try:
+                h.key('KEYCODE_BACK')
+                h.ui('Configure ' + h.label)
+            finally:
+                h.shell('mv', h.data_root + '.touch-unavailable', h.data_root)
         if not kill_during_setup:
             h.ui('Cancel configuration', dpad=True)
             pending = h.shell('run-as', h.app, 'sh', '-c',
                               'if test -e files/touch-overlay-reset; then echo PENDING; else echo ABSENT; fi')
             assert pending.strip() == 'ABSENT', pending
-        h.ui('Grant direct filesystem access', dpad=True)
-        h.grant_from_settings()
+        if kill_during_setup:
+            h.ui('Grant direct filesystem access', dpad=True)
+            h.grant_from_settings()
         h.ui('Use direct filesystem compatibility', dpad=True)
         if not kill_during_setup:
             assert h.shell('pidof', h.app).strip() == before_pid, 'Live reset case lost its original native consumer'
@@ -233,7 +252,7 @@ def run(namespace):
     original = h.shell('cat', h.settings)
     common = dict(DebugMode=True, InputTouchOverlayFadeTime=0, ScreensaverTimer=0,
                   InputTouchOverlaySize='medium', InputTouchOverlayOpacity='normal',
-                  InputSwapButtons=False, VirtualKeyboard=True)
+                  InputSwapButtons=False, VirtualKeyboard=True, StartupSystem='nes', StartupView='system')
     logs = []
     ready_surface_nodes = None
 
@@ -537,14 +556,17 @@ def run(namespace):
                 surface_bounds_cached = surface_bounds()
                 centres = buttons(h.log())
 
-        # A menu context prevents a face press from launching another app during
-        # the independent multi-pointer scenarios. The stream itself opens menus.
+        # Keep refcount/slide probes separate from GUI-routing cancellation:
+        # A is inert on the sound slider, and A/B browse views without stacking
+        # dialogs from an explicit system-view start. Routing has its own probe.
+        h.user_file('settings/es_settings.xml', configure(original, **dict(common,
+            InputTouchOverlay=True, StartupSystem='nes', StartupView='system')))
         right = pointer(14, 7); a = pointer(0, 2)
         inject('touch-two-independent', [
             step('down', [right]), step('pointer-down', [right, a], changed=2),
             step('pointer-up', [a, right], changed=2),  # Pointer-index reordering.
             step('pointer-down', [a, right], changed=2), step('pointer-up', [right, a], changed=2),
-            step('up', [right])], [(14, 1), (0, 1), (0, 0), (0, 1), (0, 0), (14, 0)], menu='true')
+            step('up', [right])], [(14, 1), (0, 1), (0, 0), (0, 1), (0, 0), (14, 0)], menu='sound')
         b0 = pointer(1, 9); b1 = pointer(1, 3)
         inject('touch-shared-button', [step('down', [b0]), step('pointer-down', [b1, b0], changed=3),
             step('pointer-up', [b0, b1], changed=9), step('up', [b1])], [(1, 1), (1, 0)])
@@ -560,9 +582,9 @@ def run(namespace):
         empty = dict(id=0, x=0.5, y=0.15)
         inject('touch-face-slide-lift-elsewhere', [step('down', [a]),
             step('move', [b]), step('up', [a])],
-            [(0, 1), (0, 0), (1, 1), (1, 0)], menu='true')
+            [(0, 1), (0, 0), (1, 1), (1, 0)])
         inject('touch-leave-cluster', [step('down', [a]), step('move', [empty]),
-            step('up', [empty])], [(0, 1), (0, 0)], menu='true')
+            step('up', [empty])], [(0, 1), (0, 0)])
         inject('touch-empty-cannot-slide-in', [step('down', [empty]), step('move', [a]),
             step('up', [a])], [], menu='true')
         inject('touch-cannot-cross-clusters', [step('down', [up]), step('move', [a]),
@@ -713,8 +735,12 @@ def run(namespace):
             record('touch-live-resize')
             ready_surface_nodes = None
             surface_bounds_cached = surface_bounds()
-            touch_control(6)
-            touch_control(1)
+            shot('touch-live-resize-controls')
+            for control in (6, 0, 9, 11, 1, 1):
+                resumed = h.log()
+                touch_control(control)
+                check_delta(resumed, [(control, 1), (control, 0)],
+                            'fresh control after reload ' + str(control))
         finally:
             before_reset = h.log()
             h.shell('wm', 'size', 'reset')
@@ -802,9 +828,28 @@ def run(namespace):
                 touch_control(12)
                 check_delta(before, [(12, 1), (12, 0)], 'overlay controls manager first')
                 assert 'owner=gui' not in h.log()[len(before):], 'Overlay gesture reached underlying manager'
-            pattern = r'Emulator manager touch target: (nes[^\t\r\n]*)\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)'
-            h.wait_for(lambda: re.search(pattern, h.log()) is not None, 'mapped manager system target')
-            match = list(re.finditer(pattern, h.log()))[-1]
+                selected = h.log()
+                nx, ny = buttons(selected)[0]['norm']
+                bounds = surface_bounds_cached
+                ax, ay = round(bounds[0] + nx * bounds[2]), round(bounds[1] + ny * bounds[3])
+                h.shell('input', 'touchscreen', 'motionevent', 'DOWN', str(ax), str(ay))
+                try:
+                    h.wait_for(lambda: 'Emulator manager page: system;' in h.log()[len(selected):],
+                               'overlay select opens actual manager system page')
+                    check_delta(selected, [(0, 1), (0, 0)],
+                                'manager page change cancels overlay hold before physical lift')
+                finally:
+                    h.shell('input', 'touchscreen', 'motionevent', 'UP', str(ax), str(ay))
+                assert 'owner=gui' not in h.log()[len(selected):], 'Overlay gesture reached a manager widget'
+                returned = h.log()
+                touch_control(1)
+                h.wait_for(lambda: 'Emulator manager page: systems;' in h.log()[len(returned):],
+                           'overlay Back returns to manager systems')
+            # The manager lists every bundled system, not just games present.
+            # Choose a currently visible system row, independently of its name.
+            h.wait_for(lambda: MANAGER_SYSTEM_TARGET.search(h.log()) is not None,
+                       'mapped visible manager system target')
+            match = list(MANAGER_SYSTEM_TARGET.finditer(h.log()))[0]
             nx, ny = float(match[2]), float(match[3])
             s = surface_bounds_cached
             target = (round(s[0] + nx * s[2]), round(s[1] + ny * s[3]))
@@ -822,11 +867,15 @@ def run(namespace):
                 a = buttons(before)[0]['norm']
                 ax, ay = round(s[0] + a[0] * s[2]), round(s[1] + a[1] * s[3])
                 h.shell('input', 'touchscreen', 'motionevent', 'DOWN', str(target[0]), str(target[1]))
+                h.wait_for(lambda: 'owner=gui' in h.log()[len(before):], 'direct gesture claimed before routing change')
                 h.shell('input', 'touchscreen', 'motionevent', 'MOVE', str(ax), str(ay))
                 h.key('KEYCODE_DEL') # Close the manager during the direct gesture.
                 h.shell('input', 'touchscreen', 'motionevent', 'MOVE', str(ax), str(ay))
                 h.shell('input', 'touchscreen', 'motionevent', 'UP', str(ax), str(ay))
                 assert not transitions(h.log()[len(before):]), 'Cancelled GUI gesture leaked into overlay'
+            (h.evidence / ('touch-manager-ownership-' + str(enabled) + '-injected.txt')).write_text(
+                json.dumps(dict(overlay=enabled, direct_target=target, label=match[1],
+                                routing_cancel=enabled, source='Android touchscreen MotionEvent DOWN/MOVE/UP'), indent=2))
             record('touch-manager-ownership-' + str(enabled))
             neutral()
 

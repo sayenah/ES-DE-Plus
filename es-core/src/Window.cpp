@@ -86,7 +86,8 @@ Window* Window::getInstance()
 void Window::pushGui(GuiComponent* gui)
 {
 #if defined(__ANDROID__)
-    InputManager::getInstance().cancelTouchInput();
+    if (mTouchInputActive)
+        InputManager::getInstance().cancelTouchInput();
 #endif
     mGuiStack.push_back(gui);
     gui->updateHelpPrompts();
@@ -97,7 +98,8 @@ void Window::removeGui(GuiComponent* gui)
     for (auto it = mGuiStack.cbegin(); it != mGuiStack.cend(); ++it) {
         if (*it == gui) {
 #if defined(__ANDROID__)
-            InputManager::getInstance().cancelTouchInput();
+            if (mTouchInputActive)
+                InputManager::getInstance().cancelTouchInput();
 #endif
             it = mGuiStack.erase(it);
 

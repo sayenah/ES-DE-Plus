@@ -93,6 +93,9 @@ void InputManager::init()
     mTouchInputConfig = std::make_unique<InputConfig>(DEVICE_TOUCH, "Touch", TOUCH_GUID_STRING);
     loadTouchConfig();
 #endif
+#if defined(__ANDROID__)
+    mWindow->setTouchInputActive(true);
+#endif
 
     // Load optional controller mappings. Normally the supported controllers should be compiled
     // into SDL as a header file, but if a user has a very rare controller that is not supported,
@@ -124,6 +127,9 @@ void InputManager::init()
 
 void InputManager::deinit()
 {
+#if defined(__ANDROID__)
+    mWindow->setTouchInputActive(false);
+#endif
     if (!initialized())
         return;
 
