@@ -102,6 +102,52 @@ class TouchSmoke : Instrumentation() {
         val startupOwner = File(targetContext.cacheDir, "touch-startup-owner")
         startupOwner.delete()
         try {
+            if (mode == "reset-verification-prepare" || mode == "reset-verification-cleanup") {
+                val storage = StorageModel(targetContext)
+                val root = storage.appData().canonicalFile
+                check(root == storage.privateData().canonicalFile) { "Reset fixture requires private test data" }
+                val settings = File(root, "settings/es_settings.xml")
+                val hook = File(root, "scripts/config-changed/touch-reset-verification-failure.sh")
+                val receipt = File(root, "settings/touch-reset-verification-failure.txt")
+                val marker = File(targetContext.filesDir, "touch-overlay-reset")
+                val metadata = File(targetContext.cacheDir, "touch-reset-verification.json")
+                val localeAsset = "locale/fr_FR/LC_MESSAGES/fr_FR.mo"
+                val locale = File(targetContext.filesDir, "resources/$localeAsset")
+                val localeBytes = targetContext.assets.open(localeAsset).use { it.readBytes() }
+                val localeHash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(localeBytes).joinToString("") { "%02x".format(it) }
+                fun quote(value: String) = "'" + value.replace("'", "'\"'\"'") + "'"
+                val fault = "#!/system/bin/sh\n# SPDX-License-Identifier: MIT\n" +
+                    "# ES-DE-Plus — written for ES-DE-Plus. Controlled reset-verification fixture.\n" +
+                    "printf '%s\\n' '<?xml version=\"1.0\"?>' " +
+                    "'<bool name=\"InputTouchOverlay\" value=\"false\" />' > ${quote(settings.path)}\n" +
+                    "printf '%s\\n' FAULT_INJECTED > ${quote(receipt.path)}\n"
+                if (mode == "reset-verification-prepare") {
+                    check(!hook.exists() && !receipt.exists() && !marker.exists() && !metadata.exists())
+                    check(hook.parentFile!!.mkdirs() || hook.parentFile!!.isDirectory)
+                    hook.writeText(fault)
+                    check(hook.readText() == fault)
+                    check(locale.isFile && locale.readBytes().contentEquals(localeBytes))
+                    check(locale.delete()) // Model the unavailable catalogue on a first start.
+                    ConfiguratorSession.requestTouchOverlayReset(targetContext, root.path)
+                    metadata.writeText(JSONObject().put("intent", marker.readText())
+                        .put("settings", settings.path).put("receipt", receipt.path)
+                        .put("script", hook.readText()).put("locale", locale.path)
+                        .put("locale_sha256", localeHash).toString())
+                } else {
+                    check(!hook.exists() || hook.readText() == fault) { "Refuse an unfamiliar fault hook" }
+                    check(!hook.exists() || hook.delete())
+                    check(!receipt.exists() || receipt.readText().trim() == "FAULT_INJECTED")
+                    check(!receipt.exists() || receipt.delete())
+                    check(!metadata.exists() || metadata.delete())
+                    if (!locale.exists()) locale.writeBytes(localeBytes)
+                    check(locale.readBytes().contentEquals(localeBytes))
+                    // The unconsumed intent belongs to the startup retry, not cleanup.
+                }
+                result.putString("stream", "PASS: $mode under frontend UID; directories stay writable\n")
+                finish(-1, result)
+                return
+            }
             if (mode == "private-settings-prepare") {
                 val storage = StorageModel(targetContext)
                 check(storage.load()?.mode == "direct")
@@ -164,7 +210,7 @@ class TouchSmoke : Instrumentation() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             startupOwner.writeText("${android.os.Process.myPid()} ${activity.taskId}")
             val deadline = SystemClock.elapsedRealtime() + 60_000
-            val log = File(activity.getAppDataDirectory(), "logs/es_log.txt")
+            val log = File(StorageModel(targetContext).appData(), "logs/es_log.txt")
             while (SystemClock.elapsedRealtime() < deadline) {
                 runOnMainSync { surface = findSurface(activity.window.decorView) }
                 if (surface != null && log.isFile && log.readText() != previousLog &&

@@ -398,15 +398,15 @@ jobs:
           import os, pathlib, subprocess, tempfile
           compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang++'
           with tempfile.TemporaryDirectory() as temporary:
-              source = pathlib.Path(temporary) / 'InputOverlay.cpp'
-              source.write_text('#warning ES-DE-Plus native-warnings positive control\n')
-              compiled = subprocess.run([str(compiler), '-fsyntax-only', str(source)], capture_output=True, text=True)
+              source = pathlib.Path(temporary) / 'Window.cpp'
+              source.write_text('void probe(bool a, bool b) { if (a) if (b) {} else {} }\n')
+              compiled = subprocess.run([str(compiler), '-fsyntax-only', '-Wdangling-else', str(source)], capture_output=True, text=True)
               assert compiled.returncode == 0, compiled.stderr
               log = pathlib.Path(temporary) / 'build_stderr_probe.txt'
               log.write_text(compiled.stdout + compiled.stderr)
               gate = subprocess.run(['python3', 'android/check-native-warnings.py', str(log)], capture_output=True, text=True)
               assert gate.returncode == 1 and 'FAIL: native warnings' in gate.stdout, gate.stdout
-              assert 'native-warnings positive control' in gate.stdout, gate.stdout
+              assert '-Wdangling-else' in gate.stdout and 'Window.cpp' in gate.stdout, gate.stdout
               pathlib.Path('android/evidence/native-warnings-positive-control.txt').write_text('PASS: real NDK compiler warning is rejected by the production gate.\n' + gate.stdout)
           PYCODE
       - name: Audit minified release identity and kept JNI methods
@@ -874,15 +874,15 @@ jobs:
           import os, pathlib, subprocess, tempfile
           compiler = pathlib.Path(os.environ['ANDROID_NDK_HOME']) / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang++'
           with tempfile.TemporaryDirectory() as temporary:
-              source = pathlib.Path(temporary) / 'InputOverlay.cpp'
-              source.write_text('#warning ES-DE-Plus native-warnings positive control\n')
-              compiled = subprocess.run([str(compiler), '-fsyntax-only', str(source)], capture_output=True, text=True)
+              source = pathlib.Path(temporary) / 'Window.cpp'
+              source.write_text('void probe(bool a, bool b) { if (a) if (b) {} else {} }\n')
+              compiled = subprocess.run([str(compiler), '-fsyntax-only', '-Wdangling-else', str(source)], capture_output=True, text=True)
               assert compiled.returncode == 0, compiled.stderr
               log = pathlib.Path(temporary) / 'build_stderr_probe.txt'
               log.write_text(compiled.stdout + compiled.stderr)
               gate = subprocess.run(['python3', 'android/check-native-warnings.py', str(log)], capture_output=True, text=True)
               assert gate.returncode == 1 and 'FAIL: native warnings' in gate.stdout, gate.stdout
-              assert 'native-warnings positive control' in gate.stdout, gate.stdout
+              assert '-Wdangling-else' in gate.stdout and 'Window.cpp' in gate.stdout, gate.stdout
               pathlib.Path('android/evidence/native-warnings-positive-control.txt').write_text('PASS: real NDK compiler warning is rejected by the production gate.\n' + gate.stdout)
           PYCODE
       - name: Audit minified release identity and kept JNI methods

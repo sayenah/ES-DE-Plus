@@ -203,10 +203,23 @@ namespace TouchOverlay
                 }
             // A final 0.01 dp scan catches narrow fitting bands skipped by the
             // fast 3% search. Keep the resolution explicit, not a monotonicity claim.
+            [[maybe_unused]] float nextCheck {limit};
+            // Preserve the original floating-point sample sequence. A failed
+            // constraint cannot recover faster than 64 pixels per diameter pixel:
+            // layout() uses only affine terms, max/min and distances, whose summed
+            // slope magnitudes are below 32 (including pair/sector separation).
+            // Leave a generous rounding reserve before skipping any layout checks.
+            const float rounding {0.001f * mDensity + 0.00001f * (v.w + v.h)};
             for (float probe {limit}; probe >= minimum; probe -= 0.01f * mDensity) {
+#if !defined(TOUCH_OVERLAY_EXHAUSTIVE_SCAN)
+                if (probe > nextCheck)
+                    continue;
+#endif
                 layout(probe, insetPad);
-                if (fits())
+                float margin {0};
+                if (fits(&margin))
                     return probe;
+                nextCheck = probe - std::max(0.0f, margin - rounding) / 64;
             }
             return 0.0f;
         };
@@ -348,7 +361,8 @@ namespace TouchOverlay
             return;
         const int rows {(14 + columns - 1) / columns};
         const float spacing {std::min(mSafe.w / columns, mSafe.h / rows)};
-        mDiameter = std::min(requested, spacing / 1.5f);
+        // Include the 1.08x black underlay inside each fixed 48 dp hit cell.
+        mDiameter = std::min({requested, spacing / 1.5f, cell / 1.08f});
         for (int i {0}; i < 14; ++i) {
             Button& b {mButtons[i]};
             b = {};
@@ -367,9 +381,14 @@ namespace TouchOverlay
         }
     }
 
-    bool Model::fits() const
+    bool Model::fits(float* failureMargin) const
     {
         constexpr float epsilon {0.01f};
+        const auto fail = [&](float margin) {
+            if (failureMargin)
+                *failureMargin = margin;
+            return false;
+        };
         const auto visible {mGeometry.visible()};
         const float cornerRadius {2 * std::max(24 * mDensity, 0.04f * visible.h)};
         const std::array<Point, 4> corners {{{visible.x, visible.y},
@@ -385,7 +404,11 @@ namespace TouchOverlay
                 b.hit.x + epsilon < mSafe.x || b.hit.y + epsilon < mSafe.y ||
                 b.hit.x + b.hit.w > mSafe.x + mSafe.w + epsilon ||
                 b.hit.y + b.hit.h > mSafe.y + mSafe.h + epsilon)
-                return false;
+                return fail(
+                    std::max({48 * mDensity - b.hit.w - epsilon, 48 * mDensity - b.hit.h - epsilon,
+                              mSafe.x - b.hit.x - epsilon, mSafe.y - b.hit.y - epsilon,
+                              b.hit.x + b.hit.w - mSafe.x - mSafe.w - epsilon,
+                              b.hit.y + b.hit.h - mSafe.y - mSafe.h - epsilon}));
             for (const auto corner : corners) {
                 const float clearance {
                     b.circle ?
@@ -393,26 +416,31 @@ namespace TouchOverlay
                         distance(corner, {std::clamp(corner.x, b.hit.x, b.hit.x + b.hit.w),
                                           std::clamp(corner.y, b.hit.y, b.hit.y + b.hit.h)})};
                 if (clearance + epsilon < cornerRadius)
-                    return false;
+                    return fail(cornerRadius - clearance - epsilon);
             }
             for (int j {0}; j < i; ++j) {
                 const Button& a {mButtons[j]};
                 if (a.circle && b.circle) {
-                    if (distance(a.centre, b.centre) + epsilon < (a.hit.w + b.hit.w) / 2)
-                        return false;
+                    const float separation {distance(a.centre, b.centre)};
+                    if (separation + epsilon < (a.hit.w + b.hit.w) / 2)
+                        return fail((a.hit.w + b.hit.w) / 2 - separation - epsilon);
                 }
                 else if (a.hit.x + a.hit.w > b.hit.x + epsilon &&
                          b.hit.x + b.hit.w > a.hit.x + epsilon &&
                          a.hit.y + a.hit.h > b.hit.y + epsilon &&
                          b.hit.y + b.hit.h > a.hit.y + epsilon)
-                    return false;
+                    return fail(std::min({a.hit.x + a.hit.w - b.hit.x - epsilon,
+                                          b.hit.x + b.hit.w - a.hit.x - epsilon,
+                                          a.hit.y + a.hit.h - b.hit.y - epsilon,
+                                          b.hit.y + b.hit.h - a.hit.y - epsilon}));
             }
         }
         // Sector capture regions, not just the arm circles, must remain disjoint.
         if (!mCompact) {
             const float r {(mButtons[1].centre.y - mButtons[0].centre.y + mButtons[0].hit.w) / 2};
             if (mButtons[4].centre.x - mButtons[0].centre.x < 2.15f * r + 0.15f * mDiameter)
-                return false;
+                return fail(2.15f * r + 0.15f * mDiameter -
+                            (mButtons[4].centre.x - mButtons[0].centre.x));
         }
         return true;
     }

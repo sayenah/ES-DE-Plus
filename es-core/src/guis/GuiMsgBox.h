@@ -41,12 +41,25 @@ public:
 
     bool input(InputConfig* config, Input input) override;
     void onSizeChanged() override;
+#if defined(__ANDROID__)
+    bool containsTouch(float x, float y);
+    bool nativeTouch(int type, int64_t finger, float x, float y) override;
+    void cancelNativeTouch() override
+    {
+        mTouchFinger = -1;
+        mTouchButton = -1;
+    }
+#endif
 
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
     void deleteMeAndCall(const std::function<void()>& func);
 
+#if defined(__ANDROID__)
+    int64_t mTouchFinger {-1};
+    int mTouchButton {-1};
+#endif
     Renderer* mRenderer;
     BackgroundComponent mBackground;
     ComponentGrid mGrid;

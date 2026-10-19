@@ -66,6 +66,17 @@ def configure(original, **values):
     return '<?xml version="1.0"?>\n' + ''.join(ET.tostring(e, encoding='unicode') for e in document)
 
 
+def reset_failure_script(settings, receipt):
+    """A blocking, existing config-changed hook faults the actual read-back."""
+    return ('#!/system/bin/sh\n# SPDX-License-Identifier: MIT\n'
+            '# ES-DE-Plus — written for ES-DE-Plus. Controlled reset-verification fixture.\n' +
+            shlex.join(['printf', '%s\\n', '<?xml version="1.0"?>',
+                        '<bool name="InputTouchOverlay" value="false" />']) +
+            ' > ' + "'" + settings.replace("'", "'\"'\"'") + "'\n" +
+            shlex.join(['printf', '%s\\n', 'FAULT_INJECTED']) +
+            ' > ' + "'" + receipt.replace("'", "'\"'\"'") + "'\n")
+
+
 def assertion_controls():
     good = 'Window::logInput(Touch): Button 11, isMappedTo=up, value=1\n' \
            'Window::logInput(Touch): Button 11, isMappedTo=up, value=0\n'
@@ -81,7 +92,18 @@ def assertion_controls():
     sample = 'Emulator manager touch target: 3do — 3DO\tx:540\ty:500\tnorm:0.5,0.26'
     assert MANAGER_SYSTEM_TARGET.search(sample).group(1) == '3do — 3DO'
     assert not MANAGER_SYSTEM_TARGET.search(sample.replace('3do — 3DO', 'FIND SYSTEM'))
-    return 'PASS: orphan release, double release and missing release rejected; visible manager system target parsed\n'
+    with tempfile.TemporaryDirectory(dir='.') as directory:
+        # Exercise the exact fixture shell with quoted paths, rather than a
+        # Python substitute for the device's post-save hook.
+        from pathlib import Path
+        settings = Path(directory).resolve() / "settings 'with spaces'.xml"
+        receipt = Path(directory).resolve() / 'receipt'
+        settings.write_text('<bool name="InputTouchOverlay" value="true" />')
+        subprocess.run(['sh'], input=reset_failure_script(str(settings), str(receipt)),
+                       text=True, check=True)
+        assert ET.parse(settings).getroot().get('value') == 'false'
+        assert receipt.read_text().strip() == 'FAULT_INJECTED'
+    return 'PASS: orphan release, double release and missing release rejected; visible manager system target parsed; reset verification hook executed\n'
 
 
 def fallback_contrast(png, centre, hit_width):
@@ -149,6 +171,66 @@ def rendered_centres(off, on, expected, surface):
         boxes[button] = [x0, y0, x1, y1]
         points[button] = ((x0 + x1) / 2, (y0 + y1) / 2)
     return points, boxes
+
+
+def reset_failure_probe(h):
+    # The existing blocking config-changed hook runs after Settings.saveFile()
+    # and before consumeReset() reads it back. Corrupt only the saved test value,
+    # leaving the directories writable so earlier startup preflights still pass.
+    h.shell('am', 'force-stop', h.app)
+    previous = h.shell('cat', h.settings)
+    enabled = configure(previous, CustomEventScripts=True, DebugMode=True, ApplicationLanguage="fr_FR")
+    h.user_file('settings/es_settings.xml', enabled)
+    prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'reset-verification-prepare',
+                       h.app + '/org.esdeplus.frontend.TouchSmoke')
+    h.smoke_checks.probe_passed(prepared, 'PASS: reset-verification-prepare under frontend UID')
+    metadata = json.loads(h.private('cat', 'cache/touch-reset-verification.json'))
+    assert metadata['script'] == reset_failure_script(metadata['settings'], metadata['receipt'])
+    assert h.private('sh', '-c', 'test ! -e ' + shlex.quote(metadata['locale']) +
+                     ' && echo ABSENT').strip() == 'ABSENT'
+    intent = metadata['intent']
+    receipt = metadata['receipt']
+    (h.evidence / 'touch-reset-failure-preparation.txt').write_text(prepared + '\n' + json.dumps(metadata))
+    try:
+        h.start_entry()
+        message = 'Unable to save the touch overlay setup.'
+        h.wait_for(lambda: any(message in n.get('text', '') for n in h.hierarchy()),
+                   'reset failure is visible before frontend input')
+        pid = h.shell('pidof', h.app).strip()
+        assert pid
+        assert h.shell('cat', receipt).strip() == 'FAULT_INJECTED', 'Saved-value fault must execute'
+        assert 'value="false"' in h.shell('cat', h.settings)
+        h.screenshot('touch-reset-failure-dialog')
+        assert h.private('cat', 'files/touch-overlay-reset') == intent
+        logcat = h.adb('logcat', '-d', '--pid', pid)
+        assert 'Finished main function' not in logcat, 'Failure exited before acknowledgement'
+        assert h.private('sha256sum', metadata['locale']).split()[0] == metadata['locale_sha256'], \
+            'Early error path did not restore its missing catalogue from the APK'
+        localized = h.log()
+        assert localized.index('Application language set to \"fr_FR\"') < localized.index(
+            'Unable to persist or acknowledge'), 'Failure translated before locale initialization'
+        h.ui('OK', exact=True)
+        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d', '--pid', pid),
+                   'acknowledged reset failure exits native')
+        time.sleep(1)
+        logcat = h.adb('logcat', '-d', '--pid', pid)
+        assert logcat.count('Running main function') == 1, 'Reset failure restarted native'
+        assert h.private('cat', 'files/touch-overlay-reset') == intent
+        (h.evidence / 'touch-reset-failure-logcat.txt').write_text(logcat)
+    finally:
+        h.shell('am', 'force-stop', h.app)
+        cleaned = h.shell('am', 'instrument', '-w', '-e', 'mode', 'reset-verification-cleanup',
+                          h.app + '/org.esdeplus.frontend.TouchSmoke')
+        h.smoke_checks.probe_passed(cleaned, 'PASS: reset-verification-cleanup under frontend UID')
+        h.user_file('settings/es_settings.xml', previous)
+    h.launch()
+    assert 'InputOverlay: setup reset saved and consumed' in h.log()
+    assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
+    (h.evidence / 'touch-reset-failure.txt').write_text(
+        'PASS: controlled saved-value verification failure shows a blocking native Android dialog; '
+        'missing French catalogue restored byte-for-byte before locale initialization/error UI; '
+        'intent unchanged before/after OK; one native main exits; removing the fault hook '
+        'consumes the retained intent exactly once.\n')
 
 
 def run_fresh(namespace):
@@ -255,6 +337,9 @@ def run_fresh(namespace):
         'PASS: initial setup consumes reset; cancel before choice creates no intent; '
         'normal startup preserves disabled setting; live recovery after native Settings uses PR15 fresh PID; '
         'process death after qualifying choice restores setup; selected shared and private folders enabled once; later disable survives startup.\n')
+    # Fail fast on the new persistence error path, with all regular touch
+    # assertions still following it on the restored private configuration.
+    reset_failure_probe(h)
     run(namespace)
     # Recover by editing the existing native-owned file, as documented. Close
     # the app first and require adb to preserve its owner; do not recreate it.
@@ -280,6 +365,8 @@ def run_fresh(namespace):
             assert 'InputOverlay: textures built' not in h.log()
         receipts.append(f'PASS: existing private XML adb edit enabled={enabled}; owner={owner} preserved; no setup reset')
     (h.evidence / 'touch-private-adb-recovery.txt').write_text('\n'.join(receipts) + '\n')
+
+
 
 
 def run(namespace):
@@ -503,7 +590,10 @@ def run(namespace):
         shot('touch-only-text-confirmation')
         touch_control(0)
         record('touch-only-menu-device-settings-text')
-        start(InputTouchOverlay=True)
+        start(InputTouchOverlay=True, InputTouchOverlayFadeTime=10)
+        # Refresh visibility after the normal startup wait before this render
+        # comparison. The separate fade-behaviour probes still use T=2.
+        tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))
         touch_control(6)
         touch_control(12, 4)
         touch_control(0)
@@ -513,8 +603,65 @@ def run(namespace):
         touch_control(14, 2)
         touch_control(12, 2)
         touch_control(0)
-        shot('touch-disable-recovery-warning')
-        touch_control(0)  # Confirm the non-destructive, localized recovery warning.
+        warning_on = shot('touch-disable-recovery-warning')
+        rect = list(map(float, re.findall(r'InputOverlay: modal rect=([^\s]+)', h.log())[-1].split(',')))
+        # The entire modal interior (text AND confirmation), independently sized
+        # by the GUI, must be unchanged when the underlying overlay fades away.
+        fade_baseline = h.log()
+        h.wait_for(lambda: 'InputOverlay: faded' in h.log()[len(fade_baseline):],
+                   'warning overlay fades under modal')
+        warning_off = shot('touch-disable-recovery-warning-faded')
+        width, height, channels, on_rows = pdf_smoke.pixels(warning_on)
+        off_width, off_height, off_channels, off_rows = pdf_smoke.pixels(warning_off)
+        assert (width, height, channels) == (off_width, off_height, off_channels)
+        x, y, w, height = rect
+        inset = 24  # Exclude only the rounded border and shadow.
+        x0, y0, x1, y1 = round(x + inset), round(y + inset), round(x + w - inset), round(y + height - inset)
+        assert x1 > x0 and y1 > y0
+        changed = sum(on_rows[py][px * channels + c] != off_rows[py][px * channels + c]
+                      for py in range(y0, y1) for px in range(x0, x1) for c in range(3))
+        assert changed == 0, ('Overlay covered modal content', rect, changed)
+        ax0, ay0, ax1, ay1 = map(round, boxes[0])
+        exposed = sum(on_rows[py][px * channels + c] != off_rows[py][px * channels + c]
+                      for py in range(ay0, ay1) for px in range(ax0, ax1) for c in range(3))
+        assert exposed > 0, 'Visible/faded comparison must observe exposed A artwork changing'
+        (h.evidence / 'touch-modal-priority.txt').write_text(
+            f'PASS: modal interior {rect}: {changed} changed channels with overlay visible/faded; '
+            'text and confirmation take visual priority.\n')
+        tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))  # Wake-only.
+        outside_before = h.log()
+        touch_control(12)
+        check_delta(outside_before, [(12, 1), (12, 0)], 'exposed D-pad still works beside modal')
+        before_confirm = h.log()
+        ok = re.findall(r'GuiMsgBox: button=OK norm=([0-9.eE+-]+),([0-9.eE+-]+)', before_confirm)[-1]
+        ok_centre = (surface[0] + float(ok[0]) * surface[2], surface[1] + float(ok[1]) * surface[3])
+        drawable = tuple(map(float, re.findall(r'surface=(\d+)x(\d+)', before_confirm)[-1]))
+        # The centre lies between Back/Start. Select visible black OK padding
+        # that is ALSO in a hidden activation rectangle, so removing modal
+        # exclusion cannot pass merely because the centre happens to be empty.
+        ok_point = None
+        for hidden_id in (4, 6):
+            hidden = buttons(before_confirm)[hidden_id]
+            centre = (surface[0] + hidden['norm'][0] * surface[2],
+                      surface[1] + hidden['norm'][1] * surface[3])
+            point = ((ok_centre[0] + centre[0]) / 2, ok_centre[1])
+            logical = (hidden['centre'][0] + (point[0] - centre[0]) * drawable[0] / surface[2],
+                       hidden['centre'][1] + (point[1] - centre[1]) * drawable[1] / surface[3])
+            hx, hy, hw, hh = hidden['hit']
+            pixel = on_rows[round(point[1])][round(point[0]) * channels:round(point[0]) * channels + 3]
+            if hx <= logical[0] < hx + hw and hy <= logical[1] < hy + hh and max(pixel) < 8:
+                ok_point = point
+                break
+        assert ok_point is not None, 'Need visible OK padding over an actual hidden Back/Start hit'
+        assert x <= ok_point[0] <= x + w and y <= ok_point[1] <= y + height
+        tap(ok_point)  # Actual visible OK AND a hidden overlay activation region.
+        check_delta(before_confirm, [], 'modal OK does not press hidden overlay controls')
+        h.wait_for(lambda: 'GuiMsgBox: direct touch confirmed OK' in h.log()[len(before_confirm):],
+                   'visible modal OK confirms directly')
+        assert 'owner=gui' in h.log()[len(before_confirm):]
+        with (h.evidence / 'touch-modal-priority.txt').open('a') as evidence:
+            evidence.write(f'PASS: visible OK at {ok_point}, over hidden id={hidden_id}, '
+                           'confirmed by direct touch; no overlay input.\n')
         touch_control(1)
         assert 'InputOverlay: cleared' in h.log(), h.log()
         saved = h.shell('cat', h.settings)
@@ -896,6 +1043,31 @@ def run(namespace):
                        'unclaimed direct manager gesture opens system')
             assert not transitions(h.log()[len(before):]), 'Direct gesture also activated overlay'
             assert 'owner=gui' in h.log()[len(before):]
+            # Exercise an actual manager confirmation, including its own direct-
+            # touch implementation, with and without the overlay enabled.
+            h.wait_for(lambda: 'Emulator manager touch target: ADD EMULATOR\t' in h.log()[len(before):],
+                       'manager add-emulator row rendered')
+            add = re.findall(r'Emulator manager touch target: ADD EMULATOR\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)',
+                             h.log()[len(before):])[-1]
+            tap((s[0] + float(add[0]) * s[2], s[1] + float(add[1]) * s[3]))
+            h.wait_for(lambda: 'Emulator manager page: draft;' in h.log()[len(before):], 'manager draft opened')
+            for label in ('CANCEL', 'CONTINUE'):
+                before_dialog = h.log()
+                h.key('KEYCODE_DEL') # Real discard-draft confirmation.
+                pattern = r'Emulator manager touch target: ' + label + r'\tx:[^\t]+\ty:[^\t]+\tnorm:([0-9.]+),([0-9.]+)'
+                h.wait_for(lambda: re.search(pattern, h.log()[len(before_dialog):]) is not None,
+                           'manager confirmation ' + label + ' rendered')
+                confirm = re.findall(pattern, h.log()[len(before_dialog):])[-1]
+                target_confirm = (s[0] + float(confirm[0]) * s[2], s[1] + float(confirm[1]) * s[3])
+                shot('touch-manager-confirm-' + str(enabled) + '-' + label)
+                before_tap = h.log()
+                tap(target_confirm)
+                check_delta(before_tap, [], 'direct manager confirmation does not press hidden controls')
+                assert 'owner=gui' in h.log()[len(before_tap):]
+                if label == 'CONTINUE':
+                    h.wait_for(lambda: 'Emulator manager page: system;' in h.log()[len(before_tap):],
+                               'direct manager confirm discards draft')
+            record('touch-manager-modal-' + str(enabled))
             h.key('KEYCODE_DEL')
             if enabled:
                 # A direct gesture that crosses an overlay control retains its

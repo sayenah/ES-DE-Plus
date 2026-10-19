@@ -27,7 +27,9 @@
 
 #if defined(__ANDROID__)
 #define TOUCH_GUID_STRING "-3"
+#include "guis/GuiMsgBox.h"
 #include "utils/PlatformUtilAndroid.h"
+#include <limits>
 #endif
 
 #if defined(__IOS__)
@@ -340,7 +342,9 @@ bool InputManager::parseEvent(const SDL_Event& event)
         if (event.type == SDL_FINGERDOWN && !owner) {
             // Claim before dispatch: a press may open a dialog. Neither that GUI
             // nor another pointer can steal the matching motion/release.
-            const bool overlay {overlayEnabled &&
+            auto* modal {dynamic_cast<GuiMsgBox*>(mWindow->peekGui())};
+            const bool inDialog {modal && modal->containsTouch(event.tfinger.x, event.tfinger.y)};
+            const bool overlay {overlayEnabled && !inDialog &&
                                 mInputOverlay.claimsTouch(event.tfinger.x, event.tfinger.y)};
             for (auto& candidate : mTouchOwners) {
                 if (candidate.finger == -1) {
@@ -358,7 +362,8 @@ bool InputManager::parseEvent(const SDL_Event& event)
                     const auto epoch {mInputOverlay.epoch()};
                     mInputOverlay.processEvent(event.type,
                                                static_cast<int>(event.tfinger.fingerId) + 1,
-                                               event.tfinger.x, event.tfinger.y);
+                                               std::numeric_limits<float>::quiet_NaN(),
+                                               std::numeric_limits<float>::quiet_NaN());
                     if (epoch != mInputOverlay.epoch()) {
                         cancelTouchInput();
                         return false;

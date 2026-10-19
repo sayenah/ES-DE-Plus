@@ -515,6 +515,10 @@ static void normalDeckRegressions()
                             require(b.hit.w + 0.01f >= 48 * density &&
                                         b.hit.h + 0.01f >= 48 * density,
                                     "full sweep 48 dp targets");
+                            if (m.compact())
+                                require(b.width * 1.08f <= b.hit.w + 0.01f &&
+                                            b.height * 1.08f <= b.hit.h + 0.01f,
+                                        "compact artwork and underlay stay inside hit cell");
                             require(b.hit.x + 0.01f >= safe.x && b.hit.y + 0.01f >= safe.y &&
                                         b.hit.x + b.hit.w <= safe.x + safe.w + 0.01f &&
                                         b.hit.y + b.hit.h <= safe.y + safe.h + 0.01f,

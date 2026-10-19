@@ -14,6 +14,7 @@
 
 #if defined(__ANDROID__)
 #include "TouchOverlayReset.h"
+#include <SDL2/SDL_messagebox.h>
 #include <pugixml.hpp>
 #endif
 
@@ -856,7 +857,22 @@ int main(int argc, char* argv[])
         },
         &resetFailed)};
     if (resetFailed) {
+        // A first-run reset can fail before the normal locale-file copy below.
+        Utils::Platform::Android::setupLocalizationFiles();
+        Utils::Localization::setLocale();
         LOG(LogError) << "Unable to persist or acknowledge the setup touch-overlay reset";
+        Log::flush(); // No Window frame can flush diagnostics while the native dialog waits.
+        // SDL's native Android dialog waits for acknowledgement, even before
+        // renderer creation. Keep the intent and stop before accepting input.
+        if (SDL_ShowSimpleMessageBox(
+                SDL_MESSAGEBOX_ERROR, "ES-DE Plus",
+                _("Unable to save the touch overlay setup. Check that your application data "
+                  "folder is writable and has free space, then start ES-DE Plus again. "
+                  "Your setup request has been kept. The app will close after you press OK.")
+                    .c_str(),
+                nullptr) != 0) {
+            LOG(LogError) << "Unable to display touch setup error: " << SDL_GetError();
+        }
         return 1; // Keep the intent; do not accept later user changes before acknowledgement.
     }
     AndroidVariables::sResetTouchOverlay = false;
