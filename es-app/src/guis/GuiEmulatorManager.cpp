@@ -11,6 +11,7 @@
 #if defined(__ANDROID__)
 #include "EmulatorManagerRuntime.h"
 #include "FileData.h"
+#include "InputManager.h"
 #include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
