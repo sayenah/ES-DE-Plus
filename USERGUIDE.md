@@ -4768,7 +4768,7 @@ The amount of players the game supports. This could be an absolute number such a
 
 **Favorite**
 
-A flag to indicate whether this is a favorite game. This flag can also be set directly from the gamelist view by using the _Y_ button (assuming the _Enable toggle favorites buttom_ option is enabled).
+A flag to indicate whether this is a favorite game. It can also be toggled from the Select game options menu, or with _Y_ when _Y button in game lists_ is set to _Favorites_ and _Enable toggle favorites button_ is enabled.
 
 **Completed**
 
