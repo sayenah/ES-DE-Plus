@@ -594,7 +594,11 @@ namespace LibrarySearch
     {
         auto index = std::make_unique<Index>();
         // Sort once by tie breaks. Posting lists and bucket traversal retain this order.
-        std::unordered_map<std::string, std::string> normalized;
+        struct CachedText {
+            std::string normalized;
+            std::string compact;
+        };
+        std::unordered_map<std::string, CachedText> normalized;
         normalized.reserve(games.size() * 2);
         index->games.reserve(games.size());
         index->documents.reserve(games.size() * 2);
@@ -603,11 +607,20 @@ namespace LibrarySearch
         index->vocabulary.reserve(games.size() * 2);
         index->grams.reserve(4096);
         index->acronymPrefixes.reserve(1024);
+        auto cachedText = [&](const std::string& value) -> const CachedText& {
+            const auto inserted = normalized.try_emplace(value);
+            auto& text = inserted.first->second;
+            if (inserted.second) {
+                text.normalized = normalize(value);
+                text.compact = compact(text.normalized);
+            }
+            return text;
+        };
         auto cached = [&](const std::string& value) -> const std::string& {
-            auto it = normalized.find(value);
-            if (it == normalized.end())
-                it = normalized.emplace(value, normalize(value)).first;
-            return it->second;
+            return cachedText(value).normalized;
+        };
+        auto cachedCompact = [&](const std::string& value) -> const std::string& {
+            return cachedText(value).compact;
         };
         std::vector<size_t> order(games.size());
         std::iota(order.begin(), order.end(), 0);
@@ -652,7 +665,7 @@ namespace LibrarySearch
         completionKeys.reserve(games.size());
         auto completion = [&](SuggestionKind kind, const std::string& text, const auto& ids,
                               const std::string& overrideKey = std::string {}) {
-            const auto key = compact(overrideKey.empty() ? cached(text) : overrideKey);
+            const auto& key = cachedCompact(overrideKey.empty() ? text : overrideKey);
             if (key.empty() || key == "unknown")
                 return;
             const auto pair = std::string(1, static_cast<char>('0' + static_cast<int>(kind))) + key;
@@ -704,7 +717,7 @@ namespace LibrarySearch
                  {&game.developer, &game.publisher, &game.genre, &game.system, &game.systemName}) {
                 if (!metadata.empty())
                     metadata += ' ';
-                metadata += compact(cached(*field));
+                metadata += cachedCompact(*field);
             }
             index->metadataGroups[metadata].push_back(i);
             auto& displayDoc {index->documents[display]};
@@ -713,8 +726,8 @@ namespace LibrarySearch
             index->systemGames[game.system].push_back(i);
             index->systems[cached(game.system)].insert(game.system);
             index->systems[cached(game.systemName)].insert(game.system);
-            index->systems[compact(cached(game.system))].insert(game.system);
-            index->systems[compact(cached(game.systemName))].insert(game.system);
+            index->systems[cachedCompact(game.system)].insert(game.system);
+            index->systems[cachedCompact(game.systemName)].insert(game.system);
             const std::array<size_t, 1> single {i};
             completion(SuggestionKind::Developer, game.developer, single);
             completion(SuggestionKind::Publisher, game.publisher, single);

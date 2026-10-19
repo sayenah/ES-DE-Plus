@@ -317,13 +317,24 @@ void GuiSearch::result(int index, const glm::vec4& rect, bool best)
     const float x = image.x + image.z + inset;
     const float width = rect.x + rect.z - x - inset;
     const float titleHeight = (best ? 60 : 44) * mUnit;
-    const float titleY = best ? rect.y + rect.w * 0.24f : rect.y + rect.w * 0.12f;
+    const float titleY = best ? rect.y + rect.w * 0.24f : rect.y + (rect.w - titleHeight) / 2;
+    const float badgeWidth = best ? 0 : std::min(150 * mUnit, width * 0.25f);
     if (best)
         label(_("Best match"), {x, rect.y + inset, width, 34 * mUnit}, 26 * mUnit, mMuted);
     const std::vector<LibrarySearch::Span> empty;
     title(game->getName(),
           index < static_cast<int>(mMatches.size()) ? mMatches[index].spans : empty,
-          {x, titleY, width, titleHeight}, (best ? 42 : 32) * mUnit);
+          {x, titleY, width - (best ? 0 : badgeWidth + inset), titleHeight},
+          (best ? 42 : 32) * mUnit);
+    if (!best) {
+        const auto badge =
+            Utils::String::toUpper(game->getSystemName()) + (game->getFavorite() ? " ★" : "");
+        label(badge,
+              {rect.x + rect.z - inset - badgeWidth, rect.y + (rect.w - 40 * mUnit) / 2, badgeWidth,
+               40 * mUnit},
+              24 * mUnit, mMuted, mRaised, false, ALIGN_CENTER);
+        return;
+    }
     std::string metadata = game->getSystem()->getFullName();
     if (best) {
         const auto date = game->metadata.get("releasedate");
@@ -1058,6 +1069,10 @@ bool GuiSearch::input(InputConfig* config, Input input)
         return true;
     const bool keyboard = input.type == TYPE_KEY;
     if (keyboard) {
+        // Android normally hides the IME when a hardware keyboard is attached. Keep
+        // software-keyboard commits in touch mode, but expose the grid for hardware keys.
+        if (mTouch && !SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()))
+            startTextInput(false);
         if (input.id == SDLK_ESCAPE || input.id == SDLK_AC_BACK) {
             close();
             return true;
