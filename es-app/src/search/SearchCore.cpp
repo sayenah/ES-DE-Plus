@@ -602,8 +602,9 @@ namespace LibrarySearch
         index->documents.reserve(games.size() * 2);
         index->gameDocuments.reserve(games.size());
         index->metadataGroups.reserve(games.size());
+        index->completions.reserve(games.size());
         index->vocabulary.reserve(games.size() * 2);
-        index->grams.reserve(4096);
+        index->grams.reserve(games.size());
         index->acronymPrefixes.reserve(1024);
         auto cached = [&](const std::string& value) -> const std::string& {
             auto it = normalized.find(value);
@@ -620,7 +621,10 @@ namespace LibrarySearch
         std::vector<size_t> order(games.size());
         std::iota(order.begin(), order.end(), 0);
         std::vector<const std::string*> sortKeys, systemKeys;
+        sortKeys.reserve(games.size());
+        systemKeys.reserve(games.size());
         std::vector<size_t> lengths;
+        lengths.reserve(games.size());
         for (auto& g : games) {
             sortKeys.push_back(&cached(g.sortName.empty() ? g.title : g.sortName));
             systemKeys.push_back(&cached(g.systemName));
@@ -663,7 +667,9 @@ namespace LibrarySearch
                               const std::string& overrideKey = std::string {}) {
             const auto explicitKey = overrideKey.empty() ? std::string {} : compact(overrideKey);
             const auto& key = overrideKey.empty() ? cachedCompact(text) : explicitKey;
-            if (key.empty() || key == "unknown")
+            if (key.empty() || (key == "unknown" && (kind == SuggestionKind::Developer ||
+                                                     kind == SuggestionKind::Publisher ||
+                                                     kind == SuggestionKind::Genre)))
                 return;
             // Partition by kind instead of allocating a kind-prefixed string on every
             // game/metadata occurrence. Most metadata keys repeat across the library.
@@ -680,6 +686,7 @@ namespace LibrarySearch
         };
         std::unordered_map<std::string, size_t> rawTitles;
         rawTitles.reserve(games.size() * 2);
+        std::vector<const std::vector<size_t>*> metadataSources;
         auto addTitle = [&](const std::string& raw, size_t i) {
             const auto inserted = rawTitles.try_emplace(raw, index->documents.size());
             const size_t id = inserted.first->second;
@@ -718,21 +725,38 @@ namespace LibrarySearch
                     metadata += ' ';
                 metadata += cachedCompact(*field);
             }
-            index->metadataGroups[metadata].push_back(i);
+            auto group = index->metadataGroups.try_emplace(std::move(metadata));
+            if (group.second)
+                metadataSources.push_back(&group.first->second);
+            group.first->second.push_back(i);
             auto& displayDoc {index->documents[display]};
             displayDoc.display = game.title;
             displayDoc.displayGames.push_back(i);
-            index->systemGames[game.system].push_back(i);
-            index->systems[cached(game.system)].insert(game.system);
-            index->systems[cached(game.systemName)].insert(game.system);
-            index->systems[cachedCompact(game.system)].insert(game.system);
-            index->systems[cachedCompact(game.systemName)].insert(game.system);
-            const std::array<size_t, 1> single {i};
-            completion(SuggestionKind::Developer, game.developer, single);
-            completion(SuggestionKind::Publisher, game.publisher, single);
-            completion(SuggestionKind::Genre, game.genre, single);
-            completion(SuggestionKind::System, game.systemName, single);
-            completion(SuggestionKind::System, game.system, single);
+            auto system = index->systemGames.try_emplace(game.system);
+            system.first->second.push_back(i);
+            if (system.second) {
+                // Full/short names belong to the system, not to each repeated game record.
+                index->systems[cached(game.system)].insert(game.system);
+                index->systems[cached(game.systemName)].insert(game.system);
+                index->systems[compact(cached(game.system))].insert(game.system);
+                index->systems[compact(cached(game.systemName))].insert(game.system);
+                const auto fullName {title(game.systemName).text};
+                index->systems[fullName].insert(game.system);
+                index->systems[compact(fullName)].insert(game.system);
+            }
+        }
+        // Entity labels repeat across the library. Add their already grouped postings
+        // once, preserving the first ranked source's spelling and per-game weights.
+        for (const auto* ids : metadataSources) {
+            const auto& representative = index->games[ids->front()];
+            completion(SuggestionKind::Developer, representative.developer, *ids);
+            completion(SuggestionKind::Publisher, representative.publisher, *ids);
+            completion(SuggestionKind::Genre, representative.genre, *ids);
+        }
+        for (const auto& system : index->systemGames) {
+            const auto& representative = index->games[system.second.front()];
+            completion(SuggestionKind::System, representative.systemName, system.second);
+            completion(SuggestionKind::System, representative.system, system.second);
         }
         for (size_t i {0}; i < index->documents.size(); ++i) {
             const auto& doc = index->documents[i];
@@ -748,8 +772,11 @@ namespace LibrarySearch
             tokens.reserve(t.tokens.size() * 2);
             const auto& joined = doc.compact;
             for (size_t length {1}; length <= 3; ++length)
-                for (size_t offset {0}; offset + length <= joined.size(); ++offset)
-                    index->grams[gram(joined, offset, length)].push_back(i);
+                for (size_t offset {0}; offset + length <= joined.size(); ++offset) {
+                    auto& postings = index->grams[gram(joined, offset, length)];
+                    if (postings.empty() || postings.back() != i)
+                        postings.push_back(i);
+                }
             std::vector<std::string> acronymKeys;
             acronymKeys.reserve(t.tokens.size() * 2);
             for (const auto& w : t.tokens) {
@@ -1282,6 +1309,11 @@ namespace LibrarySearch
         std::sort(candidates.begin(), candidates.end());
         for (size_t candidate : candidates) {
             const auto& c = mIndex->completions[candidate];
+            const auto source = std::find_if(c.games.begin(), c.games.end(), [&](size_t i) {
+                return visible(mIndex->games[i], filter);
+            });
+            if (source == c.games.end())
+                continue;
 
             std::string insert;
             if (c.kind == SuggestionKind::Word) {
@@ -1294,12 +1326,48 @@ namespace LibrarySearch
             }
             else {
                 insert = c.text;
+                // Equivalent normalized labels can come from different games. Display the
+                // spelling of an eligible source instead of leaking a filtered game's label.
+                if (source != c.games.begin()) {
+                    const auto& game = mIndex->games[*source];
+                    switch (c.kind) {
+                        case SuggestionKind::Title:
+                            insert = game.title;
+                            break;
+                        case SuggestionKind::Developer:
+                            insert = game.developer;
+                            break;
+                        case SuggestionKind::Publisher:
+                            insert = game.publisher;
+                            break;
+                        case SuggestionKind::Genre:
+                            insert = game.genre;
+                            break;
+                        case SuggestionKind::System:
+                            insert = compact(normalize(game.systemName)) == c.key ?
+                                         game.systemName :
+                                         game.system;
+                            break;
+                        case SuggestionKind::Series: {
+                            const auto mapped = title(game.title, true);
+                            size_t consumed {0};
+                            for (size_t i {0}; i < mapped.text.size(); ++i) {
+                                if (mapped.text[i] != ' ' && ++consumed == c.key.size()) {
+                                    insert = game.title.substr(mapped.source.front().begin,
+                                                               mapped.source[i].end -
+                                                                   mapped.source.front().begin);
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                        case SuggestionKind::Word:
+                            break;
+                    }
+                }
             }
             const auto key {compact(normalize(insert))};
             if (key == compact(q) || seen.count(key))
-                continue;
-            if (!std::any_of(c.games.begin(), c.games.end(),
-                             [&](size_t i) { return visible(mIndex->games[i], filter); }))
                 continue;
             // A completion is useful only if the inserted query actually has visible matches,
             // including system restrictions and the preceding tokens of word completions.

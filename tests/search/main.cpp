@@ -154,6 +154,15 @@ namespace
         core.rebuild({alias});
         match(core, "hidden sort alias", MatchClass::Exact);
         match(core, "filename", MatchClass::Exact);
+        auto articleSystem = game("Mario", "article");
+        articleSystem.systemName = "The Super Nintendo";
+        auto otherSystem = game("Mario", "other");
+        otherSystem.system = "nes";
+        otherSystem.systemName = "Nintendo Entertainment System";
+        core.rebuild({articleSystem, otherSystem});
+        match(core, "the super nintendo mario", MatchClass::Exact, "article");
+        require(core.search("the super nintendo mario").size() == 1,
+                "system restriction ignores the full name's leading article");
     }
     void spans()
     {
@@ -405,6 +414,45 @@ namespace
         Filter f;
         f.showHidden = false;
         require(core.suggest("fant", 8, f).empty(), "suggestions hide filtered titles");
+        core.rebuild({game("Unknown")});
+        has("unk", SuggestionKind::Title, "Unknown");
+
+        std::vector<Game> equivalent;
+        for (int n {1}; n <= 2; ++n) {
+            for (bool hidden : {true, false}) {
+                const std::string separator {hidden ? "🔒" : "-"};
+                auto g = game("Poke" + separator + "mon " + std::to_string(n),
+                              std::to_string(n) + (hidden ? "hidden" : "visible"));
+                g.hidden = hidden;
+                g.kid = !hidden;
+                g.favourite = hidden;
+                g.developer = "Nin" + separator + "tendo";
+                g.publisher = "Ac" + separator + "me";
+                g.genre = "Act" + separator + "ion";
+                g.system = hidden ? "hidden" : "visible";
+                g.systemName = "Super" + separator + "Nintendo";
+                equivalent.push_back(g);
+            }
+        }
+        core.rebuild(equivalent);
+        f.kidMode = true;
+        for (const auto& example : {std::make_pair("poke m", SuggestionKind::Title),
+                                    {"poke m", SuggestionKind::Series},
+                                    {"nin", SuggestionKind::Developer},
+                                    {"ac", SuggestionKind::Publisher},
+                                    {"act", SuggestionKind::Genre},
+                                    {"super n", SuggestionKind::System}}) {
+            const auto values {core.suggest(example.first, 100, f)};
+            require(std::any_of(values.begin(), values.end(),
+                                [&](const Suggestion& s) { return s.kind == example.second; }),
+                    "filtered equivalent suggestion retains its kind");
+            for (const auto& s : values) {
+                require(s.text.find("🔒") == std::string::npos,
+                        "suggestion spelling comes from a visible game");
+                require(!core.search(s.text, 200, f).empty(),
+                        "visible suggestion spelling yields visible results");
+            }
+        }
     }
     void history()
     {

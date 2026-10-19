@@ -46,11 +46,6 @@ jobs:
             clang-format-18 --dry-run --Werror "$file"
           done
 
-      - name: Build and run pure overlay model checks
-        run: |
-          cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-input-overlay --parallel 2
-          ctest --test-dir build-input-overlay --output-on-failure
       - name: Build and run search correctness and 50k performance gates
         run: |
           cmake -S tests/search -B build-search -DCMAKE_BUILD_TYPE=Release
@@ -60,6 +55,11 @@ jobs:
           cmake --build build-search-sanitized --parallel 2
           ctest --test-dir build-search-sanitized -R 'search_logic|search_adapter' --output-on-failure
 
+      - name: Build and run pure overlay model checks
+        run: |
+          cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-input-overlay --parallel 2
+          ctest --test-dir build-input-overlay --output-on-failure
       - name: Emulator override persistence probe
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror -Ies-app/src -Ies-core/src es-app/src/EmulatorManagerConfig.cpp es-app/src/EmulatorLaunchProfile.cpp android/emulator-manager-probe.cpp -lpugixml -o /tmp/emulator-manager-probe
