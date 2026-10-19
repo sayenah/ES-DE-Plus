@@ -69,13 +69,17 @@ def run(h, start, control, shot, record):
                          '--es', 'ime', operation, '--es', 'text', text)
         assert 'PASS: active SDL input connection' in result, result
         time.sleep(.25)
-    def typed(text):
+    def typed(text, private=False):
         value = ''
         for character in text:
             value += character
             before = len(h.log())
             h.shell('input', 'text', character)
-            h.wait_for(lambda: 'Search keystroke: query=' + value + ' results=' in h.log()[before:], 'live stroke ' + value)
+            if private:
+                h.wait_for(lambda: re.search(r'Search keystroke: query=<private> results=\d+ query_bytes=' +
+                                            str(len(value.encode())) + r'\b', h.log()[before:]), 'private live stroke')
+            else:
+                h.wait_for(lambda: 'Search keystroke: query=' + value + ' results=' in h.log()[before:], 'live stroke ' + value)
             time.sleep(.15)
     def timing(name):
         times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', h.log())]
@@ -159,7 +163,8 @@ def run(h, start, control, shot, record):
             h.shell('am', 'force-stop', h.app)
             h.shell('wm', 'size', f'{width}x{height}')
             h.shell('wm', 'density', str(density))
-            start(InputTouchOverlay=True, UIMode='full', ScreenRotate=0, SearchHistory=True)
+            start(InputTouchOverlay=True, UIMode='full', ScreenRotate=0, SearchHistory=True,
+                  VirtualKeyboard=False)
             magnifier()
             h.wait_for(lambda: 'Search screen opened:' in h.log(), 'magnifier search')
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
@@ -213,14 +218,15 @@ def run(h, start, control, shot, record):
             h.key('KEYCODE_INSERT')
             current = h.log().rsplit('Search layout:', 1)[-1]
             assert not any(int(area) == 5 for area, _, _, _ in TARGET.findall(current)), 'Private history was shown'
-            typed('fin')
+            typed('fin', private=True)
             if mode == 'kid':
-                assert re.search(r'Search keystroke: query=fin results=1\b', h.log()), 'Kid search exposed non-kid game'
+                assert re.search(r'Search keystroke: query=<private> results=1 query_bytes=3\b', h.log()), 'Kid search exposed non-kid game'
+            assert 'query=fin ' not in h.log(), 'Private query leaked into search diagnostics'
             h.key('KEYCODE_ENTER')
             h.key('KEYCODE_ENTER')
             after = h.shell('cat', root + '/settings/search_history.xml')
             assert before == after, 'Private search mutated history'
-            record('search-screen-privacy-' + mode + '-' + str(remember))
+            timing('search-screen-privacy-' + mode + '-' + str(remember))
         ordered = sorted(measurements)
         summary = dict(samples=len(ordered), p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=max(ordered))
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')

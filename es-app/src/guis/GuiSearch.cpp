@@ -113,7 +113,7 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
             ->sizeText("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
                        "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×");
     startTextInput(mTouch);
-    LOG(LogDebug) << "Search screen opened: query=" << mQuery << " scope=" << mScopeName;
+    LOG(LogDebug) << "Search screen opened: query=" << queryForLog() << " scope=" << mScopeName;
 }
 
 GuiSearch::~GuiSearch()
@@ -152,6 +152,10 @@ void GuiSearch::refresh()
         mArea == Area::Games && mIndex >= 0 && mIndex < static_cast<int>(mGames.size()) ?
             mGames[mIndex].id :
             "";
+    if (mArea != Area::Games) {
+        mFirstGame = 0;
+        mResultLimit = 200;
+    }
     const auto& engine = LibrarySearch::engine();
     const bool changed = mGeneration != LibrarySearch::currentGeneration();
     mGeneration = LibrarySearch::currentGeneration();
@@ -176,7 +180,9 @@ void GuiSearch::refresh()
     mGames.clear();
     mRecent.clear();
     mFavorites.clear();
-    mNoResults = !mQuery.empty() && mMatches.empty();
+    mNoResults =
+        mMatches.empty() && (!mQuery.empty() || !mSystem.empty() || !mGenre.empty() ||
+                             !mDeveloper.empty() || !mPublisher.empty() || mFavouritesOnly);
     if (mQuery.empty() && mSystem.empty() && mGenre.empty() && mDeveloper.empty() &&
         mPublisher.empty() && !mFavouritesOnly) {
         const bool remember =
@@ -207,6 +213,10 @@ void GuiSearch::refresh()
                                   [&](const auto& handle) { return handle.id == oldGame; });
     if (old != mGames.end())
         mIndex = static_cast<int>(old - mGames.begin());
+    else if (mArea == Area::Games) {
+        mIndex = 0;
+        mFirstGame = 0;
+    }
     else
         mIndex = std::max(0, std::min(mIndex, count(mArea) - 1));
     mDirty = true;
@@ -216,8 +226,8 @@ void GuiSearch::refresh()
         mQueryWorkMs += milliseconds;
     else
         mQueryWorkMs = milliseconds;
-    LOG(LogDebug) << "Search keystroke: query=" << mQuery << " results=" << mTotal
-                  << " search_ms=" << milliseconds;
+    LOG(LogDebug) << "Search keystroke: query=" << queryForLog() << " results=" << mTotal
+                  << " query_bytes=" << mQuery.size() << " search_ms=" << milliseconds;
 }
 
 std::shared_ptr<Font> GuiSearch::searchFont(float size)
@@ -479,7 +489,7 @@ void GuiSearch::layout()
     const float keyboardY = keyboardBottom - keyboardHeight;
     mContentBottom = mPortrait && grid ? keyboardY - gap : mSize.y - 120 * mUnit;
     if (mTouch && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()))
-        mContentBottom = std::min(mContentBottom, mSize.y * 0.57f);
+        mContentBottom = std::min(mContentBottom, mSize.y * 0.57f - 100 * mUnit);
     if (grid) {
         const auto values = keys();
         target(values[44], {margin, keyboardY, left * 0.33f, 50 * mUnit}, Area::Keys, 44,
@@ -488,7 +498,7 @@ void GuiSearch::layout()
                Area::Keys, 45, 26 * mUnit);
         const float cell = left / 10;
         for (int i {0}; i < 40; ++i)
-            target(Utils::String::toUpper(values[i]),
+            target(mSymbols ? values[i] : Utils::String::toUpper(values[i]),
                    {margin + (i % 10) * cell, keyboardY + 68 * mUnit + (i / 10) * keyboardRow,
                     cell - 6 * mUnit, keyboardRow - 6 * mUnit},
                    Area::Keys, i, 34 * mUnit);
@@ -612,12 +622,15 @@ void GuiSearch::layout()
         }
         top += 70 * mUnit;
         if (mNoResults) {
-            label(Utils::String::format(_("No games match ‘%s’."), mQuery.c_str()),
+            label(mQuery.empty() ? _("Try another system or remove a filter.") :
+                                   Utils::String::format(_("No games match ‘%s’."), mQuery.c_str()),
                   {rightX, top, right, 90 * mUnit}, 36 * mUnit, mForeground);
             top += 100 * mUnit;
-            label(_("Did you mean"), {rightX, top, right, 45 * mUnit}, 30 * mUnit, mMuted);
-            top += 55 * mUnit;
-            if (mGames.empty())
+            if (!mGames.empty()) {
+                label(_("Did you mean"), {rightX, top, right, 45 * mUnit}, 30 * mUnit, mMuted);
+                top += 55 * mUnit;
+            }
+            else if (!mQuery.empty())
                 label(_("Try another system or remove a filter."),
                       {rightX, top, right, 100 * mUnit}, 32 * mUnit, mMuted);
         }
@@ -661,9 +674,10 @@ void GuiSearch::layout()
         }
     }
     if (mTouch)
-        target(_("Close"),
-               {mSize.x - margin - 160 * mUnit, mSize.y - 100 * mUnit, 160 * mUnit, 60 * mUnit},
-               Area::Close, 0, 30 * mUnit);
+        target(
+            _("Close"),
+            {mSize.x - margin - 160 * mUnit, mContentBottom + 20 * mUnit, 160 * mUnit, 60 * mUnit},
+            Area::Close, 0, 30 * mUnit);
     mCovers.erase(mCovers.begin(), mCovers.begin() + oldCovers);
     requestArtwork();
     const double milliseconds =
@@ -731,7 +745,9 @@ void GuiSearch::focus(Area area, int index)
     mArea = area;
     mIndex = std::max(0, std::min(index, count(area) - 1));
     if (area == Area::Suggestions)
-        mSuggestionOffset = std::max(0, mIndex - (mPortrait ? 0 : 2));
+        mSuggestionOffset = mIndex;
+    else if (area == Area::Keys || area == Area::Field)
+        mSuggestionOffset = 0;
     mDirty = true;
     updateHelpPrompts();
     LOG(LogDebug) << "Search focus: area=" << static_cast<int>(area) << " index=" << mIndex;
@@ -1008,6 +1024,14 @@ void GuiSearch::activate()
 }
 
 void GuiSearch::record() { LibrarySearch::history().addQuery(mQuery); }
+
+std::string GuiSearch::queryForLog() const
+{
+    return mQuery.empty() ||
+                   (Settings::getInstance()->getBool("SearchHistory") && !filter().kidMode) ?
+               mQuery :
+               "<private>";
+}
 
 void GuiSearch::close() { delete this; }
 
@@ -1301,8 +1325,8 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         const double renderMs = std::chrono::duration<double, std::milli>(
                                     std::chrono::steady_clock::now() - renderStart)
                                     .count();
-        LOG(LogDebug) << "Search frame: query=" << mQuery << " work_ms=" << mQueryWorkMs + renderMs
-                      << " render_ms=" << renderMs;
+        LOG(LogDebug) << "Search frame: query=" << queryForLog()
+                      << " work_ms=" << mQueryWorkMs + renderMs << " render_ms=" << renderMs;
         mMeasureFrame = false;
     }
 }
@@ -1327,13 +1351,19 @@ std::vector<HelpPrompt> GuiSearch::getHelpPrompts()
 }
 
 #if defined(__ANDROID__)
-void GuiSearch::cancelNativeTouch() { mFinger = -1; }
+void GuiSearch::cancelNativeTouch()
+{
+    mFinger = -1;
+    mTouchGame.clear();
+}
 
 bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
 {
     TouchOverlay::Point point;
     if (!mRenderer->getTouchGeometry().toLogical({x, y}, point))
         return false;
+    const auto local = glm::inverse(getTransform()) * glm::vec4 {point.x, point.y, 0, 1};
+    point = {local.x, local.y};
     if (mDirty)
         layout();
     if (type == SDL_FINGERDOWN) {
@@ -1343,12 +1373,16 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
         mTouchStart = mTouchLast = {point.x, point.y};
         mTouchTime = SDL_GetTicks();
         mTouchMoved = false;
+        mTouchGame.clear();
         mTouchTarget.index = -1;
         for (const auto& target : mTargets)
             if (contains(target.rect, point.x, point.y)) {
                 mTouchTarget = target;
                 break;
             }
+        if (mTouchTarget.area == Area::Games && mTouchTarget.index >= 0 &&
+            mTouchTarget.index < static_cast<int>(mGames.size()))
+            mTouchGame = mGames[mTouchTarget.index].id;
         return true;
     }
     if (finger != mFinger || mFinger == -1)
@@ -1408,7 +1442,15 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
     mFinger = -1;
     if (mTouchMoved || mTouchTarget.index == -1 || !contains(mTouchTarget.rect, point.x, point.y))
         return true;
-    const auto target = mTouchTarget;
+    auto target = mTouchTarget;
+    if (target.area == Area::Games) {
+        // Text commits and metadata refreshes can reorder results during a press.
+        const auto game = std::find_if(mGames.begin(), mGames.end(),
+                                       [&](const auto& handle) { return handle.id == mTouchGame; });
+        if (game == mGames.end())
+            return true;
+        target.index = static_cast<int>(game - mGames.begin());
+    }
     focus(target.area, target.index);
     if (target.area == Area::Games && SDL_GetTicks() - mTouchTime >= 500) {
         SDL_StopTextInput();

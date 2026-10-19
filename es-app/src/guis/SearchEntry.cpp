@@ -11,6 +11,7 @@
 #include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
+#include "UIModeController.h"
 #include "Window.h"
 #include "guis/GuiSearch.h"
 #include "utils/LocalizationUtil.h"
@@ -47,7 +48,10 @@ void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem)
     auto session {std::make_shared<int>(0)};
     activeSearch = session;
     auto* window {Window::getInstance()};
-    LOG(LogDebug) << "SearchEntry: open initial=" << initialText
+    const bool remember {Settings::getInstance()->getBool("SearchHistory") &&
+                         !UIModeController::getInstance()->isUIModeKid()};
+    LOG(LogDebug) << "SearchEntry: open initial="
+                  << (initialText.empty() || remember ? initialText : "<private>")
                   << " scope=" << (scopeSystem ? scopeSystem->getName() : "all");
     window->pushGui(new SearchGui<GuiSearch>(session, initialText, scopeSystem));
 }

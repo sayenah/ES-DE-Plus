@@ -130,6 +130,12 @@ def run(binary, probe, destination, width, height, variant='dark'):
     logpath = appdata / 'logs/es_log.txt'
     def log():
         return logpath.read_text() if logpath.exists() else ''
+    def query_seen(value, since=0):
+        current = log()[since:]
+        if variant in ['kid', 'history-off'] and value:
+            return re.search(r'Search keystroke: query=<private> results=\d+ query_bytes=' +
+                             str(len(value.encode())) + r'\b', current)
+        return 'Search keystroke: query=' + value + ' results=' in current
     def wait(condition, label, timeout=90):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -163,8 +169,9 @@ def run(binary, probe, destination, width, height, variant='dark'):
         search()
         shot('zero')
         for character in 'fin':
+            before = len(log())
             command('text', character)
-            wait(lambda: 'Search keystroke: query=' + 'fin'[:'fin'.index(character) + 1] + ' ' in log(), 'live ' + character)
+            wait(lambda: query_seen('fin'[:'fin'.index(character) + 1], before), 'live ' + character)
         shot('typing-fin')
         command('pad', '10')  # R changes the system filter.
         shot('filter')
@@ -173,6 +180,13 @@ def run(binary, probe, destination, width, height, variant='dark'):
             for _ in range(205):
                 command('key', '1073741905')
             wait(lambda: 'Search focus: area=6 index=205' in log(), 'navigation beyond first 200 results')
+            shot('page-two')
+            command('pad', '1')  # B returns to typing after scrolling deeply.
+            command('key', '8')
+            command('text', 'n')
+            before = len(log())
+            command('pad', '6')
+            wait(lambda: 'Search focus: area=6 index=0' in log()[before:], 'edited query returns to best match')
         shot('results-focused')
         command('key', '13')  # Enter shows the actual game list.
         wait(lambda: 'Search show game:' in log(), 'game-list cursor navigation')
@@ -187,18 +201,22 @@ def run(binary, probe, destination, width, height, variant='dark'):
         command('key', '27')
         command('pad', '3')
         command('text', 'Poké')
+        before = len(log())
         command('key', '8')
-        wait(lambda: 'Search keystroke: query=Pok ' in log(), 'Unicode backspace once')
+        wait(lambda: query_seen('Pok', before), 'Unicode backspace once')
+        before = len(log())
         command('compose', 'が')
-        assert 'query=Pokが' not in log(), 'provisional composition was committed'
+        assert not query_seen('Pokが', before), 'provisional composition was committed'
         command('text', 'が')
-        wait(lambda: 'Search keystroke: query=Pokが ' in log(), 'composition commit')
+        wait(lambda: query_seen('Pokが', before), 'composition commit')
         command('key', '27')
         command('pad', '3')
         command('text', 'Final Fantasy VII')
         command('key', '1073741905')
         command('key', '13 64')  # Ctrl+Enter follows the normal launch path.
         wait(lambda: (home / 'game-launched').exists(), 'Ctrl+Enter game command')
+        if variant in ['kid', 'history-off']:
+            assert 'query=fin ' not in log(), 'Private query leaked into search diagnostics'
         command('quit')
         assert process.wait(timeout=30) == 0
         summary = dict(resolution=[width, height], variant=variant,

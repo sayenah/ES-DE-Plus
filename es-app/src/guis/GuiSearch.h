@@ -76,6 +76,7 @@ private:
     void openGame(bool play);
     void toggleFavorite();
     void record();
+    std::string queryForLog() const;
     void edit(const std::string& text);
     void startTextInput(bool touch);
     void close();
@@ -164,6 +165,7 @@ private:
     glm::vec2 mTouchStart {};
     glm::vec2 mTouchLast {};
     Target mTouchTarget {{}, Area::Field, -1};
+    std::string mTouchGame;
     uint32_t mTouchTime {0};
     bool mTouchMoved {false};
 #endif
