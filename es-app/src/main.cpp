@@ -857,7 +857,8 @@ int main(int argc, char* argv[])
         },
         &resetFailed)};
     if (resetFailed) {
-        // Only this early failure path needs translation before normal startup.
+        // A first-run reset can fail before the normal locale-file copy below.
+        Utils::Platform::Android::setupLocalizationFiles();
         Utils::Localization::setLocale();
         LOG(LogError) << "Unable to persist or acknowledge the setup touch-overlay reset";
         // SDL's native Android dialog waits for acknowledgement, even before

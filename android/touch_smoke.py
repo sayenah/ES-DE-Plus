@@ -186,6 +186,8 @@ def reset_failure_probe(h):
     h.smoke_checks.probe_passed(prepared, 'PASS: reset-verification-prepare under frontend UID')
     metadata = json.loads(h.private('cat', 'cache/touch-reset-verification.json'))
     assert metadata['script'] == reset_failure_script(metadata['settings'], metadata['receipt'])
+    assert h.private('sh', '-c', 'test ! -e ' + shlex.quote(metadata['locale']) +
+                     ' && echo ABSENT').strip() == 'ABSENT'
     intent = metadata['intent']
     receipt = metadata['receipt']
     (h.evidence / 'touch-reset-failure-preparation.txt').write_text(prepared + '\n' + json.dumps(metadata))
@@ -202,6 +204,8 @@ def reset_failure_probe(h):
         assert h.private('cat', 'files/touch-overlay-reset') == intent
         logcat = h.adb('logcat', '-d', '--pid', pid)
         assert 'Finished main function' not in logcat, 'Failure exited before acknowledgement'
+        assert h.private('sha256sum', metadata['locale']).split()[0] == metadata['locale_sha256'], \
+            'Early error path did not restore its missing catalogue from the APK'
         localized = h.log()
         assert localized.index('Application language set to \"fr_FR\"') < localized.index(
             'Unable to persist or acknowledge'), 'Failure translated before locale initialization'
@@ -224,6 +228,7 @@ def reset_failure_probe(h):
     assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
     (h.evidence / 'touch-reset-failure.txt').write_text(
         'PASS: controlled saved-value verification failure shows a blocking native Android dialog; '
+        'missing French catalogue restored byte-for-byte before locale initialization/error UI; '
         'intent unchanged before/after OK; one native main exits; removing the fault hook '
         'consumes the retained intent exactly once.\n')
 
