@@ -861,6 +861,7 @@ int main(int argc, char* argv[])
         Utils::Platform::Android::setupLocalizationFiles();
         Utils::Localization::setLocale();
         LOG(LogError) << "Unable to persist or acknowledge the setup touch-overlay reset";
+        Log::flush(); // No Window frame can flush diagnostics while the native dialog waits.
         // SDL's native Android dialog waits for acknowledgement, even before
         // renderer creation. Keep the intent and stop before accepting input.
         if (SDL_ShowSimpleMessageBox(
