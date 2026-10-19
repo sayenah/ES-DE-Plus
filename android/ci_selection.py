@@ -61,7 +61,7 @@ def dispatch_plan(images, sessions, publish=False):
 def matrix(plan):
     return {'include': [dict(IMAGES[image], session=session,
                              cap=80 if image == 'api34' and session == 'core' else CAPS[session],
-                             job_cap=180 if session.startswith('manager-') else 300, informational=image == 'api35' and (os.environ.get('GITHUB_EVENT_NAME') == 'pull_request' or session == 'touch' or not API35_GATING))
+                             job_cap=180 if session.startswith('manager-') else 300, informational=image == 'api35' and not API35_GATING)
                         for image, sessions in plan.items() for session in sessions]}
 
 
@@ -119,9 +119,23 @@ def self_test():
                  'android/app/src/debug/kotlin/org/esdeplus/frontend/TouchSmoke.kt',
                  'resources/graphics/overlay/button_a.svg']:
         assert path_plan([path])[0] == {'api33': ['core', 'touch'], 'api35': ['core', 'touch']}
+    touch_callers = ['es-core/src/GuiComponent.h', 'es-app/src/main.cpp',
+                     'es-core/src/TouchOverlayReset.h',
+                     'android/app/src/main/kotlin/org/esdeplus/frontend/ConfiguratorSession.kt',
+                     'android/app/src/main/kotlin/org/esdeplus/frontend/ConfiguratorActivity.kt']
+    for stem in ['es-core/src/Window', 'es-core/src/renderers/Renderer',
+                 'es-core/src/guis/GuiDetectDevice', 'es-app/src/guis/GuiMenu',
+                 'es-app/src/EmulatorManagerTouch']:
+        touch_callers.extend(stem + suffix for suffix in ('.h', '.cpp'))
+    for path in touch_callers:
+        plan, _ = path_plan([path])
+        assert 'touch' in plan['api33'] and 'touch' in plan['api35'], path
     assert set(dispatch_plan('all', 'all')) == {'api33', 'api35'}
     assert set(dispatch_plan('api34,tv36', 'assets')) == {'api34', 'tv36'}
-    assert len(matrix(dispatch_plan('all', 'all'))['include']) == len(PHASES) * 2
+    rows = matrix(dispatch_plan('all', 'all'))['include']
+    assert len(rows) == len(PHASES) * 2
+    assert all(row['informational'] == (row['image'] == 'api35' and not API35_GATING)
+               for row in rows), 'API 35 gating applies to every session, including touch'
     for images, sessions, publish in [('api35', 'core', True), ('api33,api35,api34', 'all', True),
                                       ('api99', 'all', False), ('all', '', False),
                                       ('api33,api33', 'all', False), ('all', 'core,', False)]:
@@ -133,7 +147,7 @@ def self_test():
             raise AssertionError('Invalid selection escaped')
     dispatch_plan('all', 'all', True)
     assert set(CAPS) == set(PHASES), 'Register caps for every checked-in session'
-    print('PASS: phone-only defaults; legacy explicit opt-in; additive PR/Android-15 map; validated publication/full selection; one fresh job per session')
+    print('PASS: phone-only defaults; legacy explicit opt-in; additive PR/Android-15 map; validated publication/full selection; API35 gating includes touch; overlay caller coverage; one fresh job per session')
 
 
 if __name__ == '__main__':

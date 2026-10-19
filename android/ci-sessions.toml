@@ -2,7 +2,8 @@
 # ES-DE-Plus — written for ES-DE-Plus. Additive PR path → fresh-session map (WO-21).
 # Every PR starts with api33/core. All matching rules add sessions; no rule subtracts.
 # fnmatch globs are repository-relative; * also matches directory separators.
-# Every rule selects API 33 sessions only. android15 adds informational API 35 core.
+# Rules add API 33 sessions; android15 adds API 35 core and touch where selected.
+# API 35 gating follows ci_selection.API35_GATING.
 
 [[rule]]
 paths = ["android/app/src/main/*.kt", "android/app/src/main/*.java", "android/app/src/main/AndroidManifest.xml", "android/app/src/main/res/values/*.xml"]
@@ -82,7 +83,7 @@ sessions = ["manager-direct", "manager-scoped"]
 reason = "Manager discovery, profile persistence, direct and scoped/minified native GUI contracts"
 
 [[rule]]
-paths = ["es-core/src/InputOverlay*", "es-core/src/TouchOverlayReset.h", "tests/input_overlay/*", "android/touch*.py", "android/app/src/debug/*/TouchSmoke.kt", "resources/graphics/overlay/*", "es-core/src/InputManager.*", "es-app/src/EmulatorManagerTouch.*"]
+paths = ["es-core/src/InputOverlay*", "es-core/src/TouchOverlayReset.h", "tests/input_overlay/*", "android/touch*.py", "android/app/src/debug/*/TouchSmoke.kt", "resources/graphics/overlay/*", "es-core/src/InputManager.*", "es-app/src/EmulatorManagerTouch.*", "es-core/src/Window.*", "es-core/src/renderers/Renderer.*", "es-core/src/GuiComponent.h", "es-core/src/guis/GuiDetectDevice.*", "es-app/src/main.cpp", "es-app/src/guis/GuiMenu.*", "android/app/src/main/*/ConfiguratorSession.kt", "android/app/src/main/*/ConfiguratorActivity.kt"]
 sessions = ["touch"]
 android15 = true
 reason = "Overlay layout, transitions, ownership, rendering and Android multi-pointer assertions"
