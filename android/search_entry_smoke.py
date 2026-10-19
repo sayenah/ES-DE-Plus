@@ -42,7 +42,20 @@ def run(h, start, control, shot, record):
         return before + 1
 
     def close_popup():
-        h.key('KEYCODE_ESCAPE')  # Unchanged initial value: closes without a save dialog.
+        before = h.log().count('Search screen closed')
+        current = h.log().rsplit('Search layout:', 1)[-1]
+        close = re.findall(r'Search touch target: area=7 index=0 norm=([0-9.]+),([0-9.]+)', current)
+        if close:
+            geometry = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
+            assert 'PASS: owned surface geometry recorded' in geometry
+            view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
+            nx, ny = map(float, close[-1])
+            h.shell('input', 'touchscreen', 'tap', str(round(view['x'] + nx * view['bufferWidth'])),
+                    str(round(view['y'] + ny * view['bufferHeight'])))
+        else:
+            h.key('KEYCODE_ESCAPE')
+        h.wait_for(lambda: h.log().count('Search screen closed') == before + 1,
+                   'search actually closed before the next entry')
 
     def game_flag(name, expected):
         def saved():

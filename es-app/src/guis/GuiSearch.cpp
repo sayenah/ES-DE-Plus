@@ -127,6 +127,7 @@ GuiSearch::~GuiSearch()
         SDL_ResetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD);
     else
         SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, mPreviousKeyboardHint.c_str());
+    LOG(LogDebug) << "Search screen closed";
 }
 
 LibrarySearch::Filter GuiSearch::filter(bool system) const
@@ -247,13 +248,25 @@ void GuiSearch::label(const std::string& value,
                       unsigned int color,
                       unsigned int background,
                       bool border,
-                      Alignment align)
+                      Alignment align,
+                      std::shared_ptr<TextComponent> text)
 {
-    auto text = std::make_unique<TextComponent>(value, searchFont(fontSize), color, align,
-                                                ALIGN_CENTER, glm::ivec2 {0, 0});
-    text->setLineSpacing(1.15f);
-    text->setPosition(rect.x + 12 * mUnit, rect.y);
-    text->setSize(std::max(1.0f, rect.z - 24 * mUnit), rect.w);
+    if (!value.empty()) {
+        const glm::vec3 position {rect.x + 12 * mUnit, rect.y, 0};
+        const glm::vec2 size {std::max(1.0f, rect.z - 24 * mUnit), rect.w};
+        if (!text)
+            text = std::make_shared<TextComponent>(value, searchFont(fontSize), color, align,
+                                                   ALIGN_CENTER, glm::ivec2 {0, 0}, position, size,
+                                                   0, 1.15f);
+        else {
+            text->setFont(searchFont(fontSize));
+            text->setColor(color);
+            text->setHorizontalAlignment(align);
+            text->setPosition(position);
+            text->setSize(size);
+            text->setText(value);
+        }
+    }
     mLabels.push_back({std::move(text), rect, background, border});
 }
 
@@ -263,14 +276,24 @@ void GuiSearch::target(
     const std::string& value, const glm::vec4& rect, Area area, int index, float fontSize)
 {
     const bool active = selected(area, index);
-    // Keep control labels legible with long translations, within a hard single-line box.
-    auto font = searchFont(fontSize);
-    const float width = font->sizeText(value).x;
-    if (width > rect.z - 24 * mUnit)
-        fontSize = std::max(
-            2.0f, std::floor(fontSize * std::max(0.65f, (rect.z - 24 * mUnit) / width) / 2) * 2);
-    label(value, rect, fontSize, active ? mFocusInk : mForeground,
-          active ? mAccent : (area == Area::Keys ? mPanel : mRaised), active, ALIGN_CENTER);
+    // Preserve shaped control text across query/focus changes. The keyboard and
+    // unchanged chips must not shape and allocate their text again on every keystroke.
+    auto& control = mControls[{area, index}];
+    const float available = rect.z - 24 * mUnit;
+    if (control.value != value || control.size != fontSize || control.width != available) {
+        control.value = value;
+        control.size = fontSize;
+        control.width = available;
+        const float width = searchFont(fontSize)->sizeText(value).x;
+        control.fittedSize =
+            width > available ?
+                std::max(2.0f, std::floor(fontSize * std::max(0.65f, available / width) / 2) * 2) :
+                fontSize;
+    }
+    label(value, rect, control.fittedSize, active ? mFocusInk : mForeground,
+          active ? mAccent : (area == Area::Keys ? mPanel : mRaised), active,
+          area == Area::Suggestions ? ALIGN_LEFT : ALIGN_CENTER, control.text);
+    control.text = mLabels.back().text;
     mTargets.push_back({rect, area, index});
 }
 
@@ -290,15 +313,10 @@ void GuiSearch::title(const std::string& value,
         const float end = font->sizeText(value.substr(0, span.end)).x;
         if (begin >= rect.z - 24 * mUnit)
             continue;
-        auto text = std::make_unique<TextComponent>(value, font, mAccent, ALIGN_LEFT, ALIGN_CENTER,
-                                                    glm::ivec2 {0, 0});
-        text->setLineSpacing(1.15f);
-        text->setPosition(rect.x + 12 * mUnit, rect.y);
-        text->setSize(std::max(1.0f, rect.z - 24 * mUnit), rect.w);
+        label(value, rect, fontSize, mAccent);
         // Clip the highlight overlay to its matched range in the complete shaped run.
-        const glm::vec4 clip {rect.x + 12 * mUnit + begin, rect.y,
-                              std::min(end, rect.z - 24 * mUnit) - begin, rect.w};
-        mLabels.push_back({std::move(text), clip, 0, false});
+        mLabels.back().rect = {rect.x + 12 * mUnit + begin, rect.y,
+                               std::min(end, rect.z - 24 * mUnit) - begin, rect.w};
     }
 }
 
@@ -414,7 +432,9 @@ void GuiSearch::layout()
     const float rightX = mPortrait ? margin : margin + left + gap * 2;
     const float fieldHeight = 92 * mUnit;
     const float scopeWidth = std::min(left * 0.40f, 260 * mUnit);
-    mFieldRect = {margin, margin, left - scopeWidth - gap * 0.5f, fieldHeight};
+    const float closeWidth = mTouch ? 140 * mUnit : 0;
+    const float closeSpace = mTouch ? closeWidth + gap : 0;
+    mFieldRect = {margin, margin, left - scopeWidth - gap * 0.5f - closeSpace, fieldHeight};
     // The field keeps the caret visible by displaying a suffix around the insertion point.
     std::string field = mQuery;
     const auto font = searchFont(38 * mUnit);
@@ -442,8 +462,11 @@ void GuiSearch::layout()
                  mSystem == mScopeName   ? mScopeLabel :
                                            mSystem);
     }
-    target(scope, {margin + left - scopeWidth, margin, scopeWidth, fieldHeight}, Area::Scope, 0,
-           27 * mUnit);
+    target(scope, {margin + left - scopeWidth - closeSpace, margin, scopeWidth, fieldHeight},
+           Area::Scope, 0, 27 * mUnit);
+    if (mTouch)
+        target(_("Close"), {margin + left - closeWidth, margin, closeWidth, fieldHeight},
+               Area::Close, 0, 30 * mUnit);
     const float suggestionY = margin + fieldHeight + gap;
     float sx = margin;
     const float chipHeight = 48 * mUnit;
@@ -461,7 +484,6 @@ void GuiSearch::layout()
         }
         target(display, {sx, sy, width, chipHeight}, Area::Suggestions, i, 27 * mUnit);
         // Underline only the completion suffix, using original UTF-8 byte boundaries.
-        mLabels.back().text->setHorizontalAlignment(ALIGN_LEFT);
         const auto chipFont = mLabels.back().text->getFont();
         const auto query = LibrarySearch::normalize(mQuery);
         size_t matchedBytes {0};
@@ -489,7 +511,7 @@ void GuiSearch::layout()
     const float keyboardY = keyboardBottom - keyboardHeight;
     mContentBottom = mPortrait && grid ? keyboardY - gap : mSize.y - 120 * mUnit;
     if (mTouch && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()))
-        mContentBottom = std::min(mContentBottom, mSize.y * 0.57f - 100 * mUnit);
+        mContentBottom = std::min(mContentBottom, mSize.y * 0.50f - gap);
     if (grid) {
         const auto values = keys();
         target(values[44], {margin, keyboardY, left * 0.33f, 50 * mUnit}, Area::Keys, 44,
@@ -673,11 +695,6 @@ void GuiSearch::layout()
             x += width;
         }
     }
-    if (mTouch)
-        target(
-            _("Close"),
-            {mSize.x - margin - 160 * mUnit, mContentBottom + 20 * mUnit, 160 * mUnit, 60 * mUnit},
-            Area::Close, 0, 30 * mUnit);
     mCovers.erase(mCovers.begin(), mCovers.begin() + oldCovers);
     requestArtwork();
     const double milliseconds =
@@ -878,6 +895,7 @@ void GuiSearch::textEditing(const std::string& text, int, int)
 
 void GuiSearch::startTextInput(bool touch)
 {
+    const bool changed = mTouch != touch;
     mTouch = touch;
     mComposition.clear();
     SDL_StopTextInput();
@@ -885,6 +903,8 @@ void GuiSearch::startTextInput(bool touch)
     // Android's screen keyboard is requested only after a touch. Controller/keyboard input
     // still receives SDL text events without opening an unwanted IME over the grid.
     SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, touch ? "1" : "0");
+    if (changed)
+        layout();
     const SDL_Rect rect {static_cast<int>(mFieldRect.x), static_cast<int>(mFieldRect.y),
                          static_cast<int>(mFieldRect.z), static_cast<int>(mFieldRect.w)};
     SDL_SetTextInputRect(&rect);
@@ -1297,6 +1317,8 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                   {label.rect.x + label.rect.z - line, label.rect.y, line, label.rect.w}})
                 mRenderer->drawRect(edge.x, edge.y, edge.z, edge.w, mAccent, mAccent);
         }
+        if (!label.text)
+            continue;
         const auto point = transform * glm::vec4 {label.rect.x, label.rect.y, 0, 1};
         const glm::vec2 scale {glm::length(glm::vec3(transform[0])),
                                glm::length(glm::vec3(transform[1]))};

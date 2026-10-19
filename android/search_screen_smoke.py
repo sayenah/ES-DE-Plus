@@ -19,6 +19,7 @@ TARGET = re.compile(r'Search touch target: area=(\d+) index=(\d+) norm=([0-9.]+)
 def run(h, start, control, shot, record):
     root = h.settings.rsplit('/settings/', 1)[0]
     measurements = []
+    timed_prefix = ''
     prefix = f'search-screen-api{h.api}-'
     def prepare(operation, **arguments):
         h.shell('am', 'force-stop', h.app)
@@ -82,9 +83,19 @@ def run(h, start, control, shot, record):
                 h.wait_for(lambda: 'Search keystroke: query=' + value + ' results=' in h.log()[before:], 'live stroke ' + value)
             time.sleep(.15)
     def timing(name):
-        times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', h.log())]
+        nonlocal timed_prefix
+        def rendered():
+            current = h.log()
+            last = current.rfind('Search keystroke:')
+            return last >= 0 and 'Search frame:' in current[last:]
+        h.wait_for(rendered, 'last search keystroke rendered before checkpoint')
+        current = h.log()
+        complete = current[:current.rfind('\n') + 1]
+        added = complete[len(timed_prefix):] if complete.startswith(timed_prefix) else complete
+        times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', added)]
         assert times, 'Missing actual search frame measurements'
         measurements.extend(times)
+        timed_prefix = complete
         record(name)
     prepare('prepare')
     try:
@@ -103,7 +114,8 @@ def run(h, start, control, shot, record):
         write('custom_systems/es_find_rules.xml', '<ruleList><emulator name="SEARCH_SMOKE">'
               '<rule type="androidpackage"><entry>org.esdeplus.stub/.RecipientActivity</entry></rule></emulator></ruleList>')
         write('settings/search_history.xml', '<searchHistory/>')
-        start(InputTouchOverlay=False, UIMode='full', CollectionSystemsAuto='favorites', SearchHistory=True)
+        start(InputTouchOverlay=False, UIMode='full', CollectionSystemsAuto='favorites', SearchHistory=True,
+              InputDeviceNotifications=False)
         attach()
         pad(3)
         h.wait_for(lambda: 'Search screen opened:' in h.log(), 'Y search')
@@ -153,18 +165,19 @@ def run(h, start, control, shot, record):
         pad(3)
         typed('fin')
         pad(6)
+        timing('search-screen-controller')
         pad(2)
         h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'X normal game launch')
         h.key('KEYCODE_BACK')
         h.wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(h.app) + '/', h.focused_window()), 'return from game')
-        timing('search-screen-controller')
+        record('search-screen-controller-launch-return')
         # Magnifier starts a touch session with the actual system keyboard, irrespective of VirtualKeyboard.
         for name, width, height, density in [('phone', 1080, 2400, 420), ('tablet', 2560, 1600, 320)]:
             h.shell('am', 'force-stop', h.app)
             h.shell('wm', 'size', f'{width}x{height}')
             h.shell('wm', 'density', str(density))
             start(InputTouchOverlay=True, UIMode='full', ScreenRotate=0, SearchHistory=True,
-                  VirtualKeyboard=False)
+                  VirtualKeyboard=False, InputDeviceNotifications=False)
             magnifier()
             h.wait_for(lambda: 'Search screen opened:' in h.log(), 'magnifier search')
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
@@ -187,13 +200,21 @@ def run(h, start, control, shot, record):
             shot(prefix + name + '-recent')
             tap(6, hold=True)
             shot(prefix + name + '-long-press')
-            h.key('KEYCODE_ENTER')  # Play now in the native dialog.
+            play = re.findall(r'GuiMsgBox: button=play now norm=([0-9.eE+-]+),([0-9.eE+-]+)',
+                              h.log(), re.I)
+            assert play, 'Native Play now button was not rendered'
+            timing('search-screen-touch-' + name + '-before-play')
+            before = len(h.log())
+            h.shell('input', 'touchscreen', 'tap', *point(*map(float, play[-1])))
+            h.wait_for(lambda: 'guimsgbox: direct touch confirmed play now' in h.log()[before:].lower(),
+                       'direct touch confirms Play now')
+            assert 'InputOverlay: owner=overlay' not in h.log()[before:], 'Overlay stole modal Play now'
             h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'long-press Play now normal launch')
             h.key('KEYCODE_BACK')
             magnifier()
             typed('qqqqqqqq')
             shot(prefix + name + '-no-results')
-            h.key('KEYCODE_ESCAPE')
+            tap(7)  # Close stays reachable above the system IME.
             magnifier()
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
                        'isInputViewShown=true' in h.shell('dumpsys', 'input_method'), 'IME ready for composition')
@@ -202,15 +223,15 @@ def run(h, start, control, shot, record):
             ime('commit', '学')
             h.wait_for(lambda: 'Search keystroke: query=学 ' in h.log(), 'Japanese composition replacement exactly once')
             ime('delete')
-            h.key('KEYCODE_ESCAPE')
+            tap(7)
             # Switching from native prefill to an empty IME buffer still permits Backspace.
             h.key('KEYCODE_M')
             tap(0)
             before = len(h.log())
             ime('delete')
             h.wait_for(lambda: 'Search keystroke: query= results=' in h.log()[before:], 'IME deletes native prefill')
-            h.key('KEYCODE_ESCAPE')
             timing('search-screen-touch-' + name)
+            tap(7)
         # A real privacy-mode launch must not expose or write the previous query history.
         for mode, remember in [('kid', True), ('full', False)]:
             start(InputTouchOverlay=False, UIMode=mode, SearchHistory=remember)
@@ -222,11 +243,12 @@ def run(h, start, control, shot, record):
             if mode == 'kid':
                 assert re.search(r'Search keystroke: query=<private> results=1 query_bytes=3\b', h.log()), 'Kid search exposed non-kid game'
             assert 'query=fin ' not in h.log(), 'Private query leaked into search diagnostics'
+            timing('search-screen-privacy-' + mode + '-' + str(remember))
             h.key('KEYCODE_ENTER')
             h.key('KEYCODE_ENTER')
             after = h.shell('cat', root + '/settings/search_history.xml')
             assert before == after, 'Private search mutated history'
-            timing('search-screen-privacy-' + mode + '-' + str(remember))
+            record('search-screen-privacy-after-show-' + mode + '-' + str(remember))
         ordered = sorted(measurements)
         summary = dict(samples=len(ordered), p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=max(ordered))
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')

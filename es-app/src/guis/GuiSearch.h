@@ -53,10 +53,17 @@ private:
         int index;
     };
     struct Label {
-        std::unique_ptr<TextComponent> text;
+        std::shared_ptr<TextComponent> text;
         glm::vec4 rect;
         unsigned int background;
         bool border;
+    };
+    struct Control {
+        std::shared_ptr<TextComponent> text;
+        std::string value;
+        float size {0};
+        float width {0};
+        float fittedSize {0};
     };
     struct Cover {
         LibrarySearch::Handle handle;
@@ -87,7 +94,8 @@ private:
                unsigned int color,
                unsigned int background = 0,
                bool border = false,
-               Alignment align = ALIGN_LEFT);
+               Alignment align = ALIGN_LEFT,
+               std::shared_ptr<TextComponent> text = nullptr);
     void target(
         const std::string& value, const glm::vec4& rect, Area area, int index, float fontSize);
     void title(const std::string& value,
@@ -114,6 +122,7 @@ private:
     SearchArtwork mArtwork;
     std::map<float, std::shared_ptr<Font>> mFonts;
     std::vector<Label> mLabels;
+    std::map<std::pair<Area, int>, Control> mControls;
     std::vector<Target> mTargets;
     std::vector<Cover> mCovers;
     std::vector<LibrarySearch::Match> mMatches;

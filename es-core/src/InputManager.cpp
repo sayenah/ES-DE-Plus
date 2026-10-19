@@ -620,7 +620,8 @@ bool InputManager::parseEvent(const SDL_Event& event)
             return true;
         }
         case SDL_KEYUP: {
-            mOpeningText.clear();
+            // Android's IME can emit a generated down/up pair before its text commit.
+            // Keep the opening character pending until text or the next key-down.
             if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
                 return true;
 

@@ -210,6 +210,12 @@ def run(binary, probe, destination, width, height, variant='dark'):
         command('text', 'が')
         wait(lambda: query_seen('Pokが', before), 'composition commit')
         command('key', '27')
+        before = len(log())
+        command('key', '109')  # SDL key-up can precede the same opening character's commit.
+        wait(lambda: query_seen('m', before), 'physical typing seeds search')
+        command('text', 'm')
+        assert not query_seen('mm', before), 'Opening key-up cleared duplicate suppression'
+        command('key', '27')
         command('pad', '3')
         command('text', 'Final Fantasy VII')
         command('key', '1073741905')
