@@ -585,10 +585,18 @@ namespace LibrarySearch
         index->metadataGroups.reserve(games.size());
         index->completions.reserve(games.size());
         index->vocabulary.reserve(games.size() * 2);
+        index->grams.reserve(games.size());
         auto cached = [&](const std::string& value) -> const std::string& {
             auto it = normalized.find(value);
             if (it == normalized.end())
                 it = normalized.emplace(value, normalize(value)).first;
+            return it->second;
+        };
+        std::unordered_map<std::string, std::string> compacted;
+        auto cachedCompact = [&](const std::string& value) -> const std::string& {
+            auto it = compacted.find(value);
+            if (it == compacted.end())
+                it = compacted.emplace(value, compact(cached(value))).first;
             return it->second;
         };
         std::vector<size_t> order(games.size());
@@ -634,9 +642,10 @@ namespace LibrarySearch
         std::unordered_set<std::string> identities;
         identities.reserve(games.size());
         std::unordered_map<std::string, size_t> completionKeys;
+        completionKeys.reserve(games.size());
         auto completion = [&](SuggestionKind kind, const std::string& text, const auto& ids,
                               const std::string& overrideKey = std::string {}) {
-            const auto key = compact(overrideKey.empty() ? cached(text) : overrideKey);
+            const auto key = overrideKey.empty() ? cachedCompact(text) : compact(overrideKey);
             if (key.empty() || (key == "unknown" && (kind == SuggestionKind::Developer ||
                                                      kind == SuggestionKind::Publisher ||
                                                      kind == SuggestionKind::Genre)))
@@ -654,6 +663,7 @@ namespace LibrarySearch
         };
         std::unordered_map<std::string, size_t> rawTitles;
         rawTitles.reserve(games.size() * 2);
+        std::vector<const std::vector<size_t>*> metadataSources;
         auto addTitle = [&](const std::string& raw, size_t i) {
             auto found = rawTitles.find(raw);
             size_t id;
@@ -694,9 +704,12 @@ namespace LibrarySearch
                  {&game.developer, &game.publisher, &game.genre, &game.system, &game.systemName}) {
                 if (!metadata.empty())
                     metadata += ' ';
-                metadata += compact(cached(*field));
+                metadata += cachedCompact(*field);
             }
-            index->metadataGroups[metadata].push_back(i);
+            auto group = index->metadataGroups.try_emplace(std::move(metadata));
+            if (group.second)
+                metadataSources.push_back(&group.first->second);
+            group.first->second.push_back(i);
             auto& displayDoc {index->documents[display]};
             displayDoc.display = game.title;
             displayDoc.displayGames.push_back(i);
@@ -712,10 +725,14 @@ namespace LibrarySearch
                 index->systems[fullName].insert(game.system);
                 index->systems[compact(fullName)].insert(game.system);
             }
-            const std::array<size_t, 1> single {i};
-            completion(SuggestionKind::Developer, game.developer, single);
-            completion(SuggestionKind::Publisher, game.publisher, single);
-            completion(SuggestionKind::Genre, game.genre, single);
+        }
+        // Entity labels repeat across the library. Add their already grouped postings
+        // once, preserving the first ranked source's spelling and per-game weights.
+        for (const auto* ids : metadataSources) {
+            const auto& representative = index->games[ids->front()];
+            completion(SuggestionKind::Developer, representative.developer, *ids);
+            completion(SuggestionKind::Publisher, representative.publisher, *ids);
+            completion(SuggestionKind::Genre, representative.genre, *ids);
         }
         for (const auto& system : index->systemGames) {
             const auto& representative = index->games[system.second.front()];
@@ -736,8 +753,11 @@ namespace LibrarySearch
             tokens.reserve(t.tokens.size() * 2);
             const auto& joined = doc.compact;
             for (size_t length {1}; length <= 3; ++length)
-                for (size_t offset {0}; offset + length <= joined.size(); ++offset)
-                    index->grams[gram(joined, offset, length)].push_back(i);
+                for (size_t offset {0}; offset + length <= joined.size(); ++offset) {
+                    auto& postings = index->grams[gram(joined, offset, length)];
+                    if (postings.empty() || postings.back() != i)
+                        postings.push_back(i);
+                }
             std::vector<std::string> acronymKeys;
             acronymKeys.reserve(t.tokens.size() * 2);
             for (const auto& w : t.tokens) {
