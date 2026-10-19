@@ -31,6 +31,15 @@ namespace LibrarySearch
             return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
         }
 
+        uint32_t gram(std::string_view text, size_t offset, size_t length)
+        {
+            uint32_t key {static_cast<uint32_t>(length) << 24};
+            for (size_t n {0}; n < length; ++n)
+                key |= static_cast<uint32_t>(static_cast<unsigned char>(text[offset + n]))
+                       << (8 * n);
+            return key;
+        }
+
         struct Folded {
             std::string text;
             std::vector<Span> source;
@@ -48,8 +57,11 @@ namespace LibrarySearch
                     out.source.insert(out.source.end(), s.size(), Span {begin, end});
             };
             auto space = [&](size_t begin, size_t end) {
-                if (!out.text.empty() && out.text.back() != ' ')
-                    append(" ", begin, end);
+                if (!out.text.empty() && out.text.back() != ' ') {
+                    out.text.push_back(' ');
+                    if (mapping)
+                        out.source.push_back({begin, end});
+                }
             };
             bool latin {false};
             for (int32_t i {0}; i < static_cast<int32_t>(input.size());) {
@@ -68,9 +80,10 @@ namespace LibrarySearch
                 if (cp < 128) {
                     latin = (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z');
                     if (latin || (cp >= '0' && cp <= '9')) {
-                        append(std::string(
-                                   1, static_cast<char>(cp >= 'A' && cp <= 'Z' ? cp + 32 : cp)),
-                               begin, end);
+                        out.text.push_back(
+                            static_cast<char>(cp >= 'A' && cp <= 'Z' ? cp + 32 : cp));
+                        if (mapping)
+                            out.source.push_back({begin, end});
                     }
                     else if (cp == '&') {
                         space(begin, end);
@@ -205,6 +218,9 @@ namespace LibrarySearch
             "xi", "xii", "xiii", "xiv", "xv", "xvi", "xvii", "xviii", "xix",  "xx"};
         std::string number(const std::string& text)
         {
+            if (text.empty() || text.size() > 5 ||
+                (text[0] != 'i' && text[0] != 'v' && text[0] != 'x'))
+                return text;
             for (size_t i {1}; i < romans.size(); ++i)
                 if (text == romans[i])
                     return std::to_string(i);
@@ -222,9 +238,16 @@ namespace LibrarySearch
             const auto numeric {number(word)};
             if (numeric != word)
                 return {initial(word), word, numeric};
-            for (size_t i {1}; i < romans.size(); ++i)
-                if (word == std::to_string(i))
-                    return {word, romans[i]};
+            if (!word.empty() && std::all_of(word.begin(), word.end(),
+                                             [](char c) { return c >= '0' && c <= '9'; })) {
+                if (word.size() <= 2) {
+                    const int value {word.size() == 1 ? word[0] - '0' :
+                                                        (word[0] - '0') * 10 + word[1] - '0'};
+                    if (value > 0 && value <= 20)
+                        return {word, romans[value]};
+                }
+                return {initial(word), word};
+            }
             return {initial(word)};
         }
         std::u32string codepoints(const std::string& text)
@@ -312,7 +335,11 @@ namespace LibrarySearch
             std::string value;
             std::vector<Word> tokens;
         };
-        Text makeText(std::string value) { return {value, words(value)}; }
+        Text makeText(std::string value)
+        {
+            auto tokens = words(value);
+            return {std::move(value), std::move(tokens)};
+        }
 
         // Each query token uses a distinct word. Augmenting paths handle ambiguous prefixes
         // ("ma mario" against "Mario Maker") without factorial permutation searches.
@@ -413,7 +440,8 @@ namespace LibrarySearch
         int rank(const std::string& q,
                  const std::vector<Word>& qw,
                  const Text& t,
-                 std::vector<Span>* spans = nullptr)
+                 std::vector<Span>* spans = nullptr,
+                 int wanted = -1)
         {
             const auto cq {compact(q)};
             const auto ct {compact(t.value)};
@@ -434,48 +462,50 @@ namespace LibrarySearch
                     }
                 }
             };
-            if (cq == ct) {
+            if ((wanted < 0 || wanted == 0) && cq == ct) {
                 compactSpan(0, ct.size());
                 return 0;
             }
-            if (starts(ct, cq)) {
+            if ((wanted < 0 || wanted == 1) && starts(ct, cq)) {
                 compactSpan(0, cq.size());
                 return 1;
             }
-            if (wordMatch(qw, t, 0, spans))
+            if ((wanted < 0 || wanted == 2) && wordMatch(qw, t, 0, spans))
                 return 2;
-            if (wordMatch(qw, t, 1, spans))
+            if ((wanted < 0 || wanted == 3) && wordMatch(qw, t, 1, spans))
                 return 3;
-            bool abbreviations {true};
-            bool usedAcronym {false};
-            std::vector<Span> abbreviated;
-            for (const auto& w : qw) {
-                auto pos = std::find_if(t.tokens.begin(), t.tokens.end(), [&](const Word& word) {
-                    return starts(word.text, w.text);
-                });
-                if (pos != t.tokens.end())
-                    abbreviated.push_back({pos->offset, pos->offset + w.text.size()});
-                else {
-                    if (!acronym(w.text, t, &abbreviated)) {
-                        abbreviations = false;
-                        break;
+            if (wanted < 0 || wanted == 4) {
+                bool abbreviations {true};
+                bool usedAcronym {false};
+                std::vector<Span> abbreviated;
+                for (const auto& w : qw) {
+                    auto pos =
+                        std::find_if(t.tokens.begin(), t.tokens.end(),
+                                     [&](const Word& word) { return starts(word.text, w.text); });
+                    if (pos != t.tokens.end())
+                        abbreviated.push_back({pos->offset, pos->offset + w.text.size()});
+                    else {
+                        if (!acronym(w.text, t, &abbreviated)) {
+                            abbreviations = false;
+                            break;
+                        }
+                        usedAcronym = true;
                     }
-                    usedAcronym = true;
+                }
+                if (abbreviations && usedAcronym) {
+                    if (spans)
+                        *spans = std::move(abbreviated);
+                    return 4;
                 }
             }
-            if (abbreviations && usedAcronym) {
-                if (spans)
-                    *spans = std::move(abbreviated);
-                return 4;
-            }
-            if (wordMatch(qw, t, 2, spans))
+            if ((wanted < 0 || wanted == 5) && wordMatch(qw, t, 2, spans))
                 return 5;
             const auto pos {ct.find(cq)};
-            if (pos != std::string::npos) {
+            if ((wanted < 0 || wanted == 6) && pos != std::string::npos) {
                 compactSpan(pos, pos + cq.size());
                 return 6;
             }
-            if (wordMatch(qw, t, 3, spans))
+            if ((wanted < 0 || wanted == 7) && wordMatch(qw, t, 3, spans))
                 return 7;
             return -1;
         }
@@ -505,14 +535,17 @@ namespace LibrarySearch
         };
         std::vector<Game> games;
         std::vector<Document> documents;
+        std::vector<std::array<size_t, 3>> gameDocuments;
         std::vector<size_t> sortedTitles;
         std::map<std::string, std::vector<size_t>> metadataGroups;
         std::map<std::string, Vocabulary> vocabulary;
-        std::unordered_map<uint64_t, std::vector<const Vocabulary*>> signatures;
+        std::map<size_t, std::unordered_map<uint64_t, std::vector<const Vocabulary*>>> signatures;
+        std::unordered_map<uint32_t, std::vector<size_t>> grams;
         std::unordered_map<std::string, std::vector<size_t>> acronymPrefixes;
         std::map<std::string, std::set<std::string>> systems;
         std::map<std::string, std::vector<size_t>> systemGames;
         std::vector<Completion> completions;
+        std::array<std::vector<size_t>, 3> completionOrder;
         std::vector<size_t> recent;
     };
 
@@ -578,11 +611,12 @@ namespace LibrarySearch
         std::unordered_set<std::string> identities;
         identities.reserve(games.size());
         std::unordered_map<std::string, size_t> completionKeys;
-        auto completion = [&](SuggestionKind kind, const std::string& text, const auto& ids) {
-            const auto& key = cached(text);
+        auto completion = [&](SuggestionKind kind, const std::string& text, const auto& ids,
+                              const std::string& overrideKey = std::string {}) {
+            const auto& key = overrideKey.empty() ? cached(text) : overrideKey;
             if (key.empty() || key == "unknown")
                 return;
-            const auto pair = std::to_string(static_cast<int>(kind)) + key;
+            const auto pair = std::string(1, static_cast<char>('0' + static_cast<int>(kind))) + key;
             auto it = completionKeys.find(pair);
             if (it == completionKeys.end()) {
                 it = completionKeys.emplace(pair, index->completions.size()).first;
@@ -623,11 +657,16 @@ namespace LibrarySearch
             index->games.push_back(std::move(g));
             const auto& game {index->games.back()};
             const size_t display {addTitle(game.title, i)};
-            if (!game.sortName.empty() && game.sortName != game.title)
-                addTitle(game.sortName, i);
-            if (!game.fileStem.empty() && game.fileStem != game.title)
-                addTitle(game.fileStem, i);
+            const size_t sortDoc {!game.sortName.empty() && game.sortName != game.title ?
+                                      addTitle(game.sortName, i) :
+                                      display};
+            const size_t fileDoc {!game.fileStem.empty() && game.fileStem != game.title ?
+                                      addTitle(game.fileStem, i) :
+                                      display};
+            index->gameDocuments.push_back({display, sortDoc, fileDoc});
             std::string metadata;
+            metadata.reserve(game.developer.size() + game.publisher.size() + game.genre.size() +
+                             game.system.size() + game.systemName.size() + 4);
             for (const auto* field :
                  {&game.developer, &game.publisher, &game.genre, &game.system, &game.systemName}) {
                 if (!metadata.empty())
@@ -656,33 +695,41 @@ namespace LibrarySearch
                 for (const auto& w : t.tokens)
                     if (unique.insert(w.text).second)
                         completion(SuggestionKind::Word, w.text, doc.displayGames);
-                completion(SuggestionKind::Title, doc.display, doc.displayGames);
-                const auto& ws = t.tokens;
-                for (size_t n {2}; n <= ws.size(); ++n)
-                    completion(
-                        SuggestionKind::Series,
-                        t.value.substr(0, n == ws.size() ? t.value.size() : ws[n].offset - 1),
-                        doc.displayGames);
+                completion(SuggestionKind::Title, doc.display, doc.displayGames, t.value);
             }
-            std::unordered_set<std::string> tokens;
-            tokens.insert(index->documents[i].compact);
-            std::unordered_set<std::string> acronymKeys;
+            std::vector<std::string> tokens;
+            tokens.reserve(t.tokens.size() * 2);
+            const auto& joined = doc.compact;
+            for (size_t length {1}; length <= 3; ++length)
+                for (size_t offset {0}; offset + length <= joined.size(); ++offset)
+                    index->grams[gram(joined, offset, length)].push_back(i);
+            std::vector<std::string> acronymKeys;
+            acronymKeys.reserve(t.tokens.size() * 2);
+            std::vector<std::vector<std::string>> initials;
+            initials.reserve(t.tokens.size());
+            for (const auto& w : t.tokens)
+                initials.push_back(letters(w.text));
             for (const auto& w : t.tokens) {
-                tokens.insert(w.text);
-                tokens.insert(number(w.text));
+                tokens.push_back(w.text);
+                tokens.push_back(number(w.text));
             }
             for (size_t a {0}; a < t.tokens.size(); ++a) {
-                for (const auto& first : letters(t.tokens[a].text)) {
+                for (const auto& first : initials[a]) {
                     if (first.size() >= 2)
-                        acronymKeys.insert(first.substr(0, 2));
+                        acronymKeys.push_back(first.substr(0, 2));
                     for (size_t b {a + 1}; b < t.tokens.size(); ++b) {
-                        for (const auto& second : letters(t.tokens[b].text))
-                            acronymKeys.insert((first + second).substr(0, 2));
+                        for (const auto& second : initials[b])
+                            acronymKeys.push_back((first + second).substr(0, 2));
                         if (!small(t.tokens[b].text))
                             break;
                     }
                 }
             }
+            std::sort(tokens.begin(), tokens.end());
+            tokens.erase(std::unique(tokens.begin(), tokens.end()), tokens.end());
+            std::sort(acronymKeys.begin(), acronymKeys.end());
+            acronymKeys.erase(std::unique(acronymKeys.begin(), acronymKeys.end()),
+                              acronymKeys.end());
             for (const auto& token : tokens) {
                 auto& v = index->vocabulary[token];
                 if (v.games.empty())
@@ -692,6 +739,49 @@ namespace LibrarySearch
             for (const auto& key : acronymKeys)
                 index->acronymPrefixes[key].push_back(i);
         }
+        // A series must be shared by different titles. Adjacent titles in lexical order
+        // expose every shared leading phrase; unique suffixes never allocate suggestions.
+        std::vector<size_t> displays;
+        for (size_t i {0}; i < index->documents.size(); ++i)
+            if (!index->documents[i].displayGames.empty())
+                displays.push_back(i);
+        std::sort(displays.begin(), displays.end(), [&](size_t a, size_t b) {
+            return index->documents[a].text.value < index->documents[b].text.value;
+        });
+        std::set<std::string> series;
+        for (size_t i {1}; i < displays.size(); ++i) {
+            const auto& a = index->documents[displays[i - 1]].text;
+            const auto& b = index->documents[displays[i]].text;
+            if (a.value == b.value)
+                continue;
+            size_t common {0};
+            while (common < a.tokens.size() && common < b.tokens.size() &&
+                   a.tokens[common].text == b.tokens[common].text)
+                ++common;
+            for (size_t n {2}; n <= common; ++n)
+                series.insert(a.value.substr(0, n == a.tokens.size() ? a.value.size() :
+                                                                       a.tokens[n].offset - 1));
+        }
+        for (const auto& key : series) {
+            auto begin = std::lower_bound(displays.begin(), displays.end(), key,
+                                          [&](size_t doc, const std::string& value) {
+                                              return index->documents[doc].text.value < value;
+                                          });
+            std::string spelling;
+            for (auto it = begin; it != displays.end(); ++it) {
+                const auto& doc = index->documents[*it];
+                if (!starts(doc.text.value, key) ||
+                    (doc.text.value.size() > key.size() && doc.text.value[key.size()] != ' '))
+                    break;
+                if (spelling.empty()) {
+                    const auto mapping = title(doc.display, true);
+                    spelling = doc.display.substr(mapping.source.front().begin,
+                                                  mapping.source[key.size() - 1].end -
+                                                      mapping.source.front().begin);
+                }
+                completion(SuggestionKind::Series, spelling, doc.displayGames, key);
+            }
+        }
         index->sortedTitles.resize(index->documents.size());
         std::iota(index->sortedTitles.begin(), index->sortedTitles.end(), 0);
         std::sort(index->sortedTitles.begin(), index->sortedTitles.end(), [&](size_t a, size_t b) {
@@ -699,22 +789,9 @@ namespace LibrarySearch
         });
         for (auto& [word, v] : index->vocabulary) {
             v.text = word;
-            index->signatures[signature(v.points)].push_back(&v);
+            index->signatures[v.points.size()][signature(v.points)].push_back(&v);
         }
         auto& cs = index->completions;
-        cs.erase(std::remove_if(cs.begin(), cs.end(),
-                                [&](const Index::Completion& c) {
-                                    if (c.kind != SuggestionKind::Series)
-                                        return false;
-                                    if (c.games.size() < 2)
-                                        return true;
-                                    const auto& first = cached(index->games[c.games.front()].title);
-                                    return std::none_of(
-                                        c.games.begin(), c.games.end(), [&](size_t i) {
-                                            return cached(index->games[i].title) != first;
-                                        });
-                                }),
-                 cs.end());
         std::sort(cs.begin(), cs.end(), [](const Index::Completion& a, const Index::Completion& b) {
             if (a.weight != b.weight)
                 return a.weight > b.weight;
@@ -725,6 +802,21 @@ namespace LibrarySearch
                 return a.key < b.key;
             return a.text < b.text;
         });
+        for (size_t i {0}; i < cs.size(); ++i) {
+            const auto kind = cs[i].kind;
+            index
+                ->completionOrder[kind == SuggestionKind::Word ? 0 :
+                                  kind == SuggestionKind::Title || kind == SuggestionKind::Series ?
+                                                                 1 :
+                                                                 2]
+                .push_back(i);
+        }
+        for (auto& order : index->completionOrder)
+            std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                if (cs[a].key != cs[b].key)
+                    return cs[a].key < cs[b].key;
+                return a < b;
+            });
         for (size_t i {0}; i < index->games.size(); ++i)
             if (index->games[i].lastPlayed > "19700101T000000")
                 index->recent.push_back(i);
@@ -737,6 +829,14 @@ namespace LibrarySearch
     std::vector<Match> Core::search(const std::string& query,
                                     size_t limit,
                                     const Filter& filter) const
+    {
+        return find(query, limit, filter, false);
+    }
+    std::vector<Match> Core::find(const std::string& query,
+                                  size_t limit,
+                                  const Filter& filter,
+                                  bool firstOnly,
+                                  const std::vector<size_t>* support) const
     {
         const auto& ix = *mIndex;
         std::string q {title(query).text};
@@ -769,12 +869,43 @@ namespace LibrarySearch
             w.offset = q.size();
             q += w.text;
         }
-        std::vector<int> ranks(ix.games.size(), 9);
+        std::vector<uint8_t> supported;
+        if (support && support->size() > 16) {
+            supported.resize(ix.games.size());
+            for (size_t i : *support)
+                supported[i] = 1;
+        }
         auto allowed = [&](size_t i) {
             const auto& g = ix.games[i];
-            return visible(g, filter) && (restricted.empty() || restricted.count(g.system));
+            return visible(g, filter) && (restricted.empty() || restricted.count(g.system)) &&
+                   (supported.empty() || supported[i]);
         };
+        // Most title/entity suggestions have just a handful of supporting games. Validate
+        // those directly, rather than traversing a global index for every rejected completion.
+        if (support && support->size() <= 16) {
+            for (size_t i : *support) {
+                if (!allowed(i))
+                    continue;
+                if (q.empty())
+                    return {{i, MatchClass::Metadata, {}}};
+                for (size_t doc : ix.gameDocuments[i]) {
+                    const int r {rank(q, qw, ix.documents[doc].text)};
+                    if (r >= 0)
+                        return {{i, static_cast<MatchClass>(r), {}}};
+                }
+                const auto& g = ix.games[i];
+                const auto metadata {normalize(g.developer + " " + g.publisher + " " + g.genre +
+                                               " " + g.system + " " + g.systemName)};
+                if (std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
+                        return metadata.find(w.text) != std::string::npos;
+                    }))
+                    return {{i, MatchClass::Metadata, {}}};
+            }
+            return {};
+        }
+        std::vector<int> ranks(ix.games.size(), 9);
         size_t matched {0};
+        Match firstMatch {0, MatchClass::Metadata, {}};
         auto apply = [&](const std::vector<size_t>& ids, int r) {
             for (size_t i : ids) {
                 if (!allowed(i))
@@ -782,6 +913,10 @@ namespace LibrarySearch
                 if (ranks[i] == 9)
                     ++matched;
                 ranks[i] = std::min(ranks[i], r);
+                if (firstOnly) {
+                    firstMatch = {i, static_cast<MatchClass>(r), {}};
+                    return;
+                }
             }
         };
         // Exact and prefix lookups are independent of corpus size. Once these classes
@@ -792,14 +927,20 @@ namespace LibrarySearch
             [&](size_t doc, const std::string& key) { return ix.documents[doc].compact < key; })};
         if (!q.empty()) {
             for (auto it = begin;
-                 it != ix.sortedTitles.end() && ix.documents[*it].compact == compactQuery; ++it)
+                 it != ix.sortedTitles.end() && ix.documents[*it].compact == compactQuery; ++it) {
                 apply(ix.documents[*it].games, 0);
+                if (firstOnly && matched)
+                    return {firstMatch};
+            }
             if (matched < limit)
                 for (auto it = begin;
                      it != ix.sortedTitles.end() && starts(ix.documents[*it].compact, compactQuery);
-                     ++it)
+                     ++it) {
                     apply(ix.documents[*it].games,
                           ix.documents[*it].compact == compactQuery ? 0 : 1);
+                    if (firstOnly && matched)
+                        return {firstMatch};
+                }
         }
         if (matched < limit && !q.empty()) {
             std::vector<uint8_t> candidates(ix.documents.size(), 1);
@@ -809,20 +950,39 @@ namespace LibrarySearch
                 const auto numeric {number(token.text)};
                 const auto bits {signature(points)};
                 const auto threshold {points.size() >= 8 ? 2U : 1U};
-                for (const auto& group : ix.signatures) {
-                    const auto missing {bitCount(bits & ~group.first)};
-                    const bool substring {missing == 0};
-                    const bool fuzzy {points.size() >= 4 && missing <= threshold};
-                    if (!substring && !fuzzy)
-                        continue;
-                    for (const auto* v : group.second) {
-                        if (!(substring && v->text.find(token.text) != std::string::npos) &&
-                            !(fuzzy && near(points, v->points)))
-                            continue;
-                        for (size_t i : v->games)
-                            found[i] = 1;
+                // A substring must contain every byte n-gram of the query. The rarest
+                // posting list is enough to bound candidates; verify the complete token.
+                const size_t gramLength {std::min(size_t {3}, token.text.size())};
+                const std::vector<size_t>* rarest {nullptr};
+                bool possible {true};
+                for (size_t offset {0}; offset + gramLength <= token.text.size(); ++offset) {
+                    auto it = ix.grams.find(gram(token.text, offset, gramLength));
+                    if (it == ix.grams.end()) {
+                        possible = false;
+                        break;
                     }
+                    if (!rarest || it->second.size() < rarest->size())
+                        rarest = &it->second;
                 }
+                if (possible && rarest)
+                    for (size_t i : *rarest)
+                        if (ix.documents[i].compact.find(token.text) != std::string::npos)
+                            found[i] = 1;
+                if (points.size() >= 4)
+                    for (auto length = ix.signatures.lower_bound(points.size() - threshold);
+                         length != ix.signatures.end() &&
+                         length->first <= points.size() + threshold;
+                         ++length)
+                        for (const auto& group : length->second) {
+                            if (bitCount(bits & ~group.first) > threshold)
+                                continue;
+                            for (const auto* v : group.second) {
+                                if (!near(points, v->points))
+                                    continue;
+                                for (size_t i : v->games)
+                                    found[i] = 1;
+                            }
+                        }
                 const auto numericWord {ix.vocabulary.find(numeric)};
                 if (numericWord != ix.vocabulary.end())
                     for (size_t i : numericWord->second.games)
@@ -843,21 +1003,30 @@ namespace LibrarySearch
                 if (!std::any_of(d.games.begin(), d.games.end(), allowed))
                     continue;
                 const int r {rank(q, qw, d.text)};
-                if (r >= 0)
+                if (r >= 0) {
                     apply(d.games, r);
+                    if (firstOnly && matched)
+                        return {firstMatch};
+                }
             }
         }
         if (q.empty()) {
             for (const auto& group : ix.systemGames)
-                if (restricted.empty() || restricted.count(group.first))
+                if (restricted.empty() || restricted.count(group.first)) {
                     apply(group.second, 8);
+                    if (firstOnly && matched)
+                        return {firstMatch};
+                }
         }
         else if (matched < limit)
             for (const auto& group : ix.metadataGroups)
                 if (std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
                         return group.first.find(w.text) != std::string::npos;
-                    }))
+                    })) {
                     apply(group.second, 8);
+                    if (firstOnly && matched)
+                        return {firstMatch};
+                }
         std::array<std::vector<size_t>, 9> buckets;
         for (size_t i {0}; i < ranks.size(); ++i)
             if (ranks[i] < 9 && buckets[ranks[i]].size() < limit)
@@ -871,8 +1040,8 @@ namespace LibrarySearch
                 // Map only selected results, never retain normalized offsets in the UI.
                 std::vector<Span> normalizedSpans;
                 if (r < 8 && !q.empty() &&
-                    rank(q, qw, makeText(title(ix.games[i].title).text), &normalizedSpans) ==
-                        static_cast<int>(r)) {
+                    rank(q, qw, makeText(title(ix.games[i].title).text), &normalizedSpans,
+                         static_cast<int>(r)) == static_cast<int>(r)) {
                     const auto mapped {title(ix.games[i].title, true)};
                     for (auto s : normalizedSpans)
                         if (s.begin < s.end && s.end <= mapped.source.size())
@@ -903,7 +1072,25 @@ namespace LibrarySearch
                                                                 q.substr(split + 1)};
         std::vector<Suggestion> result;
         std::unordered_set<std::string> seen;
-        for (const auto& c : mIndex->completions) {
+        std::vector<size_t> candidates;
+        const std::array<std::string, 3> prefixes {partial, title(query).text, q};
+        for (size_t group {0}; group < prefixes.size(); ++group) {
+            if (prefixes[group].empty())
+                continue;
+            const auto& order = mIndex->completionOrder[group];
+            const auto& prefix = prefixes[group];
+            auto begin = std::lower_bound(order.begin(), order.end(), prefix,
+                                          [&](size_t i, const std::string& value) {
+                                              return mIndex->completions[i].key < value;
+                                          });
+            for (auto it = begin; it != order.end() && starts(mIndex->completions[*it].key, prefix);
+                 ++it)
+                candidates.push_back(*it);
+        }
+        std::sort(candidates.begin(), candidates.end());
+        for (size_t candidate : candidates) {
+            const auto& c = mIndex->completions[candidate];
+
             std::string insert;
             if (c.kind == SuggestionKind::Word) {
                 if (partial.empty() || !starts(c.key, partial))
@@ -911,8 +1098,6 @@ namespace LibrarySearch
                 insert = prefix + c.text;
             }
             else {
-                if (!starts(c.key, q))
-                    continue;
                 insert = c.text;
             }
             const auto key {normalize(insert)};
@@ -923,7 +1108,7 @@ namespace LibrarySearch
                 continue;
             // A completion is useful only if the inserted query actually has visible matches,
             // including system restrictions and the preceding tokens of word completions.
-            if (search(insert, 1, filter).empty())
+            if (find(insert, 1, filter, true, &c.games).empty())
                 continue;
             seen.insert(key);
             result.push_back({c.kind, insert});

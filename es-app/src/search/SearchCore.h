@@ -96,6 +96,11 @@ namespace LibrarySearch
         std::vector<size_t> recentlyPlayed(size_t limit = 30, const Filter& filter = {}) const;
 
     private:
+        std::vector<Match> find(const std::string& query,
+                                size_t limit,
+                                const Filter& filter,
+                                bool firstOnly,
+                                const std::vector<size_t>* support = nullptr) const;
         struct Index;
         std::unique_ptr<Index> mIndex;
     };
