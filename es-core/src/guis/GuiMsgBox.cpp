@@ -13,6 +13,7 @@
 #include "components/MenuComponent.h"
 #if defined(__ANDROID__)
 #include "Log.h"
+#include <SDL2/SDL_events.h>
 #endif
 
 #define HORIZONTAL_PADDING_PX 20.0f
