@@ -72,9 +72,9 @@ def reset_failure_script(settings, receipt):
             '# ES-DE-Plus — written for ES-DE-Plus. Controlled reset-verification fixture.\n' +
             shlex.join(['printf', '%s\\n', '<?xml version="1.0"?>',
                         '<bool name="InputTouchOverlay" value="false" />']) +
-            ' > ' + shlex.quote(settings) + '\n' +
+            ' > ' + "'" + settings.replace("'", "'\"'\"'") + "'\n" +
             shlex.join(['printf', '%s\\n', 'FAULT_INJECTED']) +
-            ' > ' + shlex.quote(receipt) + '\n')
+            ' > ' + "'" + receipt.replace("'", "'\"'\"'") + "'\n")
 
 
 def assertion_controls():
@@ -179,20 +179,16 @@ def reset_failure_probe(h):
     # leaving the directories writable so earlier startup preflights still pass.
     h.shell('am', 'force-stop', h.app)
     previous = h.shell('cat', h.settings)
-    root = h.shell('readlink', '-f', h.settings).strip().rsplit('/settings/', 1)[0]
-    intent = 'touch-smoke-verify-failure\n' + root
-    hook = root + '/scripts/config-changed/touch-reset-verification-failure.sh'
-    receipt = root + '/settings/touch-reset-verification-failure.txt'
-    assert h.shell('sh', '-c', 'test ! -e ' + shlex.quote(hook) + ' && test ! -e ' +
-                   shlex.quote(receipt) + ' && echo ABSENT').strip() == 'ABSENT'
-    h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && printf %s ' +
-              shlex.quote(intent) + ' > files/touch-overlay-reset')
     enabled = configure(previous, CustomEventScripts=True, DebugMode=True)
-    h.shell('sh', '-c', 'printf %s ' + shlex.quote(enabled) + ' > ' + shlex.quote(h.settings))
-    script = reset_failure_script(h.settings, receipt)
-    h.shell('mkdir', '-p', root + '/scripts/config-changed')
-    h.shell('sh', '-c', 'printf %s ' + shlex.quote(script) + ' > ' + shlex.quote(hook))
-    h.shell('chmod', '644', hook)
+    h.user_file('settings/es_settings.xml', enabled)
+    prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'reset-verification-prepare',
+                       h.app + '/org.esdeplus.frontend.TouchSmoke')
+    h.smoke_checks.probe_passed(prepared, 'PASS: reset-verification-prepare under frontend UID')
+    metadata = json.loads(h.private('cat', 'cache/touch-reset-verification.json'))
+    assert metadata['script'] == reset_failure_script(metadata['settings'], metadata['receipt'])
+    intent = metadata['intent']
+    receipt = metadata['receipt']
+    (h.evidence / 'touch-reset-failure-preparation.txt').write_text(prepared + '\n' + json.dumps(metadata))
     try:
         h.start_entry()
         message = 'Unable to save the touch overlay setup.'
@@ -216,8 +212,10 @@ def reset_failure_probe(h):
         (h.evidence / 'touch-reset-failure-logcat.txt').write_text(logcat)
     finally:
         h.shell('am', 'force-stop', h.app)
-        h.shell('rm', '-f', hook, receipt)
-        h.shell('sh', '-c', 'printf %s ' + shlex.quote(previous) + ' > ' + shlex.quote(h.settings))
+        cleaned = h.shell('am', 'instrument', '-w', '-e', 'mode', 'reset-verification-cleanup',
+                          h.app + '/org.esdeplus.frontend.TouchSmoke')
+        h.smoke_checks.probe_passed(cleaned, 'PASS: reset-verification-cleanup under frontend UID')
+        h.user_file('settings/es_settings.xml', previous)
     h.launch()
     assert 'InputOverlay: setup reset saved and consumed' in h.log()
     assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
