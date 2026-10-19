@@ -159,12 +159,25 @@ def run(h, start, control, shot, record):
         h.key('KEYCODE_FORWARD_DEL')
         live_event('mediaviewer-start')
         shot('search-entry-media-viewer')
-        count = opens()
-        h.key('KEYCODE_INSERT')
-        h.key('KEYCODE_SEARCH')
-        control(102)
-        assert opens() == count, 'Search opened over the media viewer'
-        h.key('KEYCODE_DEL')
+        for key in ['KEYCODE_INSERT', 'KEYCODE_SEARCH']:
+            count = opens()
+            stops = h.log().count('Scripting::fireEvent(): mediaviewer-stop')
+            control(102)
+            assert opens() == count, 'Magnifier opened Search over the media viewer'
+            assert h.log().count('Scripting::fireEvent(): mediaviewer-stop') == stops, \
+                'Magnifier dismissed the media viewer'
+            h.key(key)
+            # Upstream closes the viewer for any non-navigation key. Observe
+            # that close, then reopen it before testing the next key's ownership.
+            h.wait_for(lambda: h.log().count('Scripting::fireEvent(): mediaviewer-stop') == stops + 1,
+                       'existing media viewer close action', timeout=20)
+            assert opens() == count, 'Search opened over the media viewer'
+            record('search-entry-media-viewer-' + key)
+            if key == 'KEYCODE_INSERT':
+                starts = h.log().count('Scripting::fireEvent(): mediaviewer-start')
+                h.key('KEYCODE_FORWARD_DEL')
+                h.wait_for(lambda: h.log().count('Scripting::fireEvent(): mediaviewer-start') == starts + 1,
+                           'media viewer owns the next key', timeout=20)
         opening(lambda: h.key('KEYCODE_INSERT'), 'nes')
         close_popup()
         record('search-entry-media-viewer')
