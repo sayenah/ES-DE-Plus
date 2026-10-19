@@ -147,7 +147,7 @@ object ConfiguratorSession {
         Log.i("ES-DE-Plus", "Touch overlay reset intent persisted session=$token bound=${root.isNotEmpty()}")
     }
 
-    fun hasUncommittedTouchReset(context: Context): Boolean {
+    @Synchronized fun hasUncommittedTouchReset(context: Context): Boolean {
         val marker = android.util.AtomicFile(java.io.File(context.filesDir, "touch-overlay-reset"))
         return try {
             marker.openRead().bufferedReader().use { it.readLine() != null && it.readText().isEmpty() }
