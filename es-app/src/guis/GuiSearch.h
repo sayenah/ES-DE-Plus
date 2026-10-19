@@ -29,6 +29,7 @@ public:
     void textEditing(const std::string& text, int start, int length) override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
+    bool isOpaqueFullscreen() const override { return true; }
     std::vector<HelpPrompt> getHelpPrompts() override;
 #if defined(__ANDROID__)
     bool ownsTouch(float, float) override { return true; }
@@ -71,6 +72,7 @@ private:
         std::unique_ptr<ImageComponent> image;
         float opacity {0};
     };
+    bool zeroState() const;
     void refresh();
     void layout();
     void focus(Area area, int index = 0);

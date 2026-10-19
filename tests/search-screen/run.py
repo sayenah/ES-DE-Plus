@@ -166,7 +166,9 @@ def run(binary, probe, destination, width, height, variant='dark'):
     try:
         wait(lambda: 'Application startup time:' in log(), 'real frontend startup')
         time.sleep(2)
+        opening_start = time.monotonic()
         search()
+        opening_ms = (time.monotonic() - opening_start) * 1000
         shot('zero')
         for character in 'fin':
             before = len(log())
@@ -176,6 +178,10 @@ def run(binary, probe, destination, width, height, variant='dark'):
         command('pad', '10')  # R changes the system filter.
         shot('filter')
         command('pad', '6')  # Start focuses results.
+        before = len(log())
+        command('pad', '11')  # Up reaches visible filters even with saved history.
+        wait(lambda: 'Search focus: area=4 index=0' in log()[before:], 'visible filter row above results')
+        command('pad', '12')
         if variant == 'large':
             for _ in range(205):
                 command('key', '1073741905')
@@ -225,7 +231,7 @@ def run(binary, probe, destination, width, height, variant='dark'):
             assert 'query=fin ' not in log(), 'Private query leaked into search diagnostics'
         command('quit')
         assert process.wait(timeout=30) == 0
-        summary = dict(resolution=[width, height], variant=variant,
+        summary = dict(resolution=[width, height], variant=variant, opening_ms=opening_ms,
                        checks=['live strokes', 'scope filter', 'result focus', 'show game',
                                'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
         (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')

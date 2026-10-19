@@ -599,6 +599,8 @@ void Window::render()
     if (!mGuiStack.empty()) {
         auto& bottom = mGuiStack.front();
         auto& top = mGuiStack.back();
+        const bool opaqueFullscreen {bottom != top && top->isOpaqueFullscreen() &&
+                                     !mRenderLaunchScreen};
 
         if (mRenderMediaViewer || mRenderPDFViewer || mRenderScreensaver) {
             bottom->cancelAllAnimations();
@@ -623,7 +625,12 @@ void Window::render()
         // Don't render the bottom if the menu is open and the opening animation has finished
         // playing. If the background is invalidated rendering will be enabled briefly until
         // a new cached background has been generated.
-        if (mGuiStack.size() > 1 && mCachedBackground) {
+        if (opaqueFullscreen) {
+            // Keep the live view behind the scale-up animation, then stop drawing it.
+            renderBottom = Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
+                           mTopScale < 1.0f;
+        }
+        else if (mGuiStack.size() > 1 && mCachedBackground) {
             if ((Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
                  mBackgroundOverlayOpacity == 1.0f) ||
                 Settings::getInstance()->getString("MenuOpeningEffect") != "scale-up")
@@ -636,7 +643,7 @@ void Window::render()
         if (bottom != top || mRenderLaunchScreen) {
             if (!mRenderLaunchScreen)
                 menuIsOpen = true;
-            if (!mCachedBackground && mInvalidateCacheTimer == 0) {
+            if (!opaqueFullscreen && !mCachedBackground && mInvalidateCacheTimer == 0) {
                 // Generate a cache texture of the shaded background when opening the menu, which
                 // will remain valid until the menu is closed. This is way faster than having to
                 // render the shaders for every frame.
@@ -716,14 +723,16 @@ void Window::render()
 #endif
             }
             // Fade in the cached background if the menu opening effect has been set to scale-up.
-            if (Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up") {
+            if (!opaqueFullscreen &&
+                Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up") {
                 mBackgroundOverlay->setOpacity(mBackgroundOverlayOpacity);
                 if (mBackgroundOverlayOpacity < 1.0f)
                     mBackgroundOverlayOpacity =
                         glm::clamp(mBackgroundOverlayOpacity + 0.118f, 0.0f, 1.0f);
             }
 
-            mBackgroundOverlay->render(trans);
+            if (!opaqueFullscreen)
+                mBackgroundOverlay->render(trans);
 
             // Scale-up menu opening effect.
             if (Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&

@@ -142,6 +142,12 @@ LibrarySearch::Filter GuiSearch::filter(bool system) const
     return value;
 }
 
+bool GuiSearch::zeroState() const
+{
+    return mQuery.empty() && mSystem.empty() && mGenre.empty() && mDeveloper.empty() &&
+           mPublisher.empty() && !mFavouritesOnly;
+}
+
 void GuiSearch::refresh()
 {
     if (mUnit > 0 && !mMeasureFrame) {
@@ -184,8 +190,7 @@ void GuiSearch::refresh()
     mNoResults =
         mMatches.empty() && (!mQuery.empty() || !mSystem.empty() || !mGenre.empty() ||
                              !mDeveloper.empty() || !mPublisher.empty() || mFavouritesOnly);
-    if (mQuery.empty() && mSystem.empty() && mGenre.empty() && mDeveloper.empty() &&
-        mPublisher.empty() && !mFavouritesOnly) {
+    if (zeroState()) {
         const bool remember =
             Settings::getInstance()->getBool("SearchHistory") && !filter().kidMode;
         if (remember)
@@ -449,8 +454,13 @@ void GuiSearch::layout()
     if (field.empty())
         field = Utils::String::format(_n("Search %s game", "Search %s games", mLibraryCount),
                                       std::to_string(mLibraryCount).c_str());
-    label(field, mFieldRect, 38 * mUnit, mQuery.empty() ? mMuted : mForeground, mPanel,
-          mArea == Area::Field);
+    // Keep the editor on one line even when the caret is in the middle of a long query.
+    // The background/hit area remains tall enough for touch.
+    const float lineHeight = font->getHeight(1.15f);
+    label(field,
+          {mFieldRect.x, mFieldRect.y + (mFieldRect.w - lineHeight) / 2, mFieldRect.z, lineHeight},
+          38 * mUnit, mQuery.empty() ? mMuted : mForeground, mPanel, mArea == Area::Field);
+    mLabels.back().rect = mFieldRect;
     mTargets.push_back({mFieldRect, Area::Field, 0});
     std::string scope = _("All systems");
     if (!mSystem.empty()) {
@@ -551,8 +561,7 @@ void GuiSearch::layout()
     }
     if (metadataIndex > static_cast<int>(mSystems.size()) + 2)
         top += 60 * mUnit;
-    const bool zero = mMatches.empty() && mQuery.empty() && mSystem.empty() && mGenre.empty() &&
-                      mDeveloper.empty() && mPublisher.empty() && !mFavouritesOnly;
+    const bool zero = zeroState();
     mResultsRect = {rightX, top, right, mContentBottom - top};
     if (zero) {
         if (!mHistory.empty()) {
@@ -772,13 +781,14 @@ void GuiSearch::focus(Area area, int index)
 
 void GuiSearch::focusResults()
 {
-    const bool zero = mQuery.empty() && mSystem.empty() && mGenre.empty() && mDeveloper.empty() &&
-                      mPublisher.empty() && !mFavouritesOnly;
+    const bool zero = zeroState();
     focus(zero && mGames.empty() && !mHistory.empty() ? Area::History : Area::Games);
 }
 
 void GuiSearch::move(int x, int y)
 {
+    const Area header =
+        zeroState() ? (mHistory.empty() ? Area::Scope : Area::History) : Area::Filters;
     if (mArea == Area::Keys) {
         if (mIndex >= 44) {
             if (x)
@@ -819,7 +829,7 @@ void GuiSearch::move(int x, int y)
         if (x < 0)
             focus(Area::Keys, 9);
         else if (y < 0 && mIndex == 0)
-            focus(mHistory.empty() ? Area::Filters : Area::History);
+            focus(header);
         else if (y)
             focus(Area::Games, mIndex + y);
     }
@@ -839,13 +849,17 @@ void GuiSearch::move(int x, int y)
         else if (y > 0)
             focus(Area::Games);
         else if (y < 0)
-            focus(Area::Suggestions);
+            focus(mSuggestions.empty() ? Area::Scope : Area::Suggestions);
     }
     else if (mArea == Area::Scope) {
         if (x < 0)
             focus(Area::Field);
-        else if (x > 0)
-            focus(mHistory.empty() ? Area::Filters : Area::History);
+        else if (x > 0) {
+            if (header == Area::Scope)
+                focusResults();
+            else
+                focus(header);
+        }
         else if (y > 0)
             focus(mSuggestions.empty() ? Area::Keys : Area::Suggestions);
         else if (y < 0)
@@ -1423,7 +1437,8 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
             }
             else if (mTouchTarget.area == Area::Filters &&
                      std::abs(point.x - mTouchLast.x) > 60 * mUnit) {
-                focus(Area::Filters, mIndex + (point.x < mTouchLast.x ? 1 : -1));
+                const int index = mArea == Area::Filters ? mIndex : mTouchTarget.index;
+                focus(Area::Filters, index + (point.x < mTouchLast.x ? 1 : -1));
                 mTouchLast = {point.x, point.y};
             }
             else if (mTouchTarget.area == Area::History &&

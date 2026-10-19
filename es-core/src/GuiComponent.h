@@ -114,6 +114,9 @@ public:
     //    renderChildren(trans);
     virtual void render(const glm::mat4& parentTrans);
 
+    // Opaque full-screen GUIs do not need a blurred copy of the covered game list.
+    virtual bool isOpaqueFullscreen() const { return false; }
+
     glm::vec3 getPosition() const { return mPosition; }
     void setPosition(const glm::vec3& offset) { setPosition(offset.x, offset.y, offset.z); }
     void setPosition(float x, float y, float z = 0.0f);
