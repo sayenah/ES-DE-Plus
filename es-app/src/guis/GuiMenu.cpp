@@ -35,11 +35,11 @@
 #include "guis/GuiOrphanedDataCleanup.h"
 #include "guis/GuiScraperMenu.h"
 #include "guis/GuiScreensaverOptions.h"
-#include "guis/GuiSearch.h"
 #include "guis/GuiSystemStatusOptions.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiThemeDownloader.h"
+#include "guis/SearchEntry.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
 
@@ -120,7 +120,7 @@ GuiMenu::~GuiMenu()
     }
 }
 
-void GuiMenu::openGlobalSearch() { mWindow->pushGui(new GuiSearch()); }
+void GuiMenu::openGlobalSearch() { SearchEntry::open("", nullptr); }
 
 void GuiMenu::openScraperOptions()
 {
@@ -1105,6 +1105,20 @@ void GuiMenu::openUIOptions()
             else
                 SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "1");
 #endif
+        }
+    });
+
+    auto gamelistYButton =
+        std::make_shared<OptionListComponent<std::string>>(_("Y BUTTON IN GAME LISTS"), false);
+    const std::string yAction {Settings::getInstance()->getString("GamelistYButton")};
+    gamelistYButton->add(_("SEARCH"), "search", yAction != "favorites");
+    gamelistYButton->add(_("FAVORITES"), "favorites", yAction == "favorites");
+    s->addWithLabel(_("Y BUTTON IN GAME LISTS"), gamelistYButton);
+    s->addSaveFunc([gamelistYButton, s] {
+        if (gamelistYButton->getSelected() !=
+            Settings::getInstance()->getString("GamelistYButton")) {
+            Settings::getInstance()->setString("GamelistYButton", gamelistYButton->getSelected());
+            s->setNeedsSaving();
         }
     });
 

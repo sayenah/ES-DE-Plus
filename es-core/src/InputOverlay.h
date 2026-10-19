@@ -45,8 +45,8 @@ private:
 
     TouchOverlay::Model mModel;
     TouchOverlay::Options mOptions;
-    std::array<std::unique_ptr<ImageComponent>, 14> mImages;
-    std::array<std::unique_ptr<TextComponent>, 14> mLabels;
+    std::array<std::unique_ptr<ImageComponent>, 15> mImages;
+    std::array<std::unique_ptr<TextComponent>, 15> mLabels;
     bool mInitialized {false};
     bool mDirty {true};
     bool mFullWarning {false};

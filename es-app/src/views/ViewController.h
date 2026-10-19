@@ -103,6 +103,7 @@ public:
     const bool getGameLaunchTriggered() { return (mGameToLaunch != nullptr); }
 
     bool input(InputConfig* config, Input input) override;
+    void openSearch(const std::string& initialText = "") override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
 

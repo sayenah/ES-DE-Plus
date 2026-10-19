@@ -155,6 +155,22 @@ GuiGamelistOptions::GuiGamelistOptions(SystemData* system)
         }
     }
 
+    if (file->getType() == GAME && mSystem->isGameSystem() &&
+        UIModeController::getInstance()->isUIModeFull()) {
+        row.elements.clear();
+        row.addElement(std::make_shared<TextComponent>(
+                           file->getFavorite() ? _("REMOVE FROM FAVORITES") : _("ADD TO FAVORITES"),
+                           Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary),
+                       true);
+        row.makeAcceptInputHandler([this] {
+            auto view {ViewController::getInstance()->getGamelistView(mSystem)};
+            // Commit menu sorting before the shared toggle chooses the next cursor.
+            delete this;
+            view->toggleCollectionEntry(true);
+        });
+        mMenu.addRow(row);
+    }
+
     // Add the filters entry, unless this is the grouped custom collections system or if there
     // are no games for the system.
     if (!mIsCustomCollectionGroup && system->getRootFolder()->getChildren().size() > 0) {

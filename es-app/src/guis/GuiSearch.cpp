@@ -942,13 +942,7 @@ void GuiSearch::toggleFavorite()
     auto* game = LibrarySearch::resolve(mGames[mIndex]);
     if (!game)
         return;
-    auto* source = game->getSourceFileData();
-    source->getSystem()->getIndex()->removeFromIndex(source);
-    source->metadata.set("favorite", source->getFavorite() ? "false" : "true");
-    source->getSystem()->getIndex()->addToIndex(source);
-    CollectionSystemsManager::getInstance()->refreshCollectionSystems(source);
-    source->getSystem()->onMetaDataSavePoint();
-    ViewController::getInstance()->onFileChanged(source, false);
+    CollectionSystemsManager::getInstance()->toggleGameInCollection(game, true);
     refresh();
 }
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 05:41-0500\n"
+"POT-Creation-Date: 2026-10-19 15:21-0500\n"
 "PO-Revision-Date: 2026-09-10 12:02+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: 繁體中文 <info@es-de.org>\n"
@@ -1126,6 +1126,12 @@ msgstr "跳轉到……"
 msgid "SORT GAMES BY"
 msgstr "對遊戲進行排序"
 
+msgid "REMOVE FROM FAVORITES"
+msgstr ""
+
+msgid "ADD TO FAVORITES"
+msgstr ""
+
 msgid "THIS SYSTEM HAS NO GAMES"
 msgstr "該平台沒有遊戲"
 
@@ -1239,12 +1245,6 @@ msgstr "工具"
 
 msgid "QUIT ES-DE"
 msgstr "退出ES-DE"
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
-msgstr ""
 
 msgid "THEME"
 msgstr "主題"
@@ -1469,6 +1469,12 @@ msgstr "啟用文字列表快速滾動覆蓋"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "啟用虛擬鍵盤"
+
+msgid "Y BUTTON IN GAME LISTS"
+msgstr ""
+
+msgid "FAVORITES"
+msgstr ""
 
 msgid "ENABLE TOGGLE FAVORITES BUTTON"
 msgstr "啟用喜愛切換按鍵"
@@ -2787,6 +2793,12 @@ msgstr ""
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
 msgstr ""
 
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
+
 msgid ""
 "Unable to save the touch overlay setup. Check that your application data "
 "folder is writable and has free space, then start ES-DE Plus again. Your "
@@ -3277,6 +3289,9 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "正在啟動遊戲 '%s'"
+
+msgid "search"
+msgstr ""
 
 msgid "menu"
 msgstr "選單"

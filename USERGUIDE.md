@@ -699,7 +699,7 @@ Starts the media viewer in the gamelist view or the screensaver in the system vi
 **Y button**\
 _(Insert on Linux and Windows, F13 on macOS)_
 
-Marks games as favorites in the gamelist view (if the _Enable toggle favorites button_ option has been enabled). Used by some other minor functions as explained by the help system and/or this guide.
+Opens Search in the system view and game lists in every UI mode. While editing a custom collection, Y still adds or removes collection entries. To restore the previous favorites action in game lists, set _Y button in game lists_ to _Favorites_ in _UI settings_. The Select game options menu includes _Add to favorites_ / _Remove from favorites_. Search can also be opened by typing an unmapped letter or digit on a physical keyboard, or by pressing `/` or a keyboard/remote Search key; mapped keys keep their actions. These shortcuts operate only while browsing, with no menu, screensaver or media viewer on top.
 
 **Alt + F4 (Windows and Linux) or Command + Q (macOS) (keyboard only)**
 
@@ -4132,9 +4132,13 @@ With this option enabled, there will be an overlay displayed when quickly scroll
 
 This enables a virtual (on-screen) keyboard that can be used at various places throughout the application to input text and numbers using a controller. The Shift and Alt keys can be toggled individually or combined to access many special characters. The general use of the virtual keyboard should hopefully be self-explanatory. On Android the virtual keyboard from the operating system will be used if this setting has been disabled.
 
+**Y button in game lists**
+
+_Select Search_ (the default) makes Y open Search; _Favorites_ restores the previous gamelist Y behavior, including the setting below. Y always opens Search in the system view.
+
 **Enable toggle favorites button**
 
-This setting enables the _Y_ button for quickly toggling a game as favorite. Although this may be convenient at times, it's also quite easy to accidentally remove a favorite tagging of a game when using the application more casually. As such it could sometimes make sense to disable this functionality. It's of course still possible to mark a game as favorite using the metadata editor when this setting is disabled. The option does not affect the use of the _Y_ button to add or remove games when editing custom collections.
+When _Y button in game lists_ is _Favorites_, this setting enables the _Y_ button for quickly toggling a game as favorite. Although this may be convenient at times, it's also quite easy to accidentally remove a favorite tagging of a game when using the application more casually. As such it could sometimes make sense to disable this functionality. It's of course still possible to mark a game as favorite using the Select game options menu or metadata editor when this setting is disabled. The option does not affect the use of the _Y_ button to add or remove games when editing custom collections.
 
 **Enable gamelist filters**
 

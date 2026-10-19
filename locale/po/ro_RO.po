@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 05:41-0500\n"
+"POT-Creation-Date: 2026-10-19 15:21-0500\n"
 "PO-Revision-Date: 2026-09-04 22:25+0300\n"
 "Last-Translator: Mihai Vasiliu <mihai.vasiliu.93@gmail.com>\n"
 "Language-Team: Română <info@es-de.org>\n"
@@ -1154,6 +1154,12 @@ msgstr "SARI LA..."
 msgid "SORT GAMES BY"
 msgstr "SORTEAZĂ JOCURILE DUPĂ"
 
+msgid "REMOVE FROM FAVORITES"
+msgstr ""
+
+msgid "ADD TO FAVORITES"
+msgstr ""
+
 msgid "THIS SYSTEM HAS NO GAMES"
 msgstr "ACEST SISTEM NU ARE JOCURI"
 
@@ -1267,12 +1273,6 @@ msgstr "UTILITARE"
 
 msgid "QUIT ES-DE"
 msgstr "IEȘI DIN ES-DE"
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
-msgstr ""
 
 msgid "THEME"
 msgstr "TEMĂ"
@@ -1498,6 +1498,12 @@ msgstr "ACTIVEAZĂ MANȘETĂ LISTĂ TEXT LA DERULARE RAPIDĂ"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "ACTIVEAZĂ TASTATURĂ VIRTUALĂ"
+
+msgid "Y BUTTON IN GAME LISTS"
+msgstr ""
+
+msgid "FAVORITES"
+msgstr ""
 
 msgid "ENABLE TOGGLE FAVORITES BUTTON"
 msgstr "ACTIVEAZĂ BUTON COMUTARE FAVORITE"
@@ -2868,6 +2874,12 @@ msgstr ""
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
 msgstr ""
 
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
+
 msgid ""
 "Unable to save the touch overlay setup. Check that your application data "
 "folder is writable and has free space, then start ES-DE Plus again. Your "
@@ -3399,6 +3411,9 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "SE LANSEAZĂ JOCUL „%s”"
+
+msgid "search"
+msgstr ""
 
 msgid "menu"
 msgstr "meniu"

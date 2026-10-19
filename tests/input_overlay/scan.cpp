@@ -40,7 +40,7 @@ static void check(int w, int h, int rotation, float density, const char* size)
     bool identical {model.supported() == reference.supported() &&
                     model.compact() == reference.compact() &&
                     model.diameter() == reference.diameter()};
-    for (int i {0}; i < 14; ++i) {
+    for (int i {0}; i < 15; ++i) {
         const auto& a {model.buttons()[i]};
         const auto& b {reference.buttons()[i]};
         identical &= a.id == b.id && a.cluster == b.cluster && a.circle == b.circle &&
