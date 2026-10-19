@@ -22,6 +22,9 @@
 #if defined(__ANDROID__) || defined(__IOS__)
 #include "InputOverlay.h"
 #endif
+#if defined(__ANDROID__)
+#include "guis/GuiMsgBox.h"
+#endif
 
 #include <algorithm>
 #include <iomanip>
@@ -90,6 +93,11 @@ void Window::pushGui(GuiComponent* gui)
         InputManager::getInstance().cancelTouchInput();
 #endif
     mGuiStack.push_back(gui);
+#if defined(__ANDROID__)
+    if (dynamic_cast<GuiMsgBox*>(gui))
+        LOG(LogDebug) << "InputOverlay: modal rect=" << gui->getPosition().x << ","
+                      << gui->getPosition().y << "," << gui->getSize().x << "," << gui->getSize().y;
+#endif
     gui->updateHelpPrompts();
 }
 
@@ -569,6 +577,9 @@ void Window::render()
 
     mRenderedHelpPrompts = false;
     bool menuIsOpen {false};
+#if defined(__ANDROID__)
+    bool overlayBelowDialog {false};
+#endif
 
     // Draw only bottom and top of GuiStack (if they are different).
     if (!mGuiStack.empty()) {
@@ -730,6 +741,15 @@ void Window::render()
                 }
             }
 
+#if defined(__ANDROID__)
+            // Modal text and confirmation controls take visual priority. Keep
+            // the exposed controller buttons usable around the dialog.
+            if (!mRenderLaunchScreen && dynamic_cast<GuiMsgBox*>(top) &&
+                Settings::getInstance()->getBool("InputTouchOverlay")) {
+                InputOverlay::getInstance().render(mRenderer->getIdentity());
+                overlayBelowDialog = true;
+            }
+#endif
             if (!mRenderLaunchScreen)
                 top->render(trans);
         }
@@ -810,7 +830,11 @@ void Window::render()
         mScreensaver->renderScreensaver();
 
 #if defined(__ANDROID__) || defined(__IOS__)
-    if (Settings::getInstance()->getBool("InputTouchOverlay"))
+    if (Settings::getInstance()->getBool("InputTouchOverlay")
+#if defined(__ANDROID__)
+        && !overlayBelowDialog
+#endif
+    )
         InputOverlay::getInstance().render(mRenderer->getIdentity());
 #endif
 

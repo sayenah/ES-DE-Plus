@@ -281,6 +281,46 @@ def run_fresh(namespace):
         receipts.append(f'PASS: existing private XML adb edit enabled={enabled}; owner={owner} preserved; no setup reset')
     (h.evidence / 'touch-private-adb-recovery.txt').write_text('\n'.join(receipts) + '\n')
 
+    # Fault the acknowledgement independently of settings verification: a bound,
+    # native-owned intent in a read-only parent cannot be removed. Native must
+    # show the error, wait for OK, keep the intent, then exit without relaunching.
+    h.shell('am', 'force-stop', h.app)
+    root = h.shell('readlink', '-f', h.settings).strip().rsplit('/settings/', 1)[0]
+    intent = 'touch-smoke-ack-failure\n' + root
+    h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && printf %s ' +
+              shlex.quote(intent) + ' > files/touch-overlay-reset && chmod 500 files')
+    try:
+        denied = h.private('rm', 'files/touch-overlay-reset', check=False)
+        assert h.private('cat', 'files/touch-overlay-reset') == intent, denied
+        h.start_entry()
+        message = 'Unable to save the touch overlay setup.'
+        h.wait_for(lambda: any(message in n.get('text', '') for n in h.hierarchy()),
+                   'reset failure is visible before frontend input')
+        pid = h.shell('pidof', h.app).strip()
+        assert pid
+        h.screenshot('touch-reset-failure-dialog')
+        assert h.private('cat', 'files/touch-overlay-reset') == intent
+        logcat = h.adb('logcat', '-d', '--pid', pid)
+        assert 'Finished main function' not in logcat, 'Failure exited before acknowledgement'
+        h.ui('OK', exact=True)
+        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d', '--pid', pid),
+                   'acknowledged reset failure exits native')
+        time.sleep(1)
+        logcat = h.adb('logcat', '-d', '--pid', pid)
+        assert logcat.count('Running main function') == 1, 'Reset failure restarted native'
+        assert h.private('cat', 'files/touch-overlay-reset') == intent
+        (h.evidence / 'touch-reset-failure-logcat.txt').write_text(logcat)
+    finally:
+        h.shell('am', 'force-stop', h.app)
+        h.private('chmod', '700', 'files')
+    h.launch()
+    assert 'InputOverlay: setup reset saved and consumed' in h.log()
+    assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
+    (h.evidence / 'touch-reset-failure.txt').write_text(
+        'PASS: controlled acknowledgement failure shows a blocking native Android dialog; '
+        'intent unchanged before/after OK; one native main exits; repairing permissions '
+        'consumes the retained intent exactly once.\n')
+
 
 def run(namespace):
     h = types.SimpleNamespace(**namespace)
@@ -503,7 +543,7 @@ def run(namespace):
         shot('touch-only-text-confirmation')
         touch_control(0)
         record('touch-only-menu-device-settings-text')
-        start(InputTouchOverlay=True)
+        start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2)
         touch_control(6)
         touch_control(12, 4)
         touch_control(0)
@@ -513,7 +553,26 @@ def run(namespace):
         touch_control(14, 2)
         touch_control(12, 2)
         touch_control(0)
-        shot('touch-disable-recovery-warning')
+        warning_on = shot('touch-disable-recovery-warning')
+        rect = list(map(float, re.findall(r'InputOverlay: modal rect=([^\s]+)', h.log())[-1].split(',')))
+        # The entire modal interior (text AND confirmation), independently sized
+        # by the GUI, must be unchanged when the underlying overlay fades away.
+        h.wait_for(lambda: 'InputOverlay: faded' in h.log(), 'warning overlay fades under modal')
+        warning_off = shot('touch-disable-recovery-warning-faded')
+        width, height, channels, on_rows = pdf_smoke.pixels(warning_on)
+        off_width, off_height, off_channels, off_rows = pdf_smoke.pixels(warning_off)
+        assert (width, height, channels) == (off_width, off_height, off_channels)
+        x, y, w, height = rect
+        inset = 24  # Exclude only the rounded border and shadow.
+        x0, y0, x1, y1 = round(x + inset), round(y + inset), round(x + w - inset), round(y + height - inset)
+        assert x1 > x0 and y1 > y0
+        changed = sum(on_rows[py][px * channels + c] != off_rows[py][px * channels + c]
+                      for py in range(y0, y1) for px in range(x0, x1) for c in range(3))
+        assert changed == 0, ('Overlay covered modal content', rect, changed)
+        (h.evidence / 'touch-modal-priority.txt').write_text(
+            f'PASS: modal interior {rect}: {changed} changed channels with overlay visible/faded; '
+            'text and confirmation take visual priority.\n')
+        tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))  # Wake-only.
         touch_control(0)  # Confirm the non-destructive, localized recovery warning.
         touch_control(1)
         assert 'InputOverlay: cleared' in h.log(), h.log()
