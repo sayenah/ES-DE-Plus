@@ -348,9 +348,13 @@ void GuiSearch::layout()
     label(field, mFieldRect, 38 * mUnit, mQuery.empty() ? mMenuColorSecondary : mMenuColorTitle,
           mMenuColorButtonFlatUnfocused, mArea == Area::Field);
     mTargets.push_back({mFieldRect, Area::Field, 0});
-    const std::string scope = !mScopeName.empty() && mSystem == mScopeName ?
-                                  _("In:") + " " + mScopeLabel :
-                                  _("All systems");
+    std::string scope = _("All systems");
+    if (!mSystem.empty()) {
+        const auto found = std::find_if(mSystems.begin(), mSystems.end(), [&](const auto& system) {
+            return system.system == mSystem;
+        });
+        scope = _("In:") + " " + (found == mSystems.end() ? mSystem : found->name);
+    }
     target(scope, {margin + left - scopeWidth, margin, scopeWidth, fieldHeight}, Area::Scope, 0,
            27 * mUnit);
     const float suggestionY = margin + fieldHeight + gap;
@@ -413,13 +417,24 @@ void GuiSearch::layout()
                    Area::Keys, 40 + i, 27 * mUnit);
     }
     float top = mPortrait ? suggestionY + chipHeight + gap : margin;
-    if (!mGenre.empty() || !mDeveloper.empty() || !mPublisher.empty()) {
-        const auto active =
-            !mGenre.empty() ? mGenre : (!mDeveloper.empty() ? mDeveloper : mPublisher);
-        target(active + " ×", {rightX, top, right, 48 * mUnit}, Area::Filters,
-               static_cast<int>(mSystems.size()) + 2, 28 * mUnit);
-        top += 60 * mUnit;
+    int metadataIndex = static_cast<int>(mSystems.size()) + 2;
+    float chipX = rightX;
+    for (const auto& value : {mGenre, mDeveloper, mPublisher}) {
+        if (value.empty())
+            continue;
+        const auto display = value + " ×";
+        const float width =
+            std::min(right, Font::get(28 * mUnit)->sizeText(display).x + 32 * mUnit);
+        if (chipX + width > rightX + right) {
+            top += 60 * mUnit;
+            chipX = rightX;
+        }
+        target(display, {chipX, top, width, 48 * mUnit}, Area::Filters, metadataIndex++,
+               28 * mUnit);
+        chipX += width + gap;
     }
+    if (metadataIndex > static_cast<int>(mSystems.size()) + 2)
+        top += 60 * mUnit;
     const bool zero = mMatches.empty() && mQuery.empty() && mSystem.empty() && mGenre.empty() &&
                       mDeveloper.empty() && mPublisher.empty() && !mFavouritesOnly;
     mResultsRect = {rightX, top, right, mContentBottom - top};
@@ -447,6 +462,9 @@ void GuiSearch::layout()
             top += 80 * mUnit;
         }
         int gameIndex {0};
+        const int shelves = !mRecent.empty() + !mFavorites.empty();
+        const float shelfImageHeight =
+            shelves ? std::max(90 * mUnit, (mContentBottom - top) / shelves - 150 * mUnit) : 0;
         auto shelf = [&](const std::string& heading, const std::vector<size_t>& games) {
             if (games.empty())
                 return;
@@ -454,7 +472,7 @@ void GuiSearch::layout()
             top += 50 * mUnit;
             const int columns = mPortrait ? 3 : 5;
             const float width = (right - gap * (columns - 1)) / columns;
-            const float height = std::min(width * 1.32f, 215 * mUnit);
+            const float height = std::min({width * 1.32f, 215 * mUnit, shelfImageHeight});
             const int shelfStart = gameIndex;
             const int first = mArea == Area::Games && mIndex >= shelfStart &&
                                       mIndex < shelfStart + static_cast<int>(games.size()) ?
@@ -611,8 +629,8 @@ int GuiSearch::count(Area area) const
         case Area::Suggestions:
             return static_cast<int>(mSuggestions.size());
         case Area::Filters:
-            return static_cast<int>(mSystems.size()) + 2 +
-                   (!mGenre.empty() || !mDeveloper.empty() || !mPublisher.empty());
+            return static_cast<int>(mSystems.size()) + 2 + (!mGenre.empty()) +
+                   (!mDeveloper.empty()) + (!mPublisher.empty());
         case Area::History:
             return mHistory.empty() ? 0 : static_cast<int>(mHistory.size()) + 1;
         case Area::Games:
@@ -736,7 +754,7 @@ void GuiSearch::edit(const std::string& text)
 
 void GuiSearch::textInput(const std::string& text, bool)
 {
-    if (text.empty() || text == "\n" || text == "\r")
+    if (text.empty() || text == "\n" || text == "\r" || (text == "\b" && !mComposition.empty()))
         return;
     // SDL_TEXTINPUT is the only physical/IME character source. KEYDOWN never inserts text.
     edit(text);
@@ -751,6 +769,7 @@ void GuiSearch::textEditing(const std::string& text, int, int)
 void GuiSearch::startTextInput(bool touch)
 {
     mTouch = touch;
+    mComposition.clear();
     SDL_StopTextInput();
     SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
     // Android's screen keyboard is requested only after a touch. Controller/keyboard input
@@ -848,7 +867,7 @@ void GuiSearch::activate()
         focus(Area::Field);
     }
     else if (mArea == Area::Scope) {
-        mSystem = mSystem == mScopeName ? "" : mScopeName;
+        mSystem = mSystem.empty() ? mScopeName : "";
         refresh();
     }
     else if (mArea == Area::Suggestions)
@@ -876,9 +895,15 @@ void GuiSearch::activate()
         else if (mIndex == static_cast<int>(mSystems.size()) + 1)
             mFavouritesOnly = !mFavouritesOnly;
         else if (mIndex > static_cast<int>(mSystems.size()) + 1) {
-            mGenre.clear();
-            mDeveloper.clear();
-            mPublisher.clear();
+            int remove = mIndex - static_cast<int>(mSystems.size()) - 2;
+            for (auto* value : {&mGenre, &mDeveloper, &mPublisher}) {
+                if (value->empty())
+                    continue;
+                if (remove-- == 0) {
+                    value->clear();
+                    break;
+                }
+            }
         }
         else {
             const auto value = mSystems[mIndex - 1].system;
@@ -962,7 +987,7 @@ bool GuiSearch::input(InputConfig* config, Input input)
                 return true;
             record();
             if (mArea == Area::Games)
-                openGame((SDL_GetModState() & KMOD_CTRL) != 0);
+                openGame((input.modifiers & KMOD_CTRL) != 0);
             else
                 focus(Area::Games);
             return true;
@@ -1212,6 +1237,11 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
                                          mSuggestionOffset + (point.x < mTouchLast.x ? 1 : -1)));
                 mTouchLast = {point.x, point.y};
                 mDirty = true;
+            }
+            else if (mTouchTarget.area == Area::Filters &&
+                     std::abs(point.x - mTouchLast.x) > 60 * mUnit) {
+                focus(Area::Filters, mIndex + (point.x < mTouchLast.x ? 1 : -1));
+                mTouchLast = {point.x, point.y};
             }
             else if (contains(mResultsRect, point.x, point.y) &&
                      std::abs(point.y - mTouchLast.y) > 70 * mUnit) {

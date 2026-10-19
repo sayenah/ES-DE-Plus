@@ -860,7 +860,11 @@ namespace LibrarySearch
             return {};
         // This fallback deliberately has no typo threshold. It is labelled "Did you mean",
         // never mixed into actual matches. Work on the immutable title index, never media.
+        std::unordered_map<std::string, size_t> distances;
         auto distance = [&](const std::string& text) {
+            const auto cached = distances.find(text);
+            if (cached != distances.end())
+                return cached->second;
             const auto points = codepoints(text);
             std::vector<size_t> previous(q.size() + 1), current(q.size() + 1);
             std::iota(previous.begin(), previous.end(), 0);
@@ -871,13 +875,15 @@ namespace LibrarySearch
                         {current[j] + 1, previous[j + 1] + 1, previous[j] + (points[i] != q[j])});
                 previous.swap(current);
             }
+            distances.emplace(text, previous.back());
             return previous.back();
         };
+        const bool phrase = normalize(query).find(' ') != std::string::npos;
         std::vector<std::pair<size_t, size_t>> nearest;
         for (const auto& doc : mIndex->documents) {
             if (doc.displayGames.empty())
                 continue;
-            size_t score = distance(doc.text.value);
+            size_t score = phrase ? distance(doc.text.value) : q.size() + 256;
             for (const auto& token : doc.text.tokens)
                 score = std::min(score, distance(token.text));
             for (size_t i : doc.displayGames) {
@@ -886,7 +892,9 @@ namespace LibrarySearch
                 nearest.emplace_back(score, i);
             }
         }
-        std::sort(nearest.begin(), nearest.end());
+        const auto retained = std::min(limit, nearest.size());
+        std::partial_sort(nearest.begin(), nearest.begin() + retained, nearest.end());
+        nearest.resize(retained);
         std::vector<Match> result;
         std::unordered_set<size_t> seen;
         for (const auto& entry : nearest) {
@@ -1067,7 +1075,10 @@ namespace LibrarySearch
                 if (!candidates[i])
                     continue;
                 const auto& d = ix.documents[i];
-                if (!std::any_of(d.games.begin(), d.games.end(), allowed))
+                // Exact/prefix matches already have their best possible rank from the
+                // index lookup above. Counting every result must not rank them again.
+                if (!std::any_of(d.games.begin(), d.games.end(),
+                                 [&](size_t game) { return allowed(game) && ranks[game] > 1; }))
                     continue;
                 const int r {rank(q, qw, d.text)};
                 if (r >= 0) {

@@ -30,16 +30,23 @@ def run(h, start, control, shot, record):
     def attach():
         pad(-1)
         h.wait_for(lambda: 'Search smoke controller' in h.log(), 'real virtual controller configured')
+    def point(nx, ny):
+        geometry = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
+        assert 'PASS: owned surface geometry recorded' in geometry
+        view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
+        return str(round(view['x'] + nx * view['bufferWidth'])), str(round(view['y'] + ny * view['bufferHeight']))
+    def magnifier():
+        current = h.log().rsplit('InputOverlay: layout ', 1)[-1]
+        match = re.findall(r'InputOverlay: button id=102 .*? norm=([0-9.]+),([0-9.]+)', current)
+        assert match, current
+        h.shell('input', 'touchscreen', 'tap', *point(*map(float, match[-1])))
+        time.sleep(.3)
     def target(area, index=0):
         current = h.log().rsplit('Search layout:', 1)[-1]
         found = [(float(x), float(y)) for a, i, x, y in TARGET.findall(current)
                  if int(a) == area and int(i) == index]
         assert found, (area, index, current)
-        geometry = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
-        assert 'PASS: owned surface geometry recorded' in geometry
-        view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
-        x, y = found[-1]
-        return str(round(view['x'] + x * view['bufferWidth'])), str(round(view['y'] + y * view['bufferHeight']))
+        return point(*found[-1])
     def tap(area, index=0, hold=False):
         x, y = target(area, index)
         before = h.log()
@@ -54,8 +61,9 @@ def run(h, start, control, shot, record):
         value = ''
         for character in text:
             value += character
+            before = len(h.log())
             h.shell('input', 'text', character)
-            h.wait_for(lambda: 'Search keystroke: query=' + value + ' results=' in h.log(), 'live stroke ' + value)
+            h.wait_for(lambda: 'Search keystroke: query=' + value + ' results=' in h.log()[before:], 'live stroke ' + value)
             time.sleep(.15)
     def timing(name):
         times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', h.log())]
@@ -131,7 +139,7 @@ def run(h, start, control, shot, record):
             h.shell('wm', 'size', f'{width}x{height}')
             h.shell('wm', 'density', str(density))
             start(InputTouchOverlay=True, UIMode='full', ScreenRotate=0, SearchHistory=True)
-            control(102)
+            magnifier()
             h.wait_for(lambda: 'Search screen opened:' in h.log(), 'magnifier search')
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
                        'isInputViewShown=true' in h.shell('dumpsys', 'input_method'), 'real IME visible')
@@ -140,7 +148,7 @@ def run(h, start, control, shot, record):
             shot('search-screen-api33-' + name + '-fin-ime')
             tap(6)
             h.wait_for(lambda: 'Search show game: nes/Final' in h.log(), 'tap shows game list')
-            control(102)
+            magnifier()
             tap(5)
             h.wait_for(lambda: 'Search keystroke: query=fin ' in h.log(), 'recent search tap runs query')
             shot('search-screen-api33-' + name + '-recent')

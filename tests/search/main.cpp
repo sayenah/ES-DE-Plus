@@ -569,6 +569,7 @@ namespace
         }
         std::vector<double> screenTimes;
         for (const auto& partial : {"f", "fi", "fin", "final", "zelda", "m", "zzzzzz"}) {
+            double slowest {0};
             for (int repeat {0}; repeat < 10; ++repeat) {
                 const auto before = std::chrono::steady_clock::now();
                 const auto result = core.query(partial, 200);
@@ -578,7 +579,9 @@ namespace
                 screenTimes.push_back(std::chrono::duration<double, std::milli>(
                                           std::chrono::steady_clock::now() - before)
                                           .count());
+                slowest = std::max(slowest, screenTimes.back());
             }
+            std::printf("SCREEN prefix=%s max_ms=%.3f\n", partial, slowest);
         }
         std::sort(screenTimes.begin(), screenTimes.end());
         std::printf("SCREEN 50k counts/suggestions/fallback p95_ms=%.3f max_ms=%.3f\n",

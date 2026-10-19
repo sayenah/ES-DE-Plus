@@ -76,7 +76,8 @@ def fixture(home, remember=True, kid=False, scheme='dark', language='en_US'):
             (directory / (stem + '.png')).write_bytes(b'\x89PNG\r\n\x1a\n' +
                 chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
                 chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
-        ET.ElementTree(gamelist).write(roms / system / 'gamelist.xml')
+        (appdata / 'gamelists' / system).mkdir(parents=True, exist_ok=True)
+        ET.ElementTree(gamelist).write(appdata / 'gamelists' / system / 'gamelist.xml')
     ET.ElementTree(systems).write(appdata / 'custom_systems/es_systems.xml')
     (appdata / 'settings/search_history.xml').write_text('<searchHistory><query>zelda</query><query>ff7</query></searchHistory>')
     (appdata / 'settings/es_input.xml').write_text(

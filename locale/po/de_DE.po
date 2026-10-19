@@ -1484,10 +1484,10 @@ msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "AKTIVIERE VIRTUELLE TASTATUR"
 
 msgid "REMEMBER SEARCHES"
-msgstr ""
+msgstr "SUCHVERLAUF SPEICHERN"
 
 msgid "CLEAR SEARCH HISTORY"
-msgstr ""
+msgstr "SUCHVERLAUF VOLLSTÄNDIG LÖSCHEN"
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -2656,17 +2656,17 @@ msgid "system"
 msgstr "System"
 
 msgid "Best match"
-msgstr ""
+msgstr "Bester Treffer"
 
 msgid "favorite"
 msgstr ""
 
 msgid "Last played"
-msgstr ""
+msgstr "Zuletzt gespielt"
 
 #, c-format
 msgid "%d minutes played"
-msgstr ""
+msgstr "%d Minuten gespielt"
 
 msgid "space"
 msgstr "Space"
@@ -2678,7 +2678,7 @@ msgid "clear"
 msgstr ""
 
 msgid "results ›"
-msgstr ""
+msgstr "Ergebnisse ›"
 
 msgid "Shift"
 msgstr ""
@@ -2687,7 +2687,7 @@ msgid "ABC"
 msgstr ""
 
 msgid "Symbols / accents"
-msgstr ""
+msgstr "Sonderzeichen / Akzente"
 
 #, c-format
 msgid "Search %s game"
@@ -2699,44 +2699,44 @@ msgid "In:"
 msgstr ""
 
 msgid "All systems"
-msgstr ""
+msgstr "Alle Systeme"
 
 msgid "Recent searches"
-msgstr ""
+msgstr "Zuletzt verwendete Suchbegriffe"
 
 msgid "Clear history"
-msgstr ""
+msgstr "Suchverlauf vollständig löschen"
 
 msgid "Jump back in"
-msgstr ""
+msgstr "Zuletzt gespielte Spiele"
 
 msgid "Start typing to search your library."
-msgstr ""
+msgstr "Geben Sie einen Namen ein, um Ihre Spielebibliothek zu durchsuchen."
 
 msgid "All"
 msgstr ""
 
 #, c-format
 msgid "No games match ‘%s’."
-msgstr ""
+msgstr "Keine Spiele entsprechen dem Suchbegriff „%s“."
 
 msgid "Did you mean"
-msgstr ""
+msgstr "Meinten Sie vielleicht"
 
 msgid "Try another system or remove a filter."
-msgstr ""
+msgstr "Versuchen Sie ein anderes System oder entfernen Sie einen Filter."
 
 msgid "More results below"
-msgstr ""
+msgstr "Weitere Suchergebnisse weiter unten"
 
 msgid "Close"
 msgstr ""
 
 msgid "Game list filters cleared to show the selected game."
-msgstr ""
+msgstr "Die Spielelistenfilter wurden zurückgesetzt, um das ausgewählte Spiel anzuzeigen."
 
 msgid "show in game list"
-msgstr ""
+msgstr "in Spieleliste anzeigen"
 
 msgid "play now"
 msgstr ""
@@ -2754,16 +2754,16 @@ msgid "type"
 msgstr ""
 
 msgid "filter system"
-msgstr ""
+msgstr "System filtern"
 
 msgid "results"
 msgstr ""
 
 msgid "Game options"
-msgstr ""
+msgstr "Spieloptionen"
 
 msgid "Play now"
-msgstr ""
+msgstr "Jetzt spielen"
 
 msgid "Favorite"
 msgstr ""

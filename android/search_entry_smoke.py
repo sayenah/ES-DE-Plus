@@ -106,8 +106,9 @@ def run(h, start, control, shot, record):
         start(InputTouchOverlay=True, UIMode='full', StartupView='gamelist')
         opening(lambda: h.key('KEYCODE_M'), 'nes', '')
         h.key('KEYCODE_ENTER')
-        assert re.findall(r'SearchEntry: submit query=(.*?) scope=', h.log())[-1] == '', \
-            'A mapped letter also inserted text into its action popup'
+        assert re.findall(r'Search keystroke: query=(.*?) results=', h.log())[-1] == '', \
+            'A mapped letter also inserted text into the search screen'
+        close_popup()
         opening(lambda: h.key('KEYCODE_SEARCH'), 'nes')
         close_popup()
         record('search-entry-mapping-priority')

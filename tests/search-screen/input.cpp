@@ -41,9 +41,9 @@ namespace
     }
 } // namespace
 
-extern "C" int SDLCALL SDL_Init(Uint32 flags)
+extern "C" int SDLCALL SDL_InitSubSystem(Uint32 flags)
 {
-    static const auto forward = real<decltype(&SDL_Init)>("SDL_Init");
+    static const auto forward = real<decltype(&SDL_InitSubSystem)>("SDL_InitSubSystem");
     const int result = forward(flags);
     if (!result && controller < 0 && SDL_WasInit(SDL_INIT_JOYSTICK)) {
         const int index = SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_GAMECONTROLLER, 6, 15, 0);
