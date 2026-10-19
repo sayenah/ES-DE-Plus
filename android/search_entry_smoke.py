@@ -223,14 +223,18 @@ def run(h, start, control, shot, record):
         record('search-entry-favorites-disabled')
 
         # An ordinary user-owned custom collection. Enter editing through its Select menu.
-        write('collections/custom-SearchEntrySmoke.cfg', h.roms + '/nes/Smoke Alpha.nes\n')
+        # Use the format ES-DE itself saves. Shell aliases such as /sdcard need
+        # not match the frontend's canonical keys in its all-games index.
+        write('collections/custom-SearchEntrySmoke.cfg', '%ROMPATH%/nes/Smoke Alpha.nes\n')
         start(InputTouchOverlay=True, UIMode='full', StartupSystem='SearchEntrySmoke',
               StartupView='gamelist', CollectionSystemsCustom='SearchEntrySmoke',
               CollectionCustomGrouping='never', GamelistYButton='search', FavoritesAddButton=False)
+        assert 'ignoring entry' not in h.log(), 'Custom collection fixture did not load: ' + h.log()
         h.key('KEYCODE_F1')
         # Jump, sort, favorites, filter, edit collection.
         for _ in range(4):
             h.key('KEYCODE_DPAD_DOWN')
+        shot('search-entry-collection-edit-options')
         h.key('KEYCODE_ENTER')
         count = opens()
         h.key('KEYCODE_INSERT')
