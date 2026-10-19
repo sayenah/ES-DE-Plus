@@ -1295,14 +1295,17 @@ bool ViewController::input(InputConfig* config, Input input)
         if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
             config->getMappedTo(input).empty() &&
             !(SDL_GetModState() & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
-            if (input.id == SDLK_SLASH || input.id == SDLK_AC_SEARCH) {
+            const auto modifiers {SDL_GetModState()};
+            if ((input.id == SDLK_SLASH && !(modifiers & KMOD_SHIFT)) ||
+                input.id == SDLK_AC_SEARCH) {
                 openSearch();
                 return true;
             }
-            if ((input.id >= SDLK_a && input.id <= SDLK_z) ||
-                (input.id >= SDLK_0 && input.id <= SDLK_9)) {
+            const bool letter {input.id >= SDLK_a && input.id <= SDLK_z};
+            if (letter || (input.id >= SDLK_0 && input.id <= SDLK_9 && !(modifiers & KMOD_SHIFT))) {
                 std::string initialText(1, static_cast<char>(input.id));
-                if (SDL_GetModState() & KMOD_SHIFT)
+                if (letter && static_cast<bool>(modifiers & KMOD_SHIFT) !=
+                                  static_cast<bool>(modifiers & KMOD_CAPS))
                     initialText = Utils::String::toUpper(initialText);
                 openSearch(initialText);
                 return true;

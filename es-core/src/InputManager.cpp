@@ -606,7 +606,9 @@ bool InputManager::parseEvent(const SDL_Event& event)
                 ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9) ||
                  key == SDLK_SLASH)) {
                 mOpeningText.assign(1, static_cast<char>(key));
-                if (event.key.keysym.mod & KMOD_SHIFT)
+                if (key >= SDLK_a && key <= SDLK_z &&
+                    static_cast<bool>(event.key.keysym.mod & KMOD_SHIFT) !=
+                        static_cast<bool>(event.key.keysym.mod & KMOD_CAPS))
                     mOpeningText = Utils::String::toUpper(mOpeningText);
             }
             return true;
