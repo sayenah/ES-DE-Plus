@@ -483,6 +483,40 @@ namespace
                 "did-you-mean never exposes non-kid games");
         const auto suggestions = core.suggest("", 6, filter);
         require(!suggestions.empty() && suggestions.size() <= 6, "zero-state library suggestions");
+        std::vector<Game> mixed;
+        const std::vector<std::string> names {"Mario",         "Mario Galaxy",
+                                              "Super Mario",   "Omario",
+                                              "Metroid Prime", "Final Fantasy VII",
+                                              "Final Fight",   "The Legend of Zelda",
+                                              "Pokémon",       "Other"};
+        for (size_t i {0}; i < 100; ++i) {
+            auto value = game(names[i % names.size()], std::to_string(i));
+            value.fileStem = "rom_" + std::to_string(i);
+            value.system = i % 2 ? "snes" : "psx";
+            value.favourite = i % 3 == 0;
+            value.hidden = i % 5 == 0;
+            value.kid = i % 7 != 0;
+            mixed.push_back(value);
+        }
+        core.rebuild(mixed);
+        filter = {};
+        filter.showHidden = false;
+        filter.kidMode = true;
+        for (const auto& query :
+             {"m", "ma", "mar", "fin", "ff7", "pokemon", "zeldda", "nintendo", "rom 20"}) {
+            const auto reference = core.search(query, core.size(), filter);
+            for (const size_t limit : {1, 2, 200}) {
+                const auto counted = core.query(query, limit, filter);
+                require(counted.total == reference.size(),
+                        "complete count equals unlimited search");
+                require(counted.matches.size() == std::min(limit, reference.size()),
+                        "display limit never changes membership count");
+                for (size_t i {0}; i < counted.matches.size(); ++i)
+                    require(counted.matches[i].index == reference[i].index &&
+                                counted.matches[i].kind == reference[i].kind,
+                            "counting shortcut preserves displayed ranking and match class");
+            }
+        }
         core.rebuild({game("Zelda"), game("Metroid", "2")});
         require(core.search("zeld").front().kind != MatchClass::Typo && core.search("zelx").empty(),
                 "four-character queries never use typo tolerance");

@@ -88,7 +88,8 @@ def run(h, start, control, shot, record):
               '<kidgame>true</kidgame><favorite>true</favorite><genre>RPG</genre>'
               '<releasedate>19970101T000000</releasedate><lastplayed>20261018T120000</lastplayed>'
               '<playtime>7200</playtime></game><game><path>./Smoke Beta.nes</path><name>Final Fight</name>'
-              '<kidgame>false</kidgame><favorite>false</favorite></game></gameList>')
+              '<kidgame>false</kidgame><favorite>false</favorite>'
+              '<lastplayed>20261019T120000</lastplayed></game></gameList>')
         write('custom_systems/es_systems.xml', '<systemList><loadExclusive/><system><name>nes</name><fullname>NES</fullname>'
               '<path>%ROMPATH%/nes</path><extension>.nes .NES</extension>'
               '<command>%EMULATOR_SEARCH_SMOKE% %ACTION%=android.intent.action.VIEW '
@@ -123,8 +124,16 @@ def run(h, start, control, shot, record):
         pad(9)
         pad(6)
         shot('search-screen-api33-controller-results')
+        before = len(h.log())
+        pad(3)
+        h.wait_for(lambda: 'game=Final Fantasy VII favorite=0' in h.log()[before:],
+                   'Y removes the focused favorite and refreshes collections')
+        before = len(h.log())
+        pad(3)
+        h.wait_for(lambda: 'game=Final Fantasy VII favorite=1' in h.log()[before:],
+                   'Y keeps the same focused game after ranking changes')
         pad(0)
-        h.wait_for(lambda: 'Search show game: nes/Final' in h.log(), 'A puts cursor on real game list')
+        h.wait_for(lambda: 'Search show game: nes/Final Fantasy VII' in h.log(), 'A puts cursor on real game list')
         history = ET.fromstring(h.shell('cat', root + '/settings/search_history.xml'))
         query = history.findtext('query')
         assert query and history.find('game').get('path') in ['Smoke Alpha.nes', 'Smoke Beta.nes']
@@ -157,6 +166,13 @@ def run(h, start, control, shot, record):
             shot('search-screen-api33-' + name + '-zero')
             typed('fin')
             shot('search-screen-api33-' + name + '-fin-ime')
+            tap(4, 1)
+            shot('search-screen-api33-' + name + '-filter')
+            attach()
+            pad(6)
+            shot('search-screen-api33-' + name + '-results-focused')
+            pad(1)
+            tap(0)  # Return to the touch IME before the direct result tap.
             tap(6)
             h.wait_for(lambda: 'Search show game: nes/Final' in h.log(), 'tap shows game list')
             magnifier()
@@ -168,6 +184,10 @@ def run(h, start, control, shot, record):
             h.key('KEYCODE_ENTER')  # Play now in the native dialog.
             h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'long-press Play now normal launch')
             h.key('KEYCODE_BACK')
+            magnifier()
+            typed('qqqqqqqq')
+            shot('search-screen-api33-' + name + '-no-results')
+            h.key('KEYCODE_ESCAPE')
             magnifier()
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
                        'isInputViewShown=true' in h.shell('dumpsys', 'input_method'), 'IME ready for composition')

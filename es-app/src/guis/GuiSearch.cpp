@@ -130,6 +130,10 @@ LibrarySearch::Filter GuiSearch::filter(bool system) const
 
 void GuiSearch::refresh()
 {
+    if (mUnit > 0 && !mMeasureFrame) {
+        mQueryWorkMs = 0;
+        mMeasureFrame = true;
+    }
     const auto start = std::chrono::steady_clock::now();
     const std::string oldGame =
         mArea == Area::Games && mIndex >= 0 && mIndex < static_cast<int>(mGames.size()) ?
@@ -216,6 +220,7 @@ void GuiSearch::label(const std::string& value,
 {
     auto text = std::make_unique<TextComponent>(value, searchFont(fontSize), color, align,
                                                 ALIGN_CENTER, glm::ivec2 {0, 0});
+    text->setLineSpacing(1.15f);
     text->setPosition(rect.x + 12 * mUnit, rect.y);
     text->setSize(std::max(1.0f, rect.z - 24 * mUnit), rect.w);
     mLabels.push_back({std::move(text), rect, background, border});
@@ -255,6 +260,7 @@ void GuiSearch::title(const std::string& value,
             continue;
         auto text = std::make_unique<TextComponent>(value, font, mAccent, ALIGN_LEFT, ALIGN_CENTER,
                                                     glm::ivec2 {0, 0});
+        text->setLineSpacing(1.15f);
         text->setPosition(rect.x + 12 * mUnit, rect.y);
         text->setSize(std::max(1.0f, rect.z - 24 * mUnit), rect.w);
         // Clip the highlight overlay to its matched range in the complete shaped run.

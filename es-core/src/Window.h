@@ -103,10 +103,10 @@ public:
     void logInput(InputConfig* config, Input input);
     void update(int deltaTime);
     void render();
+    bool getBlockInput() const { return mBlockInput; }
 
 #if defined(__ANDROID__)
     void setBlockInput(const bool state);
-    bool getBlockInput() const { return mBlockInput; }
     void releaseTouchInput(InputConfig* config, Input input);
     // Window outlives InputManager; static GUI teardown must not call dead input state.
     void setTouchInputActive(bool active) { mTouchInputActive = active; }

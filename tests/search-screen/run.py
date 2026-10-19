@@ -67,7 +67,7 @@ def fixture(home, remember=True, kid=False, scheme='dark', language='en_US'):
             (roms / system / (stem + '.rom')).write_bytes(b'')
             game = ET.SubElement(gamelist, 'game')
             for name, value in [('path', './' + stem + '.rom'), ('name', title), ('genre', 'Action'),
-                                ('developer', 'Nintendo'), ('kidgame', 'true'), ('favorite', 'true'),
+                                ('developer', 'Nintendo'), ('kidgame', 'true'), ('favorite', str(index in [0, 5, 6, 7, 8]).lower()),
                                 ('releasedate', '19970101T000000'), ('lastplayed', '20261018T120000'), ('playtime', '7200')]:
                 ET.SubElement(game, name).text = value
             # Original generated color artwork, deliberately independent of any product assets.
