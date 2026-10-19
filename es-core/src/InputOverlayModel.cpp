@@ -179,27 +179,28 @@ namespace TouchOverlay
         constexpr std::array<float, 4> factors {0.7f, 0.85f, 1.0f, 1.2f};
         // Search each size's fitting set independently. fits() is not monotone:
         // fixed corner zones can exclude a smaller deck while a larger one fits.
-        auto findFit = [&](float limit, bool insetPad) {
+        auto findFit = [&](float limit, bool insetPad, bool fine) {
             if (limit < minimum)
                 return 0.0f;
-            for (float probe {limit};; probe = std::max(minimum, probe * 0.97f)) {
-                layout(probe, insetPad);
-                if (fits()) {
-                    float low {probe};
-                    float high {std::min(limit, probe / 0.97f)};
-                    for (int i {0}; i < 24; ++i) {
-                        const float middle {(low + high) / 2};
-                        layout(middle, insetPad);
-                        if (fits())
-                            low = middle;
-                        else
-                            high = middle;
+            if (!fine)
+                for (float probe {limit};; probe = std::max(minimum, probe * 0.97f)) {
+                    layout(probe, insetPad);
+                    if (fits()) {
+                        float low {probe};
+                        float high {std::min(limit, probe / 0.97f)};
+                        for (int i {0}; i < 24; ++i) {
+                            const float middle {(low + high) / 2};
+                            layout(middle, insetPad);
+                            if (fits())
+                                low = middle;
+                            else
+                                high = middle;
+                        }
+                        return low;
                     }
-                    return low;
+                    if (probe == minimum)
+                        break;
                 }
-                if (probe == minimum)
-                    break;
-            }
             // A final 0.01 dp scan catches narrow fitting bands skipped by the
             // fast 3% search. Keep the resolution explicit, not a monotonicity claim.
             for (float probe {limit}; probe >= minimum; probe -= 0.01f * mDensity) {
@@ -214,26 +215,37 @@ namespace TouchOverlay
         // Prefer a real four-diameter normal family at either anchor before
         // retaining fixed hit spacing and scaling only the artwork.
         for (bool insetPad : {false, true}) {
-            std::array<float, 4> family {};
-            float limit {maximum};
-            bool valid {true};
-            const float base {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity)};
-            for (int i {3}; i >= 0; --i) {
-                family[i] = findFit(std::min(base * factors[i], limit), insetPad);
-                if (i == 3 && family[i] > fallback) {
-                    fallback = family[i];
-                    fallbackInset = insetPad;
+            for (bool fine : {false, true}) {
+                std::array<float, 4> family {};
+                float limit {maximum};
+                bool valid {true};
+                const float base {std::clamp(0.12f * shorter, 56 * mDensity, 84 * mDensity)};
+                for (int i {3}; i >= 0; --i) {
+                    family[i] = findFit(std::min(base * factors[i], limit), insetPad, fine);
+                    if (i == 3 && family[i] > fallback) {
+                        fallback = family[i];
+                        fallbackInset = insetPad;
+                    }
+                    if (family[i] == 0) {
+                        valid = false;
+                        break;
+                    }
+                    limit = family[i] / 1.1f;
                 }
-                if (family[i] == 0) {
-                    valid = false;
+                if (valid) {
+                    layout(family[3 - steps], insetPad);
+                    mSupported = true;
                     break;
                 }
-                limit = family[i] / 1.1f;
             }
-            if (valid) {
-                layout(family[3 - steps], insetPad);
-                mSupported = true;
+            if (mSupported)
                 break;
+            // Even a deck larger than this viewport's requested artwork can
+            // supply safe fixed hit spacing. Consider it before compact layout.
+            const float spacing {findFit(maximum, insetPad, true)};
+            if (spacing > fallback) {
+                fallback = spacing;
+                fallbackInset = insetPad;
             }
         }
         if (!mSupported && fallback > 0) {

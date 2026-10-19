@@ -165,33 +165,43 @@ def run_fresh(namespace):
     h.user_file('settings/es_settings.xml', configure(original, InputTouchOverlay=False))
     h.launch()
     assert 'InputOverlay: setup reset saved and consumed' not in h.log()
-    # Live recovery starts after native Settings initialization and must select
-    # a fresh process. No reset can be lost with the old draft/native boolean.
-    before_pid = h.shell('pidof', h.app).strip()
-    h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
-    h.key('KEYCODE_HOME')
-    h.start_entry()
-    h.ui('Grant direct filesystem access', dpad=True)
-    h.grant_from_settings()
-    h.ui('Use direct filesystem compatibility', dpad=True)
-    h.shell('am', 'force-stop', h.app)
-    h.start_entry()
-    h.ui('Save and start frontend', dpad=True)
-    h.configured_system('touch-setup-reset-recovery')
-    assert h.shell('pidof', h.app).strip() != before_pid, 'Live recovery must use fresh native paths'
-    assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
-    restored = h.shell('cat', h.settings)
-    assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', restored) + '</f>').find(
-        "bool[@name='InputTouchOverlay']").get('value') == 'true', restored
-    h.user_file('settings/es_settings.xml', configure(restored, InputTouchOverlay=False))
-    h.launch()
-    disabled = h.shell('cat', h.settings)
-    assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', disabled) + '</f>').find(
-        "bool[@name='InputTouchOverlay']").get('value') == 'false', disabled
-    assert 'InputOverlay: setup reset saved and consumed' not in h.log()
+    # Exercise both a live PR15 restart and death before setup commit. Pending
+    # intent is separate from the draft in both cases; later disable stays false.
+    for kill_during_setup in (False, True):
+        before_pid = h.shell('pidof', h.app).strip()
+        h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+        h.key('KEYCODE_HOME')
+        h.start_entry()
+        if not kill_during_setup:
+            h.ui('Cancel configuration', dpad=True)
+            pending = h.shell('run-as', h.app, 'sh', '-c',
+                              'if test -e files/touch-overlay-reset; then echo PENDING; else echo ABSENT; fi')
+            assert pending.strip() == 'ABSENT', pending
+        h.ui('Grant direct filesystem access', dpad=True)
+        h.grant_from_settings()
+        h.ui('Use direct filesystem compatibility', dpad=True)
+        if not kill_during_setup:
+            assert h.shell('pidof', h.app).strip() == before_pid, 'Live reset case lost its original native consumer'
+        if kill_during_setup:
+            h.shell('am', 'force-stop', h.app)
+            h.start_entry()
+        h.ui('Save and start frontend', dpad=True)
+        h.configured_system('touch-setup-reset-' + str(kill_during_setup))
+        assert h.shell('pidof', h.app).strip() != before_pid, 'Setup recovery must select fresh native paths'
+        assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
+        restored = h.shell('cat', h.settings)
+        assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', restored) + '</f>').find(
+            "bool[@name='InputTouchOverlay']").get('value') == 'true', restored
+        h.user_file('settings/es_settings.xml', configure(restored, InputTouchOverlay=False))
+        h.launch()
+        disabled = h.shell('cat', h.settings)
+        assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', disabled) + '</f>').find(
+            "bool[@name='InputTouchOverlay']").get('value') == 'false', disabled
+        assert 'InputOverlay: setup reset saved and consumed' not in h.log()
     (h.evidence / 'touch-setup-reset.txt').write_text(
-        'PASS: initial setup consumes reset; normal startup preserves disabled setting; live permission recovery '
-        'after native Settings and process death after a qualifying action uses fresh PID and enables selected folder once; later disable survives startup.\n')
+        'PASS: initial setup consumes reset; cancel before choice creates no intent; '
+        'normal startup preserves disabled setting; live recovery after native Settings uses PR15 fresh PID; '
+        'process death after qualifying choice restores setup; selected folder enabled once; later disable survives startup.\n')
     run(namespace)
 
 
