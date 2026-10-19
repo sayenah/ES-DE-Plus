@@ -221,13 +221,16 @@ def run_fresh(namespace):
     # independently of the shared root exercised above.
     h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
     h.key('KEYCODE_HOME')
+    # A newly created adb-pushed file belongs to shell (0644), which correctly
+    # fails PR15's write preflight. Prepare valid native-owned test data instead.
+    prepared = h.shell('am', 'instrument', '-w', '-e', 'mode', 'private-settings-prepare',
+                       h.app + '/org.esdeplus.frontend.TouchSmoke')
+    h.smoke_checks.probe_passed(prepared, 'PASS: private settings false prepared and validated under frontend UID=')
+    (h.evidence / 'touch-private-seed.txt').write_text(prepared)
     h.start_entry()
     h.ui('Use app-owned storage', dpad=True)
     private = h.external + '/ES-DE-Plus'
-    h.shell('mkdir', '-p', private + '/settings', h.roms + '/nes')
-    seed = h.evidence / 'touch-private-reset-seed.xml'
-    seed.write_text(configure('', InputTouchOverlay=False))
-    h.adb('push', str(seed), private + '/settings/es_settings.xml')
+    h.shell('mkdir', '-p', h.roms + '/nes')
     for name in ('Smoke Alpha.nes', 'Smoke Beta.nes'):
         h.adb('push', str(dummy), h.roms + '/nes/' + name)
     h.select_data_root(private)
@@ -237,8 +240,9 @@ def run_fresh(namespace):
         h.shell('ls', '-ld', *metadata, check=False) + '\nApp UID:\n' +
         h.shell('run-as', h.app, 'ls', '-ld', *metadata, check=False) + '\nSeed under app UID:\n' +
         h.shell('run-as', h.app, 'cat', metadata[-1], check=False))
-    h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app) and
-               'ConfiguratorActivity' in h.focused_window(), 'private setup window focused before Save')
+    import forced_relaunch_smoke
+    h.wait_for(lambda: forced_relaunch_smoke.configurator_focused(h.focused_window(), h.app),
+               'private setup window focused before Save')
     (h.evidence / 'touch-private-before-save.txt').write_text(h.focused_window() + '\n' +
         h.shell('dumpsys', 'input'))
     h.ui('Save and start frontend', dpad=True)
@@ -252,6 +256,29 @@ def run_fresh(namespace):
         'normal startup preserves disabled setting; live recovery after native Settings uses PR15 fresh PID; '
         'process death after qualifying choice restores setup; selected shared and private folders enabled once; later disable survives startup.\n')
     run(namespace)
+    # Recover by editing the existing native-owned file, as documented. Close
+    # the app first and require adb to preserve its owner; do not recreate it.
+    editing = h.evidence / 'touch-private-adb-edit.xml'
+    receipts = []
+    for enabled in (False, True):
+        h.shell('am', 'force-stop', h.app)
+        previous = h.shell('cat', h.settings)
+        owner = h.shell('stat', '-c', '%u', h.settings).strip()
+        editing.write_text(configure(previous, InputTouchOverlay=enabled, DebugMode=True,
+                                     InputTouchOverlayFadeTime=0))
+        h.adb('push', str(editing), h.settings)
+        assert h.shell('stat', '-c', '%u', h.settings).strip() == owner, 'adb replaced the settings owner'
+        h.launch()
+        actual = ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', h.shell('cat', h.settings)) + '</f>')
+        assert actual.find("bool[@name='InputTouchOverlay']").get('value') == str(enabled).lower()
+        assert 'InputOverlay: setup reset saved and consumed' not in h.log()
+        if enabled:
+            h.wait_for(lambda: 'InputOverlay: textures built' in h.log(), 'adb recovery draws overlay')
+            h.screenshot('touch-private-adb-recovery')
+        else:
+            assert 'InputOverlay: textures built' not in h.log()
+        receipts.append(f'PASS: existing private XML adb edit enabled={enabled}; owner={owner} preserved; no setup reset')
+    (h.evidence / 'touch-private-adb-recovery.txt').write_text('\n'.join(receipts) + '\n')
 
 
 def run(namespace):

@@ -102,6 +102,23 @@ class TouchSmoke : Instrumentation() {
         val startupOwner = File(targetContext.cacheDir, "touch-startup-owner")
         startupOwner.delete()
         try {
+            if (mode == "private-settings-prepare") {
+                val storage = StorageModel(targetContext)
+                check(storage.load()?.mode == "direct")
+                val root = storage.privateData()
+                check(storage.load()?.data != root.canonicalPath)
+                val settings = File(root, "settings/es_settings.xml")
+                check(!settings.exists()) { "Refuse to replace an existing private settings fixture" }
+                check(settings.parentFile!!.mkdirs() || settings.parentFile!!.isDirectory)
+                val disabled = "<?xml version=\"1.0\"?>\n<bool name=\"InputTouchOverlay\" value=\"false\" />\n"
+                settings.writeText(disabled)
+                check(settings.readText() == disabled && settings.canRead() && settings.canWrite())
+                storage.validateDataContents(root)
+                result.putString("stream", "PASS: private settings false prepared and validated under frontend UID=" +
+                    android.os.Process.myUid() + "; no preferences or reset intent changed\n")
+                finish(-1, result)
+                return
+            }
             if (mode == "kid-prepare" || mode == "kid-restore") {
                 val gamelist = File(StorageModel(targetContext).appData(), "gamelists/nes/gamelist.xml")
                 val backup = File(targetContext.cacheDir, "touch-kid-gamelist-backup")
