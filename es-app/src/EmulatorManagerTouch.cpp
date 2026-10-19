@@ -56,8 +56,14 @@ namespace
 bool EmulatorManagerTouch::handle(GuiComponent& gui, int type, int64_t finger, float x, float y)
 {
     mDirty = true;
-    const float screenX = x * Renderer::getScreenWidth();
-    const float screenY = y * Renderer::getScreenHeight();
+    TouchOverlay::Point point;
+    if (!Renderer::getInstance()->getTouchGeometry().toLogical({x, y}, point)) {
+        if (type == SDL_FINGERUP)
+            invalidate();
+        return false;
+    }
+    const float screenX {point.x};
+    const float screenY {point.y};
     if (type == SDL_FINGERDOWN) {
         if (mFinger != -1)
             return finger == mFinger;
@@ -133,8 +139,10 @@ void EmulatorManagerTouch::updateTargets(GuiComponent& gui, bool reportButtonFoc
     std::function<void(GuiComponent&, const glm::mat4&)> visit;
     auto report = [](const std::string& label, const glm::mat4& transform, float x, float y) {
         const auto point = transform * glm::vec4 {x, y, 0.0f, 1.0f};
+        const auto normalized {
+            Renderer::getInstance()->getTouchGeometry().toNormalized({point.x, point.y})};
         LOG(LogDebug) << "Emulator manager touch target: " << label << "\tx:" << point.x
-                      << "\ty:" << point.y;
+                      << "\ty:" << point.y << "\tnorm:" << normalized.x << "," << normalized.y;
     };
     visit = [&](GuiComponent& component, const glm::mat4& parent) {
         if (!component.isVisible() || !component.getEnabled())

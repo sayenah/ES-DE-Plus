@@ -29,6 +29,10 @@ internal object AppDataSmoke {
     fun run(probe: Instrumentation): String {
         val context = probe.targetContext
         val storage = StorageModel(context)
+        // This consent fixture abandons its deliberately invalid setup. Restore
+        // the separate setup intent alongside the accepted configuration.
+        val reset = android.util.AtomicFile(File(context.filesDir, "touch-overlay-reset"))
+        val previousReset = try { reset.readFully() } catch (_: java.io.FileNotFoundException) { null }
         val accepted = storage.load() ?: error("Select storage through the real configurator first")
         check(accepted.mode == "direct" && storage.broadAccess())
         val sandbox = File(storage.defaultData().parentFile, "ESDEPlusAppDataProbes")
@@ -343,6 +347,12 @@ internal object AppDataSmoke {
                 "Settings read rejected by no-access assertion: $readEvents\n" +
                 "Directory enumeration rejected by no-access assertion: $enumerationEvents\n"
         } finally {
+            if (previousReset == null) reset.delete()
+            else {
+                val output = reset.startWrite()
+                try { output.write(previousReset); reset.finishWrite(output) }
+                catch (error: Throwable) { reset.failWrite(output); throw error }
+            }
             observers.forEach { it.stopWatching() }
             configurator?.let { probe.runOnMainSync { it.finish() } }
             check(sandbox.deleteRecursively())

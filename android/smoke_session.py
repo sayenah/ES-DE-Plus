@@ -267,7 +267,7 @@ def main():
     if args.phase == 'emulator-result':
         phase, outcome = args.command
         assert phase in ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets',
-                         'app-data', 'clear-task', 'manager-direct', 'manager-scoped')
+                         'app-data', 'clear-task', 'manager-direct', 'manager-scoped', 'touch')
         root = Path('android/evidence')
         path = root / (phase + '-session-summary.txt')
         result = emulator_result(outcome, json.loads(path.read_text()) if path.exists() else None)

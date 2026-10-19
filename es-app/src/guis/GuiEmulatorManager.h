@@ -26,6 +26,7 @@ class GuiEmulatorManager : public GuiComponent
 public:
     explicit GuiEmulatorManager(const std::string& systemName = "");
     bool input(InputConfig* config, Input input) override;
+    void cancelNativeTouch() override { mTouch.invalidate(); }
     bool nativeTouch(int type, int64_t finger, float x, float y) override
     {
         return mTouch.handle(*this, type, finger, x, y);

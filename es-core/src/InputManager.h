@@ -22,6 +22,9 @@
 #include <memory>
 #include <string>
 
+#if defined(__ANDROID__)
+class GuiComponent;
+#endif
 class InputConfig;
 class Window;
 
@@ -44,6 +47,9 @@ public:
     InputConfig* getInputConfigByDevice(int deviceId);
 
     bool parseEvent(const SDL_Event& event);
+#if defined(__ANDROID__)
+    void cancelTouchInput();
+#endif
 
     int getNumJoysticks() { return static_cast<int>(mJoysticks.size()); }
 
@@ -76,6 +82,15 @@ private:
 
     std::unique_ptr<InputConfig> mKeyboardInputConfig;
     std::unique_ptr<InputConfig> mTouchInputConfig;
+#if defined(__ANDROID__)
+    std::array<bool, 14> mAcceptedTouch {};
+    struct TouchOwner {
+        int64_t finger {-1};
+        GuiComponent* gui {nullptr};
+        bool overlay {false};
+    };
+    std::array<TouchOwner, 32> mTouchOwners {};
+#endif
 
     std::map<std::pair<SDL_JoystickID, int>, int> mPrevAxisValues;
     std::map<std::pair<SDL_JoystickID, int>, int> mPrevButtonValues;

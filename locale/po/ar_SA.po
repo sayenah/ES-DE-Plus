@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-16 06:15-0500\n"
+"POT-Creation-Date: 2026-10-18 20:18-0500\n"
 "PO-Revision-Date: 2026-09-05 18:04+0300\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Arabic (Classical Arabic) <info@es-de.org>\n"
@@ -1574,6 +1574,14 @@ msgid "ENABLE TOUCH OVERLAY"
 msgstr "تمكين طبقة اللمس"
 
 msgid ""
+"DISABLING TOUCH CAN LOCK YOU OUT OF ES-DE PLUS. RECOVER WITH A CONTROLLER OR "
+"KEYBOARD, OR CLOSE THE APP AND SET InputTouchOverlay TO true IN settings/"
+"es_settings.xml IN YOUR APPLICATION DATA FOLDER. FOR PRIVATE DATA, USE A "
+"COMPUTER WITH adb. IN DIRECT STORAGE MODE, REVOKE FULL FILE ACCESS IN "
+"ANDROID SETTINGS, THEN COMPLETE SETUP TO ENABLE TOUCH AGAIN."
+msgstr ""
+
+msgid ""
 "DON'T DISABLE THE TOUCH OVERLAY UNLESS YOU ARE USING A CONTROLLER OR YOU "
 "WILL LOCK YOURSELF OUT OF THE APP. IF THIS HAPPENS YOU WILL NEED TO "
 "TEMPORARILY PLUG IN A CONTROLLER OR A KEYBOARD TO ENABLE THIS SETTING AGAIN, "
@@ -2640,6 +2648,11 @@ msgstr "عرض نسبة شحن البطارية"
 msgid "DOWNLOADING THEMES LIST 100%"
 msgstr "قائمة الثيمات تنزيل 100 ٪"
 
+msgid ""
+"COULDN'T VALIDATE THE THEME REPOSITORY. CHECK ACCESS TO THE APPLICATION-DATA "
+"FOLDER, THEN CLOSE AND REOPEN THE THEME DOWNLOADER."
+msgstr ""
+
 msgid "REPOSITORY HAS DIVERGED FROM ORIGIN"
 msgstr "تباعد المستودع من الأصل"
 
@@ -2848,6 +2861,9 @@ msgstr ""
 "بكثير حيث سيتم جلب الملفات الجديدة أو المعدلة فقط وينطبق الأمر نفسه على أي "
 "ثبمات تقوم بتنزيلها يُرجى العلم أنه لا يمكنك إيقاف عملية التنزيل الجارية، فقد "
 "يؤدي ذلك إلى تلف البيانات"
+
+msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
+msgstr ""
 
 msgid "browse"
 msgstr "تصفح"
@@ -3481,6 +3497,14 @@ msgstr "اضغط باستمرار على أحد الأزرار الموجودة 
 
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "اضغط باستمرار على أحد الأزرار الموجودة على لوحة المفاتيح لتكوينه"
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
 
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr "(أو اختصار الخروج للخروج في أي وقت) اضغط على ESC لتخطي"

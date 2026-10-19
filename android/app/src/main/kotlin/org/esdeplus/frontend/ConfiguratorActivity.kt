@@ -161,6 +161,7 @@ class ConfiguratorActivity : Activity() {
     private fun guarded(action: () -> Unit) {
         try { action() }
         catch (error: Exception) {
+            if (BuildConfig.DEBUG) Log.w("ES-DE-Plus", "Configurator action refused", error)
             message = error.message ?: getString(R.string.configuration_failed)
             storageRestartRequired = true
             render()
@@ -212,17 +213,21 @@ class ConfiguratorActivity : Activity() {
         }
         text(getString(R.string.storage_choice))
         val direct = button(R.string.direct_mode) {
-            storageRestartRequired = true
-            if (mode != "direct") {
-                path = ""; tree = ""; dataPath = ""; dataConsent = ""; typedPath = ""; step = "data"
+            guarded {
+                ConfiguratorSession.requestTouchOverlayReset(this)
+                storageRestartRequired = true
+                if (mode != "direct") {
+                    path = ""; tree = ""; dataPath = ""; dataConsent = ""; typedPath = ""; step = "data"
+                }
+                mode = "direct"
+                pathInput = null
+                message = null
+                render()
             }
-            mode = "direct"
-            pathInput = null
-            message = null
-            render()
         }
         button(R.string.scoped_mode) {
             guarded {
+                ConfiguratorSession.requestTouchOverlayReset(this)
                 storageRestartRequired = true
                 dataPath = storage.verifyDirectory(storage.privateData(), true).path
                 dataConsent = dataPath
@@ -322,16 +327,18 @@ class ConfiguratorActivity : Activity() {
         })
         button(R.string.continue_frontend) {
             guarded {
+                ConfiguratorSession.requestTouchOverlayReset(this)
                 if (mode == "direct" && (dataConsent != dataPath || step != "roms"))
                     throw java.io.IOException(getString(R.string.data_folder_required))
-                val previous = storage.load()
                 val selected = StorageModel.Configuration(mode, path, tree, createSystems, dataPath)
                 storage.save(selected)
+                ConfiguratorSession.requestTouchOverlayReset(this, selected.data)
                 ConfiguratorSession.clearDraft(this)
                 // Snapshot before releasing the startup hold: the initial native
                 // thread may select its paths immediately after that release.
-                restartFrontend = (storageRestartRequired || previous != selected) &&
-                    MainActivity.liveInstance()?.nativePathsSelected == true
+                // A setup reset also needs fresh Settings even if the roots did
+                // not change: the old process may have consumed startup already.
+                restartFrontend = MainActivity.liveInstance()?.nativePathsSelected == true
                 completed = true
                 ConfiguratorSession.finishConfiguration()
                 returnToFrontend()

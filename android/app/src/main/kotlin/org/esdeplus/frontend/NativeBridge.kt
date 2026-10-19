@@ -170,7 +170,7 @@ class NativeBridge(private val context: Context, private val recoverStartup: Boo
     fun getExternalDirectory(): String = Environment.getExternalStorageDirectory().absolutePath
     fun getCreateSystemDirectories(): Boolean = storage.consumeCreateSystemDirectories()
     fun checkConfigurationNeeded(): Boolean {
-        val needed = storage.problem() != null
+        val needed = storage.problem() != null || ConfiguratorSession.hasUncommittedTouchReset(context)
         if (recoverStartup && !needed && !ConfiguratorSession.configuring)
             ConfiguratorSession.clearDraft(context)
         return needed

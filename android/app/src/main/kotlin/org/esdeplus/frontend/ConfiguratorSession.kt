@@ -47,6 +47,7 @@ object ConfiguratorSession {
     // exports, independent of the current/destroyed activity. A new process
     // gets a new registration when its SDL activity loads the library.
     fun registerNative() {
+        MainActivity.nativeSetResetTouchOverlay(false)
         registered = true
         MainActivity.nativeSetHomeApp(home)
         MainActivity.nativeSetHold(configuring)
@@ -126,6 +127,31 @@ object ConfiguratorSession {
                 putParcelable("entry", Intent.parseUri(it, Intent.URI_INTENT_SCHEME))
             }
         }
+    }
+
+    // Independent of the draft and native registration: a live recovery can
+    // replace the process after its original native startup has already passed.
+    @Synchronized fun requestTouchOverlayReset(context: Context, root: String = "") {
+        val marker = android.util.AtomicFile(java.io.File(context.filesDir, "touch-overlay-reset"))
+        val token = session(context)
+        if (root.isEmpty() && marker.baseFile.isFile &&
+            marker.openRead().bufferedReader().use { it.readLine() } == token) return
+        val stream = marker.startWrite()
+        try {
+            stream.write((token + "\n" + root).toByteArray(Charsets.UTF_8))
+            marker.finishWrite(stream)
+        } catch (error: Throwable) {
+            marker.failWrite(stream)
+            throw error
+        }
+        Log.i("ES-DE-Plus", "Touch overlay reset intent persisted session=$token bound=${root.isNotEmpty()}")
+    }
+
+    @Synchronized fun hasUncommittedTouchReset(context: Context): Boolean {
+        val marker = android.util.AtomicFile(java.io.File(context.filesDir, "touch-overlay-reset"))
+        return try {
+            marker.openRead().bufferedReader().use { it.readLine() != null && it.readText().isEmpty() }
+        } catch (_: java.io.FileNotFoundException) { false }
     }
 
     @Synchronized fun clearDraft(context: Context) {

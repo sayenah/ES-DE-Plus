@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Independent fresh-AVD regression sessions.
 PHASES = ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets', 'app-data', 'clear-task',
-          'manager-direct', 'manager-scoped')
+          'manager-direct', 'manager-scoped', 'touch')
 
 
 def prepare(harness, mode):

@@ -21,7 +21,7 @@ IMAGES = {
     'tv36': dict(image='tv36', api=36, target='android-tv', profile='tv_1080p'),
 }
 CAPS = {'core': 60, 'lifecycle': 40, 'clear-task': 40, 'integration': 60,
-        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60, 'manager-direct': 180, 'manager-scoped': 180}
+        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60, 'manager-direct': 180, 'manager-scoped': 180, 'touch': 60}
 
 
 def values(raw, allowed):
@@ -43,6 +43,8 @@ def path_plan(paths):
                 plan['api33'].update(rule['sessions'])
                 if rule.get('android15', False):
                     plan.setdefault('api35', set()).add('core')
+                    if 'touch' in rule['sessions']:
+                        plan['api35'].add('touch')
                 reasons.append(f'{path}: {rule["reason"]}; sessions={rule["sessions"]}; android15={rule.get("android15", False)}')
     return {image: [s for s in PHASES if s in sessions] for image, sessions in plan.items()}, reasons
 
@@ -97,24 +99,43 @@ def self_test():
            'android/ci_selection.py', 'android/ci-sessions.toml', 'android/README.md',
            'android/release_controls.py', 'android/distribution.py', 'android/ci_apks.py', 'android/test_signing.py']
     assert path_plan(['docs/protocol.md'])[0] == {'api33': ['core']}
-    assert path_plan(own)[0] == {'api33': list(PHASES), 'api35': ['core']}
+    assert path_plan(own)[0] == {'api33': list(PHASES), 'api35': ['core', 'touch']}
     assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/MainActivity.kt'])[0] == {
         'api33': ['core', 'lifecycle', 'assets', 'app-data', 'clear-task', 'manager-direct', 'manager-scoped'], 'api35': ['core']}
     assert path_plan(['android/pdf_smoke.py'])[0] == {'api33': ['core', 'pdf-direct', 'pdf-scoped']}
-    assert path_plan(['android/SmokeMenuFocus.java'])[0] == {'api33': list(PHASES), 'api35': ['core']}
-    assert path_plan(['android/app/src/debug/kotlin/org/esdeplus/frontend/RuntimeSmoke.kt'])[0] == {'api33': list(PHASES), 'api35': ['core']}
-    assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES), 'api35': ['core']}
+    assert path_plan(['android/SmokeMenuFocus.java'])[0] == {'api33': list(PHASES), 'api35': ['core', 'touch']}
+    assert path_plan(['android/app/src/debug/kotlin/org/esdeplus/frontend/RuntimeSmoke.kt'])[0] == {'api33': list(PHASES), 'api35': ['core', 'touch']}
+    assert path_plan(['android/smoke_session.py'])[0] == {'api33': list(PHASES), 'api35': ['core', 'touch']}
     assert path_plan(['android/clear_task_smoke.py'])[0] == {'api33': ['core', 'clear-task']}
     assert path_plan(['android/network_navigation.py'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}
     assert path_plan(['es-app/src/guis/ThemeRepositoryTrust.cpp'])[0] == {'api33': ['core', 'integration', 'pdf-scoped']}
-    assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/NativeBridge.kt'])[0] == {'api33': list(PHASES), 'api35': ['core']}
+    assert path_plan(['android/app/src/main/kotlin/org/esdeplus/frontend/NativeBridge.kt'])[0] == {'api33': list(PHASES), 'api35': ['core', 'touch']}
     assert path_plan(['android/emulator_manager_smoke.py'])[0] == {'api33': ['core', 'manager-direct', 'manager-scoped']}
     assert path_plan(['es-app/src/guis/GuiEmulatorManager.cpp'])[0] == {'api33': ['core', 'manager-direct', 'manager-scoped']}
     assert path_plan(['android/app_data_smoke.py'])[0] == {'api33': ['core', 'app-data']}
     assert path_plan(['android/audio_smoke.py'])[0] == {'api33': ['core', 'integration']}
+    for path in ['es-core/src/InputOverlay.cpp', 'es-core/src/InputOverlayModel.h',
+                 'es-core/src/TouchOverlayReset.h', 'android/touch_smoke.py',
+                 'android/app/src/debug/kotlin/org/esdeplus/frontend/TouchSmoke.kt',
+                 'resources/graphics/overlay/button_a.svg']:
+        assert path_plan([path])[0] == {'api33': ['core', 'touch'], 'api35': ['core', 'touch']}
+    touch_callers = ['es-core/src/GuiComponent.h', 'es-app/src/main.cpp',
+                     'es-core/src/TouchOverlayReset.h',
+                     'android/app/src/main/kotlin/org/esdeplus/frontend/ConfiguratorSession.kt',
+                     'android/app/src/main/kotlin/org/esdeplus/frontend/ConfiguratorActivity.kt']
+    for stem in ['es-core/src/Window', 'es-core/src/renderers/Renderer',
+                 'es-core/src/guis/GuiDetectDevice', 'es-app/src/guis/GuiMenu',
+                 'es-app/src/EmulatorManagerTouch']:
+        touch_callers.extend(stem + suffix for suffix in ('.h', '.cpp'))
+    for path in touch_callers:
+        plan, _ = path_plan([path])
+        assert 'touch' in plan['api33'] and 'touch' in plan['api35'], path
     assert set(dispatch_plan('all', 'all')) == {'api33', 'api35'}
     assert set(dispatch_plan('api34,tv36', 'assets')) == {'api34', 'tv36'}
-    assert len(matrix(dispatch_plan('all', 'all'))['include']) == len(PHASES) * 2
+    rows = matrix(dispatch_plan('all', 'all'))['include']
+    assert len(rows) == len(PHASES) * 2
+    assert all(row['informational'] == (row['image'] == 'api35' and not API35_GATING)
+               for row in rows), 'API 35 gating applies to every session, including touch'
     for images, sessions, publish in [('api35', 'core', True), ('api33,api35,api34', 'all', True),
                                       ('api99', 'all', False), ('all', '', False),
                                       ('api33,api33', 'all', False), ('all', 'core,', False)]:
@@ -126,7 +147,7 @@ def self_test():
             raise AssertionError('Invalid selection escaped')
     dispatch_plan('all', 'all', True)
     assert set(CAPS) == set(PHASES), 'Register caps for every checked-in session'
-    print('PASS: phone-only defaults; legacy explicit opt-in; additive PR/Android-15 map; validated publication/full selection; one fresh job per session')
+    print('PASS: phone-only defaults; legacy explicit opt-in; additive PR/Android-15 map; validated publication/full selection; API35 gating includes touch; overlay caller coverage; one fresh job per session')
 
 
 if __name__ == '__main__':

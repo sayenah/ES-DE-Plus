@@ -11,6 +11,7 @@
 #if defined(__ANDROID__)
 #include "EmulatorManagerRuntime.h"
 #include "FileData.h"
+#include "InputManager.h"
 #include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
@@ -136,6 +137,7 @@ void GuiEmulatorManager::discover()
 
 void GuiEmulatorManager::rebuild()
 {
+    InputManager::getInstance().cancelTouchInput();
     mPage = mNext;
     const char* pages[] {"systems", "system", "draft", "apps",    "profiles",
                          "extras",  "extra",  "files", "defaults"};

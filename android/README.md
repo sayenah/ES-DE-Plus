@@ -300,10 +300,10 @@ The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
 CI uses API 33 and API 35 phones, with one fresh-emulator job per session.
-API 33 and API 35 gate. `API35_GATING` in `ci_selection.py` was promoted
-after all API 35 sessions passed in run 39161875992. Main and default
+API 33 gates PR integration; API 35 PR sessions are informational (D-027).
+On main/publication, `API35_GATING` in `ci_selection.py` was promoted after all pre-touch API 35 sessions passed in run 39161875992. Main and default
 manual dispatch run every checked-in session; PRs run API 33 core plus the
-additive paths in `ci-sessions.toml`. Rules marked `android15` add API 35 core.
+additive paths in `ci-sessions.toml`. Rules marked `android15` add API 35 core; overlay rules also add API 35 touch.
 API 34 and TV require explicit dispatch `images=api34,tv36`; no nightly runs.
 Both workflows skip docs/Markdown-only changes and branch pushes.
 
@@ -315,7 +315,7 @@ runs build per session and upload evidence only. Session checks, stable signer,
 Linux provenance, matching source and four immutable release assets still gate
 publication.
 
-The default matrix runs ten phases on each phone (20 jobs), each in a distinct
+The default matrix runs eleven phases on each phone (22 jobs), each in a distinct
 cold AVD: `app-data` (consent, adoption, recovery and retained data), `core`
 
 
@@ -584,8 +584,24 @@ API 34 publication or its non-writing dry run requires every baseline and
 manager job to pass. Menu entry reads the focused label from a fresh screenshot
 before each Down or activation; manager rows are checked against a fresh native Debug
 focus capture before activation. Focus traces and screenshots accompany failures.
-Touch coverage is confined to manager dialogs until the frontend overlay lands
-(D-018 (3)); the parent menus and no-games entry use keyboard/controller input.
+The `touch` phase has its own fresh-emulator parallel job (60-minute step cap).
+It retains the complete overlay suite and adds setup reset persistence, live
+held-pointer resize and overlay-first manager ownership. The same renderer
+snapshot maps both overlay and direct manager touches. Every pointer keeps its
+owner until release or an explicit cancellation boundary, including GUI routing
+changes. Existing direct-manager suites explicitly disable the overlay so both
+input modes stay covered. TV fade behavior stays in the required pure model
+checks; API 29/31/34/TV images are not part of the automatic touch gate.
+
+A private `files/touch-overlay-reset` intent records the setup session before a
+storage choice or Save. Save binds it to the accepted application-data folder
+before clearing the draft. A pending uncommitted intent restores setup after
+process death; a bound intent survives a fresh-process restart. Native startup
+saves and verifies `InputTouchOverlay=true` in that folder before deleting the
+intent, before the user can disable it again. Resource Retry and cancellation
+before any qualifying action create no intent. No JNI or permission change.
+The tracked model target tests binding, failed-save retention and consume-once
+behavior; the touch session exercises real startup and live permission recovery.
 
 The app-data, integration, core, lifecycle, clear-task, assets and two PDF smoke sessions each use a fresh emulator and all gate CI. Core runs before app-data and integration so the D-026 PR gate starts before informational sessions; every existing session still runs. The five-hour outer emulator-job budget covers all eight sessions and the extended network controls; individual session/probe deadlines and failure gates are unchanged (D-012 amendment 11). The measured predecessor API 34 job took 230m01s, leaving 69m59s at the new limit; the earlier phone job took 194m31s (only about 45 minutes remained at 240), and TV took 159m17s. The same APK stays on its runner throughout all sessions; no inter-job APK transfer is used. Each direct session confirms its own shared data folder through the real UI. App-data evidence includes no-access/hash controls, re-selection through a fresh frontend process and real uninstall/reinstall. The API 34 integration session records shared-folder theme clone, update and native `_DISABLED` reset timings. An API 36 phone layout probe checks first/last controls against actual system-bar/cutout insets in both orientations and navigation modes; configurator padding uses dp. ROM validation requires reads only, independently of writable data-folder preflight.
 

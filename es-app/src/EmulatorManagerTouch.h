@@ -51,6 +51,7 @@ public:
         mTouch.invalidate();
         return GuiMsgBox::input(config, input);
     }
+    void cancelNativeTouch() override { mTouch.invalidate(); }
     bool nativeTouch(int type, int64_t finger, float x, float y) override
     {
         return mTouch.handle(*this, type, finger, x, y);
@@ -69,6 +70,7 @@ public:
         GuiTextEditKeyboardPopup::update(deltaTime);
         mTouch.updateTargets(*this);
     }
+    void cancelNativeTouch() override { mTouch.invalidate(); }
     bool nativeTouch(int type, int64_t finger, float x, float y) override
     {
         return mTouch.handle(*this, type, finger, x, y);

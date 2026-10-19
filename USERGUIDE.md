@@ -4332,11 +4332,11 @@ Sets the opacity of the input overlay to _normal, low_ or _very low_.
 
 **Touch overlay fade-out time** _(Android only)_
 
-How long, in seconds, to display the overlay before fading it. Tapping anywhere on the screen will bring back the overlay if it's been faded out.
+How long, in seconds, to display the overlay before fading it. In ES-DE Plus, zero keeps it visible. A fully faded overlay consumes the entire first touch gesture to wake; a subsequent tap operates a control. On Android TV automatic startup/resume wakes stay hidden when this time is nonzero.
 
 **Enable touch overlay** _(Android only)_
 
-The touch overlay applies a layer of virtual buttons on top of the ES-DE window. This makes it possible to use the application on devices that lack physical buttons, such as a mobile phone or tablet. Be careful to not accidentally disable this setting as you may lock yourself out of the application. If you do that, you'll need to temporarily plug in a controller or keyboard to enable the setting again, or you could clear the ES-DE storage in the Android App settings which will force the configurator to run on next startup.
+The touch overlay applies virtual buttons on top of the ES-DE window for phones and tablets without physical controls. Disabling it without another input device locks you out. In ES-DE Plus, connect a controller or keyboard to enable it again, or close the app and set `InputTouchOverlay` to `true` in `settings/es_settings.xml` inside the selected application-data folder. Shared folders can be edited with a suitably authorised file manager or USB file transfer; app-private folders require a computer with `adb`. Edit an existing private settings file in place with `adb shell` redirection and preserve its owner and permissions; do not replace it with `adb push`. In direct storage mode, revoke full file access in Android settings and complete setup on the next start to enable touch again. See [Touch input overlay](ANDROID.md#touch-input-overlay) for recovery details, supported viewport sizes, fixed glyphs and inset limitations.
 
 **Only accept input from first controller**
 

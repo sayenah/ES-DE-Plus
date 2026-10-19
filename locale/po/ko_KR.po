@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-16 06:15-0500\n"
+"POT-Creation-Date: 2026-10-18 20:18-0500\n"
 "PO-Revision-Date: 2026-09-08 20:53+0200\n"
 "Last-Translator: wakeboxer <ljhmd0825@gmail.com>\n"
 "Language-Team: 한국어 <info@es-de.org>\n"
@@ -1547,6 +1547,14 @@ msgid "ENABLE TOUCH OVERLAY"
 msgstr "터치 오버레이 활성화"
 
 msgid ""
+"DISABLING TOUCH CAN LOCK YOU OUT OF ES-DE PLUS. RECOVER WITH A CONTROLLER OR "
+"KEYBOARD, OR CLOSE THE APP AND SET InputTouchOverlay TO true IN settings/"
+"es_settings.xml IN YOUR APPLICATION DATA FOLDER. FOR PRIVATE DATA, USE A "
+"COMPUTER WITH adb. IN DIRECT STORAGE MODE, REVOKE FULL FILE ACCESS IN "
+"ANDROID SETTINGS, THEN COMPLETE SETUP TO ENABLE TOUCH AGAIN."
+msgstr ""
+
+msgid ""
 "DON'T DISABLE THE TOUCH OVERLAY UNLESS YOU ARE USING A CONTROLLER OR YOU "
 "WILL LOCK YOURSELF OUT OF THE APP. IF THIS HAPPENS YOU WILL NEED TO "
 "TEMPORARILY PLUG IN A CONTROLLER OR A KEYBOARD TO ENABLE THIS SETTING AGAIN, "
@@ -2587,6 +2595,11 @@ msgstr "배터리 충전 상태 표시"
 msgid "DOWNLOADING THEMES LIST 100%"
 msgstr "테마 리스트 다운로드 중 100%"
 
+msgid ""
+"COULDN'T VALIDATE THE THEME REPOSITORY. CHECK ACCESS TO THE APPLICATION-DATA "
+"FOLDER, THEN CLOSE AND REOPEN THE THEME DOWNLOADER."
+msgstr ""
+
 msgid "REPOSITORY HAS DIVERGED FROM ORIGIN"
 msgstr "저장소가 원본으로부터 분기되었습니다"
 
@@ -2797,6 +2810,9 @@ msgstr ""
 "만 가져오기 때문에 훨씬 더 빨라집니다. 귀하가 다운로드하는 모든 테마에도 마찬"
 "가지입니다. 진행 중인 다운로드는 데이터 손상으로 이어질 수 있으므로 중단할 "
 "수 없습니다."
+
+msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
+msgstr ""
 
 msgid "browse"
 msgstr "보기"
@@ -3391,6 +3407,14 @@ msgstr "구성하려면 장치의 A 버튼을 길게 누르세요"
 
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "구성하려면 키보드의 A 버튼을 길게 누르세요"
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
 
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr ""

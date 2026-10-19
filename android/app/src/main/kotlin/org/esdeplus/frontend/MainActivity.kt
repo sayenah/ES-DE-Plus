@@ -18,6 +18,7 @@ open class MainActivity : SDLActivity() {
     @Volatile private var destroying = false
     @Volatile private var configured = false
     @Volatile private var restartRequested = false
+    private var storageRestartPending = false
     @Volatile private var deferringRestart = false
     private var visibleForRestart = false
     private var resumedForRestart = false
@@ -80,7 +81,7 @@ open class MainActivity : SDLActivity() {
         observeCommittedEntry()
         // Re-present a pending startup screen after backgrounding or unlock;
         // user interaction never expires and HOME is still set only by entry.
-        if (!awaitingCommittedEntry) {
+        if (!awaitingCommittedEntry && !restartRequested) {
             if (ConfiguratorSession.configuring) ConfiguratorSession.open(applicationContext)
             else bridge.checkStorageOnResume()
         }
@@ -93,12 +94,11 @@ open class MainActivity : SDLActivity() {
     internal fun restartAfterStorageSelection(): Boolean {
         if (!bridge.pathsSelected) return false
         Log.i("ES-DE-Plus", "Storage selection requires a fresh frontend start")
-        // Save has validated and committed both roots. The configurator is in
-        // front, so ordinary onStop visibility cannot authorize this restart.
+        // Finish the configurator before committing a restart. A queued
+        // framework ASSETS relaunch must retain its ordinary destruction and
+        // committed-entry path; native input stays paused in either case.
         configured = true
-        restartRequested = true
-        prepareRestart()
-        recreate()
+        storageRestartPending = true
         return true
     }
     override fun onPause() {
@@ -109,14 +109,14 @@ open class MainActivity : SDLActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         // The recreated activity is a Java-side gate over retired native
         // globals. Neither focus nor a surface may start a second native main.
-        if (!awaitingCommittedEntry) super.onWindowFocusChanged(hasFocus)
+        if (!awaitingCommittedEntry && !storageRestartPending) super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             observeCommittedEntry()
-            if (!awaitingCommittedEntry) bridge.checkStorageOnResume()
+            if (!awaitingCommittedEntry && !restartRequested) bridge.checkStorageOnResume()
         }
     }
     override fun resumeNativeThread() {
-        if (!awaitingCommittedEntry) super.resumeNativeThread()
+        if (!awaitingCommittedEntry && !storageRestartPending && !restartRequested) super.resumeNativeThread()
     }
     private fun observeCommittedEntry() {
         if (!resumedForRestart || !hasWindowFocus() || isFinishing) return
@@ -124,6 +124,11 @@ open class MainActivity : SDLActivity() {
         if (awaitingCommittedEntry && !restartRequested) {
             Log.i("ES-DE-Plus", "Frontend entry committed resumed=true focused=true task=$taskId")
             decideRestart(true)
+        } else if (storageRestartPending && !restartRequested) {
+            storageRestartPending = false
+            restartRequested = true
+            prepareRestart()
+            recreate()
         }
     }
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

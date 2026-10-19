@@ -85,6 +85,10 @@ Window* Window::getInstance()
 
 void Window::pushGui(GuiComponent* gui)
 {
+#if defined(__ANDROID__)
+    if (mTouchInputActive)
+        InputManager::getInstance().cancelTouchInput();
+#endif
     mGuiStack.push_back(gui);
     gui->updateHelpPrompts();
 }
@@ -93,6 +97,10 @@ void Window::removeGui(GuiComponent* gui)
 {
     for (auto it = mGuiStack.cbegin(); it != mGuiStack.cend(); ++it) {
         if (*it == gui) {
+#if defined(__ANDROID__)
+            if (mTouchInputActive)
+                InputManager::getInstance().cancelTouchInput();
+#endif
             it = mGuiStack.erase(it);
 
             // We just popped the stack and the stack is not empty.
@@ -255,6 +263,39 @@ void Window::deinit()
     ResourceManager::getInstance().unloadAll();
     mRenderer->deinit();
 }
+
+#if defined(__ANDROID__)
+void Window::setBlockInput(const bool state)
+{
+    if (state && !mBlockInput)
+        InputManager::getInstance().cancelTouchInput();
+    if (state != mBlockInput) {
+        LOG(LogDebug) << "InputOverlay: input block=" << state;
+    }
+    mBlockInput = state;
+}
+
+void Window::releaseTouchInput(InputConfig* config, Input input)
+{
+    if (input.device != DEVICE_TOUCH || input.type != TYPE_TOUCH || input.value != 0)
+        return;
+    if (Settings::getInstance()->getBool("Debug") &&
+        !Settings::getInstance()->getBool("DebugSkipInputLogging")) {
+        logInput(config, input);
+    }
+    // Release only: bypass the foreground block without resetting activity timers,
+    // dismissing screensavers or invoking a press action. A menu may have covered the
+    // original consumer since DOWN; every still-live consumer must lose its hold.
+    if (mMediaViewer)
+        mMediaViewer->input(config, input);
+    if (mPDFViewer)
+        mPDFViewer->input(config, input);
+    const auto stack {mGuiStack};
+    for (auto* gui : stack)
+        if (std::find(mGuiStack.begin(), mGuiStack.end(), gui) != mGuiStack.end())
+            gui->input(config, input);
+}
+#endif
 
 void Window::input(InputConfig* config, Input input)
 {

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-16 06:15-0500\n"
+"POT-Creation-Date: 2026-10-18 20:18-0500\n"
 "PO-Revision-Date: 2026-09-10 12:02+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: 繁體中文 <info@es-de.org>\n"
@@ -1540,6 +1540,14 @@ msgid "ENABLE TOUCH OVERLAY"
 msgstr "啟用虛擬按鍵"
 
 msgid ""
+"DISABLING TOUCH CAN LOCK YOU OUT OF ES-DE PLUS. RECOVER WITH A CONTROLLER OR "
+"KEYBOARD, OR CLOSE THE APP AND SET InputTouchOverlay TO true IN settings/"
+"es_settings.xml IN YOUR APPLICATION DATA FOLDER. FOR PRIVATE DATA, USE A "
+"COMPUTER WITH adb. IN DIRECT STORAGE MODE, REVOKE FULL FILE ACCESS IN "
+"ANDROID SETTINGS, THEN COMPLETE SETUP TO ENABLE TOUCH AGAIN."
+msgstr ""
+
+msgid ""
 "DON'T DISABLE THE TOUCH OVERLAY UNLESS YOU ARE USING A CONTROLLER OR YOU "
 "WILL LOCK YOURSELF OUT OF THE APP. IF THIS HAPPENS YOU WILL NEED TO "
 "TEMPORARILY PLUG IN A CONTROLLER OR A KEYBOARD TO ENABLE THIS SETTING AGAIN, "
@@ -2570,6 +2578,11 @@ msgstr "顯示電量百分比"
 msgid "DOWNLOADING THEMES LIST 100%"
 msgstr "正在下載主題列表 100%"
 
+msgid ""
+"COULDN'T VALIDATE THE THEME REPOSITORY. CHECK ACCESS TO THE APPLICATION-DATA "
+"FOLDER, THEN CLOSE AND REOPEN THE THEME DOWNLOADER."
+msgstr ""
+
 msgid "REPOSITORY HAS DIVERGED FROM ORIGIN"
 msgstr "本地倉庫與遠端倉庫已分叉"
 
@@ -2770,6 +2783,9 @@ msgstr ""
 "看起來您是第一次使用主題下載器。因此將下載主題列表儲存庫，這將需要一些時間。"
 "但是，後續執行將快得多，因為只會獲取新檔案或修改過的檔案。對於您下載的任何主"
 "題也是如此。請注意，您無法中止正在進行的下載，因為這可能會導致資料損壞。"
+
+msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
+msgstr ""
 
 msgid "browse"
 msgstr "瀏覽"
@@ -3347,6 +3363,14 @@ msgstr "按住裝置上的某個按鍵以進行配置"
 
 msgid "HOLD A BUTTON ON YOUR KEYBOARD TO CONFIGURE IT"
 msgstr "按住鍵盤上的某個按鍵以進行配置"
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO SKIP"
+msgstr ""
+
+#, c-format
+msgid "PRESS ESC OR TOUCH %s TO CANCEL"
+msgstr ""
 
 msgid "PRESS ESC TO SKIP (OR THE QUIT SHORTCUT TO QUIT AT ANY TIME)"
 msgstr "按 ESC 跳過（或按退出快捷鍵隨時退出）"

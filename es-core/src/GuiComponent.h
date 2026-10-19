@@ -86,6 +86,7 @@ public:
     virtual bool input(InputConfig* config, Input input);
 #if defined(__ANDROID__)
     virtual bool nativeTouch(int, int64_t, float, float) { return false; }
+    virtual void cancelNativeTouch() {}
 #endif
 
     // Called when time passes.

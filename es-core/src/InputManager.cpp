@@ -19,6 +19,7 @@
 #include "utils/PlatformUtil.h"
 #include "utils/StringUtil.h"
 
+#include <climits>
 #include <iostream>
 #include <pugixml.hpp>
 
@@ -92,6 +93,9 @@ void InputManager::init()
     mTouchInputConfig = std::make_unique<InputConfig>(DEVICE_TOUCH, "Touch", TOUCH_GUID_STRING);
     loadTouchConfig();
 #endif
+#if defined(__ANDROID__)
+    mWindow->setTouchInputActive(true);
+#endif
 
     // Load optional controller mappings. Normally the supported controllers should be compiled
     // into SDL as a header file, but if a user has a very rare controller that is not supported,
@@ -123,8 +127,15 @@ void InputManager::init()
 
 void InputManager::deinit()
 {
+#if defined(__ANDROID__)
+    mWindow->setTouchInputActive(false);
+#endif
     if (!initialized())
         return;
+
+#if defined(__ANDROID__)
+    cancelTouchInput();
+#endif
 
     for (auto it = mControllers.cbegin(); it != mControllers.cend(); ++it)
         SDL_GameControllerClose(it->second);
@@ -269,8 +280,155 @@ InputConfig* InputManager::getInputConfigByDevice(int device)
         return mInputConfigs[device].get();
 }
 
+#if defined(__ANDROID__)
+void InputManager::cancelTouchInput()
+{
+    // Clear model state first, then only the presses actually sent to the consumer.
+    // This also invalidates a release+press batch if its first dispatch re-enters here.
+    mInputOverlay.cancelTouches();
+    mTouchOwners = {};
+    if (mWindow->peekGui())
+        mWindow->peekGui()->cancelNativeTouch();
+    const auto accepted {mAcceptedTouch};
+    mAcceptedTouch = {};
+    if (!mTouchInputConfig)
+        return;
+    for (int i {0}; i < 14; ++i) {
+        if (accepted[i]) {
+            LOG(LogDebug) << "InputOverlay: cancelled id=" << TouchOverlay::IDS[i];
+            mWindow->releaseTouchInput(
+                mTouchInputConfig.get(),
+                Input(DEVICE_TOUCH, TYPE_TOUCH, TouchOverlay::IDS[i], 0, false));
+        }
+    }
+}
+#endif
+
 bool InputManager::parseEvent(const SDL_Event& event)
 {
+#if defined(__ANDROID__)
+    if (event.type == SDL_APP_WILLENTERBACKGROUND || event.type == SDL_APP_WILLENTERFOREGROUND ||
+        event.type == SDL_QUIT ||
+        (event.type == SDL_WINDOWEVENT && (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+                                           event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)))
+        cancelTouchInput();
+    // A short focus transfer can return before SDL's multi-window Activity stops,
+    // so it need not produce an application foreground event. Focus gain is also
+    // an explicit return signal, independent of frame-delta normalization.
+    if (event.type == SDL_APP_WILLENTERFOREGROUND ||
+        (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED))
+        mInputOverlay.onResume();
+    if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP ||
+        event.type == SDL_FINGERMOTION) {
+        const char* type {event.type == SDL_FINGERDOWN ? "down" :
+                          event.type == SDL_FINGERUP   ? "up" :
+                                                         "motion"};
+        LOG(LogDebug) << "InputOverlay: event type=" << type << " finger=" << event.tfinger.fingerId
+                      << " blocked=" << mWindow->getBlockInput()
+                      << " epoch=" << mInputOverlay.epoch();
+        if (!mTouchInputConfig || mWindow->getBlockInput()) {
+            cancelTouchInput();
+            return false;
+        }
+        if (event.tfinger.fingerId < 0 || event.tfinger.fingerId >= INT_MAX)
+            return false;
+        const bool overlayEnabled {Settings::getInstance()->getBool("InputTouchOverlay")};
+        TouchOwner* owner {nullptr};
+        for (auto& candidate : mTouchOwners)
+            if (candidate.finger == event.tfinger.fingerId)
+                owner = &candidate;
+        if (event.type == SDL_FINGERDOWN && !owner) {
+            // Claim before dispatch: a press may open a dialog. Neither that GUI
+            // nor another pointer can steal the matching motion/release.
+            const bool overlay {overlayEnabled &&
+                                mInputOverlay.claimsTouch(event.tfinger.x, event.tfinger.y)};
+            for (auto& candidate : mTouchOwners) {
+                if (candidate.finger == -1) {
+                    owner = &candidate;
+                    *owner = {event.tfinger.fingerId, nullptr, overlay};
+                    break;
+                }
+            }
+            if (!owner)
+                return false;
+            if (!overlay) {
+                // The model retains an inert capture for idle/fade accounting.
+                // It cannot slide into controls after direct GUI ownership wins.
+                if (overlayEnabled) {
+                    const auto epoch {mInputOverlay.epoch()};
+                    mInputOverlay.processEvent(event.type,
+                                               static_cast<int>(event.tfinger.fingerId) + 1,
+                                               event.tfinger.x, event.tfinger.y);
+                    if (epoch != mInputOverlay.epoch()) {
+                        cancelTouchInput();
+                        return false;
+                    }
+                }
+                auto* gui {mWindow->peekGui()};
+                if (gui && gui->nativeTouch(event.type, event.tfinger.fingerId, event.tfinger.x,
+                                            event.tfinger.y)) {
+                    owner->gui = gui;
+                    LOG(LogDebug) << "InputOverlay: owner=gui finger=" << event.tfinger.fingerId;
+                    return true;
+                }
+            }
+        }
+        if (!owner)
+            return false; // Cancelled epoch: residual motion/up cannot claim.
+        const auto captured {*owner};
+        if (event.type == SDL_FINGERUP)
+            *owner = {};
+        if (!captured.overlay) {
+            if (overlayEnabled && event.type != SDL_FINGERDOWN) {
+                const auto epoch {mInputOverlay.epoch()};
+                mInputOverlay.processEvent(event.type, static_cast<int>(event.tfinger.fingerId) + 1,
+                                           event.tfinger.x, event.tfinger.y);
+                if (epoch != mInputOverlay.epoch()) {
+                    cancelTouchInput();
+                    return false;
+                }
+            }
+            if (captured.gui && captured.gui == mWindow->peekGui())
+                return captured.gui->nativeTouch(event.type, event.tfinger.fingerId,
+                                                 event.tfinger.x, event.tfinger.y);
+            return false;
+        }
+        if (!overlayEnabled) {
+            cancelTouchInput();
+            return false;
+        }
+        if (event.type == SDL_FINGERDOWN) {
+            LOG(LogDebug) << "InputOverlay: owner=overlay finger=" << event.tfinger.fingerId;
+        }
+        const auto epoch {mInputOverlay.epoch()};
+        const auto transitions {
+            mInputOverlay.processEvent(event.type, static_cast<int>(event.tfinger.fingerId) + 1,
+                                       event.tfinger.x, event.tfinger.y)};
+        if (epoch != mInputOverlay.epoch()) {
+            cancelTouchInput();
+            return false;
+        }
+        for (int n {0}; n < transitions.count; ++n) {
+            if (epoch != mInputOverlay.epoch() || mWindow->getBlockInput())
+                break;
+            const auto t {transitions.entries[n]};
+            for (int i {0}; i < 14; ++i) {
+                if (TouchOverlay::IDS[i] != t.id)
+                    continue;
+                if (mAcceptedTouch[i] == static_cast<bool>(t.value))
+                    break;
+                mAcceptedTouch[i] = t.value != 0;
+                const Input input {DEVICE_TOUCH, TYPE_TOUCH, t.id, t.value, false};
+                if (t.value)
+                    mWindow->input(mTouchInputConfig.get(), input);
+                else
+                    mWindow->releaseTouchInput(mTouchInputConfig.get(), input);
+                break;
+            }
+        }
+        return transitions.count != 0;
+    }
+#endif
     bool causedEvent {false};
     int32_t axisValue {0};
 
@@ -443,36 +601,28 @@ bool InputManager::parseEvent(const SDL_Event& event)
                            Input(DEVICE_KEYBOARD, TYPE_KEY, event.key.keysym.sym, 0, false));
             return true;
         }
-#if defined(__ANDROID__) || defined(__IOS__)
+#if defined(__IOS__)
         case SDL_FINGERDOWN: {
-            // Overlay capture has first claim. Unclaimed gestures may be owned by
-            // the manager until release/cancel; WO-1 integrates the shared gesture epochs.
-            const int buttonID {Settings::getInstance()->getBool("InputTouchOverlay") ?
-                                    mInputOverlay.getButtonId(SDL_FINGERDOWN,
-                                                              event.tfinger.fingerId + 1,
-                                                              event.tfinger.x, event.tfinger.y) :
-                                    -2};
+            if (!Settings::getInstance()->getBool("InputTouchOverlay"))
+                return false;
+
+            const int buttonID {mInputOverlay.getButtonId(
+                SDL_FINGERDOWN, event.tfinger.fingerId + 1, event.tfinger.x, event.tfinger.y)};
             if (buttonID != -2) {
                 mWindow->input(getInputConfigByDevice(DEVICE_TOUCH),
                                Input(DEVICE_TOUCH, TYPE_TOUCH, buttonID, 1, false));
                 return true;
             }
             else {
-#if defined(__ANDROID__)
-                if (mWindow->peekGui() &&
-                    mWindow->peekGui()->nativeTouch(event.type, event.tfinger.fingerId,
-                                                    event.tfinger.x, event.tfinger.y))
-                    return true;
-#endif
                 return false;
             }
         }
         case SDL_FINGERUP: {
-            const int buttonID {Settings::getInstance()->getBool("InputTouchOverlay") ?
-                                    mInputOverlay.getButtonId(SDL_FINGERUP,
-                                                              event.tfinger.fingerId + 1,
-                                                              event.tfinger.x, event.tfinger.y) :
-                                    -2};
+            if (!Settings::getInstance()->getBool("InputTouchOverlay"))
+                return false;
+
+            const int buttonID {mInputOverlay.getButtonId(SDL_FINGERUP, event.tfinger.fingerId + 1,
+                                                          event.tfinger.x, event.tfinger.y)};
             if (buttonID != -2) {
                 mWindow->input(getInputConfigByDevice(DEVICE_TOUCH),
                                Input(DEVICE_TOUCH, TYPE_TOUCH, buttonID, 0, false));
@@ -480,32 +630,20 @@ bool InputManager::parseEvent(const SDL_Event& event)
                 return true;
             }
             else {
-#if defined(__ANDROID__)
-                if (mWindow->peekGui() &&
-                    mWindow->peekGui()->nativeTouch(event.type, event.tfinger.fingerId,
-                                                    event.tfinger.x, event.tfinger.y))
-                    return true;
-#endif
                 return false;
             }
         }
         case SDL_FINGERMOTION: {
+            if (!Settings::getInstance()->getBool("InputTouchOverlay"))
+                return false;
+
             bool releasedButton {false};
             const int buttonID {
-                Settings::getInstance()->getBool("InputTouchOverlay") ?
-                    mInputOverlay.getButtonId(SDL_FINGERMOTION, event.tfinger.fingerId + 1,
-                                              event.tfinger.x, event.tfinger.y, &releasedButton) :
-                    -2};
+                mInputOverlay.getButtonId(SDL_FINGERMOTION, event.tfinger.fingerId + 1,
+                                          event.tfinger.x, event.tfinger.y, &releasedButton)};
 
-            if (buttonID == -2) {
-#if defined(__ANDROID__)
-                if (mWindow->peekGui() &&
-                    mWindow->peekGui()->nativeTouch(event.type, event.tfinger.fingerId,
-                                                    event.tfinger.x, event.tfinger.y))
-                    return true;
-#endif
+            if (buttonID == -2)
                 return false;
-            }
 
             if (releasedButton) {
                 mWindow->input(getInputConfigByDevice(DEVICE_TOUCH),
