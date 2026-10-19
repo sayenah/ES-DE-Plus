@@ -174,13 +174,17 @@ def run(h, start, control, shot, record):
             live_event('mediaviewer-start', occurrence)
             shot('search-entry-media-viewer-' + key)
             count = opens()
+            stops = h.log().count('Scripting::fireEvent(): mediaviewer-stop')
             control(102)
             assert opens() == count, 'Magnifier opened Search over the media viewer'
+            assert h.log().count('Scripting::fireEvent(): mediaviewer-stop') == stops, \
+                'Magnifier dismissed the media viewer'
             # Upstream dismisses the viewer on other inputs. A later key may then
             # open Search, so test each dismissing input with a newly active viewer.
             h.key(key)
             live_event('mediaviewer-stop', occurrence)
             assert opens() == count, 'Viewer dismissal also opened Search'
+            record('search-entry-media-viewer-' + key)
         opening(lambda: h.key('KEYCODE_INSERT'), 'nes')
         close_popup()
         record('search-entry-media-viewer')
