@@ -257,8 +257,8 @@ namespace LibrarySearch
         }
         bool near(const std::u32string& a, const std::u32string& b)
         {
-            const size_t threshold {a.size() >= 8 ? 2U : 1U};
-            if (a.size() < 4 || a.size() > b.size() + threshold || b.size() > a.size() + threshold)
+            const size_t threshold {a.size() >= 9 ? 2U : 1U};
+            if (a.size() < 5 || a.size() > b.size() + threshold || b.size() > a.size() + threshold)
                 return false;
             if (bitCount(signature(a) & ~signature(b)) > threshold)
                 return false;
@@ -289,7 +289,10 @@ namespace LibrarySearch
         {
             return g.countAsGame && !g.collection && (f.showHidden || !g.hidden) &&
                    (!f.kidMode || g.kid) && (!f.favouritesOnly || g.favourite) &&
-                   (f.system.empty() || g.system == f.system);
+                   (f.system.empty() || g.system == f.system) &&
+                   (f.genre.empty() || g.genre == f.genre) &&
+                   (f.developer.empty() || g.developer == f.developer) &&
+                   (f.publisher.empty() || g.publisher == f.publisher);
         }
         void mergeSpans(std::vector<Span>& spans)
         {
@@ -738,9 +741,80 @@ namespace LibrarySearch
                                     size_t limit,
                                     const Filter& filter) const
     {
+        return searchImpl(query, limit, filter, nullptr);
+    }
+
+    Results Core::query(const std::string& query, size_t limit, const Filter& filter) const
+    {
+        Results result;
+        result.matches = searchImpl(query, limit, filter, &result);
+        return result;
+    }
+
+    std::vector<size_t> Core::browse(size_t limit, const Filter& filter) const
+    {
+        std::vector<size_t> result;
+        for (size_t i {0}; i < mIndex->games.size() && result.size() < limit; ++i)
+            if (visible(mIndex->games[i], filter))
+                result.push_back(i);
+        return result;
+    }
+
+    std::vector<Match> Core::closest(const std::string& query,
+                                     size_t limit,
+                                     const Filter& filter) const
+    {
+        const auto q = codepoints(normalize(query));
+        if (q.empty() || q.size() > 128 || !limit)
+            return {};
+        // This fallback deliberately has no typo threshold. It is labelled "Did you mean",
+        // never mixed into actual matches. Work on the immutable title index, never media.
+        auto distance = [&](const std::string& text) {
+            const auto points = codepoints(text);
+            std::vector<size_t> previous(q.size() + 1), current(q.size() + 1);
+            std::iota(previous.begin(), previous.end(), 0);
+            for (size_t i {0}; i < points.size() && i < 256; ++i) {
+                current[0] = i + 1;
+                for (size_t j {0}; j < q.size(); ++j)
+                    current[j + 1] = std::min(
+                        {current[j] + 1, previous[j + 1] + 1, previous[j] + (points[i] != q[j])});
+                previous.swap(current);
+            }
+            return previous.back();
+        };
+        std::vector<std::pair<size_t, size_t>> nearest;
+        for (const auto& doc : mIndex->documents) {
+            if (doc.displayGames.empty())
+                continue;
+            size_t score = distance(doc.text.value);
+            for (const auto& token : doc.text.tokens)
+                score = std::min(score, distance(token.text));
+            for (size_t i : doc.displayGames) {
+                if (!visible(mIndex->games[i], filter))
+                    continue;
+                nearest.emplace_back(score, i);
+            }
+        }
+        std::sort(nearest.begin(), nearest.end());
+        std::vector<Match> result;
+        std::unordered_set<size_t> seen;
+        for (const auto& entry : nearest) {
+            if (seen.insert(entry.second).second)
+                result.push_back({entry.second, MatchClass::Typo, {}});
+            if (result.size() == limit)
+                break;
+        }
+        return result;
+    }
+
+    std::vector<Match> Core::searchImpl(const std::string& query,
+                                        size_t limit,
+                                        const Filter& filter,
+                                        Results* counts) const
+    {
         const auto& ix = *mIndex;
         std::string q {title(query).text};
-        if (q.empty() || !limit)
+        if ((!counts && q.empty()) || !limit)
             return {};
         auto qw {words(q)};
         std::set<std::string> restricted;
@@ -794,25 +868,25 @@ namespace LibrarySearch
             for (auto it = begin;
                  it != ix.sortedTitles.end() && ix.documents[*it].compact == compactQuery; ++it)
                 apply(ix.documents[*it].games, 0);
-            if (matched < limit)
+            if ((counts || matched < limit))
                 for (auto it = begin;
                      it != ix.sortedTitles.end() && starts(ix.documents[*it].compact, compactQuery);
                      ++it)
                     apply(ix.documents[*it].games,
                           ix.documents[*it].compact == compactQuery ? 0 : 1);
         }
-        if (matched < limit && !q.empty()) {
+        if ((counts || matched < limit) && !q.empty()) {
             std::vector<uint8_t> candidates(ix.documents.size(), 1);
             for (const auto& token : qw) {
                 std::vector<uint8_t> found(ix.documents.size(), 0);
                 const auto points {codepoints(token.text)};
                 const auto numeric {number(token.text)};
                 const auto bits {signature(points)};
-                const auto threshold {points.size() >= 8 ? 2U : 1U};
+                const auto threshold {points.size() >= 9 ? 2U : 1U};
                 for (const auto& group : ix.signatures) {
                     const auto missing {bitCount(bits & ~group.first)};
                     const bool substring {missing == 0};
-                    const bool fuzzy {points.size() >= 4 && missing <= threshold};
+                    const bool fuzzy {points.size() >= 5 && missing <= threshold};
                     if (!substring && !fuzzy)
                         continue;
                     for (const auto* v : group.second) {
@@ -852,12 +926,27 @@ namespace LibrarySearch
                 if (restricted.empty() || restricted.count(group.first))
                     apply(group.second, 8);
         }
-        else if (matched < limit)
+        else if ((counts || matched < limit))
             for (const auto& group : ix.metadataGroups)
                 if (std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
                         return group.first.find(w.text) != std::string::npos;
                     }))
                     apply(group.second, 8);
+        if (counts) {
+            std::map<std::string, SystemCount> systems;
+            for (size_t i {0}; i < ranks.size(); ++i) {
+                if (ranks[i] == 9)
+                    continue;
+                ++counts->total;
+                const auto& game = ix.games[i];
+                auto& system = systems[game.system];
+                system.system = game.system;
+                system.name = game.systemName;
+                ++system.count;
+            }
+            for (auto& entry : systems)
+                counts->systems.push_back(std::move(entry.second));
+        }
         std::array<std::vector<size_t>, 9> buckets;
         for (size_t i {0}; i < ranks.size(); ++i)
             if (ranks[i] < 9 && buckets[ranks[i]].size() < limit)
@@ -891,8 +980,23 @@ namespace LibrarySearch
                                           const Filter& filter) const
     {
         const auto q {normalize(query)};
-        if (q.empty() || !limit)
+        if (!limit)
             return {};
+        if (q.empty()) {
+            std::vector<Suggestion> result;
+            std::set<std::string> seen;
+            for (const auto& c : mIndex->completions) {
+                if (c.kind == SuggestionKind::Word || c.kind == SuggestionKind::Title ||
+                    !seen.insert(c.key).second)
+                    continue;
+                if (std::any_of(c.games.begin(), c.games.end(),
+                                [&](size_t i) { return visible(mIndex->games[i], filter); }))
+                    result.push_back({c.kind, c.text});
+                if (result.size() == limit)
+                    break;
+            }
+            return result;
+        }
         const bool trailing {query.back() == ' '};
         const auto split {q.rfind(' ')};
         const std::string prefix {trailing                   ? q + " " :

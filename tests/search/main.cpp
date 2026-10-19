@@ -421,6 +421,56 @@ namespace
             core.rebuild({});
         }
     }
+    void screenData()
+    {
+        Core core;
+        std::vector<Game> corpus;
+        for (int i {0}; i < 250; ++i) {
+            auto value = game("Final Fantasy " + std::to_string(i), std::to_string(i));
+            value.system = i < 210 ? "snes" : "psx";
+            value.systemName = value.system == "snes" ? "Super Nintendo" : "PlayStation";
+            value.favourite = i % 2 == 0;
+            corpus.push_back(value);
+        }
+        auto hidden = game("Final Secret", "hidden");
+        hidden.hidden = true;
+        hidden.kid = false;
+        corpus.push_back(hidden);
+        core.rebuild(corpus);
+        Filter filter;
+        filter.showHidden = false;
+        auto result = core.query("fin", 2, filter);
+        require(result.matches.size() == 2 && result.total == 250,
+                "system counts include matches beyond the displayed window");
+        require(result.systems.size() == 2 && result.systems[0].system == "psx" &&
+                    result.systems[0].count == 40 && result.systems[1].count == 210,
+                "per-system counts remain exact for prefix matches");
+        require(core.query("", 1, filter).total == 250, "empty-query library count");
+        filter.system = "psx";
+        filter.favouritesOnly = true;
+        require(core.query("fin", 2, filter).total == 20, "combined system and favorite counts");
+        filter.genre = "Missing";
+        require(core.query("fin", 2, filter).total == 0 && core.closest("fin", 3, filter).empty(),
+                "closest games respect metadata filters");
+        filter.genre = "Action Adventure";
+        filter.developer = "Nintendo";
+        filter.publisher = "Acme Publishing";
+        require(core.query("fin", 1, filter).total == 20 && core.browse(100, filter).size() == 20,
+                "zero-state browsing uses the same filters");
+        filter = {};
+        filter.kidMode = true;
+        const auto nearest = core.closest("secretttt", 300, filter);
+        require(nearest.size() == 250 &&
+                    std::none_of(nearest.begin(), nearest.end(),
+                                 [&](const Match& m) { return core.game(m.index).id == "hidden"; }),
+                "did-you-mean never exposes non-kid games");
+        const auto suggestions = core.suggest("", 6, filter);
+        require(!suggestions.empty() && suggestions.size() <= 6, "zero-state library suggestions");
+        core.rebuild({game("Zelda"), game("Metroid", "2")});
+        require(core.search("zeld").front().kind != MatchClass::Typo && core.search("zelx").empty(),
+                "four-character queries never use typo tolerance");
+    }
+
     void performance()
     {
         std::vector<Game> corpus;
@@ -500,6 +550,24 @@ namespace
                                             .count())});
             }
         }
+        std::vector<double> screenTimes;
+        for (const auto& partial : {"f", "fi", "fin", "final", "zelda", "m", "zzzzzz"}) {
+            for (int repeat {0}; repeat < 10; ++repeat) {
+                const auto before = std::chrono::steady_clock::now();
+                const auto result = core.query(partial, 200);
+                checksum += result.total + core.suggest(partial, 6).size();
+                if (result.matches.empty())
+                    checksum += core.closest(partial).size();
+                screenTimes.push_back(std::chrono::duration<double, std::milli>(
+                                          std::chrono::steady_clock::now() - before)
+                                          .count());
+            }
+        }
+        std::sort(screenTimes.begin(), screenTimes.end());
+        std::printf("SCREEN 50k counts/suggestions/fallback p95_ms=%.3f max_ms=%.3f\n",
+                    screenTimes[static_cast<size_t>(screenTimes.size() * 0.95)],
+                    screenTimes.back());
+        require(screenTimes.back() < 50, "screen data incl. exact counts and closest games <50ms");
         std::sort(times.begin(), times.end());
         std::sort(measurements.rbegin(), measurements.rend());
         for (size_t i {0}; i < 5; ++i)
@@ -525,6 +593,7 @@ int main(int argc, char** argv)
         matching();
         spans();
         rankingAndFilters();
+        screenData();
         suggestions();
         history();
         lifecycle();

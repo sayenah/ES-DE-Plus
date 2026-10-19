@@ -40,6 +40,9 @@ namespace LibrarySearch
     };
     struct Filter {
         std::string system;
+        std::string genre;
+        std::string developer;
+        std::string publisher;
         bool favouritesOnly {false};
         bool showHidden {true};
         bool kidMode {false};
@@ -74,6 +77,17 @@ namespace LibrarySearch
         std::string text;
     };
 
+    struct SystemCount {
+        std::string system;
+        std::string name;
+        size_t count {0};
+    };
+    struct Results {
+        std::vector<Match> matches;
+        std::vector<SystemCount> systems;
+        size_t total {0};
+    };
+
     // Case/accent folding for history as well as search. Articles are title semantics only.
     std::string normalize(const std::string& text);
 
@@ -90,12 +104,24 @@ namespace LibrarySearch
         std::vector<Match> search(const std::string& query,
                                   size_t limit = 200,
                                   const Filter& filter = {}) const;
+        // Counts include every matching game, independent of the display limit.
+        Results query(const std::string& query,
+                      size_t limit = 200,
+                      const Filter& filter = {}) const;
+        std::vector<Match> closest(const std::string& query,
+                                   size_t limit = 3,
+                                   const Filter& filter = {}) const;
+        std::vector<size_t> browse(size_t limit = 30, const Filter& filter = {}) const;
         std::vector<Suggestion> suggest(const std::string& query,
                                         size_t limit = 8,
                                         const Filter& filter = {}) const;
         std::vector<size_t> recentlyPlayed(size_t limit = 30, const Filter& filter = {}) const;
 
     private:
+        std::vector<Match> searchImpl(const std::string& query,
+                                      size_t limit,
+                                      const Filter& filter,
+                                      Results* counts) const;
         struct Index;
         std::unique_ptr<Index> mIndex;
     };

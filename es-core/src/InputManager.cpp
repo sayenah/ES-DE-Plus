@@ -334,6 +334,8 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
         if (event.tfinger.fingerId < 0 || event.tfinger.fingerId >= INT_MAX)
             return false;
+        if (event.type == SDL_FINGERDOWN)
+            mLastInputWasTouch = true;
         const bool overlayEnabled {Settings::getInstance()->getBool("InputTouchOverlay")};
         TouchOwner* owner {nullptr};
         for (auto& candidate : mTouchOwners)
@@ -344,7 +346,9 @@ bool InputManager::parseEvent(const SDL_Event& event)
             // nor another pointer can steal the matching motion/release.
             auto* modal {dynamic_cast<GuiMsgBox*>(mWindow->peekGui())};
             const bool inDialog {modal && modal->containsTouch(event.tfinger.x, event.tfinger.y)};
-            const bool overlay {overlayEnabled && !inDialog &&
+            const bool inControls {mWindow->peekGui() &&
+                                   mWindow->peekGui()->ownsTouch(event.tfinger.x, event.tfinger.y)};
+            const bool overlay {overlayEnabled && !inDialog && !inControls &&
                                 mInputOverlay.claimsTouch(event.tfinger.x, event.tfinger.y)};
             for (auto& candidate : mTouchOwners) {
                 if (candidate.finger == -1) {
@@ -493,6 +497,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
         case SDL_CONTROLLERBUTTONDOWN: {
         }
         case SDL_CONTROLLERBUTTONUP: {
+            mLastInputWasTouch = false;
             // Whether to only accept input from the first controller.
             if (Settings::getInstance()->getBool("InputOnlyFirstController"))
                 if (mInputConfigs.begin()->first != event.cdevice.which)
@@ -518,6 +523,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
             return true;
         }
         case SDL_KEYDOWN: {
+            mLastInputWasTouch = false;
             if (SDL_IsTextInputActive()) {
                 // Paste from clipboard.
 #if defined(__APPLE__)
@@ -662,6 +668,12 @@ bool InputManager::parseEvent(const SDL_Event& event)
             }
         }
 #endif
+        case SDL_TEXTEDITING: {
+            if (mWindow->peekGui())
+                mWindow->peekGui()->textEditing(event.edit.text, event.edit.start,
+                                                event.edit.length);
+            break;
+        }
         case SDL_TEXTINPUT: {
             mWindow->textInput(event.text.text);
             break;

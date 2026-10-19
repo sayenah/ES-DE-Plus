@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. Real frontend keyboard/controller smoke and visual evidence.
+import json
+import os
+from pathlib import Path
+import re
+import statistics
+import struct
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+import zlib
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def png(path):
+    # Lossless framebuffer conversion, no image or testing dependency.
+    with path.open('rb') as stream:
+        assert stream.readline() == b'P6\n'
+        width, height = map(int, stream.readline().split())
+        assert stream.readline() == b'255\n'
+        pixels = stream.read()
+    assert len(pixels) == width * height * 3
+    def chunk(kind, payload):
+        return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
+    data = b''.join(b'\0' + pixels[row * width * 3:(row + 1) * width * 3] for row in range(height))
+    path.with_suffix('.png').write_bytes(b'\x89PNG\r\n\x1a\n' +
+        chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
+        chunk(b'IDAT', zlib.compress(data)) + chunk(b'IEND', b''))
+    path.unlink()
+
+
+def fixture(home, remember=True, kid=False, scheme='dark', language='en_US'):
+    appdata = home / 'ES-DE'
+    for folder in ['settings', 'custom_systems', 'logs', 'themes']:
+        (appdata / folder).mkdir(parents=True, exist_ok=True)
+    roms = home / 'ROMs'
+    roms.mkdir(parents=True, exist_ok=True)
+    (roms / 'systems.txt').write_text('snes: Super Nintendo\npsx: PlayStation\n')
+    for system in ['snes', 'psx']:
+        (roms / system).mkdir(exist_ok=True)
+        (roms / system / 'systeminfo.txt').write_text('.rom\n')
+    subprocess.run(['bash', str(ROOT / 'tools/create_dummy_game_files.sh')], cwd=roms, check=True,
+                   stdout=subprocess.DEVNULL)
+    systems = ET.Element('systemList')
+    ET.SubElement(systems, 'loadExclusive')
+    titles = ['Final Fantasy VII', 'Final Fantasy VI', 'Final Fight', 'Finding Nemo',
+              'Super Metroid', 'Chrono Trigger', 'F-Zero', 'Pokémon', 'Tetris']
+    media = home / 'media'
+    for system in ['snes', 'psx']:
+        node = ET.SubElement(systems, 'system')
+        for name, value in [('name', system), ('fullname', 'Super Nintendo' if system == 'snes' else 'PlayStation'),
+                            ('path', str(roms / system)), ('extension', '.rom'),
+                            ('command', 'touch ' + str(home / 'game-launched')), ('platform', system), ('theme', system)]:
+            ET.SubElement(node, name).text = value
+        gamelist = ET.Element('gameList')
+        for index, title in enumerate(titles):
+            stem = f'game-{index}'
+            (roms / system / (stem + '.rom')).write_bytes(b'')
+            game = ET.SubElement(gamelist, 'game')
+            for name, value in [('path', './' + stem + '.rom'), ('name', title), ('genre', 'Action'),
+                                ('developer', 'Nintendo'), ('kidgame', 'true'), ('favorite', 'true'),
+                                ('releasedate', '19970101T000000'), ('lastplayed', '20261018T120000'), ('playtime', '7200')]:
+                ET.SubElement(game, name).text = value
+            # Original generated color artwork, deliberately independent of any product assets.
+            directory = media / system / 'covers'
+            directory.mkdir(parents=True, exist_ok=True)
+            width, height = 120, 160
+            color = bytes([30 + index * 20, 60 + index * 12, 100 + index * 10])
+            raw = b''.join(b'\0' + color * width for _ in range(height))
+            def chunk(kind, payload):
+                return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
+            (directory / (stem + '.png')).write_bytes(b'\x89PNG\r\n\x1a\n' +
+                chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
+                chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+        ET.ElementTree(gamelist).write(roms / system / 'gamelist.xml')
+    ET.ElementTree(systems).write(appdata / 'custom_systems/es_systems.xml')
+    (appdata / 'settings/search_history.xml').write_text('<searchHistory><query>zelda</query><query>ff7</query></searchHistory>')
+    (appdata / 'settings/es_input.xml').write_text(
+        '<inputList><inputConfig type="keyboard" deviceName="Keyboard" deviceGUID="-1">' +
+        ''.join(f'<input name="{name}" type="key" id="{key}" value="1"/>' for name, key in
+                [('a', 13), ('b', 8), ('up', 1073741906), ('down', 1073741905),
+                 ('left', 1073741904), ('right', 1073741903), ('start', 27)]) +
+        '</inputConfig></inputList>')
+    (appdata / 'settings/es_settings.xml').write_text(
+        '<bool name="SplashScreen" value="false"/>\n'
+        '<bool name="ApplicationUpdaterCheckForUpdates" value="false"/>\n'
+        '<bool name="InputDeviceNotifications" value="false"/>\n'
+        '<string name="MenuOpeningEffect" value="none"/>\n'
+        '<bool name="SearchHistory" value="' + str(remember).lower() + '"/>\n'
+        '<string name="UIMode" value="' + ('kid' if kid else 'full') + '"/>\n'
+        '<string name="MenuColorScheme" value="' + scheme + '"/>\n'
+        '<string name="ApplicationLanguage" value="' + language + '"/>\n'
+        '<string name="MediaDirectory" value="' + str(media) + '"/>\n'
+        '<string name="ROMDirectory" value="' + str(roms) + '"/>\n')
+    return appdata
+
+
+def run(binary, probe, destination, width, height, variant='dark'):
+    destination = Path(destination).resolve() / f'{width}x{height}-{variant}'
+    destination.mkdir(parents=True, exist_ok=True)
+    home = destination / 'home'
+    appdata = fixture(home, remember=variant != 'history-off', kid=variant == 'kid',
+                      scheme='light' if variant == 'light' else 'dark',
+                      language='de_DE' if variant == 'german' else 'en_US')
+    sequence = 0
+    for name in ['command', 'ack']:
+        (destination / name).unlink(missing_ok=True)
+    env = dict(os.environ, SDL_AUDIODRIVER='dummy', SDL_VIDEODRIVER='offscreen', LIBGL_ALWAYS_SOFTWARE='1',
+               ESDE_SEARCH_PROBE=str(destination), LD_PRELOAD=str(Path(probe).resolve()))
+    output = (destination / 'frontend.txt').open('w')
+    process = subprocess.Popen([str(Path(binary).resolve()), '--home', str(home), '--resolution',
+                                str(width), str(height), '--debug'], cwd=ROOT, env=env,
+                               stdout=output, stderr=subprocess.STDOUT)
+    logpath = appdata / 'logs/es_log.txt'
+    def log():
+        return logpath.read_text() if logpath.exists() else ''
+    def wait(condition, label, timeout=90):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            assert process.poll() is None, f'Frontend exited: {label}\n{log()}'
+            if condition():
+                return
+            time.sleep(.05)
+        raise AssertionError(f'Timeout: {label}\n{log()}')
+    def command(action, value=''):
+        nonlocal sequence
+        sequence += 1
+        path = destination / 'command.new'
+        path.write_text(f'{sequence} {action} {value}\n')
+        path.replace(destination / 'command')
+        wait(lambda: (destination / 'ack').exists() and (destination / 'ack').read_text().strip() == str(sequence), action)
+        time.sleep(.2)
+    def shot(name):
+        command('capture', name)
+        png(destination / (name + '.ppm'))
+    def search():
+        command('pad', '3')  # Y, the actual SDL controller entry point.
+        wait(lambda: 'Search screen opened:' in log(), 'search opened')
+    try:
+        wait(lambda: 'Application startup time:' in log(), 'real frontend startup')
+        time.sleep(2)
+        search()
+        shot('zero')
+        for character in 'fin':
+            command('text', character)
+            wait(lambda: 'Search keystroke: query=' + 'fin'[:'fin'.index(character) + 1] + ' ' in log(), 'live ' + character)
+        shot('typing-fin')
+        command('pad', '10')  # R changes the system filter.
+        shot('filter')
+        command('pad', '6')  # Start focuses results.
+        shot('results-focused')
+        command('key', '13')  # Enter shows the actual game list.
+        wait(lambda: 'Search show game:' in log(), 'game-list cursor navigation')
+        history = (appdata / 'settings/search_history.xml').read_text()
+        if variant in ['kid', 'history-off']:
+            assert '<query>fin</query>' not in history
+        else:
+            assert '<query>fin</query>' in history and '<game ' in history
+        command('pad', '3')
+        command('text', 'qqqqqqqqqq')
+        shot('no-results')
+        command('key', '27')
+        command('pad', '3')
+        command('text', 'Poké')
+        command('key', '8')
+        wait(lambda: 'Search keystroke: query=Pok ' in log(), 'Unicode backspace once')
+        command('compose', 'が')
+        assert 'query=Pokが' not in log(), 'provisional composition was committed'
+        command('text', 'が')
+        wait(lambda: 'Search keystroke: query=Pokが ' in log(), 'composition commit')
+        command('key', '27')
+        command('pad', '3')
+        command('text', 'Final Fantasy VII')
+        command('key', '1073741905')
+        command('key', '13 64')  # Ctrl+Enter follows the normal launch path.
+        wait(lambda: (home / 'game-launched').exists(), 'Ctrl+Enter game command')
+        command('quit')
+        assert process.wait(timeout=30) == 0
+        summary = dict(resolution=[width, height], variant=variant,
+                       checks=['live strokes', 'scope filter', 'result focus', 'show game',
+                               'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
+        (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+        print(json.dumps(summary), flush=True)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=15)
+        output.close()
+
+
+if __name__ == '__main__':
+    run(sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]),
+        sys.argv[6] if len(sys.argv) > 6 else 'dark')

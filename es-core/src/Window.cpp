@@ -833,7 +833,7 @@ void Window::render()
 #if defined(__ANDROID__) || defined(__IOS__)
     if (Settings::getInstance()->getBool("InputTouchOverlay")
 #if defined(__ANDROID__)
-        && !overlayBelowDialog
+        && !overlayBelowDialog && !(peekGui() && peekGui()->ownsTouch(0.5f, 0.5f))
 #endif
     )
         InputOverlay::getInstance().render(mRenderer->getIdentity());

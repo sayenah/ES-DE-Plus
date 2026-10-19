@@ -47,6 +47,7 @@ public:
     InputConfig* getInputConfigByDevice(int deviceId);
 
     bool parseEvent(const SDL_Event& event);
+    bool lastInputWasTouch() const { return mLastInputWasTouch; }
 #if defined(__ANDROID__)
     void cancelTouchInput();
 #endif
@@ -80,6 +81,7 @@ private:
     std::map<SDL_JoystickID, SDL_GameController*> mControllers;
     std::map<SDL_JoystickID, std::unique_ptr<InputConfig>> mInputConfigs;
 
+    bool mLastInputWasTouch {false};
     std::unique_ptr<InputConfig> mKeyboardInputConfig;
     std::unique_ptr<InputConfig> mTouchInputConfig;
 #if defined(__ANDROID__)

@@ -80,11 +80,15 @@ public:
 
     virtual void textInput(const std::string& text, const bool pasting = false);
 
+    // Composition is provisional; only textInput commits text to an editor.
+    virtual void textEditing(const std::string&, int, int) {}
+
     // Called when input is received.
     // Return true if the input is consumed, false if it should continue to be passed
     // to other children.
     virtual bool input(InputConfig* config, Input input);
 #if defined(__ANDROID__)
+    virtual bool ownsTouch(float, float) { return false; }
     virtual bool nativeTouch(int, int64_t, float, float) { return false; }
     virtual void cancelNativeTouch() {}
 #endif

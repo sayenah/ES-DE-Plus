@@ -30,12 +30,12 @@
 #include "guis/GuiCollectionSystemsOptions.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiGameImporter.h"
-#include "guis/GuiGlobalSearch.h"
 #include "guis/GuiMediaViewerOptions.h"
 #include "guis/GuiMsgBox.h"
 #include "guis/GuiOrphanedDataCleanup.h"
 #include "guis/GuiScraperMenu.h"
 #include "guis/GuiScreensaverOptions.h"
+#include "guis/GuiSearch.h"
 #include "guis/GuiSystemStatusOptions.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
@@ -120,26 +120,7 @@ GuiMenu::~GuiMenu()
     }
 }
 
-void GuiMenu::openGlobalSearch()
-{
-    auto searchCallback = [this](const std::string& value) {
-        const std::string query {Utils::String::trim(value)};
-        if (!query.empty())
-            mWindow->pushGui(new GuiGlobalSearch(query));
-    };
-
-    if (Settings::getInstance()->getBool("VirtualKeyboard")) {
-        const float verticalPosition {Renderer::getIsVerticalOrientation() ? mMenu.getPosition().y :
-                                                                             0.0f};
-        mWindow->pushGui(new GuiTextEditKeyboardPopup(verticalPosition, _("SEARCH ALL GAMES"), "",
-                                                      searchCallback, false, _("SEARCH"),
-                                                      _("START SEARCH?")));
-    }
-    else {
-        mWindow->pushGui(new GuiTextEditPopup(_("SEARCH ALL GAMES"), "", searchCallback, false,
-                                              _("SEARCH"), _("START SEARCH?")));
-    }
-}
+void GuiMenu::openGlobalSearch() { mWindow->pushGui(new GuiSearch()); }
 
 void GuiMenu::openScraperOptions()
 {
