@@ -166,9 +166,9 @@ void GuiSearch::refresh()
         favorites.favouritesOnly = true;
         mFavorites = engine.browse(5, favorites);
         for (size_t i : mRecent)
-            mGames.push_back(LibrarySearch::handle(i));
+            mGames.push_back(LibrarySearch::handle(i, mGeneration));
         for (size_t i : mFavorites)
-            mGames.push_back(LibrarySearch::handle(i));
+            mGames.push_back(LibrarySearch::handle(i, mGeneration));
         mMatches.clear();
     }
     else {
@@ -180,7 +180,7 @@ void GuiSearch::refresh()
                         {LibrarySearch::SuggestionKind::Title, engine.game(match.index).title});
         }
         for (const auto& match : mMatches)
-            mGames.push_back(LibrarySearch::handle(match.index));
+            mGames.push_back(LibrarySearch::handle(match.index, mGeneration));
     }
     const auto old = std::find_if(mGames.begin(), mGames.end(),
                                   [&](const auto& handle) { return handle.id == oldGame; });
@@ -532,8 +532,9 @@ void GuiSearch::layout()
                 cover(mGames[gameIndex], {x, top, width, height});
                 label("", {x, top, width, height}, 1, mForeground, mPanel,
                       selected(Area::Games, gameIndex));
-                label(LibrarySearch::engine().game(games[i]).title,
-                      {x, top + height + 4 * mUnit, width, 56 * mUnit}, 27 * mUnit, mForeground);
+                const auto game = LibrarySearch::resolve(mGames[gameIndex]);
+                label(game ? game->getName() : "", {x, top + height + 4 * mUnit, width, 56 * mUnit},
+                      27 * mUnit, mForeground);
                 mTargets.push_back({{x, top, width, height + 60 * mUnit}, Area::Games, gameIndex});
             }
             top += height + 100 * mUnit;

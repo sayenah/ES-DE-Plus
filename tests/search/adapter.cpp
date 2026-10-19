@@ -39,17 +39,22 @@ int main()
     SystemData::sSystemVector = {&real, &collection};
     const auto& first {engine()};
     require(first.size() == 1, "adapter never duplicates collection aliases or real game handles");
-    const auto original {handle(first.search("before")[0].index)};
+    const auto original {handle(first.search("before")[0].index, currentGeneration())};
     require(resolve(original) == file.get(), "adapter resolves a live handle");
     const auto generation {currentGeneration()};
     require(engine().size() == 1 && currentGeneration() == generation,
             "query/open reuses the built snapshot");
+    file->metadata.set("name", "Before");
+    require(currentGeneration() == generation && resolve(original) == file.get(),
+            "saving unchanged metadata preserves the snapshot and its handles");
     file->metadata.set("name", "After"); // Real MetaDataList::set, used by editor and scraper.
     require(!original.current() && !resolve(original),
             "actual metadata edit invalidates previously issued handles");
     const auto& edited {engine()};
     require(edited.search("before").empty() && edited.search("after").size() == 1,
             "next adapter search reflects actual metadata edit");
+    require(!resolve(handle(0, original.generation)),
+            "an old query index cannot rebind after the adapter rebuilds");
     file->metadata.set("hidden", "true");
     Settings::getInstance()->values["ShowHiddenGames"] = false;
     require(engine().search("after", 200, currentFilter()).empty(),
@@ -72,7 +77,7 @@ int main()
             "adapter applies setting policy");
     Settings::getInstance()->values["SearchHistory"] = true;
     require(history().queries().size() == 1, "adapter preserves disabled history");
-    const auto old {handle(0)};
+    const auto old {handle(0, currentGeneration())};
     real.root.files.clear();
     collection.root.files.clear();
     file.reset(); // Destructive reload at the frontend seam; sanitizer checks stale resolution.

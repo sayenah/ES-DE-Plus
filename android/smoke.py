@@ -1002,7 +1002,7 @@ def search_launch(term, name):
     screenshot(name + '-menu')
     key('KEYCODE_ENTER')
     screenshot(name + '-text-entry')
-    shell('input', 'text', term)
+    shell('input', 'text', term.replace(' ', '%s'))
     key('KEYCODE_ENTER')  # Focus the live screen's first result.
     screenshot(name + '-results')
     # Android 13's input command supplies the physical keyboard play shortcut.
@@ -1098,7 +1098,7 @@ def gamelist_recipient_flow(mode):
         launch_checks.equal('Found custom find rules configuration file' in log(), True, 'Custom user find rules loaded')
     def failed_target(name):
         start_custom()
-        search_launch('Smoke', mode + '-' + name + '-search')
+        search_launch('Smoke Alpha', mode + '-' + name + '-search')
         wait_for(lambda: "Couldn't launch game, emulator not found" in log(), name + ' target visible error')
         screenshot(mode + '-' + name + '-target-error')
         save_logs(mode + '-' + name + '-target-error')
@@ -1108,7 +1108,7 @@ def gamelist_recipient_flow(mode):
         start_custom()
         pid = shell('pidof', app).strip()
         frontend_uid = int(shell('run-as', app, 'id', '-u').strip())
-        search_launch('Smoke', mode + '-provider-search')
+        search_launch('Smoke Alpha', mode + '-provider-search')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
         wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
                  focused_window()), 'recipient focused window')
@@ -1131,7 +1131,7 @@ def gamelist_recipient_flow(mode):
             try:
                 start_custom()
                 failed_pid = shell('pidof', app).strip()
-                search_launch('Smoke', mode + '-unsupported-saf-search')
+                search_launch('Smoke Alpha', mode + '-unsupported-saf-search')
                 wait_for(lambda: 'Launch terminated with nonzero return value -1' in log(),
                          'app-owned SAF native launch error', timeout=20)
                 # The existing info popup lasts six seconds; capture it while
@@ -1309,7 +1309,7 @@ def real_retroarch_flow():
     try:
         adb('logcat', '-c')
         launch()
-        search_launch('Smoke', 'real-retroarch-search')
+        search_launch('Smoke Alpha', 'real-retroarch-search')
         wait_for(lambda: 'Timed out attempting to query RetroArch, proceeding with game launch anyway' in log(), 'bundled RetroArch query timeout proceeds')
         wait_for(lambda: launch_checks.activity_present(shell('dumpsys', 'activity', 'activities'),
                  'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'),
@@ -1915,8 +1915,9 @@ try:
     key('KEYCODE_ESCAPE')
     screenshot('main-menu-search')
     key('KEYCODE_ENTER')
-    # Typo tolerance must find the real Smoke Alpha/Beta corpus through today's search UI.
-    shell('input', 'text', 'Smkoe')
+    # Keep the exact receipt fixture explicit: ranking can legitimately prefer Beta.
+    # This typo plus a second token must still find Smoke Alpha through the real UI.
+    shell('input', 'text', 'Smkoe%sAlpha')
     key('KEYCODE_ENTER')
     screenshot('search-results')
     timings = re.findall(r'Library search index: games=\d+ build_ms=[\d.]+ search_suggest_ms=[\d.]+', log())

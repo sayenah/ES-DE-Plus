@@ -123,6 +123,7 @@ namespace LibrarySearch
                                 const Filter& filter,
                                 bool firstOnly,
                                 const std::vector<size_t>* support = nullptr,
+                                std::vector<uint8_t>* matchingGames = nullptr,
                                 Results* counts = nullptr) const;
         struct Index;
         std::unique_ptr<Index> mIndex;

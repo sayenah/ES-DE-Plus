@@ -92,10 +92,12 @@ namespace LibrarySearch
                      << std::chrono::duration<double, std::milli>(queried - built).count();
         return state.core;
     }
-    Handle handle(size_t index)
+    Handle handle(size_t index, uint64_t generation)
     {
-        const auto& core {engine()};
-        return {snapshot().generation, core.game(index).id};
+        const auto& state {snapshot()};
+        if (state.generation != generation || currentGeneration() != generation)
+            return {0, {}};
+        return {generation, state.core.game(index).id};
     }
     FileData* resolve(const Handle& handle)
     {
