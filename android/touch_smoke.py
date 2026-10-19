@@ -634,15 +634,34 @@ def run(namespace):
         check_delta(outside_before, [(12, 1), (12, 0)], 'exposed D-pad still works beside modal')
         before_confirm = h.log()
         ok = re.findall(r'GuiMsgBox: button=OK norm=([0-9.eE+-]+),([0-9.eE+-]+)', before_confirm)[-1]
-        ok_point = (surface[0] + float(ok[0]) * surface[2], surface[1] + float(ok[1]) * surface[3])
+        ok_centre = (surface[0] + float(ok[0]) * surface[2], surface[1] + float(ok[1]) * surface[3])
+        drawable = tuple(map(float, re.findall(r'surface=(\d+)x(\d+)', before_confirm)[-1]))
+        # The centre lies between Back/Start. Select visible black OK padding
+        # that is ALSO in a hidden activation rectangle, so removing modal
+        # exclusion cannot pass merely because the centre happens to be empty.
+        ok_point = None
+        for hidden_id in (4, 6):
+            hidden = buttons(before_confirm)[hidden_id]
+            centre = (surface[0] + hidden['norm'][0] * surface[2],
+                      surface[1] + hidden['norm'][1] * surface[3])
+            point = ((ok_centre[0] + centre[0]) / 2, ok_centre[1])
+            logical = (hidden['centre'][0] + (point[0] - centre[0]) * drawable[0] / surface[2],
+                       hidden['centre'][1] + (point[1] - centre[1]) * drawable[1] / surface[3])
+            hx, hy, hw, hh = hidden['hit']
+            pixel = on_rows[round(point[1])][round(point[0]) * channels:round(point[0]) * channels + 3]
+            if hx <= logical[0] < hx + hw and hy <= logical[1] < hy + hh and max(pixel) < 8:
+                ok_point = point
+                break
+        assert ok_point is not None, 'Need visible OK padding over an actual hidden Back/Start hit'
         assert x <= ok_point[0] <= x + w and y <= ok_point[1] <= y + height
-        tap(ok_point)  # The visible OK, including its overlap with hidden Start/Back.
+        tap(ok_point)  # Actual visible OK AND a hidden overlay activation region.
         check_delta(before_confirm, [], 'modal OK does not press hidden overlay controls')
         h.wait_for(lambda: 'GuiMsgBox: direct touch confirmed OK' in h.log()[len(before_confirm):],
                    'visible modal OK confirms directly')
         assert 'owner=gui' in h.log()[len(before_confirm):]
         with (h.evidence / 'touch-modal-priority.txt').open('a') as evidence:
-            evidence.write(f'PASS: visible OK at {ok_point} confirmed by direct touch; no overlay input.\n')
+            evidence.write(f'PASS: visible OK at {ok_point}, over hidden id={hidden_id}, '
+                           'confirmed by direct touch; no overlay input.\n')
         touch_control(1)
         assert 'InputOverlay: cleared' in h.log(), h.log()
         saved = h.shell('cat', h.settings)
