@@ -136,6 +136,7 @@ void GuiEmulatorManager::discover()
 
 void GuiEmulatorManager::rebuild()
 {
+    InputManager::getInstance().cancelTouchInput();
     mPage = mNext;
     const char* pages[] {"systems", "system", "draft", "apps",    "profiles",
                          "extras",  "extra",  "files", "defaults"};

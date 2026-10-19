@@ -62,6 +62,7 @@ startup_number = 0
 startup_log_marker = ''
 startup_monitoring = False
 startup_ready_pid = ''
+startup_surface_nodes = None
 session_settled = False
 
 
@@ -228,7 +229,7 @@ def launch(audio_relaunch=None):
         launch_attempt, lambda: onboarding_dismissals,
         lambda number: capture_startup_failure(f'{name}-attempt-{number + 1}-failure', marker),
         lambda: shell('am', 'force-stop', app), record, app, current_startup_ready)
-    return hierarchy()
+    return startup_surface_nodes
 
 
 def capture_startup_failure(name, marker):
@@ -304,7 +305,8 @@ def current_startup_ready():
 
 def launch_attempt(reached_readiness, audio_relaunch=None):
     # Each stopped-process restart must produce new startup evidence.
-    global startup_baseline, startup_monitoring
+    global startup_baseline, startup_monitoring, startup_surface_nodes
+    startup_surface_nodes = None
     startup_baseline = log()
     if audio_relaunch:
         audio_smoke.startup(globals(), audio_relaunch, startup_baseline)
@@ -317,8 +319,13 @@ def launch_attempt(reached_readiness, audio_relaunch=None):
     # Startup logging precedes the render loop's first frame/texture uploads.
     time.sleep(10)
     # Dismiss the real Android immersive-mode tutorial through its actual UI.
+    nodes = []
+    def ready_hierarchy():
+        nonlocal nodes
+        nodes = hierarchy()
+        return bool(nodes)
     try:
-        wait_for(lambda: bool(hierarchy()), 'frontend UI hierarchy')
+        wait_for(ready_hierarchy, 'frontend UI hierarchy')
     except AssertionError:
         # Capture the live failure before a caller's cleanup reinstalls debug
         # or force-stops the process (notably the minified-release check).
@@ -328,12 +335,14 @@ def launch_attempt(reached_readiness, audio_relaunch=None):
         (evidence / 'frontend-readiness-failure-activities.txt').write_text(shell('dumpsys', 'activity', 'activities'))
         capture_frontend_stacks('frontend-readiness-failure')
         raise
-    if any(node.get('text') == 'Got it' for node in hierarchy()):
+    if any(node.get('text') == 'Got it' for node in nodes):
         ui('Got it')
+        wait_for(ready_hierarchy, 'frontend hierarchy after immersive tutorial')
     if not current_startup_ready():
         raise fresh_session_checks.ReadinessTimeout('Startup readiness lost before startup UI completed')
     startup_monitoring = False
-    return hierarchy()
+    startup_surface_nodes = nodes
+    return nodes
 
 
 def save_logs(name):

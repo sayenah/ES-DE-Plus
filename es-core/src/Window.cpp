@@ -94,11 +94,11 @@ void Window::pushGui(GuiComponent* gui)
 
 void Window::removeGui(GuiComponent* gui)
 {
-#if defined(__ANDROID__)
-    InputManager::getInstance().cancelTouchInput();
-#endif
     for (auto it = mGuiStack.cbegin(); it != mGuiStack.cend(); ++it) {
         if (*it == gui) {
+#if defined(__ANDROID__)
+            InputManager::getInstance().cancelTouchInput();
+#endif
             it = mGuiStack.erase(it);
 
             // We just popped the stack and the stack is not empty.
