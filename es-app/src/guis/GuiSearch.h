@@ -167,6 +167,7 @@ private:
     bool mMeasureFrame {false};
     bool mKeyboardShown {false};
     float mUnit {0};
+    float mCaretX {0};
     float mContentBottom {0};
     int mVisibleRows {5};
     glm::vec4 mFieldRect {};

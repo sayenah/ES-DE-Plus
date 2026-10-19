@@ -748,7 +748,7 @@ void Window::render()
                     mScaleAccumulator = 0;
             }
 
-            if (!mRenderedHelpPrompts) {
+            if (!mRenderedHelpPrompts && (!opaqueFullscreen || renderBottom)) {
                 if (mHelpComponents != nullptr) {
                     for (auto& helpComponent : *mHelpComponents) {
                         if (helpComponent->getComponentScope() == ComponentScope::NONE)

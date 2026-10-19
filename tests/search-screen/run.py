@@ -215,6 +215,15 @@ def run(binary, probe, destination, width, height, variant='dark'):
         assert not query_seen('Pokが', before), 'provisional composition was committed'
         command('text', 'が')
         wait(lambda: query_seen('Pokが', before), 'composition commit')
+        if variant == 'dark' and width == 1280:
+            tail = ' long query' * 8
+            for _ in range(8):
+                command('text', ' long query')
+            shot('long-query')
+            command('key', '1073741898')  # Home, then insert at the beginning of the field.
+            before = len(log())
+            command('text', 'X')
+            wait(lambda: query_seen('XPokが' + tail, before), 'caret insertion in a long UTF-8 query')
         command('key', '27')
         before = len(log())
         command('key', '109')  # SDL key-up can precede the same opening character's commit.

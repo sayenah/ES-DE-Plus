@@ -449,6 +449,8 @@ void GuiSearch::layout()
                mFieldRect.z - 60 * mUnit)
         visibleBegin = nextCharacter(field, visibleBegin);
     field = field.substr(visibleBegin);
+    mCaretX = std::min(font->sizeText(field.substr(0, mCursor - visibleBegin) + mComposition).x,
+                       mFieldRect.z - 60 * mUnit);
     if (!mComposition.empty())
         field.insert(mCursor - visibleBegin, mComposition);
     if (field.empty())
@@ -1351,10 +1353,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     }
     if (mBlink < 550) {
         mRenderer->setMatrix(transform);
-        const auto font = searchFont(38 * mUnit);
-        float cursor = font->sizeText(mQuery.substr(0, mCursor)).x;
-        cursor = std::min(cursor, mFieldRect.z - 60 * mUnit);
-        mRenderer->drawRect(mFieldRect.x + 14 * mUnit + cursor, mFieldRect.y + 20 * mUnit,
+        mRenderer->drawRect(mFieldRect.x + 14 * mUnit + mCaretX, mFieldRect.y + 20 * mUnit,
                             3 * mUnit, mFieldRect.w - 40 * mUnit, mAccent, mAccent);
     }
     if (mMeasureFrame) {
