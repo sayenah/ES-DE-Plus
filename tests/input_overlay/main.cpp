@@ -416,8 +416,11 @@ static void resetIntentRegressions()
     write("setup-session\n/selected");
     require(!TouchOverlay::consumeReset(marker, "/other", apply),
             "reset bound to selected data root");
-    require(!TouchOverlay::consumeReset(marker, "/selected", [] { return false; }),
-            "failed save retains pending reset");
+    bool failed {false};
+    require(!TouchOverlay::consumeReset(
+                marker, "/selected", [] { return false; }, &failed) &&
+                failed,
+            "failed save retains intent and reports startup failure before user input");
     require(TouchOverlay::consumeReset(marker, "/selected", apply),
             "persisted reset survives process replacement and draft cleanup");
     require(!TouchOverlay::consumeReset(marker, "/selected", apply) && applied == 1,

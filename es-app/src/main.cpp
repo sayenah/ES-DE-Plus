@@ -837,9 +837,11 @@ int main(int argc, char* argv[])
     // The accepted setup intent survives draft cleanup and fresh-process recovery.
     // Retire it only after native Settings has saved and independently read it back,
     // before any frontend input can disable the overlay again.
+    bool resetFailed {false};
     const bool resetConsumed {TouchOverlay::consumeReset(
         AndroidVariables::sInternalDataDirectory + "/touch-overlay-reset",
-        Utils::FileSystem::getAppDataDirectory(), [] {
+        Utils::FileSystem::getAppDataDirectory(),
+        [] {
             Settings::getInstance()->setBool("InputTouchOverlay", true);
             Settings::getInstance()->saveFile();
             pugi::xml_document saved;
@@ -851,7 +853,12 @@ int main(int argc, char* argv[])
                 if (std::string {node.attribute("name").as_string()} == "InputTouchOverlay")
                     return node.attribute("value").as_bool();
             return false;
-        })};
+        },
+        &resetFailed)};
+    if (resetFailed) {
+        LOG(LogError) << "Unable to persist or acknowledge the setup touch-overlay reset";
+        return 1; // Keep the intent; do not accept later user changes before acknowledgement.
+    }
     AndroidVariables::sResetTouchOverlay = false;
     if (resetConsumed)
         LOG(LogInfo) << "InputOverlay: setup reset saved and consumed";

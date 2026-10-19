@@ -198,10 +198,31 @@ def run_fresh(namespace):
         assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', disabled) + '</f>').find(
             "bool[@name='InputTouchOverlay']").get('value') == 'false', disabled
         assert 'InputOverlay: setup reset saved and consumed' not in h.log()
+    # The other qualifying storage route must reset the selected private root,
+    # independently of the shared root exercised above.
+    h.shell('appops', 'set', '--uid', h.app, 'MANAGE_EXTERNAL_STORAGE', 'deny')
+    h.key('KEYCODE_HOME')
+    h.start_entry()
+    h.ui('Use app-owned storage', dpad=True)
+    private = h.external + '/ES-DE-Plus'
+    h.shell('mkdir', '-p', private + '/settings', h.roms + '/nes')
+    seed = h.evidence / 'touch-private-reset-seed.xml'
+    seed.write_text(configure('', InputTouchOverlay=False))
+    h.adb('push', str(seed), private + '/settings/es_settings.xml')
+    for name in ('Smoke Alpha.nes', 'Smoke Beta.nes'):
+        h.adb('push', str(dummy), h.roms + '/nes/' + name)
+    h.select_data_root(private)
+    h = types.SimpleNamespace(**namespace)
+    h.ui('Save and start frontend', dpad=True)
+    h.configured_system('touch-private-setup-reset')
+    assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
+    restored = h.shell('cat', h.settings)
+    assert ET.fromstring('<f>' + re.sub(r'<\?xml[^?]*\?>', '', restored) + '</f>').find(
+        "bool[@name='InputTouchOverlay']").get('value') == 'true', restored
     (h.evidence / 'touch-setup-reset.txt').write_text(
         'PASS: initial setup consumes reset; cancel before choice creates no intent; '
         'normal startup preserves disabled setting; live recovery after native Settings uses PR15 fresh PID; '
-        'process death after qualifying choice restores setup; selected folder enabled once; later disable survives startup.\n')
+        'process death after qualifying choice restores setup; selected shared and private folders enabled once; later disable survives startup.\n')
     run(namespace)
 
 
@@ -697,7 +718,9 @@ def run(namespace):
         finally:
             before_reset = h.log()
             h.shell('wm', 'size', 'reset')
-            h.wait_for(lambda: 'reloading' in h.log()[len(before_reset):], 'reset renderer size', timeout=60)
+            h.wait_for(lambda: 'reloading' in h.log()[len(before_reset):] and
+                       'InputOverlay: layout ' in h.log()[h.log().rfind('reloading'):],
+                       'reset renderer size completes reload', timeout=60)
         record('touch-live-resize-reset')
 
         # Fade: one complete waking gesture is inert, including its motion and UP.

@@ -20,17 +20,25 @@ namespace TouchOverlay
     // from its disposable draft. No root means the setup has not been committed.
     // apply() must persist and verify the setting before acknowledging the intent.
     template <typename Apply>
-    bool consumeReset(const std::string& marker, const std::string& root, Apply apply)
+    bool consumeReset(const std::string& marker,
+                      const std::string& root,
+                      Apply apply,
+                      bool* failed = nullptr)
     {
+        if (failed)
+            *failed = false;
         std::ifstream input {marker, std::ios::binary};
         std::string session;
         if (!std::getline(input, session) || session.empty())
             return false;
         const std::string selected {std::istreambuf_iterator<char> {input}, {}};
         input.close();
-        if (selected.empty() || selected != root || !apply())
+        if (selected.empty() || selected != root)
             return false;
-        return std::remove(marker.c_str()) == 0;
+        const bool consumed {apply() && std::remove(marker.c_str()) == 0};
+        if (failed)
+            *failed = !consumed;
+        return consumed;
     }
 } // namespace TouchOverlay
 

@@ -326,6 +326,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
         if (event.tfinger.fingerId < 0 || event.tfinger.fingerId >= INT_MAX)
             return false;
+        const bool overlayEnabled {Settings::getInstance()->getBool("InputTouchOverlay")};
         TouchOwner* owner {nullptr};
         for (auto& candidate : mTouchOwners)
             if (candidate.finger == event.tfinger.fingerId)
@@ -333,7 +334,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
         if (event.type == SDL_FINGERDOWN && !owner) {
             // Claim before dispatch: a press may open a dialog. Neither that GUI
             // nor another pointer can steal the matching motion/release.
-            const bool overlay {Settings::getInstance()->getBool("InputTouchOverlay") &&
+            const bool overlay {overlayEnabled &&
                                 mInputOverlay.claimsTouch(event.tfinger.x, event.tfinger.y)};
             for (auto& candidate : mTouchOwners) {
                 if (candidate.finger == -1) {
@@ -345,6 +346,18 @@ bool InputManager::parseEvent(const SDL_Event& event)
             if (!owner)
                 return false;
             if (!overlay) {
+                // The model retains an inert capture for idle/fade accounting.
+                // It cannot slide into controls after direct GUI ownership wins.
+                if (overlayEnabled) {
+                    const auto epoch {mInputOverlay.epoch()};
+                    mInputOverlay.processEvent(event.type,
+                                               static_cast<int>(event.tfinger.fingerId) + 1,
+                                               event.tfinger.x, event.tfinger.y);
+                    if (epoch != mInputOverlay.epoch()) {
+                        cancelTouchInput();
+                        return false;
+                    }
+                }
                 auto* gui {mWindow->peekGui()};
                 if (gui && gui->nativeTouch(event.type, event.tfinger.fingerId, event.tfinger.x,
                                             event.tfinger.y)) {
@@ -360,12 +373,21 @@ bool InputManager::parseEvent(const SDL_Event& event)
         if (event.type == SDL_FINGERUP)
             *owner = {};
         if (!captured.overlay) {
+            if (overlayEnabled && event.type != SDL_FINGERDOWN) {
+                const auto epoch {mInputOverlay.epoch()};
+                mInputOverlay.processEvent(event.type, static_cast<int>(event.tfinger.fingerId) + 1,
+                                           event.tfinger.x, event.tfinger.y);
+                if (epoch != mInputOverlay.epoch()) {
+                    cancelTouchInput();
+                    return false;
+                }
+            }
             if (captured.gui && captured.gui == mWindow->peekGui())
                 return captured.gui->nativeTouch(event.type, event.tfinger.fingerId,
                                                  event.tfinger.x, event.tfinger.y);
             return false;
         }
-        if (!Settings::getInstance()->getBool("InputTouchOverlay")) {
+        if (!overlayEnabled) {
             cancelTouchInput();
             return false;
         }
