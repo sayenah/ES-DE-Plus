@@ -66,6 +66,17 @@ def configure(original, **values):
     return '<?xml version="1.0"?>\n' + ''.join(ET.tostring(e, encoding='unicode') for e in document)
 
 
+def reset_failure_script(settings, receipt):
+    """A blocking, existing config-changed hook faults the actual read-back."""
+    return ('#!/system/bin/sh\n# SPDX-License-Identifier: MIT\n'
+            '# ES-DE-Plus — written for ES-DE-Plus. Controlled reset-verification fixture.\n' +
+            shlex.join(['printf', '%s\\n', '<?xml version="1.0"?>',
+                        '<bool name="InputTouchOverlay" value="false" />']) +
+            ' > ' + shlex.quote(settings) + '\n' +
+            shlex.join(['printf', '%s\\n', 'FAULT_INJECTED']) +
+            ' > ' + shlex.quote(receipt) + '\n')
+
+
 def assertion_controls():
     good = 'Window::logInput(Touch): Button 11, isMappedTo=up, value=1\n' \
            'Window::logInput(Touch): Button 11, isMappedTo=up, value=0\n'
@@ -81,7 +92,18 @@ def assertion_controls():
     sample = 'Emulator manager touch target: 3do — 3DO\tx:540\ty:500\tnorm:0.5,0.26'
     assert MANAGER_SYSTEM_TARGET.search(sample).group(1) == '3do — 3DO'
     assert not MANAGER_SYSTEM_TARGET.search(sample.replace('3do — 3DO', 'FIND SYSTEM'))
-    return 'PASS: orphan release, double release and missing release rejected; visible manager system target parsed\n'
+    with tempfile.TemporaryDirectory(dir='.') as directory:
+        # Exercise the exact fixture shell with quoted paths, rather than a
+        # Python substitute for the device's post-save hook.
+        from pathlib import Path
+        settings = Path(directory).resolve() / "settings 'with spaces'.xml"
+        receipt = Path(directory).resolve() / 'receipt'
+        settings.write_text('<bool name="InputTouchOverlay" value="true" />')
+        subprocess.run(['sh'], input=reset_failure_script(str(settings), str(receipt)),
+                       text=True, check=True)
+        assert ET.parse(settings).getroot().get('value') == 'false'
+        assert receipt.read_text().strip() == 'FAULT_INJECTED'
+    return 'PASS: orphan release, double release and missing release rejected; visible manager system target parsed; reset verification hook executed\n'
 
 
 def fallback_contrast(png, centre, hit_width):
@@ -149,6 +171,60 @@ def rendered_centres(off, on, expected, surface):
         boxes[button] = [x0, y0, x1, y1]
         points[button] = ((x0 + x1) / 2, (y0 + y1) / 2)
     return points, boxes
+
+
+def reset_failure_probe(h):
+    # The existing blocking config-changed hook runs after Settings.saveFile()
+    # and before consumeReset() reads it back. Corrupt only the saved test value,
+    # leaving the directories writable so earlier startup preflights still pass.
+    h.shell('am', 'force-stop', h.app)
+    previous = h.shell('cat', h.settings)
+    root = h.shell('readlink', '-f', h.settings).strip().rsplit('/settings/', 1)[0]
+    intent = 'touch-smoke-verify-failure\n' + root
+    hook = root + '/scripts/config-changed/touch-reset-verification-failure.sh'
+    receipt = root + '/settings/touch-reset-verification-failure.txt'
+    assert h.shell('sh', '-c', 'test ! -e ' + shlex.quote(hook) + ' && test ! -e ' +
+                   shlex.quote(receipt) + ' && echo ABSENT').strip() == 'ABSENT'
+    h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && printf %s ' +
+              shlex.quote(intent) + ' > files/touch-overlay-reset')
+    enabled = configure(previous, CustomEventScripts=True, DebugMode=True)
+    h.shell('sh', '-c', 'printf %s ' + shlex.quote(enabled) + ' > ' + shlex.quote(h.settings))
+    script = reset_failure_script(h.settings, receipt)
+    h.shell('mkdir', '-p', root + '/scripts/config-changed')
+    h.shell('sh', '-c', 'printf %s ' + shlex.quote(script) + ' > ' + shlex.quote(hook))
+    h.shell('chmod', '644', hook)
+    try:
+        h.start_entry()
+        message = 'Unable to save the touch overlay setup.'
+        h.wait_for(lambda: any(message in n.get('text', '') for n in h.hierarchy()),
+                   'reset failure is visible before frontend input')
+        pid = h.shell('pidof', h.app).strip()
+        assert pid
+        assert h.shell('cat', receipt).strip() == 'FAULT_INJECTED', 'Saved-value fault must execute'
+        assert 'value="false"' in h.shell('cat', h.settings)
+        h.screenshot('touch-reset-failure-dialog')
+        assert h.private('cat', 'files/touch-overlay-reset') == intent
+        logcat = h.adb('logcat', '-d', '--pid', pid)
+        assert 'Finished main function' not in logcat, 'Failure exited before acknowledgement'
+        h.ui('OK', exact=True)
+        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d', '--pid', pid),
+                   'acknowledged reset failure exits native')
+        time.sleep(1)
+        logcat = h.adb('logcat', '-d', '--pid', pid)
+        assert logcat.count('Running main function') == 1, 'Reset failure restarted native'
+        assert h.private('cat', 'files/touch-overlay-reset') == intent
+        (h.evidence / 'touch-reset-failure-logcat.txt').write_text(logcat)
+    finally:
+        h.shell('am', 'force-stop', h.app)
+        h.shell('rm', '-f', hook, receipt)
+        h.shell('sh', '-c', 'printf %s ' + shlex.quote(previous) + ' > ' + shlex.quote(h.settings))
+    h.launch()
+    assert 'InputOverlay: setup reset saved and consumed' in h.log()
+    assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
+    (h.evidence / 'touch-reset-failure.txt').write_text(
+        'PASS: controlled saved-value verification failure shows a blocking native Android dialog; '
+        'intent unchanged before/after OK; one native main exits; removing the fault hook '
+        'consumes the retained intent exactly once.\n')
 
 
 def run_fresh(namespace):
@@ -255,6 +331,9 @@ def run_fresh(namespace):
         'PASS: initial setup consumes reset; cancel before choice creates no intent; '
         'normal startup preserves disabled setting; live recovery after native Settings uses PR15 fresh PID; '
         'process death after qualifying choice restores setup; selected shared and private folders enabled once; later disable survives startup.\n')
+    # Fail fast on the new persistence error path, with all regular touch
+    # assertions still following it on the restored private configuration.
+    reset_failure_probe(h)
     run(namespace)
     # Recover by editing the existing native-owned file, as documented. Close
     # the app first and require adb to preserve its owner; do not recreate it.
@@ -281,46 +360,7 @@ def run_fresh(namespace):
         receipts.append(f'PASS: existing private XML adb edit enabled={enabled}; owner={owner} preserved; no setup reset')
     (h.evidence / 'touch-private-adb-recovery.txt').write_text('\n'.join(receipts) + '\n')
 
-    # Fault the acknowledgement independently of settings verification: a bound,
-    # native-owned intent in a read-only parent cannot be removed. Native must
-    # show the error, wait for OK, keep the intent, then exit without relaunching.
-    h.shell('am', 'force-stop', h.app)
-    root = h.shell('readlink', '-f', h.settings).strip().rsplit('/settings/', 1)[0]
-    intent = 'touch-smoke-ack-failure\n' + root
-    original_mode = h.private('stat', '-c', '%a', 'files').strip()
-    h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && printf %s ' +
-              shlex.quote(intent) + ' > files/touch-overlay-reset && chmod 500 files')
-    try:
-        denied = h.private('rm', 'files/touch-overlay-reset', check=False)
-        assert h.private('cat', 'files/touch-overlay-reset') == intent, denied
-        h.start_entry()
-        message = 'Unable to save the touch overlay setup.'
-        h.wait_for(lambda: any(message in n.get('text', '') for n in h.hierarchy()),
-                   'reset failure is visible before frontend input')
-        pid = h.shell('pidof', h.app).strip()
-        assert pid
-        h.screenshot('touch-reset-failure-dialog')
-        assert h.private('cat', 'files/touch-overlay-reset') == intent
-        logcat = h.adb('logcat', '-d', '--pid', pid)
-        assert 'Finished main function' not in logcat, 'Failure exited before acknowledgement'
-        h.ui('OK', exact=True)
-        h.wait_for(lambda: 'Finished main function' in h.adb('logcat', '-d', '--pid', pid),
-                   'acknowledged reset failure exits native')
-        time.sleep(1)
-        logcat = h.adb('logcat', '-d', '--pid', pid)
-        assert logcat.count('Running main function') == 1, 'Reset failure restarted native'
-        assert h.private('cat', 'files/touch-overlay-reset') == intent
-        (h.evidence / 'touch-reset-failure-logcat.txt').write_text(logcat)
-    finally:
-        h.shell('am', 'force-stop', h.app)
-        h.private('chmod', original_mode, 'files')
-    h.launch()
-    assert 'InputOverlay: setup reset saved and consumed' in h.log()
-    assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
-    (h.evidence / 'touch-reset-failure.txt').write_text(
-        'PASS: controlled acknowledgement failure shows a blocking native Android dialog; '
-        'intent unchanged before/after OK; one native main exits; repairing permissions '
-        'consumes the retained intent exactly once.\n')
+
 
 
 def run(namespace):
