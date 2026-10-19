@@ -141,6 +141,12 @@ class ConfiguratorActivity : Activity() {
         state.putParcelable("entry", entry)
     }
 
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (BuildConfig.DEBUG) Log.d("ES-DE-Plus", "Configurator key action=${event.action} " +
+            "code=${event.keyCode} windowFocus=${hasWindowFocus()} focus=${currentFocus?.id}")
+        return super.dispatchKeyEvent(event)
+    }
+
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun text(value: String) {

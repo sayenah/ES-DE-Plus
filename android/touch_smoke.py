@@ -232,6 +232,10 @@ def run_fresh(namespace):
         h.adb('push', str(dummy), h.roms + '/nes/' + name)
     h.select_data_root(private)
     h = types.SimpleNamespace(**namespace)
+    h.wait_for(lambda: h.smoke_checks.package_window_focused(h.focused_window(), h.app) and
+               'ConfiguratorActivity' in h.focused_window(), 'private setup window focused before Save')
+    (h.evidence / 'touch-private-before-save.txt').write_text(h.focused_window() + '\n' +
+        h.shell('dumpsys', 'input'))
     h.ui('Save and start frontend', dpad=True)
     h.configured_system('touch-private-setup-reset')
     assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
