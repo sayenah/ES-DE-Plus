@@ -295,7 +295,7 @@ void InputManager::cancelTouchInput()
     mAcceptedTouch = {};
     if (!mTouchInputConfig)
         return;
-    for (int i {0}; i < 14; ++i) {
+    for (int i {0}; i < 15; ++i) {
         if (accepted[i]) {
             LOG(LogDebug) << "InputOverlay: cancelled id=" << TouchOverlay::IDS[i];
             mWindow->releaseTouchInput(
@@ -417,7 +417,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
             if (epoch != mInputOverlay.epoch() || mWindow->getBlockInput())
                 break;
             const auto t {transitions.entries[n]};
-            for (int i {0}; i < 14; ++i) {
+            for (int i {0}; i < 15; ++i) {
                 if (TouchOverlay::IDS[i] != t.id)
                     continue;
                 if (mAcceptedTouch[i] == static_cast<bool>(t.value))
@@ -518,6 +518,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
             return true;
         }
         case SDL_KEYDOWN: {
+            mOpeningText.clear();
             if (SDL_IsTextInputActive()) {
                 // Paste from clipboard.
 #if defined(__APPLE__)
@@ -594,8 +595,20 @@ bool InputManager::parseEvent(const SDL_Event& event)
             if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
                 return true;
 
+            auto* previousGui {mWindow->peekGui()};
+            const auto key {event.key.keysym.sym};
             mWindow->input(getInputConfigByDevice(DEVICE_KEYBOARD),
-                           Input(DEVICE_KEYBOARD, TYPE_KEY, event.key.keysym.sym, 1, false));
+                           Input(DEVICE_KEYBOARD, TYPE_KEY, key, 1, false));
+            if (previousGui != mWindow->peekGui() &&
+                getInputConfigByDevice(DEVICE_KEYBOARD)
+                    ->getMappedTo(Input(DEVICE_KEYBOARD, TYPE_KEY, key, 1, false))
+                    .empty() &&
+                ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9) ||
+                 key == SDLK_SLASH)) {
+                mOpeningText.assign(1, static_cast<char>(key));
+                if (event.key.keysym.mod & KMOD_SHIFT)
+                    mOpeningText = Utils::String::toUpper(mOpeningText);
+            }
             return true;
         }
         case SDL_KEYUP: {
@@ -663,6 +676,12 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
 #endif
         case SDL_TEXTINPUT: {
+            if (!mOpeningText.empty()) {
+                const bool openingCharacter {mOpeningText == event.text.text};
+                mOpeningText.clear();
+                if (openingCharacter)
+                    break;
+            }
             mWindow->textInput(event.text.text);
             break;
         }

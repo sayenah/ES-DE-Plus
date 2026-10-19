@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 05:41-0500\n"
+"POT-Creation-Date: 2026-10-19 15:21-0500\n"
 "PO-Revision-Date: 2026-09-05 18:04+0300\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Arabic (Classical Arabic) <info@es-de.org>\n"
@@ -1159,6 +1159,12 @@ msgstr "...قفز إلى"
 msgid "SORT GAMES BY"
 msgstr "فرز الألعاب بواسطة"
 
+msgid "REMOVE FROM FAVORITES"
+msgstr ""
+
+msgid "ADD TO FAVORITES"
+msgstr ""
+
 msgid "THIS SYSTEM HAS NO GAMES"
 msgstr "هذا النظام ليس لديه ألعاب"
 
@@ -1272,12 +1278,6 @@ msgstr "الفحص"
 
 msgid "QUIT ES-DE"
 msgstr "ES-DE إغلاق"
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
-msgstr ""
 
 msgid "THEME"
 msgstr "الثيمة"
@@ -1503,6 +1503,12 @@ msgstr "تمكين التمرير السريع لقائمة النصوص"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "تمكين لوحة المفاتيح الافتراضية"
+
+msgid "Y BUTTON IN GAME LISTS"
+msgstr ""
+
+msgid "FAVORITES"
+msgstr ""
 
 msgid "ENABLE TOGGLE FAVORITES BUTTON"
 msgstr "تمكين زر تبديل المفضلة"
@@ -2865,6 +2871,12 @@ msgstr ""
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
 msgstr ""
 
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
+
 msgid ""
 "Unable to save the touch overlay setup. Check that your application data "
 "folder is writable and has free space, then start ES-DE Plus again. Your "
@@ -3376,6 +3388,9 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "تشغيل لعبة '%s'"
+
+msgid "search"
+msgstr ""
 
 msgid "menu"
 msgstr "قائمة"

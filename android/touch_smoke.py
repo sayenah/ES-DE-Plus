@@ -16,8 +16,9 @@ import xml.etree.ElementTree as ET
 import pdf_smoke
 import smoke_support
 import touch_startup
+import search_entry_smoke
 
-IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101]
+IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101, 102]
 MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
                           'leftshoulder', 'rightshoulder', 'lefttrigger', 'righttrigger']))
 TOUCH = re.compile(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=.*?value=([01])')
@@ -32,7 +33,11 @@ def transitions(log):
 
 def balanced(log):
     for button, names in re.findall(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=(.*?)value=', log):
-        assert int(button) in IDS and MAPPINGS[int(button)] in [n.strip() for n in names.split(',')], (button, names)
+        assert int(button) in IDS, (button, names)
+        if int(button) == 102:
+            assert not names.strip(), ('Search is a fork action, never mapped', names)
+        else:
+            assert MAPPINGS[int(button)] in [n.strip() for n in names.split(',')], (button, names)
     held = set()
     for button, value in transitions(log):
         assert button in IDS, ('Unmapped touch ID', button)
@@ -50,7 +55,7 @@ def buttons(log):
                        'centre': tuple(map(float, centre.split(','))),
                        'norm': tuple(map(float, norm.split(',')))}
               for i, hit, centre, norm in BUTTON.findall(layout)}
-    assert set(result) == set(IDS), ('Fourteen layout centres required', layout)
+    assert set(result) == set(IDS), ('Fifteen layout centres required', layout)
     assert all(0 <= n <= 1 for b in result.values() for n in b['norm']), layout
     return result
 
@@ -517,7 +522,7 @@ def run(namespace):
         off = shot('touch-disabled-reference')
         output = start(InputTouchOverlay=True)
         centres = buttons(output)
-        on = shot('touch-startup-fourteen-controls')
+        on = shot('touch-startup-fifteen-controls')
         surface = surface_bounds()
         surface_bounds_cached = surface
         pixels, boxes = rendered_centres(off, on, centres, surface)
@@ -1131,6 +1136,8 @@ def run(namespace):
                                h.app + '/org.esdeplus.frontend.TouchSmoke')
             assert 'PASS: kid-restore' in restored, restored
 
+        search_entry_smoke.run(h, start, touch_control, shot, record)
+
         # Orderly native exit is distinct from process death between instrumentation
         # cases. SDL's native completion marker must follow the real Back action.
         start(InputTouchOverlay=True, BackEventAppExit=True)
@@ -1146,7 +1153,7 @@ def run(namespace):
         # Logical DPI, live resizing, focus loss and touch-only journeys remain in
         # the evidence matrix; do not infer hardware inset safety from these taps.
         (h.evidence / 'touch-summary.txt').write_text(
-            'PASS: rendered fourteen-ID taps; empty space; lazy disabled textures; Android multi-pointer '
+            'PASS: rendered fifteen-ID taps; empty space; lazy disabled textures; Android multi-pointer '
             'refcounts, index reordering, stationary slide-and-hold and ACTION_CANCEL; importer cancellation; rotations; wake-only fade.\n'
             'PASS: held-pointer live resize; overlay-first/direct-manager ownership; non-destructive warning; setup reset.\n'
             'OPEN: hardware ergonomics/multitouch, gesture-navigation/cutout safety. See PR AC evidence for remaining checks.\n')

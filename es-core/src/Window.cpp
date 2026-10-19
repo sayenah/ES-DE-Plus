@@ -292,6 +292,8 @@ void Window::releaseTouchInput(InputConfig* config, Input input)
         !Settings::getInstance()->getBool("DebugSkipInputLogging")) {
         logInput(config, input);
     }
+    if (input.id == TouchOverlay::SEARCH_BUTTON)
+        return;
     // Release only: bypass the foreground block without resetting activity timers,
     // dismissing screensavers or invoking a press action. A menu may have covered the
     // original consumer since DOWN; every still-live consumer must lose its hold.
@@ -319,6 +321,17 @@ void Window::input(InputConfig* config, Input input)
         !Settings::getInstance()->getBool("DebugSkipInputLogging")) {
         logInput(config, input);
     }
+
+#if defined(__ANDROID__)
+    // The magnifier is an action, never a configurable controller button. Keep it
+    // inert over screensavers, viewers and menus, including device configuration.
+    if (input.type == TYPE_TOUCH && input.id == TouchOverlay::SEARCH_BUTTON) {
+        if (input.value && !isScreensaverActive() && !isMediaViewerActive() &&
+            !isPDFViewerActive() && peekGui())
+            peekGui()->openSearch();
+        return;
+    }
+#endif
 
     if (mMediaViewer && mRenderMediaViewer) {
         mMediaViewer->input(config, input);

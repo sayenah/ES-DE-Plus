@@ -17,7 +17,10 @@
 namespace TouchOverlay
 {
     constexpr int NO_BUTTON {-2};
-    constexpr std::array<int, 14> IDS {11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101};
+    constexpr int SEARCH_BUTTON {
+        102}; // Fork action, deliberately absent from named input mappings.
+    constexpr std::array<int, 15> IDS {11, 12,  13,  14,           0, 1, 2, 3, 4, 6, 9,
+                                       10, 100, 101, SEARCH_BUTTON};
 
     struct Point {
         float x {0};
@@ -83,9 +86,9 @@ namespace TouchOverlay
     };
 
     // Input returns at most two entries (release, press). Cancellation returns at
-    // most fourteen releases. Both are bounded values, with no deferred event queue.
+    // most fifteen releases. Both are bounded values, with no deferred event queue.
     struct Transitions {
-        std::array<Transition, 14> entries {};
+        std::array<Transition, 15> entries {};
         int count {0};
         void add(int id, int value) { entries[count++] = {id, value}; }
     };
@@ -114,7 +117,7 @@ namespace TouchOverlay
         void update(int milliseconds);
 
         const Geometry& geometry() const { return mGeometry; }
-        const std::array<Button, 14>& buttons() const { return mButtons; }
+        const std::array<Button, 15>& buttons() const { return mButtons; }
         const Rect& safeArea() const { return mSafe; }
         float density() const { return mDensity; }
         float diameter() const { return mDiameter; }
@@ -147,10 +150,10 @@ namespace TouchOverlay
         Geometry mGeometry;
         Options mOptions;
         Rect mSafe;
-        std::array<Button, 14> mButtons {};
+        std::array<Button, 15> mButtons {};
         std::array<Finger, 32> mFingers {};
-        std::array<int, 14> mReferences {};
-        std::array<bool, 14> mSuppressed {};
+        std::array<int, 15> mReferences {};
+        std::array<bool, 15> mSuppressed {};
         float mDensity {1};
         float mDiameter {0};
         float mIdle {0};

@@ -712,13 +712,13 @@ const bool CollectionSystemsManager::inCustomCollection(const std::string& colle
     return false;
 }
 
-const bool CollectionSystemsManager::toggleGameInCollection(FileData* file)
+const bool CollectionSystemsManager::toggleGameInCollection(FileData* file, bool favoriteOnly)
 {
     if (file->getType() == GAME) {
         bool adding {true};
         std::string name {file->getName()};
-        std::string sysName {mEditingCollection};
-        if (mIsEditingCustom) {
+        std::string sysName {favoriteOnly ? "Favorites" : mEditingCollection};
+        if (mIsEditingCustom && !favoriteOnly) {
             SystemData* sysData {mEditingCollectionSystemData->system};
 
             if (!mEditingCollectionSystemData->isPopulated)
@@ -768,6 +768,7 @@ const bool CollectionSystemsManager::toggleGameInCollection(FileData* file)
             saveCustomCollection(sysData);
         }
         else {
+            FileData* source {file->getSourceFileData()};
             file->getSourceFileData()->getSystem()->getIndex()->removeFromIndex(
                 file->getSourceFileData());
             MetaDataList* md {&file->getSourceFileData()->metadata};
@@ -787,6 +788,11 @@ const bool CollectionSystemsManager::toggleGameInCollection(FileData* file)
             if (mAutoCollectionSystemsData["favorites"].isEnabled)
                 ViewController::getInstance()->reloadGamelistView(
                     mAutoCollectionSystemsData["favorites"].system);
+            const auto& favorites {mAutoCollectionSystemsData["favorites"]};
+            LOG(LogDebug) << "Favorites collection: game=" << source->getName()
+                          << " favorite=" << source->getFavorite()
+                          << " enabled=" << favorites.isEnabled
+                          << " count=" << favorites.system->getRootFolder()->getChildren().size();
         }
         std::string sysTemp {sysName};
         if (sysTemp == "Favorites")

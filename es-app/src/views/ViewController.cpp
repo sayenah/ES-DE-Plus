@@ -36,6 +36,7 @@
 #include "guis/GuiMenu.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
+#include "guis/SearchEntry.h"
 #include "utils/LocalizationUtil.h"
 #include "views/GamelistView.h"
 #include "views/SystemView.h"
@@ -1280,6 +1281,35 @@ bool ViewController::input(InputConfig* config, Input input)
         }
     }
 
+    if (input.value && mWindow->peekGui() == this && mCurrentView &&
+        !mWindow->isScreensaverActive() && !mWindow->isMediaViewerActive() &&
+        !mWindow->isPDFViewerActive()) {
+        const bool gameList {mState.viewing == ViewMode::GAMELIST};
+        if (config->isMappedTo("y", input) &&
+            !(gameList && CollectionSystemsManager::getInstance()->isEditing()) &&
+            (!gameList || Settings::getInstance()->getString("GamelistYButton") != "favorites")) {
+            openSearch();
+            return true;
+        }
+        // Explicit mappings always win, including letters mapped to navigation or Y.
+        if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
+            config->getMappedTo(input).empty() &&
+            !(SDL_GetModState() & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+            if (input.id == SDLK_SLASH || input.id == SDLK_AC_SEARCH) {
+                openSearch();
+                return true;
+            }
+            if ((input.id >= SDLK_a && input.id <= SDLK_z) ||
+                (input.id >= SDLK_0 && input.id <= SDLK_9)) {
+                std::string initialText(1, static_cast<char>(input.id));
+                if (SDL_GetModState() & KMOD_SHIFT)
+                    initialText = Utils::String::toUpper(initialText);
+                openSearch(initialText);
+                return true;
+            }
+        }
+    }
+
     // Open the main menu.
     if (!(UIModeController::getInstance()->isUIModeKid() &&
           !Settings::getInstance()->getBool("EnableMenuKidMode")) &&
@@ -1325,6 +1355,19 @@ bool ViewController::input(InputConfig* config, Input input)
         return mCurrentView->input(config, input);
 
     return false;
+}
+
+void ViewController::openSearch(const std::string& initialText)
+{
+    if (mWindow->peekGui() != this || !mCurrentView ||
+        (mState.viewing != ViewMode::SYSTEM_SELECT && mState.viewing != ViewMode::GAMELIST) ||
+        mWindow->getBlockInput() || mWindow->isScreensaverActive() ||
+        mWindow->isMediaViewerActive() || mWindow->isPDFViewerActive())
+        return;
+    stopScrolling();
+    cancelViewTransitions();
+    SearchEntry::open(initialText,
+                      mState.viewing == ViewMode::GAMELIST ? mState.getSystem() : nullptr);
 }
 
 void ViewController::update(int deltaTime)
@@ -1726,6 +1769,15 @@ std::vector<HelpPrompt> ViewController::getHelpPrompts()
         return prompts;
 
     prompts = mCurrentView->getHelpPrompts();
+    if (mState.viewing == ViewMode::SYSTEM_SELECT ||
+        (mState.viewing == ViewMode::GAMELIST &&
+         Settings::getInstance()->getString("GamelistYButton") != "favorites" &&
+         !CollectionSystemsManager::getInstance()->isEditing())) {
+        prompts.erase(std::remove_if(prompts.begin(), prompts.end(),
+                                     [](const HelpPrompt& prompt) { return prompt.first == "y"; }),
+                      prompts.end());
+        prompts.push_back(HelpPrompt("y", _("search")));
+    }
     if (!(UIModeController::getInstance()->isUIModeKid() &&
           !Settings::getInstance()->getBool("EnableMenuKidMode")))
         prompts.push_back(HelpPrompt("start", _("menu")));

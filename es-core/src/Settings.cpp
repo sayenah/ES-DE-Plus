@@ -227,6 +227,7 @@ void Settings::setDefaults()
     mBoolMap["FavoritesStar"] = {true, true};
     mBoolMap["ListScrollOverlay"] = {false, false};
     mBoolMap["VirtualKeyboard"] = {true, true};
+    mStringMap["GamelistYButton"] = {"search", "search"};
     mBoolMap["FavoritesAddButton"] = {true, true};
     mBoolMap["GamelistFilters"] = {true, true};
     mBoolMap["ShowHelpPrompts"] = {true, true};
