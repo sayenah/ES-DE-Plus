@@ -508,6 +508,12 @@ def run(namespace):
             time.sleep(0.2)
 
     try:
+        # Exercise the new entry points first; restoration leaves the existing
+        # overlay suite's fixtures and assertions intact.
+        start(InputTouchOverlay=True)
+        surface_bounds_cached = surface_bounds()
+        search_entry_smoke.run(h, start, touch_control, shot, record)
+        search_screen_smoke.run(h, start, touch_control, shot, record)
         diameters = []
         for size in ('x-small', 'small', 'medium', 'large'):
             sized = start(InputTouchOverlay=True, InputTouchOverlaySize=size)
@@ -779,12 +785,14 @@ def run(namespace):
             step('up', [a])], [], menu='true')
         inject('touch-cannot-cross-clusters', [step('down', [up]), step('move', [a]),
             step('up', [a])], [(11, 1), (11, 0)], menu='true')
+        # Y opens search while browsing. Keep a menu on top so only the actual
+        # SDK ACTION_CANCEL releases these three holds, in the same order as before.
         down = pointer(12, 0); shoulder = pointer(9, 5); face = pointer(3, 11)
         inject('touch-three-clusters-cancel', [step('down', [down]),
             step('pointer-down', [shoulder, down], changed=5),
             step('pointer-down', [face, down, shoulder], changed=11),
             step('cancel', [shoulder, face, down])],
-            [(12, 1), (9, 1), (3, 1), (9, 0), (3, 0), (12, 0)])
+            [(12, 1), (9, 1), (3, 1), (9, 0), (3, 0), (12, 0)], menu='true')
 
         for absence in [100, 3000]:
             for lift_delay in [0, 150, 400]:
@@ -1136,9 +1144,6 @@ def run(namespace):
             restored = h.shell('am', 'instrument', '-w', '-e', 'mode', 'kid-restore',
                                h.app + '/org.esdeplus.frontend.TouchSmoke')
             assert 'PASS: kid-restore' in restored, restored
-
-        search_entry_smoke.run(h, start, touch_control, shot, record)
-        search_screen_smoke.run(h, start, touch_control, shot, record)
 
         # Orderly native exit is distinct from process death between instrumentation
         # cases. SDL's native completion marker must follow the real Back action.

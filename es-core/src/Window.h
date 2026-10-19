@@ -104,7 +104,6 @@ public:
     void update(int deltaTime);
     void render();
     bool getBlockInput() const { return mBlockInput; }
-
 #if defined(__ANDROID__)
     void setBlockInput(const bool state);
     void releaseTouchInput(InputConfig* config, Input input);
