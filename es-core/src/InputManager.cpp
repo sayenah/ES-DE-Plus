@@ -391,8 +391,9 @@ bool InputManager::parseEvent(const SDL_Event& event)
             cancelTouchInput();
             return false;
         }
-        if (event.type == SDL_FINGERDOWN)
+        if (event.type == SDL_FINGERDOWN) {
             LOG(LogDebug) << "InputOverlay: owner=overlay finger=" << event.tfinger.fingerId;
+        }
         const auto epoch {mInputOverlay.epoch()};
         const auto transitions {
             mInputOverlay.processEvent(event.type, static_cast<int>(event.tfinger.fingerId) + 1,

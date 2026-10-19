@@ -860,8 +860,9 @@ int main(int argc, char* argv[])
         return 1; // Keep the intent; do not accept later user changes before acknowledgement.
     }
     AndroidVariables::sResetTouchOverlay = false;
-    if (resetConsumed)
+    if (resetConsumed) {
         LOG(LogInfo) << "InputOverlay: setup reset saved and consumed";
+    }
 #endif
 
     {
