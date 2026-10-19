@@ -91,7 +91,7 @@ jobs:
             read -r width height <<< "$size"
             python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen "$width" "$height"
           done
-          for variant in light german kid history-off; do
+          for variant in light german kid history-off large; do
             python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen 1280 720 $variant
           done
       - name: Retain search screen evidence

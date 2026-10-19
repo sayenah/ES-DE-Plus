@@ -38,7 +38,7 @@ def png(path):
     path.unlink()
 
 
-def fixture(home, remember=True, kid=False, scheme='dark', language='en_US'):
+def fixture(home, remember=True, kid=False, scheme='dark', language='en_US', large=False):
     appdata = home / 'ES-DE'
     for folder in ['settings', 'custom_systems', 'logs', 'themes']:
         (appdata / folder).mkdir(parents=True, exist_ok=True)
@@ -54,6 +54,8 @@ def fixture(home, remember=True, kid=False, scheme='dark', language='en_US'):
     ET.SubElement(systems, 'loadExclusive')
     titles = ['Final Fantasy VII', 'Final Fantasy VI', 'Final Fight', 'Finding Nemo',
               'Super Metroid', 'Chrono Trigger', 'F-Zero', 'Pokémon', 'Tetris']
+    if large:
+        titles.extend(f'Final Fixture {index:03d}' for index in range(300))
     media = home / 'media'
     for system in ['snes', 'psx']:
         node = ET.SubElement(systems, 'system')
@@ -74,7 +76,7 @@ def fixture(home, remember=True, kid=False, scheme='dark', language='en_US'):
             directory = media / system / 'covers'
             directory.mkdir(parents=True, exist_ok=True)
             width, height = 120, 160
-            color = bytes([30 + index * 20, 60 + index * 12, 100 + index * 10])
+            color = bytes([(30 + index * 20) % 256, (60 + index * 12) % 256, (100 + index * 10) % 256])
             raw = b''.join(b'\0' + color * width for _ in range(height))
             def chunk(kind, payload):
                 return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
@@ -111,7 +113,7 @@ def run(binary, probe, destination, width, height, variant='dark'):
     home = destination / 'home'
     appdata = fixture(home, remember=variant != 'history-off', kid=variant == 'kid',
                       scheme='light' if variant == 'light' else 'dark',
-                      language='de_DE' if variant == 'german' else 'en_US')
+                      language='de_DE' if variant == 'german' else 'en_US', large=variant == 'large')
     sequence = 0
     for name in ['command', 'ack']:
         (destination / name).unlink(missing_ok=True)
@@ -158,6 +160,10 @@ def run(binary, probe, destination, width, height, variant='dark'):
         command('pad', '10')  # R changes the system filter.
         shot('filter')
         command('pad', '6')  # Start focuses results.
+        if variant == 'large':
+            for _ in range(205):
+                command('key', '1073741905')
+            wait(lambda: 'Search focus: area=6 index=205' in log(), 'navigation beyond first 200 results')
         shot('results-focused')
         command('key', '13')  # Enter shows the actual game list.
         wait(lambda: 'Search show game:' in log(), 'game-list cursor navigation')

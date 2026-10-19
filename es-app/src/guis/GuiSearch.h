@@ -135,6 +135,8 @@ private:
     std::string mPreviousKeyboardHint;
     size_t mCursor {0};
     size_t mTotal {0};
+    size_t mMatchTotal {0};
+    size_t mResultLimit {200};
     size_t mLibraryCount {0};
     uint64_t mGeneration {0};
     Area mArea {Area::Keys};

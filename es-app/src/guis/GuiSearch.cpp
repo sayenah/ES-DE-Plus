@@ -114,7 +114,18 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     LOG(LogDebug) << "Search screen opened: query=" << mQuery << " scope=" << mScopeName;
 }
 
-GuiSearch::~GuiSearch() { SDL_StopTextInput(); }
+GuiSearch::~GuiSearch()
+{
+    SDL_StopTextInput();
+    if (mPreviousImeHint.empty())
+        SDL_ResetHint(SDL_HINT_IME_SHOW_UI);
+    else
+        SDL_SetHint(SDL_HINT_IME_SHOW_UI, mPreviousImeHint.c_str());
+    if (mPreviousKeyboardHint.empty())
+        SDL_ResetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD);
+    else
+        SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, mPreviousKeyboardHint.c_str());
+}
 
 LibrarySearch::Filter GuiSearch::filter(bool system) const
 {
@@ -148,10 +159,18 @@ void GuiSearch::refresh()
         std::min(mSuggestionOffset, std::max(0, static_cast<int>(mSuggestions.size()) - 1));
     if (changed)
         mLibraryCount = engine.query("", 1, LibrarySearch::currentFilter()).total;
-    const auto response = engine.query(mQuery, 200, filter(false));
+    const auto response = engine.query(mQuery, mResultLimit, filter(false));
     mTotal = response.total;
     mSystems = response.systems;
-    mMatches = mSystem.empty() ? response.matches : engine.query(mQuery, 200, filter()).matches;
+    if (mSystem.empty()) {
+        mMatches = response.matches;
+        mMatchTotal = response.total;
+    }
+    else {
+        const auto scoped = engine.query(mQuery, mResultLimit, filter());
+        mMatches = scoped.matches;
+        mMatchTotal = scoped.total;
+    }
     mGames.clear();
     mRecent.clear();
     mFavorites.clear();
@@ -394,7 +413,10 @@ void GuiSearch::layout()
         const auto found = std::find_if(mSystems.begin(), mSystems.end(), [&](const auto& system) {
             return system.system == mSystem;
         });
-        scope = _("In:") + " " + (found == mSystems.end() ? mSystem : found->name);
+        scope = _("In:") + " " +
+                (found != mSystems.end() ? found->name :
+                 mSystem == mScopeName   ? mScopeLabel :
+                                           mSystem);
     }
     target(scope, {margin + left - scopeWidth, margin, scopeWidth, fieldHeight}, Area::Scope, 0,
            27 * mUnit);
@@ -685,6 +707,13 @@ int GuiSearch::count(Area area) const
 
 void GuiSearch::focus(Area area, int index)
 {
+    // Extend the indexed result window as navigation approaches its end. A broad query
+    // must not silently make every game after the initial fast window unreachable.
+    if (area == Area::Games && !mNoResults && !mMatches.empty() && mMatchTotal > mGames.size() &&
+        index >= static_cast<int>(mGames.size()) - mVisibleRows) {
+        mResultLimit = std::min(mMatchTotal, mResultLimit + 200);
+        refresh();
+    }
     mArea = area;
     mIndex = std::max(0, std::min(index, count(area) - 1));
     if (area == Area::Suggestions)
@@ -1318,6 +1347,26 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
             else if (mTouchTarget.area == Area::Filters &&
                      std::abs(point.x - mTouchLast.x) > 60 * mUnit) {
                 focus(Area::Filters, mIndex + (point.x < mTouchLast.x ? 1 : -1));
+                mTouchLast = {point.x, point.y};
+            }
+            else if (mTouchTarget.area == Area::History &&
+                     std::abs(point.x - mTouchLast.x) > 60 * mUnit) {
+                const int index = mArea == Area::History ? mIndex : mTouchTarget.index;
+                focus(Area::History, index + (point.x < mTouchLast.x ? 1 : -1));
+                mTouchLast = {point.x, point.y};
+            }
+            else if (mTouchTarget.area == Area::Games && mQuery.empty() && mSystem.empty() &&
+                     mGenre.empty() && mDeveloper.empty() && mPublisher.empty() &&
+                     !mFavouritesOnly && std::abs(point.x - mTouchLast.x) > 60 * mUnit) {
+                const int index = mArea == Area::Games ? mIndex : mTouchTarget.index;
+                const int first = mTouchTarget.index < static_cast<int>(mRecent.size()) ?
+                                      0 :
+                                      static_cast<int>(mRecent.size());
+                const int end = first == 0 && !mRecent.empty() ? static_cast<int>(mRecent.size()) :
+                                                                 static_cast<int>(mGames.size());
+                focus(
+                    Area::Games,
+                    std::max(first, std::min(index + (point.x < mTouchLast.x ? 1 : -1), end - 1)));
                 mTouchLast = {point.x, point.y};
             }
             else if (contains(mResultsRect, point.x, point.y) &&
