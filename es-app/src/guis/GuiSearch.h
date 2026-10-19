@@ -15,6 +15,8 @@
 #include "search/LibrarySearch.h"
 #include "search/SearchArtwork.h"
 
+#include <map>
+
 class SystemData;
 
 class GuiSearch : public GuiComponent
@@ -65,6 +67,7 @@ private:
     void refresh();
     void layout();
     void focus(Area area, int index = 0);
+    void focusResults();
     void move(int x, int y);
     void activate();
     void typeKey();
@@ -76,6 +79,7 @@ private:
     void edit(const std::string& text);
     void startTextInput(bool touch);
     void close();
+    std::shared_ptr<Font> searchFont(float size);
     void label(const std::string& value,
                const glm::vec4& rect,
                float fontSize,
@@ -97,8 +101,17 @@ private:
     std::vector<std::string> keys() const;
     LibrarySearch::Filter filter(bool system = true) const;
 
+    // Reference search palette follows the chosen menu scheme; font selection stays upstream.
+    unsigned int mBackground {0x12151CFF};
+    unsigned int mPanel {0x1B1F29FF};
+    unsigned int mRaised {0x262B38FF};
+    unsigned int mForeground {0xEEF0F5FF};
+    unsigned int mMuted {0x9AA1B3FF};
+    unsigned int mAccent {0xF0A63AFF};
+    unsigned int mFocusInk {0x1A1206FF};
     Renderer* mRenderer;
     SearchArtwork mArtwork;
+    std::map<float, std::shared_ptr<Font>> mFonts;
     std::vector<Label> mLabels;
     std::vector<Target> mTargets;
     std::vector<Cover> mCovers;

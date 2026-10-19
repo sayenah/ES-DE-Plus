@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MIT
-# ES-DE-Plus — written for ES-DE-Plus. Real frontend keyboard/controller smoke and visual evidence.
+#  SPDX-License-Identifier: MIT
+#
+#  ES-DE-Plus
+#  run.py
+#
+#  Written for ES-DE-Plus. Real frontend input smoke and framebuffer evidence.
+#
+
 import json
 import os
 from pathlib import Path
 import re
-import statistics
 import struct
 import subprocess
 import sys

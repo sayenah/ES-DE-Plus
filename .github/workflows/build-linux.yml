@@ -66,6 +66,8 @@ jobs:
           /tmp/emulator-manager-probe /tmp/emulator-manager-fixtures
 
       - name: Configure
+        id: native-configure
+        if: ${{ !cancelled() }}
         run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Theme repository policy and operation controls (framework free)
@@ -75,9 +77,12 @@ jobs:
           ctest --test-dir build/theme-trust --output-on-failure
 
       - name: Build
+        id: native-build
+        if: ${{ !cancelled() && steps.native-configure.outcome == 'success' }}
         run: cmake --build build --parallel 2
 
       - name: Live search keyboard/controller smoke and actual framebuffer evidence
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
         run: |
           mkdir -p build/search-screen
           read -r -a sdl_flags <<< "$(sdl2-config --cflags --libs)"

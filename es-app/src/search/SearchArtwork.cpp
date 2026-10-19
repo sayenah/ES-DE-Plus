@@ -13,6 +13,7 @@
 #include "utils/StringUtil.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <set>
 
@@ -81,7 +82,7 @@ void SearchArtwork::work()
                     request.mediaRoot + request.system + "/" + directory + folders + "/" + stem;
                 for (const auto& extension : {".png", ".jpg", ".webp"}) {
                     const std::string candidate = base + extension;
-                    std::ifstream stream(candidate, std::ios::binary);
+                    std::ifstream stream(std::filesystem::u8path(candidate), std::ios::binary);
                     if (stream.good()) {
                         found = candidate;
                         break;
@@ -93,7 +94,8 @@ void SearchArtwork::work()
             path = mPaths.emplace(request.id, std::move(found)).first;
         }
         if (!path->second.empty()) {
-            std::ifstream stream(path->second, std::ios::binary | std::ios::ate);
+            std::ifstream stream(std::filesystem::u8path(path->second),
+                                 std::ios::binary | std::ios::ate);
             const auto length = stream.tellg();
             if (length > 0 && length <= 32 * 1024 * 1024) {
                 std::vector<unsigned char> encoded(static_cast<size_t>(length));

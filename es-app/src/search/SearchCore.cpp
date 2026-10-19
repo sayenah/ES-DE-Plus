@@ -173,6 +173,9 @@ namespace LibrarySearch
         std::vector<Word> words(const std::string& text)
         {
             std::vector<Word> result;
+            if (text.empty())
+                return result;
+            result.reserve(1 + std::count(text.begin(), text.end(), ' '));
             for (size_t begin {0}; begin < text.size();) {
                 size_t end {text.find(' ', begin)};
                 if (end == std::string::npos)
@@ -191,7 +194,7 @@ namespace LibrarySearch
         {
             auto result = fold(text, mapping);
             size_t remove {0};
-            for (const std::string article : {"the ", "an ", "a "})
+            for (const std::string_view article : {std::string_view {"the "}, {"an "}, {"a "}})
                 if (starts(result.text, article)) {
                     remove = article.size();
                     break;
@@ -233,7 +236,18 @@ namespace LibrarySearch
             U8_NEXT(word.data(), end, static_cast<int32_t>(word.size()), cp);
             return word.substr(0, end);
         }
-        std::vector<std::string> letters(const std::string& word)
+        struct Letters {
+            std::array<std::string, 3> values;
+            size_t count;
+            Letters(std::initializer_list<std::string> text)
+                : count {text.size()}
+            {
+                std::copy(text.begin(), text.end(), values.begin());
+            }
+            const std::string* begin() const { return values.data(); }
+            const std::string* end() const { return values.data() + count; }
+        };
+        Letters letters(const std::string& word)
         {
             const auto numeric {number(word)};
             if (numeric != word)
@@ -540,8 +554,8 @@ namespace LibrarySearch
         std::vector<Document> documents;
         std::vector<std::array<size_t, 3>> gameDocuments;
         std::vector<size_t> sortedTitles;
-        std::map<std::string, std::vector<size_t>> metadataGroups;
-        std::map<std::string, Vocabulary> vocabulary;
+        std::unordered_map<std::string, std::vector<size_t>> metadataGroups;
+        std::unordered_map<std::string, Vocabulary> vocabulary;
         std::map<size_t, std::unordered_map<uint64_t, std::vector<const Vocabulary*>>> signatures;
         std::unordered_map<uint32_t, std::vector<size_t>> grams;
         std::unordered_map<std::string, std::vector<size_t>> acronymPrefixes;
@@ -569,7 +583,12 @@ namespace LibrarySearch
         std::unordered_map<std::string, std::string> normalized;
         normalized.reserve(games.size() * 2);
         index->games.reserve(games.size());
-        index->documents.reserve(games.size());
+        index->documents.reserve(games.size() * 2);
+        index->gameDocuments.reserve(games.size());
+        index->metadataGroups.reserve(games.size());
+        index->vocabulary.reserve(games.size() * 2);
+        index->grams.reserve(4096);
+        index->acronymPrefixes.reserve(1024);
         auto cached = [&](const std::string& value) -> const std::string& {
             auto it = normalized.find(value);
             if (it == normalized.end())
@@ -614,6 +633,7 @@ namespace LibrarySearch
         std::unordered_set<std::string> identities;
         identities.reserve(games.size());
         std::unordered_map<std::string, size_t> completionKeys;
+        completionKeys.reserve(games.size());
         auto completion = [&](SuggestionKind kind, const std::string& text, const auto& ids,
                               const std::string& overrideKey = std::string {}) {
             const auto& key = overrideKey.empty() ? cached(text) : overrideKey;
@@ -633,19 +653,15 @@ namespace LibrarySearch
             }
         };
         std::unordered_map<std::string, size_t> rawTitles;
-        rawTitles.reserve(games.size());
+        rawTitles.reserve(games.size() * 2);
         auto addTitle = [&](const std::string& raw, size_t i) {
-            auto found = rawTitles.find(raw);
-            size_t id;
-            if (found != rawTitles.end())
-                id = found->second;
-            else {
+            const auto inserted = rawTitles.try_emplace(raw, index->documents.size());
+            const size_t id = inserted.first->second;
+            if (inserted.second) {
                 auto value = title(raw).text;
-                id = index->documents.size();
                 auto joined = compact(value);
                 index->documents.push_back(
                     {makeText(std::move(value)), std::move(joined), {}, {}, {}});
-                rawTitles.emplace(raw, id);
             }
             auto& ids = index->documents[id].games;
             if (ids.empty() || ids.back() != i)
@@ -708,7 +724,7 @@ namespace LibrarySearch
                     index->grams[gram(joined, offset, length)].push_back(i);
             std::vector<std::string> acronymKeys;
             acronymKeys.reserve(t.tokens.size() * 2);
-            std::vector<std::vector<std::string>> initials;
+            std::vector<Letters> initials;
             initials.reserve(t.tokens.size());
             for (const auto& w : t.tokens)
                 initials.push_back(letters(w.text));
@@ -1017,6 +1033,7 @@ namespace LibrarySearch
                         return {firstMatch};
                 }
         }
+        const bool prefixFull = matched >= limit;
         if ((counts || matched < limit) && !q.empty()) {
             std::vector<uint8_t> candidates(ix.documents.size(), 1);
             for (const auto& token : qw) {
@@ -1080,7 +1097,13 @@ namespace LibrarySearch
                 if (!std::any_of(d.games.begin(), d.games.end(),
                                  [&](size_t game) { return allowed(game) && ranks[game] > 1; }))
                     continue;
-                const int r {rank(q, qw, d.text)};
+                // Once prefix matches fill the display window, lower classes only affect
+                // complete counts. A compact substring proves membership without ranking
+                // a class that cannot enter that window.
+                const int r =
+                    counts && prefixFull && d.compact.find(compactQuery) != std::string::npos ?
+                        6 :
+                        rank(q, qw, d.text);
                 if (r >= 0) {
                     apply(d.games, r);
                     if (firstOnly && matched)

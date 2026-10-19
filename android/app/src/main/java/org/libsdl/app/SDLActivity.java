@@ -2030,6 +2030,12 @@ class SDLInputConnection extends BaseInputConnection {
 
     @Override
     public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+        // ES-DE-Plus: a native field can already contain controller/physical-keyboard text.
+        // Forward Backspace even when this IME's private editable buffer is still empty.
+        if (beforeLength == 1 && afterLength == 0 && getEditable().length() == 0) {
+            nativeGenerateScancodeForUnichar('\b');
+            return true;
+        }
         if (Build.VERSION.SDK_INT <= 29 /* Android 10.0 (Q) */) {
             // Workaround to capture backspace key. Ref: http://stackoverflow.com/questions>/14560344/android-backspace-in-webview-baseinputconnection
             // and https://bugzilla.libsdl.org/show_bug.cgi?id=2265

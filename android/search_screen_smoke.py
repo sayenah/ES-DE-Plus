@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MIT
-# ES-DE-Plus — written for ES-DE-Plus. Real API 33 controller, IME, direct-touch and timing evidence.
+#  SPDX-License-Identifier: MIT
+#
+#  ES-DE-Plus
+#  search_screen_smoke.py
+#
+#  Written for ES-DE-Plus. Real controller, IME, direct-touch and timing evidence.
+#
+
 import json
 import math
 import re
@@ -57,6 +63,11 @@ def run(h, start, control, shot, record):
         h.wait_for(lambda: 'InputOverlay: event type=up' in h.log()[len(before):], 'search owns complete touch')
         assert 'InputOverlay: owner=overlay' not in h.log()[len(before):], 'Overlay stole an in-screen control'
         time.sleep(.3)
+    def ime(operation, text=''):
+        result = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SearchInput',
+                         '--es', 'ime', operation, '--es', 'text', text)
+        assert 'PASS: active SDL input connection' in result, result
+        time.sleep(.25)
     def typed(text):
         value = ''
         for character in text:
@@ -157,6 +168,22 @@ def run(h, start, control, shot, record):
             h.key('KEYCODE_ENTER')  # Play now in the native dialog.
             h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'long-press Play now normal launch')
             h.key('KEYCODE_BACK')
+            magnifier()
+            h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
+                       'isInputViewShown=true' in h.shell('dumpsys', 'input_method'), 'IME ready for composition')
+            ime('compose', 'が')
+            ime('compose', 'がく')
+            ime('commit', '学')
+            h.wait_for(lambda: 'Search keystroke: query=学 ' in h.log(), 'Japanese composition replacement exactly once')
+            ime('delete')
+            h.key('KEYCODE_ESCAPE')
+            # Switching from native prefill to an empty IME buffer still permits Backspace.
+            h.key('KEYCODE_M')
+            tap(0)
+            before = len(h.log())
+            ime('delete')
+            h.wait_for(lambda: 'Search keystroke: query= results=' in h.log()[before:], 'IME deletes native prefill')
+            h.key('KEYCODE_ESCAPE')
             timing('search-screen-touch-' + name)
         # A real privacy-mode launch must not expose or write the previous query history.
         for mode, remember in [('kid', True), ('full', False)]:

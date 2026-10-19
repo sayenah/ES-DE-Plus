@@ -80,6 +80,20 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     , mMediaRoot {FileData::getMediaDirectory()}
     , mCursor {initialText.size()}
 {
+    const auto scheme = Settings::getInstance()->getString("MenuColorScheme");
+    if (scheme == "light") {
+        mBackground = mMenuColorFrame;
+        mPanel = 0xFFFFFFFF;
+        mRaised = 0xE3E6EEFF;
+        mForeground = 0x171A22FF;
+        mMuted = 0x5A6072FF;
+        mAccent = 0xB86A12FF;
+        mFocusInk = 0xFFFFFFFF;
+    }
+    else if (scheme == "darkred") {
+        mAccent = mMenuColorKeyboardModifier;
+        mFocusInk = 0xFFFFFFFF;
+    }
     if (const auto value = SDL_GetHint(SDL_HINT_IME_SHOW_UI))
         mPreviousImeHint = value;
     if (const auto value = SDL_GetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD))
@@ -93,6 +107,9 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     mTouch = InputManager::getInstance().lastInputWasTouch();
     refresh();
     layout();
+    for (const float size :
+         {24.0f, 25.0f, 26.0f, 27.0f, 28.0f, 30.0f, 32.0f, 34.0f, 36.0f, 38.0f, 42.0f})
+        searchFont(size * mUnit);
     startTextInput(mTouch);
     LOG(LogDebug) << "Search screen opened: query=" << mQuery << " scope=" << mScopeName;
 }
@@ -151,8 +168,13 @@ void GuiSearch::refresh()
         mMatches.clear();
     }
     else {
-        if (mNoResults)
+        if (mNoResults) {
             mMatches = engine.closest(mQuery, 3, filter());
+            if (mSuggestions.empty())
+                for (const auto& match : mMatches)
+                    mSuggestions.push_back(
+                        {LibrarySearch::SuggestionKind::Title, engine.game(match.index).title});
+        }
         for (const auto& match : mMatches)
             mGames.push_back(LibrarySearch::handle(match.index));
     }
@@ -173,6 +195,17 @@ void GuiSearch::refresh()
                   << " search_ms=" << milliseconds;
 }
 
+std::shared_ptr<Font> GuiSearch::searchFont(float size)
+{
+    // Retain the small set of font sizes across layouts. Font's upstream map holds weak
+    // references; destroying every label would otherwise reload fonts on each keystroke.
+    const float key = std::max(2.0f, std::round(size / 2) * 2);
+    auto& font = mFonts[key];
+    if (!font)
+        font = Font::get(key);
+    return font;
+}
+
 void GuiSearch::label(const std::string& value,
                       const glm::vec4& rect,
                       float fontSize,
@@ -181,7 +214,7 @@ void GuiSearch::label(const std::string& value,
                       bool border,
                       Alignment align)
 {
-    auto text = std::make_unique<TextComponent>(value, Font::get(fontSize), color, align,
+    auto text = std::make_unique<TextComponent>(value, searchFont(fontSize), color, align,
                                                 ALIGN_CENTER, glm::ivec2 {0, 0});
     text->setPosition(rect.x + 12 * mUnit, rect.y);
     text->setSize(std::max(1.0f, rect.z - 24 * mUnit), rect.w);
@@ -195,12 +228,12 @@ void GuiSearch::target(
 {
     const bool active = selected(area, index);
     // Keep control labels legible with long translations, within a hard single-line box.
-    auto font = Font::get(fontSize);
+    auto font = searchFont(fontSize);
     const float width = font->sizeText(value).x;
     if (width > rect.z - 24 * mUnit)
         fontSize *= std::max(0.65f, (rect.z - 24 * mUnit) / width);
-    label(value, rect, fontSize, active ? mMenuColorButtonTextFocused : mMenuColorPrimary,
-          active ? mMenuColorButtonFocused : mMenuColorButtonFlatUnfocused, active, ALIGN_CENTER);
+    label(value, rect, fontSize, active ? mFocusInk : mForeground,
+          active ? mAccent : (area == Area::Keys ? mPanel : mRaised), active, ALIGN_CENTER);
     mTargets.push_back({rect, area, index});
 }
 
@@ -209,10 +242,10 @@ void GuiSearch::title(const std::string& value,
                       const glm::vec4& rect,
                       float fontSize)
 {
-    label(value, rect, fontSize, mMenuColorTitle);
+    label(value, rect, fontSize, mForeground);
     // Render the complete shaped title once. Overlay matching ranges using clipping of
     // the same shaped run, so accent/ligature expansion never changes letter positions.
-    const auto font = Font::get(fontSize);
+    const auto font = searchFont(fontSize);
     for (const auto& span : spans) {
         if (span.begin >= span.end || span.end > value.size())
             continue;
@@ -220,11 +253,11 @@ void GuiSearch::title(const std::string& value,
         const float end = font->sizeText(value.substr(0, span.end)).x;
         if (begin >= rect.z - 24 * mUnit)
             continue;
-        auto text = std::make_unique<TextComponent>(value, font, mMenuColorKeyboardModifier,
-                                                    ALIGN_LEFT, ALIGN_CENTER, glm::ivec2 {0, 0});
+        auto text = std::make_unique<TextComponent>(value, font, mAccent, ALIGN_LEFT, ALIGN_CENTER,
+                                                    glm::ivec2 {0, 0});
         text->setPosition(rect.x + 12 * mUnit, rect.y);
         text->setSize(std::max(1.0f, rect.z - 24 * mUnit), rect.w);
-        // A negative background marks an overlay clip; normal labels clip to their bounds.
+        // Clip the highlight overlay to its matched range in the complete shaped run.
         const glm::vec4 clip {rect.x + 12 * mUnit + begin, rect.y,
                               std::min(end, rect.z - 24 * mUnit) - begin, rect.w};
         mLabels.push_back({std::move(text), clip, 0, false});
@@ -249,8 +282,8 @@ void GuiSearch::result(int index, const glm::vec4& rect, bool best)
     auto* game = LibrarySearch::resolve(mGames[index]);
     if (!game)
         return;
-    label("", rect, 1, mMenuColorPrimary, mMenuColorButtonFlatUnfocused,
-          selected(Area::Games, index));
+    label("", rect, 1, mForeground, selected(Area::Games, index) ? mRaised : mPanel,
+          best || selected(Area::Games, index));
     mTargets.push_back({rect, Area::Games, index});
     const float inset = 14 * mUnit;
     const float imageWidth = best ? rect.w * 0.64f : rect.w * 0.60f;
@@ -261,8 +294,7 @@ void GuiSearch::result(int index, const glm::vec4& rect, bool best)
     const float titleHeight = (best ? 60 : 44) * mUnit;
     const float titleY = best ? rect.y + rect.w * 0.24f : rect.y + rect.w * 0.12f;
     if (best)
-        label(_("Best match"), {x, rect.y + inset, width, 34 * mUnit}, 26 * mUnit,
-              mMenuColorSecondary);
+        label(_("Best match"), {x, rect.y + inset, width, 34 * mUnit}, 26 * mUnit, mMuted);
     const std::vector<LibrarySearch::Span> empty;
     title(game->getName(),
           index < static_cast<int>(mMatches.size()) ? mMatches[index].spans : empty,
@@ -278,7 +310,7 @@ void GuiSearch::result(int index, const glm::vec4& rect, bool best)
     }
     if (game->getFavorite())
         metadata += " · ★ " + _("favorite");
-    label(metadata, {x, titleY + titleHeight, width, 36 * mUnit}, 26 * mUnit, mMenuColorSecondary);
+    label(metadata, {x, titleY + titleHeight, width, 36 * mUnit}, 26 * mUnit, mMuted);
     if (best) {
         const auto last = game->metadata.get("lastplayed");
         std::string played;
@@ -290,7 +322,7 @@ void GuiSearch::result(int index, const glm::vec4& rect, bool best)
             played += (played.empty() ? "" : " · ") +
                       Utils::String::format(_("%d minutes played"), seconds / 60);
         label(played, {x, titleY + titleHeight + 40 * mUnit, width, 36 * mUnit}, 25 * mUnit,
-              mMenuColorSecondary);
+              mMuted);
     }
 }
 
@@ -308,6 +340,9 @@ std::vector<std::string> GuiSearch::keys() const
             values.push_back(mUppercase ? Utils::String::toUpper(std::string(1, character)) :
                                           std::string(1, character));
     }
+    if (mSymbols && mUppercase)
+        for (auto& value : values)
+            value = Utils::String::toUpper(value);
     values.insert(values.end(), {_("space"), _("delete"), _("clear"), _("results ›"), _("Shift"),
                                  mSymbols ? _("ABC") : _("Symbols / accents")});
     return values;
@@ -333,7 +368,7 @@ void GuiSearch::layout()
     mFieldRect = {margin, margin, left - scopeWidth - gap * 0.5f, fieldHeight};
     // The field keeps the caret visible by displaying a suffix around the insertion point.
     std::string field = mQuery;
-    const auto font = Font::get(38 * mUnit);
+    const auto font = searchFont(38 * mUnit);
     size_t visibleBegin {0};
     while (visibleBegin < mCursor &&
            font->sizeText(field.substr(visibleBegin, mCursor - visibleBegin)).x >
@@ -345,8 +380,8 @@ void GuiSearch::layout()
     if (field.empty())
         field = Utils::String::format(_n("Search %s game", "Search %s games", mLibraryCount),
                                       std::to_string(mLibraryCount).c_str());
-    label(field, mFieldRect, 38 * mUnit, mQuery.empty() ? mMenuColorSecondary : mMenuColorTitle,
-          mMenuColorButtonFlatUnfocused, mArea == Area::Field);
+    label(field, mFieldRect, 38 * mUnit, mQuery.empty() ? mMuted : mForeground, mPanel,
+          mArea == Area::Field);
     mTargets.push_back({mFieldRect, Area::Field, 0});
     std::string scope = _("All systems");
     if (!mSystem.empty()) {
@@ -364,7 +399,8 @@ void GuiSearch::layout()
     for (int i = mSuggestionOffset; i < static_cast<int>(mSuggestions.size()); ++i) {
         const auto& suggestion = mSuggestions[i];
         const std::string display = kindLabel(suggestion.kind) + " · " + suggestion.text;
-        const float width = std::min(left, Font::get(27 * mUnit)->sizeText(display).x + 32 * mUnit);
+        const float width =
+            std::min(left, searchFont(27 * mUnit)->sizeText(display).x + 32 * mUnit);
         if (sx + width > margin + left) {
             if (mPortrait || sy > suggestionY)
                 break;
@@ -372,20 +408,26 @@ void GuiSearch::layout()
             sy += chipHeight + gap * 0.5f;
         }
         target(display, {sx, sy, width, chipHeight}, Area::Suggestions, i, 27 * mUnit);
-        // Completion, rather than the already typed prefix, is the emphasized segment.
-        const auto prefix = LibrarySearch::normalize(mQuery);
-        if (!prefix.empty()) {
-            const auto position = suggestion.text.find_last_of(' ');
-            const std::string completion = suggestion.kind == LibrarySearch::SuggestionKind::Word &&
-                                                   position != std::string::npos ?
-                                               suggestion.text.substr(position + 1) :
-                                               suggestion.text;
-            const float underline = Font::get(27 * mUnit)->sizeText(completion).x;
-            label("",
-                  {sx + width - std::min(width - 24 * mUnit, underline) - 12 * mUnit,
-                   sy + chipHeight - 4 * mUnit, std::min(width - 24 * mUnit, underline), 2 * mUnit},
-                  1, mMenuColorTitle, mMenuColorKeyboardModifier);
+        // Underline only the completion suffix, using original UTF-8 byte boundaries.
+        mLabels.back().text->setHorizontalAlignment(ALIGN_LEFT);
+        const auto chipFont = mLabels.back().text->getFont();
+        const auto query = LibrarySearch::normalize(mQuery);
+        size_t matchedBytes {0};
+        if (!query.empty() &&
+            LibrarySearch::normalize(suggestion.text).compare(0, query.size(), query) == 0) {
+            while (matchedBytes < suggestion.text.size() &&
+                   LibrarySearch::normalize(suggestion.text.substr(0, matchedBytes)).size() <
+                       query.size())
+                matchedBytes = nextCharacter(suggestion.text, matchedBytes);
         }
+        const auto prefix =
+            kindLabel(suggestion.kind) + " · " + suggestion.text.substr(0, matchedBytes);
+        const float begin = chipFont->sizeText(prefix).x;
+        const float end = std::min(width - 24 * mUnit, chipFont->sizeText(display).x);
+        if (end > begin)
+            label("",
+                  {sx + 12 * mUnit + begin, sy + chipHeight - 4 * mUnit, end - begin, 2 * mUnit}, 1,
+                  mForeground, mAccent);
         sx += width + gap * 0.5f;
     }
     const bool grid = !mTouch;
@@ -394,7 +436,7 @@ void GuiSearch::layout()
     const float keyboardBottom = mSize.y - 115 * mUnit;
     const float keyboardY = keyboardBottom - keyboardHeight;
     mContentBottom = mPortrait && grid ? keyboardY - gap : mSize.y - 120 * mUnit;
-    if (mTouch && mPortrait && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()))
+    if (mTouch && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()))
         mContentBottom = std::min(mContentBottom, mSize.y * 0.57f);
     if (grid) {
         const auto values = keys();
@@ -404,7 +446,7 @@ void GuiSearch::layout()
                Area::Keys, 45, 26 * mUnit);
         const float cell = left / 10;
         for (int i {0}; i < 40; ++i)
-            target(values[i],
+            target(Utils::String::toUpper(values[i]),
                    {margin + (i % 10) * cell, keyboardY + 68 * mUnit + (i / 10) * keyboardRow,
                     cell - 6 * mUnit, keyboardRow - 6 * mUnit},
                    Area::Keys, i, 34 * mUnit);
@@ -424,7 +466,7 @@ void GuiSearch::layout()
             continue;
         const auto display = value + " ×";
         const float width =
-            std::min(right, Font::get(28 * mUnit)->sizeText(display).x + 32 * mUnit);
+            std::min(right, searchFont(28 * mUnit)->sizeText(display).x + 32 * mUnit);
         if (chipX + width > rightX + right) {
             top += 60 * mUnit;
             chipX = rightX;
@@ -440,8 +482,7 @@ void GuiSearch::layout()
     mResultsRect = {rightX, top, right, mContentBottom - top};
     if (zero) {
         if (!mHistory.empty()) {
-            label(_("Recent searches"), {rightX, top, right, 40 * mUnit}, 28 * mUnit,
-                  mMenuColorSecondary);
+            label(_("Recent searches"), {rightX, top, right, 40 * mUnit}, 28 * mUnit, mMuted);
             top += 52 * mUnit;
             float x = rightX;
             int first = mArea == Area::History ? std::max(0, mIndex - 2) : 0;
@@ -449,7 +490,7 @@ void GuiSearch::layout()
                 const std::string value =
                     i == static_cast<int>(mHistory.size()) ? _("Clear history") : mHistory[i];
                 const float width =
-                    std::min(right, Font::get(30 * mUnit)->sizeText(value).x + 34 * mUnit);
+                    std::min(right, searchFont(30 * mUnit)->sizeText(value).x + 34 * mUnit);
                 if (x + width > rightX + right) {
                     x = rightX;
                     top += 58 * mUnit;
@@ -468,7 +509,7 @@ void GuiSearch::layout()
         auto shelf = [&](const std::string& heading, const std::vector<size_t>& games) {
             if (games.empty())
                 return;
-            label(heading, {rightX, top, right, 40 * mUnit}, 28 * mUnit, mMenuColorSecondary);
+            label(heading, {rightX, top, right, 40 * mUnit}, 28 * mUnit, mMuted);
             top += 50 * mUnit;
             const int columns = mPortrait ? 3 : 5;
             const float width = (right - gap * (columns - 1)) / columns;
@@ -483,11 +524,10 @@ void GuiSearch::layout()
                     continue;
                 const float x = rightX + (i - first) * (width + gap);
                 cover(mGames[gameIndex], {x, top, width, height});
-                label("", {x, top, width, height}, 1, mMenuColorTitle,
-                      mMenuColorButtonFlatUnfocused, selected(Area::Games, gameIndex));
+                label("", {x, top, width, height}, 1, mForeground, mPanel,
+                      selected(Area::Games, gameIndex));
                 label(LibrarySearch::engine().game(games[i]).title,
-                      {x, top + height + 4 * mUnit, width, 56 * mUnit}, 27 * mUnit,
-                      mMenuColorPrimary);
+                      {x, top + height + 4 * mUnit, width, 56 * mUnit}, 27 * mUnit, mForeground);
                 mTargets.push_back({{x, top, width, height + 60 * mUnit}, Area::Games, gameIndex});
             }
             top += height + 100 * mUnit;
@@ -496,7 +536,7 @@ void GuiSearch::layout()
         shelf(_("Favorites"), mFavorites);
         if (mGames.empty() && mHistory.empty())
             label(_("Start typing to search your library."), {rightX, top, right, 100 * mUnit},
-                  36 * mUnit, mMenuColorSecondary);
+                  36 * mUnit, mMuted);
     }
     else {
         const int count = static_cast<int>(mSystems.size()) + 2;
@@ -519,26 +559,24 @@ void GuiSearch::layout()
                 active = mSystem == system.system;
             }
             const float width =
-                std::min(right, Font::get(27 * mUnit)->sizeText(value).x + 32 * mUnit);
+                std::min(right, searchFont(27 * mUnit)->sizeText(value).x + 32 * mUnit);
             if (x + width > rightX + right)
                 break;
             target(value, {x, top, width, 48 * mUnit}, Area::Filters, i, 27 * mUnit);
             if (active)
-                label("", {x, top + 46 * mUnit, width, 3 * mUnit}, 1, mMenuColorTitle,
-                      mMenuColorKeyboardModifier);
+                label("", {x, top + 46 * mUnit, width, 3 * mUnit}, 1, mForeground, mAccent);
             x += width + gap * 0.5f;
         }
         top += 70 * mUnit;
         if (mNoResults) {
             label(Utils::String::format(_("No games match ‘%s’."), mQuery.c_str()),
-                  {rightX, top, right, 90 * mUnit}, 36 * mUnit, mMenuColorTitle);
+                  {rightX, top, right, 90 * mUnit}, 36 * mUnit, mForeground);
             top += 100 * mUnit;
-            label(_("Did you mean"), {rightX, top, right, 45 * mUnit}, 30 * mUnit,
-                  mMenuColorSecondary);
+            label(_("Did you mean"), {rightX, top, right, 45 * mUnit}, 30 * mUnit, mMuted);
             top += 55 * mUnit;
             if (mGames.empty())
                 label(_("Try another system or remove a filter."),
-                      {rightX, top, right, 100 * mUnit}, 32 * mUnit, mMenuColorSecondary);
+                      {rightX, top, right, 100 * mUnit}, 32 * mUnit, mMuted);
         }
         const float bestHeight = mNoResults ? 118 * mUnit : 252 * mUnit;
         const float rowHeight = 118 * mUnit;
@@ -561,7 +599,7 @@ void GuiSearch::layout()
         }
         if (mFirstGame + mVisibleRows < static_cast<int>(mGames.size()))
             label(_("More results below"), {rightX, mContentBottom, right, 32 * mUnit}, 24 * mUnit,
-                  mMenuColorSecondary);
+                  mMuted);
     }
     if (!mTouch) {
         float x = margin;
@@ -570,13 +608,12 @@ void GuiSearch::layout()
             const std::string button =
                 prompt.first == "lr" ? "L/R" : Utils::String::toUpper(prompt.first);
             const std::string hint = button + "  " + prompt.second;
-            const float width = Font::get(26 * mUnit)->sizeText(hint).x + 30 * mUnit;
+            const float width = searchFont(26 * mUnit)->sizeText(hint).x + 30 * mUnit;
             if (x + width > mSize.x - margin) {
                 x = margin;
                 y += 40 * mUnit;
             }
-            label(hint, {x, y, std::min(width, usable), 36 * mUnit}, 26 * mUnit,
-                  mMenuColorSecondary);
+            label(hint, {x, y, std::min(width, usable), 36 * mUnit}, 26 * mUnit, mMuted);
             x += width;
         }
     }
@@ -650,6 +687,13 @@ void GuiSearch::focus(Area area, int index)
     LOG(LogDebug) << "Search focus: area=" << static_cast<int>(area) << " index=" << mIndex;
 }
 
+void GuiSearch::focusResults()
+{
+    const bool zero = mQuery.empty() && mSystem.empty() && mGenre.empty() && mDeveloper.empty() &&
+                      mPublisher.empty() && !mFavouritesOnly;
+    focus(zero && mGames.empty() && !mHistory.empty() ? Area::History : Area::Games);
+}
+
 void GuiSearch::move(int x, int y)
 {
     if (mArea == Area::Keys) {
@@ -663,7 +707,7 @@ void GuiSearch::move(int x, int y)
         }
         else if (mIndex >= 40) {
             if (x > 0 && mIndex == 43)
-                focus(Area::Games);
+                focusResults();
             else if (x)
                 focus(Area::Keys, 40 + (mIndex - 40 + x + 4) % 4);
             else if (y < 0) {
@@ -677,7 +721,7 @@ void GuiSearch::move(int x, int y)
             const int row = mIndex / 10;
             const int column = mIndex % 10;
             if (x > 0 && column == 9)
-                focus(Area::Games);
+                focusResults();
             else if (x)
                 focus(Area::Keys, row * 10 + (column + x + 10) % 10);
             else if (y < 0 && row == 0)
@@ -796,7 +840,7 @@ void GuiSearch::typeKey()
         refresh();
     }
     else if (mIndex == 43)
-        focus(Area::Games);
+        focusResults();
     else if (mIndex == 44) {
         mUppercase = !mUppercase;
         mDirty = true;
@@ -988,12 +1032,29 @@ bool GuiSearch::input(InputConfig* config, Input input)
             record();
             if (mArea == Area::Games)
                 openGame((input.modifiers & KMOD_CTRL) != 0);
+            else if (mArea == Area::History || mArea == Area::Filters ||
+                     mArea == Area::Suggestions || mArea == Area::Scope || mArea == Area::Close)
+                activate();
             else
-                focus(Area::Games);
+                focusResults();
             return true;
         }
         if (input.id == SDLK_TAB) {
-            focus(mArea == Area::Filters ? Area::Scope : Area::Filters);
+            const std::vector<Area> areas {Area::Field,   Area::Scope,   Area::Suggestions,
+                                           Area::History, Area::Filters, Area::Games,
+                                           Area::Keys,    Area::Close};
+            const auto current = std::find(areas.begin(), areas.end(), mArea);
+            const int direction = input.modifiers & KMOD_SHIFT ? -1 : 1;
+            const int index = static_cast<int>(current - areas.begin());
+            for (int offset {1}; offset <= static_cast<int>(areas.size()); ++offset) {
+                const auto candidate =
+                    areas[(index + direction * offset + areas.size() * 2) % areas.size()];
+                if (std::any_of(mTargets.begin(), mTargets.end(),
+                                [&](const Target& target) { return target.area == candidate; })) {
+                    focus(candidate);
+                    break;
+                }
+            }
             return true;
         }
         if (input.id == SDLK_HOME || input.id == SDLK_END) {
@@ -1069,7 +1130,7 @@ bool GuiSearch::input(InputConfig* config, Input input)
         return true;
     }
     if (config->isMappedTo("start", input)) {
-        focus(mGames.empty() && !mHistory.empty() ? Area::History : Area::Games);
+        focusResults();
         return true;
     }
     if (config->isMappedTo("back", input)) {
@@ -1091,6 +1152,12 @@ bool GuiSearch::input(InputConfig* config, Input input)
 void GuiSearch::update(int deltaTime)
 {
     GuiComponent::update(deltaTime);
+    const glm::vec2 screen {Renderer::getScreenWidth(), Renderer::getScreenHeight()};
+    if (mSize != screen) {
+        setSize(screen);
+        setPosition(mOrigin.x * screen.x, mOrigin.y * screen.y);
+        mDirty = true;
+    }
     mBlink = (mBlink + deltaTime) % 1100;
     if (mGeneration != LibrarySearch::currentGeneration())
         refresh();
@@ -1102,6 +1169,7 @@ void GuiSearch::update(int deltaTime)
     if (mDirty)
         layout();
     // At most one bounded upload per frame. No path lookup, stat or decode on this thread.
+    const auto artworkStart = std::chrono::steady_clock::now();
     bool uploaded {false};
     for (auto& cover : mCovers) {
         if (!cover.image && !uploaded) {
@@ -1118,6 +1186,10 @@ void GuiSearch::update(int deltaTime)
             cover.image->setOpacity(cover.opacity);
         }
     }
+    if (mMeasureFrame)
+        mQueryWorkMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                                  artworkStart)
+                            .count();
 }
 
 void GuiSearch::render(const glm::mat4& parentTrans)
@@ -1127,7 +1199,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         layout();
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
-    mRenderer->drawRect(0, 0, mSize.x, mSize.y, mMenuColorFrame, mMenuColorFrame);
+    mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground);
     for (auto& label : mLabels) {
         mRenderer->setMatrix(transform);
         if (label.background)
@@ -1142,8 +1214,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                   {label.rect.x, label.rect.y + label.rect.w - line, label.rect.z, line},
                   {label.rect.x, label.rect.y, line, label.rect.w},
                   {label.rect.x + label.rect.z - line, label.rect.y, line, label.rect.w}})
-                mRenderer->drawRect(edge.x, edge.y, edge.z, edge.w, mMenuColorKeyboardModifier,
-                                    mMenuColorKeyboardModifier);
+                mRenderer->drawRect(edge.x, edge.y, edge.z, edge.w, mAccent, mAccent);
         }
         const auto point = transform * glm::vec4 {label.rect.x, label.rect.y, 0, 1};
         const glm::vec2 scale {glm::length(glm::vec3(transform[0])),
@@ -1163,12 +1234,11 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     }
     if (mBlink < 550) {
         mRenderer->setMatrix(transform);
-        const auto font = Font::get(38 * mUnit);
+        const auto font = searchFont(38 * mUnit);
         float cursor = font->sizeText(mQuery.substr(0, mCursor)).x;
         cursor = std::min(cursor, mFieldRect.z - 60 * mUnit);
         mRenderer->drawRect(mFieldRect.x + 14 * mUnit + cursor, mFieldRect.y + 20 * mUnit,
-                            3 * mUnit, mFieldRect.w - 40 * mUnit, mMenuColorKeyboardModifier,
-                            mMenuColorKeyboardModifier);
+                            3 * mUnit, mFieldRect.w - 40 * mUnit, mAccent, mAccent);
     }
     if (mMeasureFrame) {
         const double renderMs = std::chrono::duration<double, std::milli>(
@@ -1245,7 +1315,12 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
             }
             else if (contains(mResultsRect, point.x, point.y) &&
                      std::abs(point.y - mTouchLast.y) > 70 * mUnit) {
-                focus(Area::Games, mIndex + (point.y < mTouchLast.y ? 1 : -1));
+                const int direction = point.y < mTouchLast.y ? 1 : -1;
+                mFirstGame = std::max(0, std::min(mFirstGame + direction,
+                                                  static_cast<int>(mGames.size()) - mVisibleRows));
+                const int selected =
+                    std::max(mFirstGame, std::min(mIndex, mFirstGame + mVisibleRows - 1));
+                focus(Area::Games, selected);
                 mTouchLast = {point.x, point.y};
             }
         }
@@ -1259,6 +1334,7 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
     const auto target = mTouchTarget;
     focus(target.area, target.index);
     if (target.area == Area::Games && SDL_GetTicks() - mTouchTime >= 500) {
+        SDL_StopTextInput();
         mWindow->pushGui(new GuiMsgBox(
             _("Game options"), _("Play now"), [this] { openGame(true); }, _("Favorite"),
             [this] { toggleFavorite(); }, _("Cancel")));

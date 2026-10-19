@@ -71,9 +71,13 @@ class TouchSmoke : Instrumentation() {
         private external fun nativeButton(button: Int): Boolean
         override fun onReceive(context: Context, intent: Intent) {
             val activity = SDLActivity.getContext() as? MainActivity
-            resultData = if (activity != null && activity.hasWindowFocus() &&
-                nativeButton(intent.getIntExtra("button", -1))) "PASS: SDL controller event" else
-                "FAIL: no focused frontend or controller event rejected"
+            val focused = activity != null && activity.hasWindowFocus()
+            resultData = if (intent.hasExtra("ime")) {
+                if (focused && org.libsdl.app.SearchImeProbe.edit(intent.getStringExtra("ime").orEmpty(),
+                    intent.getStringExtra("text").orEmpty())) "PASS: active SDL input connection" else
+                    "FAIL: no focused SDL input connection"
+            } else if (focused && nativeButton(intent.getIntExtra("button", -1)))
+                "PASS: SDL controller event" else "FAIL: no focused frontend or controller event rejected"
         }
     }
     private val resumed = AtomicBoolean(false)
