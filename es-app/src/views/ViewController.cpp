@@ -1335,8 +1335,8 @@ bool ViewController::input(InputConfig* config, Input input)
         // Explicit mappings always win, including letters mapped to navigation or Y.
         if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
             config->getMappedTo(input).empty() &&
-            !(SDL_GetModState() & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
-            const auto modifiers {SDL_GetModState()};
+            !(input.modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+            const auto modifiers {input.modifiers};
             if ((input.id == SDLK_SLASH && !(modifiers & KMOD_SHIFT)) ||
                 input.id == SDLK_AC_SEARCH) {
                 openSearch();

@@ -102,11 +102,13 @@ def run(h, start, control, shot, record):
         for action, code in mappings.items():
             ET.SubElement(config, 'input', name=action, type='key', id=str(code), value='1')
         # M is a letter, but a user mapping takes priority over typing-to-search.
-        ET.SubElement(config, 'input', name='leftshoulder', type='key', id=str(ord('m')), value='1')
+        next(e for e in config if e.get('name') == 'y').set('id', str(ord('m')))
         write('settings/es_input.xml', ET.tostring(keyboard, encoding='unicode'))
         start(InputTouchOverlay=True, UIMode='full', StartupView='gamelist')
-        h.key('KEYCODE_M')
-        assert opens() == 0, 'A mapped letter was stolen by typing-to-search'
+        opening(lambda: h.key('KEYCODE_M'), 'nes', '')
+        h.key('KEYCODE_ENTER')
+        assert re.findall(r'SearchEntry: submit query=(.*?) scope=', h.log())[-1] == '', \
+            'A mapped letter also inserted text into its action popup'
         opening(lambda: h.key('KEYCODE_SEARCH'), 'nes')
         close_popup()
         record('search-entry-mapping-priority')
