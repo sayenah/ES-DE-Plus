@@ -18,6 +18,9 @@
 #include <fstream>
 #include <set>
 #include <string>
+#if !defined(_WIN64)
+#include <sys/stat.h>
+#endif
 
 using namespace LibrarySearch;
 namespace
@@ -456,6 +459,20 @@ namespace
         require(original.queries()[0] != "write failure",
                 "failed write preserves complete old document");
         std::filesystem::remove(path + ".tmp");
+#if !defined(_WIN64)
+        require(::mkfifo((path + ".tmp").c_str(), 0600) == 0,
+                "create non-regular temporary fixture");
+        require(!restored.addQuery("pipe failure"),
+                "a non-regular temporary file never blocks a history write");
+        std::filesystem::remove(path + ".tmp");
+        const auto pipePath {(directory / "pipe.xml").string()};
+        require(::mkfifo(pipePath.c_str(), 0600) == 0, "create non-regular history fixture");
+        History pipe(pipePath);
+        require(pipe.queries().empty() && pipe.addQuery("repaired"),
+                "a non-regular history file is ignored and replaced");
+        require(std::filesystem::is_regular_file(pipePath),
+                "history repair replaces the special file atomically");
+#endif
         restored.setAccess(false, false);
         require(restored.clear(), "clear works while disabled");
         require(History(path).queries().empty() && History(path).games().empty(),

@@ -31,9 +31,14 @@ namespace LibrarySearch
                 g.path.find('\\') != std::string::npos || (g.path.size() > 1 && g.path[1] == ':') ||
                 g.path.find("://") != std::string::npos)
                 return false;
-            for (const auto& part : std::filesystem::u8path(g.path))
-                if (part == ".." || part == ".")
-                    return false;
+            try {
+                for (const auto& part : std::filesystem::u8path(g.path))
+                    if (part == ".." || part == ".")
+                        return false;
+            }
+            catch (const std::filesystem::filesystem_error&) {
+                return false;
+            }
             return true;
         }
         bool same(const OpenedGame& a, const OpenedGame& b)
@@ -44,7 +49,11 @@ namespace LibrarySearch
     History::History(std::string path)
         : mPath {std::move(path)}
     {
-        load();
+        try {
+            load();
+        }
+        catch (const std::filesystem::filesystem_error&) {
+        }
     }
     void History::setAccess(bool enabled, bool kidMode)
     {
@@ -63,8 +72,14 @@ namespace LibrarySearch
     }
     void History::load()
     {
+        // Special files must never turn optional history into a blocking pipe read.
+        const auto path {std::filesystem::u8path(mPath)};
+        std::error_code error;
+        const auto status {std::filesystem::symlink_status(path, error)};
+        if (error || !std::filesystem::is_regular_file(status))
+            return;
         // Treat the entire file as untrusted and bound allocation before asking pugixml to parse.
-        std::ifstream input {std::filesystem::u8path(mPath), std::ios::binary};
+        std::ifstream input {path, std::ios::binary};
         if (!input)
             return;
         input.seekg(0, std::ios::end);
@@ -104,6 +119,10 @@ namespace LibrarySearch
             std::error_code error;
             std::filesystem::create_directories(path.parent_path(), error);
             if (error)
+                return false;
+            const auto status {std::filesystem::symlink_status(temporary, error)};
+            if ((error && error != std::errc::no_such_file_or_directory) ||
+                (std::filesystem::exists(status) && !std::filesystem::is_regular_file(status)))
                 return false;
             pugi::xml_document doc;
             auto root {doc.append_child("searchHistory")};
