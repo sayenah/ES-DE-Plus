@@ -22,7 +22,10 @@ class SearchArtwork
 public:
     struct Request {
         std::string id;
-        std::vector<std::string> candidates;
+        std::string gamePath;
+        std::string system;
+        std::string romRoot;
+        std::string mediaRoot;
     };
     struct Pixels {
         std::vector<unsigned char> rgba;

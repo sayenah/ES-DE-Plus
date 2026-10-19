@@ -87,3 +87,9 @@ paths = ["es-core/src/InputOverlay*", "es-core/src/TouchOverlayReset.h", "tests/
 sessions = ["touch"]
 android15 = true
 reason = "Overlay layout, transitions, ownership, rendering and Android multi-pointer assertions"
+
+[[rule]]
+paths = ["es-app/src/guis/GuiSearch.*", "es-app/src/search/*", "tests/search-screen/*", "android/search_screen_smoke.py", "android/search-input-probe.cpp"]
+sessions = ["touch"]
+android15 = true
+reason = "Full-screen search controller, IME, direct touch and live-query timing"

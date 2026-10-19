@@ -77,6 +77,31 @@ jobs:
       - name: Build
         run: cmake --build build --parallel 2
 
+      - name: Live search keyboard/controller smoke and actual framebuffer evidence
+        run: |
+          mkdir -p build/search-screen
+          read -r -a sdl_flags <<< "$(sdl2-config --cflags --libs)"
+          c++ -std=c++17 -shared -fPIC -Wall -Wextra -Werror tests/search-screen/input.cpp "${sdl_flags[@]}" -ldl -o build/search-screen/input.so
+          for size in '1920 1080' '1280 720' '1080 2400' '2560 1600' '2560 1440'; do
+            read -r width height <<< "$size"
+            python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen "$width" "$height"
+          done
+          for variant in light german kid history-off; do
+            python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen 1280 720 $variant
+          done
+      - name: Retain search screen evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: search-screen-linux-${{ github.run_id }}
+          path: |
+            build/search-screen/**/*.png
+            build/search-screen/**/*.json
+            build/search-screen/**/frontend.txt
+            build/search-screen/**/es_log.txt
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Verify unchanged desktop theme downloader preprocessor output
         run: python3 tests/theme-repository-trust/desktop.py
       - name: Audio teardown positive control and regression (real SDL dummy driver)

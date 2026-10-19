@@ -66,6 +66,16 @@ class TouchSmoke : Instrumentation() {
             resultData = "PASS: owned surface geometry recorded"
         }
     }
+    // Debug-only input observation seam: the production SDL event path still handles every key.
+    class SearchInput : BroadcastReceiver() {
+        private external fun nativeButton(button: Int): Boolean
+        override fun onReceive(context: Context, intent: Intent) {
+            val activity = SDLActivity.getContext() as? MainActivity
+            resultData = if (activity != null && activity.hasWindowFocus() &&
+                nativeButton(intent.getIntExtra("button", -1))) "PASS: SDL controller event" else
+                "FAIL: no focused frontend or controller event rejected"
+        }
+    }
     private val resumed = AtomicBoolean(false)
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityResumed(activity: Activity) {

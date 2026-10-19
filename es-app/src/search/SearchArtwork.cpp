@@ -9,6 +9,8 @@
 #include "search/SearchArtwork.h"
 
 #include "ImageIO.h"
+#include "utils/FileSystemUtil.h"
+#include "utils/StringUtil.h"
 
 #include <algorithm>
 #include <fstream>
@@ -70,12 +72,23 @@ void SearchArtwork::work()
         auto path = mPaths.find(request.id);
         if (path == mPaths.end()) {
             std::string found;
-            for (const auto& candidate : request.candidates) {
-                std::ifstream stream(candidate, std::ios::binary);
-                if (stream.good()) {
-                    found = candidate;
-                    break;
+            const auto folders = Utils::String::replace(
+                Utils::FileSystem::getParent(request.gamePath), request.romRoot, "");
+            // getStem checks whether the ROM is a directory. Keep even that stat here.
+            const auto stem = Utils::FileSystem::getStem(request.gamePath);
+            for (const auto& directory : {"covers", "miximages", "screenshots", "titlescreens"}) {
+                const auto base =
+                    request.mediaRoot + request.system + "/" + directory + folders + "/" + stem;
+                for (const auto& extension : {".png", ".jpg", ".webp"}) {
+                    const std::string candidate = base + extension;
+                    std::ifstream stream(candidate, std::ios::binary);
+                    if (stream.good()) {
+                        found = candidate;
+                        break;
+                    }
                 }
+                if (!found.empty())
+                    break;
             }
             path = mPaths.emplace(request.id, std::move(found)).first;
         }

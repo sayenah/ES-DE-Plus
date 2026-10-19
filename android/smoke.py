@@ -1003,10 +1003,11 @@ def search_launch(term, name):
     key('KEYCODE_ENTER')
     screenshot(name + '-text-entry')
     shell('input', 'text', term)
-    key('KEYCODE_ENTER')
+    key('KEYCODE_ENTER')  # Focus the live screen's first result.
     screenshot(name + '-results')
-    key('KEYCODE_DPAD_DOWN')
-    key('KEYCODE_ENTER')
+    # Android 13's input command supplies the physical keyboard play shortcut.
+    shell('input', 'keycombination', '113', '66')  # Ctrl+Enter, normal launch path.
+    time.sleep(0.4)
 
 
 def user_file(relative, contents=None):
@@ -1921,9 +1922,9 @@ try:
     timings = re.findall(r'Library search index: games=\d+ build_ms=[\d.]+ search_suggest_ms=[\d.]+', log())
     assert timings, 'Missing real-corpus search index/query measurement'
     print('SEARCH EMULATOR TIMING: ' + timings[-1], flush=True)
-    # Move past the search header to the first result, then use the real launch path.
-    key('KEYCODE_DPAD_DOWN')
-    key('KEYCODE_ENTER')
+    # Results are already focused. Ctrl+Enter uses the screen's direct-play action.
+    shell('input', 'keycombination', '113', '66')
+    time.sleep(0.4)
     wait_for(lambda: "Couldn't launch game, emulator not found" in log(), 'existing missing-emulator error')
     screenshot('missing-emulator')
     save_logs('search-and-launch')

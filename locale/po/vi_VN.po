@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-19 15:34-0500\n"
 "PO-Revision-Date: 2026-09-12 19:49+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Tiếng Việt <info@es-de.org>\n"
@@ -1176,24 +1176,6 @@ msgstr "đóng (áp dụng)"
 msgid "close (cancel)"
 msgstr "đóng (hủy)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "KHÔNG TÌM THẤY TRÒ CHƠI NÀO"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "lựa chọn"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "ĐANG KHỞI CHẠY TRÒ CHƠI"
 
@@ -1481,6 +1463,12 @@ msgstr "BẬT CUỘN NHANH DANH SÁCH CHỮ"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "BẬT BÀN PHÍM ẢO"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1833,6 +1821,9 @@ msgstr "CÀI ĐẶT MÀN HÌNH CHỜ"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "KÍCH HOẠT CHỨC NĂNG KHỞI CHẠY TRÊN MÀN HÌNH KHÁC"
+
+msgid "choose"
+msgstr "lựa chọn"
 
 msgid "close menu"
 msgstr "đóng menu"
@@ -2515,6 +2506,9 @@ msgstr "THỂ LOẠI:"
 msgid "PLAYERS:"
 msgstr "NGƯỜI CHƠI:"
 
+msgid "NO GAMES FOUND"
+msgstr "KHÔNG TÌM THẤY TRÒ CHƠI NÀO"
+
 msgid "API CALLS:"
 msgstr "LỆNH API:"
 
@@ -2600,6 +2594,142 @@ msgstr "ĐỔI VIDEO SAU (GIÂY)"
 
 msgid "RENDER BLUR"
 msgstr "HIỆU ỨNG MỜ"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "hệ thống"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d minutes played"
+msgstr ""
+
+msgid "space"
+msgstr "khoảng trắng"
+
+msgid "delete"
+msgstr "xóa"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+
+msgid "In:"
+msgstr ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "HIỂN THỊ TRẠNG THÁI BLUETOOTH"
@@ -2804,9 +2934,6 @@ msgstr "xem ảnh chụp màn hình"
 msgid "fetch updates"
 msgstr "lấy cập nhật"
 
-msgid "delete"
-msgstr "xóa"
-
 msgid "download"
 msgstr "tải xuống"
 
@@ -2840,12 +2967,6 @@ msgstr ""
 "LIỆU."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3171,9 +3292,6 @@ msgid "CAN'T ADD ENTRIES THAT ARE NOT COUNTED AS GAMES TO CUSTOM COLLECTIONS"
 msgstr ""
 "KHÔNG THỂ THÊM MỤC KHÔNG PHẢI TRÒ CHƠI VÀO BỘ SƯU TẬP TÙY CHỈNHBỘ SƯU TẬP"
 
-msgid "system"
-msgstr "hệ thống"
-
 msgid "view media"
 msgstr "xem phương tiện"
 
@@ -3360,9 +3478,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "ĐANG KHỞI CHẠY TRÒ CHƠI '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "menu"
@@ -3592,9 +3707,6 @@ msgstr "dòng mới"
 
 msgid "backspace"
 msgstr "backspace"
-
-msgid "space"
-msgstr "khoảng trắng"
 
 msgid "LOAD DEFAULT"
 msgstr "TẢI MẶC ĐỊNH"

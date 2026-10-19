@@ -165,6 +165,10 @@ void GuiSearch::refresh()
     mDirty = true;
     const double milliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    if (mMeasureFrame)
+        mQueryWorkMs += milliseconds;
+    else
+        mQueryWorkMs = milliseconds;
     LOG(LogDebug) << "Search keystroke: query=" << mQuery << " results=" << mTotal
                   << " search_ms=" << milliseconds;
 }
@@ -566,6 +570,8 @@ void GuiSearch::layout()
     requestArtwork();
     const double milliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    if (mMeasureFrame)
+        mQueryWorkMs += milliseconds;
     LOG(LogDebug) << "Search layout: ms=" << milliseconds << " covers=" << mCovers.size()
                   << " focus=" << static_cast<int>(mArea) << ":" << mIndex;
 #if defined(__ANDROID__)
@@ -587,16 +593,8 @@ void GuiSearch::requestArtwork()
         auto* game = LibrarySearch::resolve(cover.handle);
         if (!game)
             continue;
-        SearchArtwork::Request request {cover.handle.id, {}};
-        const auto folders = Utils::String::replace(Utils::FileSystem::getParent(game->getPath()),
-                                                    game->getSystem()->getStartPath(), "");
-        for (const auto& directory : {"covers", "miximages", "screenshots", "titlescreens"}) {
-            const auto base = mMediaRoot + game->getSystemName() + "/" + directory + folders + "/" +
-                              game->getDisplayName();
-            for (const auto& extension : FileData::sImageExtensions)
-                request.candidates.push_back(base + extension);
-        }
-        requests.push_back(std::move(request));
+        requests.push_back({cover.handle.id, game->getPath(), game->getSystemName(),
+                            game->getSystem()->getStartPath(), mMediaRoot});
     }
     mArtwork.request(std::move(requests));
 }
@@ -719,6 +717,9 @@ void GuiSearch::move(int x, int y)
 
 void GuiSearch::edit(const std::string& text)
 {
+    if (!mMeasureFrame)
+        mQueryWorkMs = 0;
+    mMeasureFrame = true;
     if (text == "\b") {
         const size_t previous = previousCharacter(mQuery, mCursor);
         mQuery.erase(previous, mCursor - previous);
@@ -1068,6 +1069,11 @@ void GuiSearch::update(int deltaTime)
     mBlink = (mBlink + deltaTime) % 1100;
     if (mGeneration != LibrarySearch::currentGeneration())
         refresh();
+    const bool keyboardShown = SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow());
+    if (keyboardShown != mKeyboardShown) {
+        mKeyboardShown = keyboardShown;
+        mDirty = true;
+    }
     if (mDirty)
         layout();
     // At most one bounded upload per frame. No path lookup, stat or decode on this thread.
@@ -1091,6 +1097,7 @@ void GuiSearch::update(int deltaTime)
 
 void GuiSearch::render(const glm::mat4& parentTrans)
 {
+    const auto renderStart = std::chrono::steady_clock::now();
     if (mDirty)
         layout();
     const glm::mat4 transform = parentTrans * getTransform();
@@ -1137,6 +1144,14 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         mRenderer->drawRect(mFieldRect.x + 14 * mUnit + cursor, mFieldRect.y + 20 * mUnit,
                             3 * mUnit, mFieldRect.w - 40 * mUnit, mMenuColorKeyboardModifier,
                             mMenuColorKeyboardModifier);
+    }
+    if (mMeasureFrame) {
+        const double renderMs = std::chrono::duration<double, std::milli>(
+                                    std::chrono::steady_clock::now() - renderStart)
+                                    .count();
+        LOG(LogDebug) << "Search frame: query=" << mQuery << " work_ms=" << mQueryWorkMs + renderMs
+                      << " render_ms=" << renderMs;
+        mMeasureFrame = false;
     }
 }
 

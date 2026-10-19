@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-19 15:34-0500\n"
 "PO-Revision-Date: 2026-09-04 22:25+0300\n"
 "Last-Translator: Mihai Vasiliu <mihai.vasiliu.93@gmail.com>\n"
 "Language-Team: Română <info@es-de.org>\n"
@@ -1193,24 +1193,6 @@ msgstr "închide (aplică)"
 msgid "close (cancel)"
 msgstr "închide (anulează)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "NU S-AU GĂSIT JOCURI"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "alege"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "SE LANSEAZĂ JOCUL"
 
@@ -1498,6 +1480,12 @@ msgstr "ACTIVEAZĂ MANȘETĂ LISTĂ TEXT LA DERULARE RAPIDĂ"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "ACTIVEAZĂ TASTATURĂ VIRTUALĂ"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1850,6 +1838,9 @@ msgstr "SETĂRI ECONOMIZOR ECRAN"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "ACTIVEAZĂ LANSAREA PE ECRANUL SECUNDAR"
+
+msgid "choose"
+msgstr "alege"
 
 msgid "close menu"
 msgstr "închide meniul"
@@ -2542,6 +2533,9 @@ msgstr "GEN:"
 msgid "PLAYERS:"
 msgstr "NR. JUCĂTORI:"
 
+msgid "NO GAMES FOUND"
+msgstr "NU S-AU GĂSIT JOCURI"
+
 msgid "API CALLS:"
 msgstr "APELURI API:"
 
@@ -2629,6 +2623,144 @@ msgstr "SCHIMBĂ VIDEOCLIPUL DUPĂ"
 
 msgid "RENDER BLUR"
 msgstr "REDĂ BLUR"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "sistem"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d minutes played"
+msgstr ""
+
+msgid "space"
+msgstr "spațiu"
+
+msgid "delete"
+msgstr "șterge"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "In:"
+msgstr ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "AFIȘEAZĂ INDICATOR STARE BLUETOOTH"
@@ -2836,9 +2968,6 @@ msgstr "vezi capturile de ecran"
 msgid "fetch updates"
 msgstr "preia actualizări"
 
-msgid "delete"
-msgstr "șterge"
-
 msgid "download"
 msgstr "descarcă"
 
@@ -2872,12 +3001,6 @@ msgstr ""
 "ACEST LUCRU POATE DUCE LA CORUPERE DE DATE."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3209,9 +3332,6 @@ msgstr ""
 "NU SE POT ADĂUGA INTRĂRI CARE NU SUNT NUMĂRATE CA JOCURI ÎN COLECȚIILE "
 "PERSONALIZATE"
 
-msgid "system"
-msgstr "sistem"
-
 msgid "view media"
 msgstr "media"
 
@@ -3411,9 +3531,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "SE LANSEAZĂ JOCUL „%s”"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "meniu"
@@ -3659,9 +3776,6 @@ msgstr "linie nouă"
 
 msgid "backspace"
 msgstr "backspace"
-
-msgid "space"
-msgstr "spațiu"
 
 msgid "LOAD DEFAULT"
 msgstr "ÎNCARCĂ IMPLICITELE"

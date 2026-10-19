@@ -17,6 +17,7 @@ import pdf_smoke
 import smoke_support
 import touch_startup
 import search_entry_smoke
+import search_screen_smoke
 
 IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101, 102]
 MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
@@ -1137,6 +1138,7 @@ def run(namespace):
             assert 'PASS: kid-restore' in restored, restored
 
         search_entry_smoke.run(h, start, touch_control, shot, record)
+        search_screen_smoke.run(h, start, touch_control, shot, record)
 
         # Orderly native exit is distinct from process death between instrumentation
         # cases. SDL's native completion marker must follow the real Back action.

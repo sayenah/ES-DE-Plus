@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-19 15:34-0500\n"
 "PO-Revision-Date: 2026-09-11 13:40+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Français <info@es-de.org>\n"
@@ -1197,24 +1197,6 @@ msgstr "fermer (appliquer)"
 msgid "close (cancel)"
 msgstr "fermer (annuler)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "AUCUN JEUX TROUVÉ"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "choisir"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "LANCEMENT DU JEU"
 
@@ -1502,6 +1484,12 @@ msgstr "ACTIVER LA SUPERPOSITION À DÉFILEMENT RAPIDE DE LA LISTE DE TEXTES"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "ACTIVER LE CLAVIER VIRTUEL"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1858,6 +1846,9 @@ msgstr "PARAMÈTRES ÉCRAN DE VEILLE"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "ACTIVER LE LANCEMENT SUR UN AUTRE ÉCRAN"
+
+msgid "choose"
+msgstr "choisir"
 
 msgid "close menu"
 msgstr "fermer le menu"
@@ -2562,6 +2553,9 @@ msgstr "GENRE:"
 msgid "PLAYERS:"
 msgstr "JOUEURS:"
 
+msgid "NO GAMES FOUND"
+msgstr "AUCUN JEUX TROUVÉ"
+
 msgid "API CALLS:"
 msgstr "APPELS API:"
 
@@ -2648,6 +2642,143 @@ msgstr "CHANGER DE VIDEOS APRÈS (SECONDES)"
 
 msgid "RENDER BLUR"
 msgstr "RENDU FLOU"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "système"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d minutes played"
+msgstr ""
+
+msgid "space"
+msgstr "espace"
+
+msgid "delete"
+msgstr "effacer"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "In:"
+msgstr ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "AFFICHAGE DE L’INDICATEUR D’ÉTAT BLUETOOTH"
@@ -2859,9 +2990,6 @@ msgstr "voir les captures d'écran"
 msgid "fetch updates"
 msgstr "récupérer la mise à jour"
 
-msgid "delete"
-msgstr "effacer"
-
 msgid "download"
 msgstr "télécharger"
 
@@ -2897,12 +3025,6 @@ msgstr ""
 "ENTRAÎNER LA CORRUPTION DES DONNÉES."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3233,9 +3355,6 @@ msgstr ""
 "IMPOSSIBLE D'AJOUTER DES ENTRÉES QUI NE SONT PAS COMPTÉES COMME DES JEUX AUX "
 "COLLECTIONS PERSO"
 
-msgid "system"
-msgstr "système"
-
 msgid "view media"
 msgstr "voir les médias"
 
@@ -3434,9 +3553,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "LANCEMENT DU JEU '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "menu"
@@ -3673,9 +3789,6 @@ msgstr "nouvelle ligne"
 
 msgid "backspace"
 msgstr "retour arrière"
-
-msgid "space"
-msgstr "espace"
 
 msgid "LOAD DEFAULT"
 msgstr "CHARGER PAR DÉFAUT"

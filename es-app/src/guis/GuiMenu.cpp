@@ -40,6 +40,7 @@
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiThemeDownloader.h"
 #include "guis/SearchEntry.h"
+#include "search/LibrarySearch.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
 
@@ -1107,6 +1108,23 @@ void GuiMenu::openUIOptions()
 #endif
         }
     });
+
+    auto rememberSearches = std::make_shared<SwitchComponent>();
+    rememberSearches->setState(Settings::getInstance()->getBool("SearchHistory"));
+    s->addWithLabel(_("REMEMBER SEARCHES"), rememberSearches);
+    s->addSaveFunc([rememberSearches, s] {
+        if (rememberSearches->getState() != Settings::getInstance()->getBool("SearchHistory")) {
+            Settings::getInstance()->setBool("SearchHistory", rememberSearches->getState());
+            s->setNeedsSaving();
+        }
+    });
+    ComponentListRow clearSearchHistory;
+    clearSearchHistory.addElement(std::make_shared<TextComponent>(_("CLEAR SEARCH HISTORY"),
+                                                                  Font::get(FONT_SIZE_MEDIUM),
+                                                                  mMenuColorPrimary),
+                                  true);
+    clearSearchHistory.makeAcceptInputHandler([] { LibrarySearch::history().clear(); });
+    s->addRow(clearSearchHistory);
 
     auto gamelistYButton =
         std::make_shared<OptionListComponent<std::string>>(_("Y BUTTON IN GAME LISTS"), false);

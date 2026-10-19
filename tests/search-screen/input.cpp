@@ -50,7 +50,12 @@ extern "C" int SDLCALL SDL_Init(Uint32 flags)
         if (index >= 0) {
             char guid[33];
             SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(index), guid, sizeof(guid));
-            const std::string mapping = std::string(guid) + ",Search smoke controller,a:b0,b:b1,x:b2,y:b3,back:b4,guide:b5,start:b6,leftstick:b7,rightstick:b8,leftshoulder:b9,rightshoulder:b10,dpup:b11,dpdown:b12,dpleft:b13,dpright:b14,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:a4,righttrigger:a5,";
+            const std::string mapping =
+                std::string(guid) +
+                ",Search smoke "
+                "controller,a:b0,b:b1,x:b2,y:b3,back:b4,guide:b5,start:b6,leftstick:b7,rightstick:"
+                "b8,leftshoulder:b9,rightshoulder:b10,dpup:b11,dpdown:b12,dpleft:b13,dpright:b14,"
+                "leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:a4,righttrigger:a5,";
             SDL_GameControllerAddMapping(mapping.c_str());
             controller = SDL_JoystickGetDeviceInstanceID(index);
         }
@@ -67,7 +72,8 @@ extern "C" void SDLCALL SDL_GL_SwapWindow(SDL_Window* window)
         using ReadPixels = void (*)(int, int, int, int, unsigned, unsigned, void*);
         const auto read = reinterpret_cast<ReadPixels>(SDL_GL_GetProcAddress("glReadPixels"));
         std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 4);
-        read(0, 0, width, height, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */, pixels.data());
+        read(0, 0, width, height, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */,
+             pixels.data());
         std::ofstream image(directory() + "/" + capture + ".ppm", std::ios::binary);
         image << "P6\n" << width << " " << height << "\n255\n";
         for (int y = height - 1; y >= 0; --y)

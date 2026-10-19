@@ -37,8 +37,8 @@ def run(h, start, control, shot, record):
         assert f'SearchEntry: open initial={initial} scope={scope}' in h.log()
         for key in ['KEYCODE_INSERT', 'KEYCODE_SEARCH']:
             h.key(key)
-        control(102)
-        assert opens() == before + 1, 'Search stacked while its popup was open'
+        h.key('KEYCODE_INSERT')
+        assert opens() == before + 1, 'Search stacked while its screen was open'
         return before + 1
 
     def close_popup():
@@ -79,22 +79,21 @@ def run(h, start, control, shot, record):
                              ('KEYCODE_SLASH', ''), ('KEYCODE_SEARCH', '')]:
             opening(lambda: h.key(key), 'nes', initial)
             if initial:
-                before = h.log().count('SearchEntry: submit ')
-                h.key('KEYCODE_ENTER')
-                h.wait_for(lambda: h.log().count('SearchEntry: submit ') == before + 1,
-                           'submitted physical keyboard prefill')
-                submits = re.findall(r'SearchEntry: submit query=(.*?) scope=', h.log())
-                assert submits[-1] == initial, ('Opening key was inserted twice', submits)
+                queries = re.findall(r'Search keystroke: query=(.*?) results=', h.log())
+                assert queries[-1] == initial, ('Opening key was inserted twice', queries)
+                h.key('KEYCODE_ENTER')  # Records the query and focuses the live results.
                 shot('search-entry-' + initial + '-exactly-once')
                 count = opens()
                 h.key('KEYCODE_INSERT')
-                control(102)
+                h.key('KEYCODE_SEARCH')
                 assert opens() == count, 'Search stacked over results'
-                h.key('KEYCODE_DEL')  # Results Back returns directly to browsing.
+                close_popup()
             else:
-                # Enter submits an empty query and returns to browsing, without results.
+                # Empty Enter keeps the full screen open and moves to zero-state results.
+                count = opens()
                 h.key('KEYCODE_ENTER')
-                assert re.findall(r'SearchEntry: submit query=(.*?) scope=', h.log())[-1] == ''
+                assert opens() == count
+                close_popup()
         mappings = dict(up=1073741906, down=1073741905, left=1073741904, right=1073741903,
                         a=13, b=8, x=127, y=1073741897, back=1073741882, start=27)
         keyboard = ET.Element('inputList')

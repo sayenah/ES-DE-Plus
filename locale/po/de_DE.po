@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-19 15:34-0500\n"
 "PO-Revision-Date: 2026-09-04 12:23+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Deutsch <info@es-de.org>\n"
@@ -1195,24 +1195,6 @@ msgstr "Schließen (Anwenden)"
 msgid "close (cancel)"
 msgstr "Schließen (Abbruch)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "KEINE SPIELE GEFUNDEN"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "wählen"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "STARTE SPIEL"
 
@@ -1500,6 +1482,12 @@ msgstr "TEXTLISTE-SCHNELLBLÄTTERN-OVERLAY AKTIVIEREN"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "AKTIVIERE VIRTUELLE TASTATUR"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1852,6 +1840,9 @@ msgstr "BILDSCHIRMSCHONER EINSTELLUNGEN"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "START AUF EINEM ANDEREN BILDSCHIRM AKTIVIEREN"
+
+msgid "choose"
+msgstr "wählen"
 
 msgid "close menu"
 msgstr "Menü schließen"
@@ -2553,6 +2544,9 @@ msgstr "GENRE:"
 msgid "PLAYERS:"
 msgstr "SPIELER:"
 
+msgid "NO GAMES FOUND"
+msgstr "KEINE SPIELE GEFUNDEN"
+
 msgid "API CALLS:"
 msgstr "API AUFRUFE:"
 
@@ -2639,6 +2633,143 @@ msgstr "VIDEOS TAUSCHEN NACH (SEKUNDEN)"
 
 msgid "RENDER BLUR"
 msgstr "RENDER BLUR"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "System"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d minutes played"
+msgstr ""
+
+msgid "space"
+msgstr "Space"
+
+msgid "delete"
+msgstr "löschen"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "In:"
+msgstr ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "ANZEIGE DES BT STATUS"
@@ -2847,9 +2978,6 @@ msgstr "Screenshots ansehen"
 msgid "fetch updates"
 msgstr "Updates holen"
 
-msgid "delete"
-msgstr "löschen"
-
 msgid "download"
 msgstr "download"
 
@@ -2885,12 +3013,6 @@ msgstr ""
 "DATEN FÜHREN KÖNNTE."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3220,9 +3342,6 @@ msgstr ""
 "EINTRÄGE, DIE NICHT ALS SPIELE GEZÄHLT WERDEN, KÖNNEN NICHT ZU "
 "BENUTZERDEFINIERTEN SAMMLUNGEN HINZUGEFÜGT WERDEN"
 
-msgid "system"
-msgstr "System"
-
 msgid "view media"
 msgstr "Medien ansehen"
 
@@ -3421,9 +3540,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "STARTE SPIEL '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "Menü"
@@ -3662,9 +3778,6 @@ msgstr "Return"
 
 msgid "backspace"
 msgstr "Backspace"
-
-msgid "space"
-msgstr "Space"
 
 msgid "LOAD DEFAULT"
 msgstr "DEFAULT LADEN"

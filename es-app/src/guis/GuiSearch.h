@@ -136,6 +136,9 @@ private:
     bool mNoResults {false};
     bool mDirty {true};
     int mBlink {0};
+    double mQueryWorkMs {0};
+    bool mMeasureFrame {false};
+    bool mKeyboardShown {false};
     float mUnit {0};
     float mContentBottom {0};
     int mVisibleRows {5};
