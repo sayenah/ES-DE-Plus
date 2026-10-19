@@ -1036,7 +1036,7 @@ void GuiSearch::openGame(bool play)
         if (folder)
             game = folder;
         auto* index = game->getSystem()->getIndex();
-        if (index && !index->showFile(game)) {
+        if (index && index->isFiltered() && !index->showFile(game)) {
             index->resetFilters();
             index->setKidModeFilters();
             controller->onFileChanged(game, true);
