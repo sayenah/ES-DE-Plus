@@ -56,9 +56,6 @@ def permitted(path):
     elif parts == ('libplutovg.a',):
         # The inherited LunaSVG CMake target emits its MIT plutovg archive here.
         pass
-    elif path == 'android/search-input-probe.cpp':
-        # Original MIT debug-only SDL controller probe; not linked in release builds.
-        pass
     elif parts[:2] == ('android', 'libs'):
         assert len(parts) == 4, path
     elif parts and re.fullmatch('android_(arm64-v8a|x86_64)', parts[0]):
@@ -165,13 +162,12 @@ def collect(directory, ndk):
 
 
 def controls():
-    permitted('android/search-input-probe.cpp')
     for path in ['external/poppler/cpp/poppler-document.h', 'es-pdf-converter/src/ConvertPDF.h',
                  'android/libs/x86_64/libpoppler.so', 'external/unknown/unknown.h',
                  'android/.deps/install/x86_64/lib/libunknown.a',
                  'android/.deps/install/x86_64/lib/libunknown.so.1',
                  'android/.deps/layout/generated/unknown.h', 'libunknown.a',
-                 'android/.deps/sources/libiconv/src/iconv.c', 'android/unreviewed-input.cpp']:
+                 'android/.deps/sources/libiconv/src/iconv.c']:
         try:
             permitted(path)
         except AssertionError:

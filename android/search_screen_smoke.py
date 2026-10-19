@@ -19,6 +19,7 @@ TARGET = re.compile(r'Search touch target: area=(\d+) index=(\d+) norm=([0-9.]+)
 def run(h, start, control, shot, record):
     root = h.settings.rsplit('/settings/', 1)[0]
     measurements = []
+    prefix = f'search-screen-api{h.api}-'
     def prepare(operation, **arguments):
         h.shell('am', 'force-stop', h.app)
         result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'search-fixture', '-e', 'steps',
@@ -116,14 +117,14 @@ def run(h, start, control, shot, record):
         for button in [12, 12, 13, 13]: pad(button)  # n
         pad(0)
         h.wait_for(lambda: 'Search keystroke: query=fin ' in h.log(), 'grid typed fin')
-        shot('search-screen-api33-controller-fin')
+        shot(prefix + 'controller-fin')
         for _ in range(4): pad(11)
         h.wait_for(lambda: 'Search focus: area=2' in h.log(), 'Up reaches suggestions')
         pad(0)
         pad(10)
         pad(9)
         pad(6)
-        shot('search-screen-api33-controller-results')
+        shot(prefix + 'controller-results')
         before = len(h.log())
         pad(3)
         h.wait_for(lambda: 'game=Final Fantasy VII favorite=0' in h.log()[before:],
@@ -163,14 +164,14 @@ def run(h, start, control, shot, record):
             h.wait_for(lambda: 'Search screen opened:' in h.log(), 'magnifier search')
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
                        'isInputViewShown=true' in h.shell('dumpsys', 'input_method'), 'real IME visible')
-            shot('search-screen-api33-' + name + '-zero')
+            shot(prefix + name + '-zero')
             typed('fin')
-            shot('search-screen-api33-' + name + '-fin-ime')
+            shot(prefix + name + '-fin-ime')
             tap(4, 1)
-            shot('search-screen-api33-' + name + '-filter')
+            shot(prefix + name + '-filter')
             attach()
             pad(6)
-            shot('search-screen-api33-' + name + '-results-focused')
+            shot(prefix + name + '-results-focused')
             pad(1)
             tap(0)  # Return to the touch IME before the direct result tap.
             tap(6)
@@ -178,15 +179,15 @@ def run(h, start, control, shot, record):
             magnifier()
             tap(5)
             h.wait_for(lambda: 'Search keystroke: query=fin ' in h.log(), 'recent search tap runs query')
-            shot('search-screen-api33-' + name + '-recent')
+            shot(prefix + name + '-recent')
             tap(6, hold=True)
-            shot('search-screen-api33-' + name + '-long-press')
+            shot(prefix + name + '-long-press')
             h.key('KEYCODE_ENTER')  # Play now in the native dialog.
             h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'long-press Play now normal launch')
             h.key('KEYCODE_BACK')
             magnifier()
             typed('qqqqqqqq')
-            shot('search-screen-api33-' + name + '-no-results')
+            shot(prefix + name + '-no-results')
             h.key('KEYCODE_ESCAPE')
             magnifier()
             h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
@@ -224,7 +225,7 @@ def run(h, start, control, shot, record):
         summary = dict(samples=len(ordered), p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=max(ordered))
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
         assert summary['max_ms'] <= 50, ('Search-attributable work exceeded 50ms', summary)
-        (h.evidence / 'search-screen-result.txt').write_text('PASS: API 33 controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')
+        (h.evidence / 'search-screen-result.txt').write_text(f'PASS: API {h.api} controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')
     finally:
         h.shell('am', 'force-stop', h.app)
         h.shell('wm', 'size', 'reset')

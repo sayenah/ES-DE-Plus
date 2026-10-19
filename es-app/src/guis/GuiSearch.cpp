@@ -109,7 +109,9 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     layout();
     for (const float size :
          {24.0f, 25.0f, 26.0f, 27.0f, 28.0f, 30.0f, 32.0f, 34.0f, 36.0f, 38.0f, 42.0f})
-        searchFont(size * mUnit);
+        searchFont(size * mUnit)
+            ->sizeText("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                       "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×");
     startTextInput(mTouch);
     LOG(LogDebug) << "Search screen opened: query=" << mQuery << " scope=" << mScopeName;
 }
@@ -255,7 +257,8 @@ void GuiSearch::target(
     auto font = searchFont(fontSize);
     const float width = font->sizeText(value).x;
     if (width > rect.z - 24 * mUnit)
-        fontSize *= std::max(0.65f, (rect.z - 24 * mUnit) / width);
+        fontSize = std::max(
+            2.0f, std::floor(fontSize * std::max(0.65f, (rect.z - 24 * mUnit) / width) / 2) * 2);
     label(value, rect, fontSize, active ? mFocusInk : mForeground,
           active ? mAccent : (area == Area::Keys ? mPanel : mRaised), active, ALIGN_CENTER);
     mTargets.push_back({rect, area, index});
@@ -1253,11 +1256,14 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground);
     for (auto& label : mLabels) {
         mRenderer->setMatrix(transform);
-        if (label.background)
-            mRenderer->drawRect(label.rect.x, label.rect.y, label.rect.z, label.rect.w,
-                                label.background, label.background, false, 1, 1,
-                                Renderer::BlendFactor::SRC_ALPHA,
+        if (label.background) {
+            // The upstream corner shader expects rectangle-local vertex positions.
+            mRenderer->setMatrix(glm::translate(transform, {label.rect.x, label.rect.y, 0}));
+            mRenderer->drawRect(0, 0, label.rect.z, label.rect.w, label.background,
+                                label.background, false, 1, 1, Renderer::BlendFactor::SRC_ALPHA,
                                 Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, 10 * mUnit);
+            mRenderer->setMatrix(transform);
+        }
         if (label.border) {
             const float line = 3 * mUnit;
             for (const auto& edge :

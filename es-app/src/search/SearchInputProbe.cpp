@@ -1,7 +1,7 @@
 //  SPDX-License-Identifier: MIT
 //
 //  ES-DE-Plus
-//  search-input-probe.cpp
+//  SearchInputProbe.cpp
 //
 //  Written for ES-DE-Plus. Debug-only real SDL virtual-controller input for CI.
 //  No production bridge API or frontend behavior is replaced.

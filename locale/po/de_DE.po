@@ -2635,22 +2635,22 @@ msgid "RENDER BLUR"
 msgstr "RENDER BLUR"
 
 msgid "word"
-msgstr ""
+msgstr "Wort"
 
 msgid "title"
-msgstr ""
+msgstr "Titel"
 
 msgid "series"
-msgstr ""
+msgstr "Serie"
 
 msgid "developer"
-msgstr ""
+msgstr "Entwickler"
 
 msgid "publisher"
-msgstr ""
+msgstr "Herausgeber"
 
 msgid "genre"
-msgstr ""
+msgstr "Genre"
 
 msgid "system"
 msgstr "System"
@@ -2659,7 +2659,7 @@ msgid "Best match"
 msgstr "Bester Treffer"
 
 msgid "favorite"
-msgstr ""
+msgstr "Favorit"
 
 msgid "Last played"
 msgstr "Zuletzt gespielt"
@@ -2675,13 +2675,13 @@ msgid "delete"
 msgstr "löschen"
 
 msgid "clear"
-msgstr ""
+msgstr "leeren"
 
 msgid "results ›"
 msgstr "Ergebnisse ›"
 
 msgid "Shift"
-msgstr ""
+msgstr "Umschalt"
 
 msgid "ABC"
 msgstr ""
@@ -2714,7 +2714,7 @@ msgid "Start typing to search your library."
 msgstr "Geben Sie einen Namen ein, um Ihre Spielebibliothek zu durchsuchen."
 
 msgid "All"
-msgstr ""
+msgstr "Alle"
 
 #, c-format
 msgid "No games match ‘%s’."
@@ -2739,25 +2739,25 @@ msgid "show in game list"
 msgstr "in Spieleliste anzeigen"
 
 msgid "play now"
-msgstr ""
+msgstr "jetzt spielen"
 
 msgid "keyboard"
-msgstr ""
+msgstr "Tastatur"
 
 msgid "search"
 msgstr ""
 
 msgid "remove"
-msgstr ""
+msgstr "entfernen"
 
 msgid "type"
-msgstr ""
+msgstr "eingeben"
 
 msgid "filter system"
 msgstr "System filtern"
 
 msgid "results"
-msgstr ""
+msgstr "Ergebnisse"
 
 msgid "Game options"
 msgstr "Spieloptionen"

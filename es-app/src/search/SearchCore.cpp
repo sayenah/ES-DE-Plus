@@ -594,12 +594,10 @@ namespace LibrarySearch
     {
         auto index = std::make_unique<Index>();
         // Sort once by tie breaks. Posting lists and bucket traversal retain this order.
-        struct CachedText {
-            std::string normalized;
-            std::string compact;
-        };
-        std::unordered_map<std::string, CachedText> normalized;
+        std::unordered_map<std::string, std::string> normalized;
+        std::unordered_map<std::string, std::string> compacted;
         normalized.reserve(games.size() * 2);
+        compacted.reserve(1024);
         index->games.reserve(games.size());
         index->documents.reserve(games.size() * 2);
         index->gameDocuments.reserve(games.size());
@@ -607,20 +605,17 @@ namespace LibrarySearch
         index->vocabulary.reserve(games.size() * 2);
         index->grams.reserve(4096);
         index->acronymPrefixes.reserve(1024);
-        auto cachedText = [&](const std::string& value) -> const CachedText& {
-            const auto inserted = normalized.try_emplace(value);
-            auto& text = inserted.first->second;
-            if (inserted.second) {
-                text.normalized = normalize(value);
-                text.compact = compact(text.normalized);
-            }
-            return text;
-        };
         auto cached = [&](const std::string& value) -> const std::string& {
-            return cachedText(value).normalized;
+            auto it = normalized.find(value);
+            if (it == normalized.end())
+                it = normalized.emplace(value, normalize(value)).first;
+            return it->second;
         };
         auto cachedCompact = [&](const std::string& value) -> const std::string& {
-            return cachedText(value).compact;
+            auto it = compacted.find(value);
+            if (it == compacted.end())
+                it = compacted.emplace(value, compact(cached(value))).first;
+            return it->second;
         };
         std::vector<size_t> order(games.size());
         std::iota(order.begin(), order.end(), 0);
@@ -661,17 +656,21 @@ namespace LibrarySearch
         });
         std::unordered_set<std::string> identities;
         identities.reserve(games.size());
-        std::unordered_map<std::string, size_t> completionKeys;
-        completionKeys.reserve(games.size());
+        std::array<std::unordered_map<std::string, size_t>, 7> completionKeys;
+        for (auto& keys : completionKeys)
+            keys.reserve(256);
         auto completion = [&](SuggestionKind kind, const std::string& text, const auto& ids,
                               const std::string& overrideKey = std::string {}) {
-            const auto& key = cachedCompact(overrideKey.empty() ? text : overrideKey);
+            const auto explicitKey = overrideKey.empty() ? std::string {} : compact(overrideKey);
+            const auto& key = overrideKey.empty() ? cachedCompact(text) : explicitKey;
             if (key.empty() || key == "unknown")
                 return;
-            const auto pair = std::string(1, static_cast<char>('0' + static_cast<int>(kind))) + key;
-            auto it = completionKeys.find(pair);
-            if (it == completionKeys.end()) {
-                it = completionKeys.emplace(pair, index->completions.size()).first;
+            // Partition by kind instead of allocating a kind-prefixed string on every
+            // game/metadata occurrence. Most metadata keys repeat across the library.
+            auto& keys = completionKeys[static_cast<size_t>(kind)];
+            auto it = keys.find(key);
+            if (it == keys.end()) {
+                it = keys.emplace(key, index->completions.size()).first;
                 index->completions.push_back({kind, text, key, {}, 0});
             }
             auto& c = index->completions[it->second];

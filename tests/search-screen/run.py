@@ -21,7 +21,7 @@ import zlib
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def png(path):
+def png(path, required_pixel=None):
     # Lossless framebuffer conversion, no image or testing dependency.
     with path.open('rb') as stream:
         assert stream.readline() == b'P6\n'
@@ -29,6 +29,10 @@ def png(path):
         assert stream.readline() == b'255\n'
         pixels = stream.read()
     assert len(pixels) == width * height * 3
+    if required_pixel:
+        x, y, color = required_pixel
+        offset = (y * width + x) * 3
+        assert tuple(pixels[offset:offset + 3]) == color, 'Focused key interior fill was clipped'
     def chunk(kind, payload):
         return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
     data = b''.join(b'\0' + pixels[row * width * 3:(row + 1) * width * 3] for row in range(height))
@@ -143,8 +147,13 @@ def run(binary, probe, destination, width, height, variant='dark'):
         wait(lambda: (destination / 'ack').exists() and (destination / 'ack').read_text().strip() == str(sequence), action)
         time.sleep(.2)
     def shot(name):
+        if name == 'zero':
+            time.sleep(1.5)  # Let visible async covers finish their independent fades.
         command('capture', name)
-        png(destination / (name + '.ppm'))
+        unit = min(width, height) / 1080
+        required = (round(66 * unit), round(height - 483 * unit),
+                    (184, 106, 18) if variant == 'light' else (240, 166, 58)) if name == 'zero' else None
+        png(destination / (name + '.ppm'), required)
     def search():
         command('pad', '3')  # Y, the actual SDL controller entry point.
         wait(lambda: 'Search screen opened:' in log(), 'search opened')

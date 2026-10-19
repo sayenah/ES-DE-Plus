@@ -170,7 +170,7 @@ elseif(ANDROID)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_library(main MODULE ${ES_SOURCES} ${ES_HEADERS})
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        target_sources(main PRIVATE ${CMAKE_SOURCE_DIR}/android/search-input-probe.cpp)
+        target_sources(main PRIVATE src/search/SearchInputProbe.cpp)
     endif()
     target_link_libraries(main PRIVATE ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS}
                           es-core es-pdf-convert lunasvg::lunasvg)
