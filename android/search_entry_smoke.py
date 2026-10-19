@@ -57,14 +57,14 @@ def run(h, start, control, shot, record):
         h.wait_for(lambda: h.log().count('Search screen closed') == before + 1,
                    'search actually closed before the next entry')
 
-    def live_event(event):
+    def live_event(event, occurrence=1):
         # A key can finish before the next rendered frame flushes es_log.txt.
         # Observe this process's actual event, without a second input or restart.
         pid = h.shell('pidof', h.app).strip()
         assert pid.isdigit(), ('Frontend process missing', pid)
         def observed():
             output = h.adb('logcat', '-d', '-v', 'threadtime', '--pid=' + pid)
-            if 'Scripting::fireEvent(): ' + event in output:
+            if output.count('Scripting::fireEvent(): ' + event) >= occurrence:
                 (h.evidence / ('search-entry-' + event.split()[0] + '-logcat.txt')).write_text(output)
                 return True
             return False
@@ -169,15 +169,18 @@ def run(h, start, control, shot, record):
 
         start(InputTouchOverlay=True, UIMode='full', StartupView='gamelist',
               CustomEventScripts=True, MediaDirectory='')
-        h.key('KEYCODE_FORWARD_DEL')
-        live_event('mediaviewer-start')
-        shot('search-entry-media-viewer')
-        count = opens()
-        h.key('KEYCODE_INSERT')
-        h.key('KEYCODE_SEARCH')
-        control(102)
-        assert opens() == count, 'Search opened over the media viewer'
-        h.key('KEYCODE_DEL')
+        for occurrence, key in enumerate(['KEYCODE_INSERT', 'KEYCODE_SEARCH'], 1):
+            h.key('KEYCODE_FORWARD_DEL')
+            live_event('mediaviewer-start', occurrence)
+            shot('search-entry-media-viewer-' + key)
+            count = opens()
+            control(102)
+            assert opens() == count, 'Magnifier opened Search over the media viewer'
+            # Upstream dismisses the viewer on other inputs. A later key may then
+            # open Search, so test each dismissing input with a newly active viewer.
+            h.key(key)
+            live_event('mediaviewer-stop', occurrence)
+            assert opens() == count, 'Viewer dismissal also opened Search'
         opening(lambda: h.key('KEYCODE_INSERT'), 'nes')
         close_popup()
         record('search-entry-media-viewer')
