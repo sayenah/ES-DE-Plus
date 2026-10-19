@@ -306,6 +306,7 @@ void Settings::setDefaults()
 #endif
     mBoolMap["AlternativeEmulatorPerGame"] = {true, true};
     mBoolMap["ShowHiddenFiles"] = {true, true};
+    mBoolMap["SearchHistory"] = {true, true};
     mBoolMap["ShowHiddenGames"] = {true, true};
 #if defined(__ANDROID__)
     mBoolMap["LaunchOnOtherScreen"] = {false, false};

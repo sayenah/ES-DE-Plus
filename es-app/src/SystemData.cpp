@@ -21,6 +21,7 @@
 #include "ThemeData.h"
 #include "UIModeController.h"
 #include "resources/ResourceManager.h"
+#include "search/LibrarySearch.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
@@ -1226,6 +1227,7 @@ bool SystemData::loadConfig()
     if (sSystemVector.size() > 0)
         CollectionSystemsManager::getInstance()->loadCollectionSystems();
 
+    LibrarySearch::engine();
     return false;
 }
 
@@ -1330,6 +1332,7 @@ std::string SystemData::getLaunchCommandFromLabel(const std::string& label)
 
 void SystemData::deleteSystems()
 {
+    LibrarySearch::invalidate();
     for (unsigned int i {0}; i < sSystemVector.size(); ++i)
         delete sSystemVector.at(i);
 

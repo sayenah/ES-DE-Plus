@@ -51,6 +51,15 @@ jobs:
           cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
           cmake --build build-input-overlay --parallel 2
           ctest --test-dir build-input-overlay --output-on-failure
+      - name: Build and run search correctness and 50k performance gates
+        run: |
+          cmake -S tests/search -B build-search -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-search --parallel 2
+          ctest --test-dir build-search --output-on-failure -V
+          cmake -S tests/search -B build-search-sanitized -DCMAKE_BUILD_TYPE=Debug -DSEARCH_SANITIZERS=ON
+          cmake --build build-search-sanitized --parallel 2
+          ctest --test-dir build-search-sanitized -R 'search_logic|search_adapter' --output-on-failure
+
       - name: Emulator override persistence probe
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror -Ies-app/src -Ies-core/src es-app/src/EmulatorManagerConfig.cpp es-app/src/EmulatorLaunchProfile.cpp android/emulator-manager-probe.cpp -lpugixml -o /tmp/emulator-manager-probe

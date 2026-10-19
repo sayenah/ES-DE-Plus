@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — written for ES-DE-Plus. Framework-free search and history checks.
+cmake_minimum_required(VERSION 3.13)
+project(search_tests LANGUAGES CXX)
+enable_testing()
+find_package(ICU REQUIRED COMPONENTS uc)
+find_package(pugixml REQUIRED)
+add_executable(search_tests main.cpp ../../es-app/src/search/SearchCore.cpp
+               ../../es-app/src/search/SearchHistory.cpp)
+target_include_directories(search_tests PRIVATE ../../es-app/src)
+target_compile_features(search_tests PRIVATE cxx_std_17)
+target_compile_options(search_tests PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(search_tests PRIVATE ICU::uc pugixml::pugixml)
+option(SEARCH_SANITIZERS "Run memory/undefined behaviour checks" OFF)
+if(SEARCH_SANITIZERS)
+    target_compile_options(search_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(search_tests PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME search_logic COMMAND search_tests)
+add_test(NAME search_performance COMMAND search_tests --performance)
+add_executable(search_adapter_tests adapter.cpp ../../es-app/src/search/LibrarySearch.cpp
+    ../../es-app/src/search/SearchCore.cpp ../../es-app/src/search/SearchHistory.cpp
+    ../../es-app/src/MetaData.cpp)
+target_include_directories(search_adapter_tests PRIVATE frontend ../../es-app/src)
+target_compile_features(search_adapter_tests PRIVATE cxx_std_17)
+target_compile_options(search_adapter_tests PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(search_adapter_tests PRIVATE ICU::uc pugixml::pugixml)
+if(SEARCH_SANITIZERS)
+    target_compile_options(search_adapter_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(search_adapter_tests PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME search_adapter COMMAND search_adapter_tests)

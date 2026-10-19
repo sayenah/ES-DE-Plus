@@ -68,6 +68,8 @@ Also on first startup the configuration file `es_settings.xml` will be generated
 
 In addition to es_systems.xml there's an `es_find_rules.xml` file that gets loaded as well and which contains rules on how to locate the emulators, i.e. how to find out where they've been installed.
 
+The ES-DE-Plus `SearchHistory` boolean setting (default `true`) controls recording and access to search history. History is stored separately in `settings/search_history.xml` in the application data directory. Disabling it keeps existing history; kid mode never records or exposes history.
+
 There's also a log file created in the `ES-DE/logs` directory named `es_log.txt`, refer to this in case of any issues as it should hopefully provide information on what went wrong. Enabling _Debug mode_ in the _Other settings_ menu or starting ES-DE with the --debug flag outputs even more detailed information to this log file.
 
 After ES-DE finds at least one game file, it will populate that game system and the application will start. If there are no game files, a dialog will be shown explaining that you need to install your game files into your ROM directory. You will also be given a choice to import games using the built-in game importer, or change the ROM directory path if you don't want to use the default one. As well you have the option to generate the complete game systems directory structure based on information in es_systems.xml.

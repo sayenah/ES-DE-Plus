@@ -21,6 +21,7 @@
 #include "SystemStatus.h"
 #include "UIModeController.h"
 #include "Window.h"
+#include "search/SearchGeneration.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/PlatformUtil.h"
 #include "utils/TimeUtil.h"
@@ -73,6 +74,7 @@ FileData::FileData(FileType type,
 
 FileData::~FileData()
 {
+    LibrarySearch::invalidate();
     while (mChildren.size() > 0)
         delete (mChildren.front());
 
@@ -592,6 +594,7 @@ void FileData::addChild(FileData* file)
     if (mChildrenByFilename.find(key) == mChildrenByFilename.cend()) {
         mChildrenByFilename[key] = file;
         mChildren.emplace_back(file);
+        LibrarySearch::invalidate();
         file->mParent = this;
     }
 }
@@ -600,6 +603,7 @@ void FileData::removeChild(FileData* file)
 {
     assert(mType == FOLDER);
     assert(file->getParent() == this);
+    LibrarySearch::invalidate();
     mChildrenByFilename.erase(file->getKey());
     for (auto it = mChildren.cbegin(); it != mChildren.cend(); ++it) {
         if (*it == file) {

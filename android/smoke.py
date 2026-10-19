@@ -1914,9 +1914,13 @@ try:
     key('KEYCODE_ESCAPE')
     screenshot('main-menu-search')
     key('KEYCODE_ENTER')
-    shell('input', 'text', 'Smoke')
+    # Typo tolerance must find the real Smoke Alpha/Beta corpus through today's search UI.
+    shell('input', 'text', 'Smkoe')
     key('KEYCODE_ENTER')
     screenshot('search-results')
+    timings = re.findall(r'Library search index: games=\d+ build_ms=[\d.]+ search_suggest_ms=[\d.]+', log())
+    assert timings, 'Missing real-corpus search index/query measurement'
+    print('SEARCH EMULATOR TIMING: ' + timings[-1], flush=True)
     # Move past the search header to the first result, then use the real launch path.
     key('KEYCODE_DPAD_DOWN')
     key('KEYCODE_ENTER')

@@ -11,6 +11,7 @@
 
 #include "GuiComponent.h"
 #include "components/MenuComponent.h"
+#include "search/SearchGeneration.h"
 
 #include <string>
 #include <vector>
@@ -26,16 +27,8 @@ public:
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
-    struct SearchResult {
-        FileData* game;
-        int rank;
-        std::string sortName;
-        std::string systemName;
-    };
-
     void populateResults();
-    void launchGame(FileData* game);
-    int getMatchRank(FileData* game) const;
+    void launchGame(const LibrarySearch::Handle& handle);
 
     MenuComponent mMenu;
     std::string mQuery;
