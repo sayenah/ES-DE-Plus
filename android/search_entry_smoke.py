@@ -44,6 +44,19 @@ def run(h, start, control, shot, record):
     def close_popup():
         h.key('KEYCODE_ESCAPE')  # Unchanged initial value: closes without a save dialog.
 
+    def live_event(event):
+        # A key can finish before the next rendered frame flushes es_log.txt.
+        # Observe this process's actual event, without a second input or restart.
+        pid = h.shell('pidof', h.app).strip()
+        assert pid.isdigit(), ('Frontend process missing', pid)
+        def observed():
+            output = h.adb('logcat', '-d', '-v', 'threadtime', '--pid=' + pid)
+            if 'Scripting::fireEvent(): ' + event in output:
+                (h.evidence / ('search-entry-' + event.split()[0] + '-logcat.txt')).write_text(output)
+                return True
+            return False
+        h.wait_for(observed, 'live frontend ' + event, timeout=20)
+
     def game_flag(name, expected):
         def saved():
             text = h.shell('cat', gamelist_path, check=False)
@@ -131,7 +144,7 @@ def run(h, start, control, shot, record):
         start(InputTouchOverlay=True, UIMode='full', ScreensaverControls=True,
               ScreensaverType='dim', ScreensaverTimer=0, CustomEventScripts=True)
         h.key('KEYCODE_FORWARD_DEL')  # System X starts the screensaver.
-        assert 'Scripting::fireEvent(): screensaver-start "manual"' in h.log()
+        live_event('screensaver-start "manual"')
         shot('search-entry-screensaver')
         count = opens()
         control(102)  # Magnifier is inert; Y only dismisses the screensaver.
@@ -144,7 +157,7 @@ def run(h, start, control, shot, record):
         start(InputTouchOverlay=True, UIMode='full', StartupView='gamelist',
               CustomEventScripts=True, MediaDirectory='')
         h.key('KEYCODE_FORWARD_DEL')
-        h.wait_for(lambda: 'Scripting::fireEvent(): mediaviewer-start' in h.log(), 'real media viewer opened')
+        live_event('mediaviewer-start')
         shot('search-entry-media-viewer')
         count = opens()
         h.key('KEYCODE_INSERT')
@@ -237,6 +250,12 @@ def run(h, start, control, shot, record):
             h.shell('am', 'force-stop', h.app)
             h.shell('wm', 'size', 'reset')
             h.shell('wm', 'density', 'reset')
+    except Exception:
+        record('search-entry-failure')
+        shot('search-entry-failure')
+        (h.evidence / 'search-entry-failure-logcat.txt').write_text(
+            h.adb('logcat', '-d', '-v', 'threadtime'))
+        raise
     finally:
         prepare('restore')
     (h.evidence / 'search-entry-result.txt').write_text(
