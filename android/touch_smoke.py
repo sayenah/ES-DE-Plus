@@ -544,6 +544,9 @@ def run(namespace):
         touch_control(0)
         record('touch-only-menu-device-settings-text')
         start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2)
+        # launch() proves readiness after its normal startup wait; T=2 has
+        # already elapsed, so consume the complete wake-only gesture first.
+        tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))
         touch_control(6)
         touch_control(12, 4)
         touch_control(0)
@@ -557,7 +560,9 @@ def run(namespace):
         rect = list(map(float, re.findall(r'InputOverlay: modal rect=([^\s]+)', h.log())[-1].split(',')))
         # The entire modal interior (text AND confirmation), independently sized
         # by the GUI, must be unchanged when the underlying overlay fades away.
-        h.wait_for(lambda: 'InputOverlay: faded' in h.log(), 'warning overlay fades under modal')
+        fade_baseline = h.log()
+        h.wait_for(lambda: 'InputOverlay: faded' in h.log()[len(fade_baseline):],
+                   'warning overlay fades under modal')
         warning_off = shot('touch-disable-recovery-warning-faded')
         width, height, channels, on_rows = pdf_smoke.pixels(warning_on)
         off_width, off_height, off_channels, off_rows = pdf_smoke.pixels(warning_off)
