@@ -287,6 +287,7 @@ def run_fresh(namespace):
     h.shell('am', 'force-stop', h.app)
     root = h.shell('readlink', '-f', h.settings).strip().rsplit('/settings/', 1)[0]
     intent = 'touch-smoke-ack-failure\n' + root
+    original_mode = h.private('stat', '-c', '%a', 'files').strip()
     h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && printf %s ' +
               shlex.quote(intent) + ' > files/touch-overlay-reset && chmod 500 files')
     try:
@@ -312,7 +313,7 @@ def run_fresh(namespace):
         (h.evidence / 'touch-reset-failure-logcat.txt').write_text(logcat)
     finally:
         h.shell('am', 'force-stop', h.app)
-        h.private('chmod', '700', 'files')
+        h.private('chmod', original_mode, 'files')
     h.launch()
     assert 'InputOverlay: setup reset saved and consumed' in h.log()
     assert h.private('sh', '-c', 'test ! -e files/touch-overlay-reset && echo RETIRED').strip() == 'RETIRED'
@@ -543,9 +544,9 @@ def run(namespace):
         shot('touch-only-text-confirmation')
         touch_control(0)
         record('touch-only-menu-device-settings-text')
-        start(InputTouchOverlay=True, InputTouchOverlayFadeTime=2)
-        # launch() proves readiness after its normal startup wait; T=2 has
-        # already elapsed, so consume the complete wake-only gesture first.
+        start(InputTouchOverlay=True, InputTouchOverlayFadeTime=10)
+        # Refresh visibility after the normal startup wait before this render
+        # comparison. The separate fade-behaviour probes still use T=2.
         tap((surface[0] + surface[2] * 0.5, surface[1] + surface[3] * 0.1))
         touch_control(6)
         touch_control(12, 4)
@@ -574,6 +575,10 @@ def run(namespace):
         changed = sum(on_rows[py][px * channels + c] != off_rows[py][px * channels + c]
                       for py in range(y0, y1) for px in range(x0, x1) for c in range(3))
         assert changed == 0, ('Overlay covered modal content', rect, changed)
+        ax0, ay0, ax1, ay1 = map(round, boxes[0])
+        exposed = sum(on_rows[py][px * channels + c] != off_rows[py][px * channels + c]
+                      for py in range(ay0, ay1) for px in range(ax0, ax1) for c in range(3))
+        assert exposed > 0, 'Visible/faded comparison must observe exposed A artwork changing'
         (h.evidence / 'touch-modal-priority.txt').write_text(
             f'PASS: modal interior {rect}: {changed} changed channels with overlay visible/faded; '
             'text and confirmation take visual priority.\n')
