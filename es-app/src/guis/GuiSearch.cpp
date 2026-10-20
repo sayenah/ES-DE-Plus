@@ -26,15 +26,40 @@
 #include "views/ViewController.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <set>
 #if defined(__ANDROID__)
+#include <sys/resource.h>
 #include <time.h>
+#include <unistd.h>
 #endif
 
 namespace
 {
+    std::array<long, 4> threadSchedule()
+    {
+#if defined(__ANDROID__)
+        // Per-thread switches/faults need no filesystem reads on the UI thread.
+        rusage value {};
+        if (Log::getReportingLevel() >= LogDebug && getrusage(RUSAGE_THREAD, &value) == 0)
+            return {value.ru_nvcsw, value.ru_nivcsw, value.ru_minflt, value.ru_majflt};
+#endif
+        return {-1, -1, -1, -1};
+    }
+    std::array<long, 4> scheduleDelta(const std::array<long, 4>& start)
+    {
+        auto end = threadSchedule();
+        for (size_t i {0}; i < end.size(); ++i)
+            end[i] = start[i] < 0 || end[i] < 0 ? -1 : end[i] - start[i];
+        return end;
+    }
+    int64_t traceNanoseconds(std::chrono::steady_clock::time_point value)
+    {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(value.time_since_epoch())
+            .count();
+    }
     double threadCpuMilliseconds()
     {
 #if defined(__ANDROID__)
@@ -123,6 +148,9 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     }
     // Opening from a game list offers its scope, while the initial scope is always global.
     mTouch = InputManager::getInstance().lastInputWasTouch();
+#if defined(__ANDROID__)
+    LOG(LogDebug) << "Search timing thread: tid=" << gettid();
+#endif
     // Android commits text on its UI thread, even while this thread loads fonts/layout.
     // Enable events first so a quick keystroke after Y is retained in SDL's queue.
     // Browsing may already have queued text after the event that opened search.
@@ -224,6 +252,7 @@ void GuiSearch::refresh(bool preserveFocus)
     }
     const auto start = std::chrono::steady_clock::now();
     const auto cpuStart = threadCpuMilliseconds();
+    const auto scheduleStart = threadSchedule();
     const std::string oldGame =
         preserveFocus && mArea == Area::Games ?
             (mIndex >= 0 && mIndex < static_cast<int>(mGames.size()) ? mGames[mIndex].id :
@@ -312,9 +341,10 @@ void GuiSearch::refresh(bool preserveFocus)
     else
         mIndex = std::max(0, std::min(mIndex, count(mArea) - 1));
     mDirty = true;
+    const auto schedule = scheduleDelta(scheduleStart);
     const double cpuMilliseconds = elapsedThreadCpu(cpuStart);
-    const double milliseconds =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    const auto end = std::chrono::steady_clock::now();
+    const double milliseconds = std::chrono::duration<double, std::milli>(end - start).count();
     if (mMeasureFrame)
         mQueryWorkMs += milliseconds;
     else
@@ -329,7 +359,10 @@ void GuiSearch::refresh(bool preserveFocus)
         << " suggest_ms="
         << std::chrono::duration<double, std::milli>(suggestionsReady - historyReady).count()
         << " matches_ms="
-        << std::chrono::duration<double, std::milli>(matchesReady - suggestionsReady).count();
+        << std::chrono::duration<double, std::milli>(matchesReady - suggestionsReady).count()
+        << " start_ns=" << traceNanoseconds(start) << " end_ns=" << traceNanoseconds(end)
+        << " voluntary_switches=" << schedule[0] << " involuntary_switches=" << schedule[1]
+        << " minor_faults=" << schedule[2] << " major_faults=" << schedule[3];
 }
 
 std::shared_ptr<Font> GuiSearch::searchFont(float size)
@@ -537,6 +570,7 @@ void GuiSearch::layout()
 {
     const auto start = std::chrono::steady_clock::now();
     const auto cpuStart = threadCpuMilliseconds();
+    const auto scheduleStart = threadSchedule();
     mDirty = false;
     mLabels.clear();
     mTargets.clear();
@@ -856,14 +890,18 @@ void GuiSearch::layout()
     mCovers.erase(mCovers.begin(), mCovers.begin() + oldCovers);
     requestArtwork();
     prepareDraw();
+    const auto schedule = scheduleDelta(scheduleStart);
     const double cpuMilliseconds = elapsedThreadCpu(cpuStart);
-    const double milliseconds =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    const auto end = std::chrono::steady_clock::now();
+    const double milliseconds = std::chrono::duration<double, std::milli>(end - start).count();
     if (mMeasureFrame)
         mQueryWorkMs += milliseconds;
     LOG(LogDebug) << "Search layout: ms=" << milliseconds << " covers=" << mCovers.size()
                   << " focus=" << static_cast<int>(mArea) << ":" << mIndex
-                  << " layout_cpu_ms=" << cpuMilliseconds;
+                  << " layout_cpu_ms=" << cpuMilliseconds << " start_ns=" << traceNanoseconds(start)
+                  << " end_ns=" << traceNanoseconds(end) << " voluntary_switches=" << schedule[0]
+                  << " involuntary_switches=" << schedule[1] << " minor_faults=" << schedule[2]
+                  << " major_faults=" << schedule[3];
 #if defined(__ANDROID__)
     if (Log::getReportingLevel() >= LogDebug) {
         for (const auto& target : mTargets) {
@@ -1561,6 +1599,8 @@ void GuiSearch::render(const glm::mat4& parentTrans)
 {
     const auto renderStart = std::chrono::steady_clock::now();
     const auto cpuStart = mMeasureFrame ? threadCpuMilliseconds() : -1.0;
+    const auto scheduleStart =
+        mMeasureFrame ? threadSchedule() : std::array<long, 4> {-1, -1, -1, -1};
     if (mDirty)
         layout();
     const glm::mat4 transform = parentTrans * getTransform();
@@ -1578,10 +1618,11 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         cover.image->render(transform);
     }
     if (mMeasureFrame) {
+        const auto schedule = scheduleDelta(scheduleStart);
         const auto renderCpu = elapsedThreadCpu(cpuStart);
-        const double renderMs = std::chrono::duration<double, std::milli>(
-                                    std::chrono::steady_clock::now() - renderStart)
-                                    .count();
+        const auto renderEnd = std::chrono::steady_clock::now();
+        const double renderMs =
+            std::chrono::duration<double, std::milli>(renderEnd - renderStart).count();
         LOG(LogDebug)
             << "Search frame: query=" << queryForLog() << " work_ms=" << mQueryWorkMs + renderMs
             << " render_ms=" << renderMs << " batch_ms="
@@ -1589,7 +1630,11 @@ void GuiSearch::render(const glm::mat4& parentTrans)
             << " covers_ms="
             << renderMs - std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
             << " batches=" << mTextBatch.getBatchCount() << " panel_vertices=" << mPanelBatch.size()
-            << " render_cpu_ms=" << renderCpu << " batch_cpu_ms=" << batchCpu;
+            << " render_cpu_ms=" << renderCpu << " batch_cpu_ms=" << batchCpu
+            << " start_ns=" << traceNanoseconds(renderStart)
+            << " end_ns=" << traceNanoseconds(renderEnd) << " voluntary_switches=" << schedule[0]
+            << " involuntary_switches=" << schedule[1] << " minor_faults=" << schedule[2]
+            << " major_faults=" << schedule[3];
         mMeasureFrame = false;
     }
 }

@@ -121,6 +121,43 @@ def run(h, start, control, shot, record):
         measurements.extend(times)
         timed_prefix = complete
         record(name)
+    def scheduler_control():
+        # A separate diagnostic after a failed ordinary journey, never replacement
+        # timing evidence. Keep the original samples and failure below unchanged.
+        for name, width, height, density in [('phone', 1080, 2400, 420), ('tablet', 2560, 1600, 320)]:
+            h.shell('am', 'force-stop', h.app)
+            h.shell('wm', 'size', f'{width}x{height}')
+            h.shell('wm', 'density', str(density))
+            start(InputTouchOverlay=True, UIMode='full', ScreenRotate=0, SearchHistory=True,
+                  VirtualKeyboard=False, InputDeviceNotifications=False)
+            tracing = False
+            try:
+                h.shell('atrace', '--async_start', '-b', '32768', 'sched')
+                tracing = True
+                magnifier()
+                h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
+                           'isInputViewShown=true' in h.shell('dumpsys', 'input_method'),
+                           'scheduler diagnostic IME visible')
+                for _ in range(3):
+                    typed('fin')
+                    for _ in range(3):
+                        ime('delete')
+                h.wait_for(lambda: 'Search frame:' in h.log()[h.log().rfind('Search keystroke:'):],
+                           'scheduler diagnostic last edit rendered')
+                current = record('search-screen-scheduler-' + name)
+                (h.evidence / ('search-screen-scheduler-' + name + '-threads.txt')).write_text(
+                    h.shell('ps', '-A', '-T'))
+                times = sorted(float(value) for value in re.findall(
+                    r'Search frame: .*? work_ms=([0-9.]+)', current))
+                assert times, 'Scheduler diagnostic produced no measured search frames'
+                (h.evidence / ('search-screen-scheduler-' + name + '-summary.txt')).write_text(
+                    json.dumps(dict(diagnostic_only=True, samples=len(times),
+                                    p95_ms=times[math.ceil(len(times) * .95) - 1], max_ms=max(times)),
+                               indent=2) + '\n')
+            finally:
+                if tracing:
+                    trace = h.adb('shell', 'atrace', '--async_stop', '-z', binary=True)
+                    (h.evidence / ('search-screen-scheduler-' + name + '.atrace')).write_bytes(trace)
     prepare('prepare')
     try:
         write('gamelists/nes/gamelist.xml',
@@ -296,6 +333,13 @@ def run(h, start, control, shot, record):
         ordered = sorted(measurements)
         summary = dict(samples=len(ordered), p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=max(ordered))
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
+        if summary['max_ms'] > 50:
+            try:
+                scheduler_control()
+            except Exception as error:
+                # A diagnostic failure cannot erase or turn the original budget
+                # failure into a passing result.
+                (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
         assert summary['max_ms'] <= 50, ('Search-attributable work exceeded 50ms', summary)
         (h.evidence / 'search-screen-result.txt').write_text(f'PASS: API {h.api} controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')
     finally:

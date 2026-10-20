@@ -1014,6 +1014,7 @@ jobs:
             android/evidence/**/audio-*-progress.json
             android/evidence/**/audio-startup-relaunches.jsonl
             android/evidence/**/search-screen-timing.json
+            android/evidence/**/search-screen-scheduler-*.atrace
           retention-days: 7
 
   publish-apk:
