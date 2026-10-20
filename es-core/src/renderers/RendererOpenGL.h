@@ -46,6 +46,7 @@ public:
     void setScissor(const Rect& scissor) override;
     void setSwapInterval() override;
     void swapBuffers() override;
+    void clearBackground(unsigned int color) override;
 
     unsigned int createTexture(const unsigned int texUnit,
                                const TextureType type,

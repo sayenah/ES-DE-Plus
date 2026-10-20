@@ -43,6 +43,9 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                          ('label', 'void GuiSearch::label('),
                          ('size', 'glm::vec2 GuiSearch::textSize(')]:
         (build / ('search-' + name + '.inc')).write_text(method(marker, search))
+    (build / 'search-render.inc').write_text(method('void GuiSearch::render(', search))
+    renderer = (root / 'es-core/src/renderers/RendererOpenGL.cpp').read_text()
+    (build / 'search-clear.inc').write_text(method('void RendererOpenGL::clearBackground(', renderer))
     (build / 'search-text-input.inc').write_text(method('void GuiSearch::startTextInput(', search))
     (build / 'search-text-resume.inc').write_text(
         method('if (mWindow->peekGui() == this && !SDL_IsTextInputActive())', search))
@@ -54,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

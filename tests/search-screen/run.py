@@ -8,6 +8,7 @@
 #
 
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -21,7 +22,7 @@ import zlib
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def png(path, required_pixel=None):
+def png(path, required_pixel=None, required_pixels=()):
     # Lossless framebuffer conversion, no image or testing dependency.
     with path.open('rb') as stream:
         assert stream.readline() == b'P6\n'
@@ -29,10 +30,11 @@ def png(path, required_pixel=None):
         assert stream.readline() == b'255\n'
         pixels = stream.read()
     assert len(pixels) == width * height * 3
-    if required_pixel:
+    for required_pixel in ([required_pixel] if required_pixel else []) + list(required_pixels):
         x, y, color = required_pixel
         offset = (y * width + x) * 3
-        assert tuple(pixels[offset:offset + 3]) == color, 'Focused key interior fill was clipped'
+        assert tuple(pixels[offset:offset + 3]) == color, ('Framebuffer color', path.name, x, y,
+                                                       tuple(pixels[offset:offset + 3]), color)
     def chunk(kind, payload):
         return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
     data = b''.join(b'\0' + pixels[row * width * 3:(row + 1) * width * 3] for row in range(height))
@@ -160,7 +162,26 @@ def run(binary, probe, destination, width, height, variant='dark'):
         unit = min(width, height) / 1080
         required = (round(66 * unit), round(height - 483 * unit),
                     (184, 106, 18) if variant == 'light' else (240, 166, 58)) if name == 'zero' else None
-        png(destination / (name + '.ppm'), required)
+        portrait = height > width
+        usable = width - 108 * unit
+        left = usable if portrait else (usable - 40 * unit) * .38
+        right = usable if portrait else usable - left - 40 * unit
+        right_x = 54 * unit if portrait else 54 * unit + left + 40 * unit
+        pixels = []
+        if name in ['typing-fin', 'results-focused']:
+            color = ((184, 106, 18) if variant == 'light' else (240, 166, 58)) if name == 'results-focused' else \
+                    ((255, 255, 255) if variant == 'light' else (27, 31, 41))
+            pixels.append((round(right_x + right / 2), int((305 if portrait else 125) * unit), color))
+        if name == 'zero':
+            columns = 3 if portrait else 5
+            cover_width = (right - 20 * unit * (columns - 1)) / columns
+            shelf_top = (234 if portrait else 54) * unit
+            if variant not in ['kid', 'history-off']:
+                shelf_top += 132 * unit  # Recent-search heading and one chip row.
+            pixels.append((round(right_x + cover_width - 6 * unit),
+                           round(shelf_top + (50 + 215 - 20) * unit),
+                           (227, 230, 238) if variant == 'light' else (38, 43, 56)))
+        png(destination / (name + '.ppm'), required, pixels)
     def search():
         command('pad', '3')  # Y, the actual SDL controller entry point.
         wait(lambda: 'Search screen opened:' in log(), 'search opened')
@@ -286,8 +307,19 @@ def run(binary, probe, destination, width, height, variant='dark'):
         assert process.wait(timeout=30) == 0
         entry_work = re.findall(r'Search entry ready: ms=([0-9.]+)', log())
         assert entry_work, 'Missing actual search-entry timing'
+        def distribution(pattern):
+            values = sorted(float(x) for x in re.findall(pattern, log()))
+            assert values, 'Missing actual frame measurements'
+            return dict(samples=len(values), p50_ms=values[math.ceil(len(values) * .5) - 1],
+                        p95_ms=values[math.ceil(len(values) * .95) - 1], max_ms=values[-1])
+        work = distribution(r'Search frame: .*? work_ms=([0-9.]+)')
+        presented = distribution(r'Search presented: .*? interval_ms=([0-9.]+)')
+        assert work['samples'] == presented['samples'], 'Every query frame must reach swap'
+        assert work['max_ms'] <= 50, ('Linux search work exceeded 50ms', work)
+        assert presented['max_ms'] <= 50, ('Linux presented search frame exceeded 50ms', presented)
         summary = dict(resolution=[width, height], variant=variant, opening_ms=opening_ms,
                        entry_work_ms=float(entry_work[0]), max_entry_work_ms=max(map(float, entry_work)),
+                       work=work, presented=presented,
                        checks=['live strokes', 'scope filter', 'result focus', 'show game',
                                'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
         (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')

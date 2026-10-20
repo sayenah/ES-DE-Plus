@@ -241,15 +241,17 @@ public:
     virtual void setScissor(const Rect& scissor) = 0;
     virtual void setSwapInterval() = 0;
     virtual void swapBuffers() = 0;
+    // For an opaque screen that owns the complete framebuffer, without a transform.
+    virtual void clearBackground(unsigned int color) = 0;
     // Optional diagnostic observer; includes rendering, the swap wait and frame pacing.
-    void setFramePresentedCallback(std::function<void(double)> callback)
+    void setFramePresentedCallback(std::function<void(double, double)> callback)
     {
         mFramePresented = std::move(callback);
         mPreviousPresentation = std::chrono::steady_clock::now();
     }
 
 protected:
-    void framePresented()
+    void framePresented(std::chrono::steady_clock::time_point swapStarted)
     {
         if (!mFramePresented)
             return;
@@ -257,7 +259,8 @@ protected:
         const double interval =
             std::chrono::duration<double, std::milli>(now - mPreviousPresentation).count();
         mPreviousPresentation = now;
-        mFramePresented(interval);
+        mFramePresented(interval,
+                        std::chrono::duration<double, std::milli>(now - swapStarted).count());
     }
     Rect mViewport;
     int mWindowWidth {0};
@@ -268,7 +271,7 @@ protected:
     int mScreenOffsetY {0};
 
 private:
-    std::function<void(double)> mFramePresented;
+    std::function<void(double, double)> mFramePresented;
     std::chrono::steady_clock::time_point mPreviousPresentation {};
     std::stack<Rect> mClipStack;
     SDL_Window* mSDLWindow {nullptr};

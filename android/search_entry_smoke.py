@@ -37,10 +37,27 @@ def run(h, start, control, shot, record):
         action()
         h.wait_for(lambda: opens() == before + 1, 'one search opened from browsing')
         assert f'SearchEntry: open initial={initial} scope={scope}' in h.log()
+        def query_is(value):
+            values = re.findall(r'Search keystroke: query=(.*?) results=\d+ query_bytes=(\d+)', h.log())
+            return bool(values) and (values[-1][0] == value or
+                                    (values[-1][0] == '<private>' and
+                                     int(values[-1][1]) == len(value.encode())))
+        h.wait_for(lambda: query_is(initial), 'opening text inserted exactly once')
+        marker = len(h.log())
         for key in ['KEYCODE_INSERT', 'KEYCODE_SEARCH']:
             h.key(key)
         h.key('KEYCODE_INSERT')
+        h.wait_for(lambda: len(re.findall(r'Key Insert, .*value=0', h.log()[marker:])) == 2,
+                   'both duplicate-entry probe keys released')
         assert opens() == before + 1, 'Search stacked while its screen was open'
+        # Y now has its controller action inside Search: each mapped Insert adds
+        # one space. Verify that action, then restore the seed for the entry tests.
+        # The later custom-keyboard case maps Y to M, leaving Insert unmapped.
+        inserted = len(re.findall(r'Key Insert, isMappedTo=y, value=1', h.log()[marker:]))
+        h.wait_for(lambda: query_is(initial + ' ' * inserted), 'mapped Y spaces without another entry')
+        for _ in range(inserted):
+            h.key('KEYCODE_DEL')
+        h.wait_for(lambda: query_is(initial), 'exact seed restored after duplicate-entry probes')
         return before + 1
 
     def close_popup():

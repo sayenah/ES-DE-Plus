@@ -113,6 +113,25 @@ with tempfile.TemporaryDirectory(prefix='esde-search-budget-') as temporary:
             assert (evidence / 'touch-summary.txt').exists() == (caught is None and suite != 'search')
             checks += 1
 
+# Execute the entry helper's actual predicate: Y-space restoration must preserve
+# exact seed assertions and kid-mode redaction, including multi-byte text.
+entry_tree = ast.parse((root / 'android/search_entry_smoke.py').read_text())
+predicate = next(node for node in ast.walk(entry_tree)
+                 if isinstance(node, ast.FunctionDef) and node.name == 'query_is')
+for logged, value, expected in [
+    ('', 'm', False),
+    ('query=m results=2 query_bytes=1', 'm', True),
+    ('query=mm results=2 query_bytes=2', 'm', False),
+    ('query=m   results=2 query_bytes=3', 'm  ', True),
+    ('query=<private> results=2 query_bytes=2', '  ', True),
+    ('query=<private> results=2 query_bytes=1', '  ', False),
+    ('query=<private> results=2 query_bytes=3', '学', True),
+    ('query=<private> results=2 query_bytes=2', '学', False)]:
+    env = dict(re=re, h=SimpleNamespace(log=lambda: 'Search keystroke: ' + logged))
+    exec(compile_nodes([predicate]), env)
+    assert env['query_is'](value) == expected
+    checks += 1
+
 workflow = (root / '.github/workflows/build-android.yml').read_text()
 overlay_step = workflow.split('      - name: Fresh-emulator overlay baseline\n', 1)[1].split('      - name:', 1)[0]
 assert "steps.smoke-session.outcome == 'failure'" in overlay_step

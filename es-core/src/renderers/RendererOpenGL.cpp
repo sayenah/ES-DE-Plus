@@ -409,6 +409,7 @@ void RendererOpenGL::setSwapInterval()
 
 void RendererOpenGL::swapBuffers()
 {
+    const auto swapStarted = std::chrono::steady_clock::now();
 #if defined(__APPLE__) && !defined(__IOS__)
     // On macOS when running in the background, the OpenGL driver apparently does not swap
     // the frames which leads to a very fast swap time. This makes ES-DE use a lot of CPU
@@ -425,8 +426,17 @@ void RendererOpenGL::swapBuffers()
 #else
     SDL_GL_SwapWindow(getSDLWindow());
 #endif
-    framePresented();
+    framePresented(swapStarted);
     GL_CHECK_ERROR(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+}
+
+void RendererOpenGL::clearBackground(unsigned int color)
+{
+    GL_CHECK_ERROR(glClearColor(((color >> 24) & 0xFF) / 255.0f, ((color >> 16) & 0xFF) / 255.0f,
+                                ((color >> 8) & 0xFF) / 255.0f, (color & 0xFF) / 255.0f));
+    GL_CHECK_ERROR(glClear(GL_COLOR_BUFFER_BIT));
+    // swapBuffers() and all other views retain the renderer's black clear color.
+    GL_CHECK_ERROR(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 unsigned int RendererOpenGL::createTexture(const unsigned int texUnit,

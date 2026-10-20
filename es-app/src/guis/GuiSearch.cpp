@@ -200,10 +200,10 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     SDL_StartTextInput();
     LOG(LogDebug) << "Search screen opened: query=" << queryForLog() << " scope=" << mScopeName;
     if (Log::getReportingLevel() >= LogDebug)
-        mRenderer->setFramePresentedCallback([this](double interval) {
+        mRenderer->setFramePresentedCallback([this](double interval, double swap) {
             if (mMeasurePresentation) {
                 LOG(LogDebug) << "Search presented: query=" << mPresentedQuery
-                              << " interval_ms=" << interval;
+                              << " interval_ms=" << interval << " swap_ms=" << swap;
                 mMeasurePresentation = false;
             }
         });
@@ -1633,10 +1633,6 @@ void GuiSearch::prepareDraw()
     mBorderBatch.setClipRegion({0, 0, 0, 0});
     mTextBatch.setClipRegion({0, 0, 0, 0});
     mPanelBatch.clear();
-    auto rectangle = [&](const glm::vec4& rect, unsigned int color) {
-        SearchDrawing::rectangle(mPanelBatch, rect, color);
-    };
-    rectangle({0, 0, mSize.x, mSize.y}, mBackground);
     std::vector<Renderer::Vertex> borders;
     for (const auto& label : mLabels) {
         if (label.background) {
@@ -1666,10 +1662,9 @@ void GuiSearch::prepareDraw()
                 SearchDrawing::rectangle(borders, edge, mAccent);
         }
     }
-    // Solid panels use one opaque texel in the field font's atlas. Its text and
-    // caret therefore share the same draw, without changing the font material.
+    // Only small overlays/caret use the font atlas. Opaque panels are drawn
+    // separately, without sampling and alpha-blending a full-screen glyph texture.
     auto panelFont = searchFont(40 * mUnit);
-    panelFont->appendSolid(&mTextBatch, mPanelBatch);
     panelFont->appendSolid(&mBorderBatch, borders);
     for (const auto& label : mLabels) {
         if (!label.text)
@@ -1704,6 +1699,19 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         layout();
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
+    if (transform == glm::mat4 {1})
+        mRenderer->clearBackground(mBackground);
+    else {
+        // Preserve the underlying view during the menu's scale-up animation.
+        mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground, false, 1, 1,
+                            Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
+    }
+    if (!mPanelBatch.empty()) {
+        mRenderer->bindTexture(0, 0);
+        mRenderer->drawTriangleStrips(mPanelBatch.data(),
+                                      static_cast<unsigned int>(mPanelBatch.size()),
+                                      Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
+    }
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mTextBatch);
     const auto textDrawn = std::chrono::steady_clock::now();
@@ -1716,6 +1724,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                                  cover.rect.y + (cover.rect.w - cover.image->getSize().y) / 2);
         cover.image->render(transform);
     }
+    mRenderer->setMatrix(transform);
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mBorderBatch);
     if (mMeasureFrame) {
