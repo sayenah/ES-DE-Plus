@@ -49,9 +49,9 @@ void SearchTextInput::keyDown(
         }
     }
     else {
-        // A mapped letter can open a popup. Its text belongs to the action,
-        // never to the field it just opened. Android already sent that text.
-        mSuppressText = browsing && before != after && mText.empty() && printable;
+        // A mapped key owns its text even when it only navigates. Drop its
+        // following desktop text event; Android already sent text into mText.
+        mSuppressText = browsing && mText.empty() && printable;
         mText.clear();
     }
 }
