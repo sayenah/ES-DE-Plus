@@ -430,6 +430,8 @@ void RendererOpenGL::swapBuffers()
     GL_CHECK_ERROR(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 }
 
+void RendererOpenGL::finishRendering() { GL_CHECK_ERROR(glFinish()); }
+
 void RendererOpenGL::clearBackground(unsigned int color)
 {
     GL_CHECK_ERROR(glClearColor(((color >> 24) & 0xFF) / 255.0f, ((color >> 16) & 0xFF) / 255.0f,

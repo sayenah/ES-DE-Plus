@@ -307,6 +307,7 @@ def run(binary, probe, destination, width, height, variant='dark'):
         assert process.wait(timeout=30) == 0
         entry_work = re.findall(r'Search entry ready: ms=([0-9.]+)', log())
         assert entry_work, 'Missing actual search-entry timing'
+        assert log().count('Search renderer prepared once:') == 1, 'Renderer preparation repeated on entry'
         def distribution(pattern):
             values = sorted(float(x) for x in re.findall(pattern, log()))
             assert values, 'Missing actual frame measurements'

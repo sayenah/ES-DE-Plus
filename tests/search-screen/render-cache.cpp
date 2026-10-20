@@ -56,6 +56,11 @@ public:
     glm::ivec2 lastPosition {};
     bool validPixel {false};
 };
+// Allocation/solid-geometry tests count writes at the texture seam. The separate
+// atlas-upload test exercises the production deferred GPU path and its lifetime.
+struct SearchFontAtlas {
+    explicit SearchFontAtlas(glm::ivec2) {}
+};
 class Font;
 class ResourceManager
 {
@@ -93,10 +98,16 @@ public:
     struct FontTexture {
         unsigned int textureId;
         int rowHeight;
+        std::unique_ptr<SearchFontAtlas> searchAtlas;
         glm::ivec2 writePos, textureSize;
         FontTexture(int size, unsigned int atlasSize = 0);
         bool findEmpty(const glm::ivec2& size, glm::ivec2& cursorOut);
         void initTexture() { textureId = ++nextTexture; }
+        void update(const glm::ivec2& cursor, const glm::ivec2& size, unsigned char* pixels)
+        {
+            Renderer::getInstance()->updateTexture(textureId, 0, Renderer::TextureType::RED,
+                                                   cursor.x, cursor.y, size.x, size.y, pixels);
+        }
         static inline unsigned int nextTexture {0};
     };
     Font(float size,

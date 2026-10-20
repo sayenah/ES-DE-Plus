@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Real browsing/search/favorite input assertions.
 import json
+import math
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -12,6 +13,7 @@ from importer_navigation import activate
 def run(h, start, control, shot, record):
     """Runs inside the fresh touch session, using its owned frontend and geometry."""
     root = h.settings.rsplit('/settings/', 1)[0]
+    entry_times = []
     gamelist_path = root + '/gamelists/nes/gamelist.xml'
     fixture = ('<gameList><game><path>./Smoke Alpha.nes</path><name>Smoke Alpha</name>'
                '<kidgame>true</kidgame><favorite>false</favorite></game>'
@@ -34,9 +36,15 @@ def run(h, start, control, shot, record):
 
     def opening(action, scope, initial=''):
         before = opens()
+        ready_before = h.log().count('Search entry ready:')
         action()
         h.wait_for(lambda: opens() == before + 1, 'one search opened from browsing')
         assert f'SearchEntry: open initial={initial} scope={scope}' in h.log()
+        h.wait_for(lambda: h.log().count('Search entry ready:') == ready_before + 1,
+                   'entry completes before collecting its timing')
+        current = h.log()
+        assert current.count('Search renderer prepared once:') == 1, 'Renderer preparation repeated on entry'
+        entry_times.append(float(re.findall(r'Search entry ready: ms=([0-9.]+)', current)[-1]))
         def query_is(value):
             values = re.findall(r'Search keystroke: query=(.*?) results=\d+ query_bytes=(\d+)', h.log())
             return bool(values) and (values[-1][0] == value or
@@ -358,6 +366,12 @@ def run(h, start, control, shot, record):
         raise
     finally:
         prepare('restore')
+    entry_times.sort()
+    assert entry_times, 'Missing entry-point timing samples'
+    timing = dict(samples=len(entry_times), p50_ms=entry_times[math.ceil(len(entry_times) * .5) - 1],
+                  p95_ms=entry_times[math.ceil(len(entry_times) * .95) - 1], max_ms=entry_times[-1])
+    (h.evidence / 'search-entry-timing.txt').write_text(json.dumps(timing, indent=2) + '\n')
+    assert timing['p95_ms'] <= 150, ('Search entry points exceeded p95 150ms', timing)
     (h.evidence / 'search-entry-result.txt').write_text(
         'PASS: Y in full/kiosk/kid system and gamelist views; magnifier; no stacking; '
         'physical letter/digit exactly once; slash and search key empty; main-menu ownership; '

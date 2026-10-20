@@ -120,6 +120,7 @@ def run(h, start, control, shot, record):
             return last >= 0 and 'Search frame:' in current[last:] and 'Search presented:' in current[last:]
         h.wait_for(rendered, 'last search keystroke rendered before checkpoint')
         current = h.log()
+        assert current.count('Search renderer prepared once:') == 1, 'Renderer preparation must run once per process'
         complete = current[:current.rfind('\n') + 1]
         added = complete[len(timed_prefix):] if complete.startswith(timed_prefix) else complete
         times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', added)]

@@ -243,6 +243,7 @@ public:
     virtual void swapBuffers() = 0;
     // For an opaque screen that owns the complete framebuffer, without a transform.
     virtual void clearBackground(unsigned int color) = 0;
+    virtual void finishRendering() = 0;
     // Optional diagnostic observer; includes rendering, the swap wait and frame pacing.
     void setFramePresentedCallback(std::function<void(double, double)> callback)
     {

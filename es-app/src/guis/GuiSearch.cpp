@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cmath>
 #include <set>
+#include <sstream>
 #if defined(__ANDROID__)
 #include <sys/resource.h>
 #include <time.h>
@@ -148,6 +149,60 @@ namespace
         return {};
     }
 } // namespace
+
+void GuiSearch::prepareRenderer()
+{
+    static bool prepared {false};
+    if (prepared)
+        return;
+    prepared = true;
+    const auto start = std::chrono::steady_clock::now();
+    auto* renderer = Renderer::getInstance();
+    const glm::vec2 screen {Renderer::getScreenWidth(), Renderer::getScreenHeight()};
+    const float unit = std::min(screen.x, screen.y) / 1080;
+    const float size = std::max(2.0f, std::round(40 * unit / 2) * 2);
+    auto owner = searchFonts();
+    owner->screen = screen;
+    owner->atlas = Font::get(size, Font::getDefaultPath(), 1024);
+    owner->fonts[size] = owner->atlas;
+    // Run missing material variants once during startup, before input is enabled.
+    // Neither opening search nor typing waits for first-use driver compilation.
+    renderer->setMatrix(glm::mat4 {1});
+    renderer->drawRect(0, 0, 16, 16, 0x000000FF, 0x000000FF, false, 1, 1,
+                       Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
+    TextComponent text {"A", owner->atlas, 0xFFFFFF80};
+    if (const auto* cache = text.getTextCache()) {
+        TextCache batch {*cache};
+        batch.setClipRegion({0, 0, 0, 0});
+        owner->atlas->renderTextCache(&batch);
+    }
+    size_t powerOfTwo {1};
+    while (powerOfTwo <= SearchArtwork::MAX_DIMENSION / 2)
+        powerOfTwo *= 2;
+    for (const size_t dimension : {powerOfTwo, SearchArtwork::MAX_DIMENSION}) {
+        std::vector<unsigned char> pixels(dimension * dimension * 4, 255);
+        for (size_t y {0}; y < dimension; ++y)
+            for (size_t x {0}; x < dimension; ++x) {
+                const size_t offset {(y * dimension + x) * 4};
+                pixels[offset] = static_cast<unsigned char>(x % 256);
+                pixels[offset + 1] = static_cast<unsigned char>(y % 256);
+                pixels[offset + 2] = static_cast<unsigned char>((x + y) % 256);
+            }
+        ImageComponent material {false, true};
+        material.setLinearInterpolation(true);
+        material.setRawImage(pixels.data(), dimension, dimension);
+        material.setResize(dimension, dimension);
+        material.setOpacity(0.5f);
+        material.render(glm::mat4 {1});
+    }
+    renderer->finishRendering();
+    renderer->setMatrix(glm::mat4 {1});
+    renderer->clearBackground(0x000000FF);
+    LOG(LogDebug) << "Search renderer prepared once: ms="
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               start)
+                         .count();
+}
 
 GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     : mRenderer {Renderer::getInstance()}
@@ -966,14 +1021,31 @@ void GuiSearch::layout()
                   << " major_faults=" << schedule[3];
 #if defined(__ANDROID__)
     if (Log::getReportingLevel() >= LogDebug) {
+        // Short batched records preserve every hit target in both diagnostic logs.
+        std::ostringstream targets;
+        int lines {0};
         for (const auto& target : mTargets) {
             const auto point = mRenderer->getTouchGeometry().toNormalized(
                 {target.rect.x + target.rect.z / 2, target.rect.y + target.rect.w / 2});
-            LOG(LogDebug) << "Search touch target: area=" << static_cast<int>(target.area)
-                          << " index=" << target.index << " norm=" << point.x << "," << point.y;
+            if (lines)
+                targets << '\n';
+            targets << "Search touch target: area=" << static_cast<int>(target.area)
+                    << " index=" << target.index << " norm=" << point.x << "," << point.y;
+            if (++lines == 24) {
+                LOG(LogDebug) << targets.str();
+                targets.str("");
+                targets.clear();
+                lines = 0;
+            }
         }
+        if (lines)
+            LOG(LogDebug) << targets.str();
     }
 #endif
+    if (mMeasureFrame)
+        mQueryWorkMs +=
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - end)
+                .count();
 }
 
 void GuiSearch::requestArtwork()

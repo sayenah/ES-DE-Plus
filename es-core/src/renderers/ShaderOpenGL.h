@@ -34,6 +34,7 @@
 #include <SDL2/SDL_opengl.h>
 #endif
 #include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -97,6 +98,17 @@ public:
     void printShaderInfoLog(GLuint shaderID, GLenum shaderType, bool error);
 
 private:
+    // Uniform values belong to the linked program and survive program switches.
+    // Avoid repeating driver calls for unchanged search panels/text/artwork.
+    struct UniformCache {
+        std::optional<glm::mat4> matrix;
+        std::optional<std::array<GLfloat, 2>> textureSize;
+        std::optional<glm::vec4> clipRegion;
+        std::optional<GLfloat> brightness, opacity, saturation, dimming, cornerRadius;
+        std::optional<GLfloat> reflectionsFalloff, blurStrength;
+        std::optional<GLuint> flags;
+        bool samplers {false};
+    } mUniformCache;
     GLuint mProgramID;
     std::vector<std::tuple<std::string, std::string, GLenum>> mShaderVector;
 

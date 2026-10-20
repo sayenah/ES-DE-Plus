@@ -26,6 +26,7 @@ public:
     GuiSearch(const std::string& initialText = "", SystemData* scopeSystem = nullptr);
     ~GuiSearch();
     static void releaseFonts();
+    static void prepareRenderer();
     bool input(InputConfig* config, Input input) override;
     void textInput(const std::string& text, bool pasting = false) override;
     void textEditing(const std::string& text, int start, int length) override;

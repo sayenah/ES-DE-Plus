@@ -142,6 +142,57 @@ assert 'smoke_session.py touch-overlay' in overlay_step
 assert workflow.index('Upload search evidence before') < workflow.index('Fresh-emulator overlay baseline')
 assert 'emulator-result touch-overlay "${{ steps.overlay-session.outcome }}"' in workflow
 checks += 1
+
+# Execute the actual checkpoint collector: startup work must appear exactly once,
+# and every frame/entry sample remains in the reported distributions.
+collector = next(node for node in run_body(path).body if isinstance(node, ast.FunctionDef) and
+                 node.name == 'timing')
+setup = ast.parse("timed_prefix = ''; measurements = []; presentations = []; entries = []").body
+wrapper = ast.FunctionDef(name='collect', args=ast.arguments(posonlyargs=[], args=[],
+    kwonlyargs=[], kw_defaults=[], defaults=[]), body=setup + [collector] +
+    ast.parse("timing('checkpoint'); return measurements, presentations, entries").body,
+    decorator_list=[])
+collect_code = compile_nodes([wrapper])
+for preparations in [0, 1, 2]:
+    log = 'Search renderer prepared once: ms=250\n' * preparations + (
+        'Search entry ready: ms=12\nSearch keystroke: query=f results=2\n'
+        'Search frame: query=f work_ms=7\nSearch presented: query=f interval_ms=16\n')
+    environment = dict(re=re, h=SimpleNamespace(log=lambda: log,
+        wait_for=lambda predicate, message: (_ for _ in ()).throw(AssertionError(message))
+                 if not predicate() else None), record=lambda name: None)
+    exec(collect_code, environment)
+    try:
+        collected = environment['collect']()
+    except AssertionError as error:
+        assert preparations != 1 and str(error) == 'Renderer preparation must run once per process'
+    else:
+        assert preparations == 1 and collected == ([7.0], [16.0], [12.0])
+    checks += 1
+
+# Execute the shared entry journey's actual distribution/writer/gate, including
+# a retained maximum above the target when its p95 still meets the stated limit.
+entry_body = run_body(root / 'android/search_entry_smoke.py').body
+start = next(i for i, node in enumerate(entry_body)
+             if ast.unparse(node) == 'entry_times.sort()')
+entry_gate = compile_nodes(entry_body[start:-1])
+with tempfile.TemporaryDirectory(prefix='esde-entry-budget-') as temporary:
+    evidence = Path(temporary)
+    for values, failure in [([], 'Missing entry-point timing samples'),
+                            ([12, 14, 150], None),
+                            ([12, 14, 150.001], 'Search entry points exceeded p95 150ms'),
+                            ([10] * 20 + [999], None)]:
+        try:
+            namespace = dict(entry_times=list(values), math=subject.math, json=subject.json,
+                             h=SimpleNamespace(evidence=evidence))
+            exec(entry_gate, namespace)
+        except AssertionError as error:
+            assert failure and (error.args[0] == failure or error.args[0][0] == failure)
+        else:
+            assert failure is None
+            actual = subject.json.loads((evidence / 'search-entry-timing.txt').read_text())
+            assert actual['samples'] == len(values) and actual['max_ms'] == max(values)
+        checks += 1
+
 scripts = re.findall(r'^          script: \|\n((?:            .*\n)+)', workflow, re.M)
 assert len(scripts) == 2, 'Check both emulator actions'
 for script in scripts:

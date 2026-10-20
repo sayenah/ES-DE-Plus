@@ -1447,6 +1447,7 @@ void ViewController::render(const glm::mat4& parentTrans)
 
 void ViewController::preload()
 {
+    GuiSearch::prepareRenderer();
     const unsigned int systemCount {static_cast<unsigned int>(SystemData::sSystemVector.size())};
     // This reduces the amount of texture pop-in when loading theme extras.
     if (!SystemData::sSystemVector.empty())
