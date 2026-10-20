@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — 307 real-title fixtures from ES-DE-Plus QA search-q1 titles.txt (MIT).
+# Written for ES-DE-Plus.
 snes|Nintendo SNES (Super Nintendo)|Super Mario World
 snes|Nintendo SNES (Super Nintendo)|Super Mario World 2: Yoshi's Island
 snes|Nintendo SNES (Super Nintendo)|Super Mario Kart

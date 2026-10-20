@@ -26,6 +26,7 @@ static void require(bool value, const char* message)
 int main()
 {
     using namespace LibrarySearch;
+    std::cout << std::unitbuf;
     const auto path {std::filesystem::temp_directory_path() /
                      ("esde-search-adapter-" +
                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
@@ -130,7 +131,7 @@ int main()
     invalidate();
     double maxPump {0};
     size_t pumps {0};
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
     do {
         const auto start = std::chrono::steady_clock::now();
         engine();

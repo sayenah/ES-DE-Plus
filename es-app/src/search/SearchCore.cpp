@@ -9,6 +9,11 @@
 #include "search/SearchCore.h"
 
 #include <algorithm>
+#ifdef SEARCH_TEST_BUILD_TIMING
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#endif
 #include <array>
 #include <atomic>
 #include <functional>
@@ -176,6 +181,7 @@ namespace LibrarySearch
         std::vector<Word> words(const std::string& text)
         {
             std::vector<Word> result;
+            result.reserve(8);
             for (size_t begin {0}; begin < text.size();) {
                 size_t end {text.find(' ', begin)};
                 if (end == std::string::npos)
@@ -185,7 +191,7 @@ namespace LibrarySearch
             }
             return result;
         }
-        bool small(const std::string& word)
+        bool small(std::string_view word)
         {
             return word == "a" || word == "an" || word == "the" || word == "of" || word == "to" ||
                    word == "and";
@@ -263,7 +269,7 @@ namespace LibrarySearch
             }
             return result;
         }
-        uint64_t signature(const std::u32string& word)
+        template <typename T> uint64_t signature(const T& word)
         {
             uint64_t bits {0};
             for (auto c : word)
@@ -281,7 +287,7 @@ namespace LibrarySearch
             }
             return count;
         }
-        bool near(const std::u32string& a, const std::u32string& b)
+        template <typename T> bool near(const T& a, const T& b)
         {
             const size_t threshold {a.size() >= 9 ? 2U : 1U};
             if (a.size() < 5 || a.size() > b.size() + threshold || b.size() > a.size() + threshold)
@@ -317,6 +323,14 @@ namespace LibrarySearch
                 std::swap(prev, row);
             }
             return prev[b.size()] <= threshold;
+        }
+        bool nearWords(const std::string& a, const std::string& b)
+        {
+            const auto ascii = [](const auto& text) {
+                return std::all_of(text.begin(), text.end(),
+                                   [](unsigned char c) { return c < 128; });
+            };
+            return ascii(a) && ascii(b) ? near(a, b) : near(codepoints(a), codepoints(b));
         }
         template <typename T> bool visible(const T& g, const Filter& f)
         {
@@ -392,10 +406,20 @@ namespace LibrarySearch
                            (mode == 2 || mode == 4 ? number(target) == number(token) :
                                                      target == token);
                 if (mode == 3)
-                    return starts(target, token) ||
-                           (!digits(target) && near(codepoints(token), codepoints(target)));
+                    return starts(target, token) || (!digits(target) && nearWords(token, target));
                 return starts(target, token);
             };
+            if ((mode == 0 || mode == 4) && !spans) {
+                size_t w {0};
+                for (size_t q {0}; q < query.size(); ++q) {
+                    while (w < t.tokens.size() && !accepts(q, w))
+                        ++w;
+                    if (w == t.tokens.size())
+                        return false;
+                    ++w;
+                }
+                return true;
+            }
             std::vector<int> owner(t.tokens.size(), -1);
             if (mode == 0 || mode == 4) {
                 size_t w {0};
@@ -444,17 +468,22 @@ namespace LibrarySearch
                 return false;
             const auto& ws = title.tokens;
             size_t maximum {0};
+            bool possibleStart {false};
             for (const auto& w : ws) {
-                if (!numeric(w.text))
+                if (!numeric(w.text)) {
                     maximum += initial(w.text).size();
+                    possibleStart |= w.text.front() == query.front();
+                }
                 else {
                     size_t length {0};
-                    for (const auto& v : letters(w.text))
+                    for (const auto& v : letters(w.text)) {
                         length = std::max(length, v.size());
+                        possibleStart |= v.front() == query.front();
+                    }
                     maximum += length;
                 }
             }
-            if (query.size() > maximum)
+            if (!possibleStart || query.size() > maximum)
                 return false;
             auto variants = [&](const std::string& word) {
                 return title.literalX && word == "x" ? std::vector<std::string> {"x"} :
@@ -618,7 +647,7 @@ namespace LibrarySearch
             Id begin {0}, size {0};
         };
         struct Document {
-            Ref text;
+            Ref text, compact;
             Id game;
         };
         struct Vocabulary {
@@ -637,6 +666,7 @@ namespace LibrarySearch
         struct Entity {
             std::string key;
             SuggestionKind kind;
+            std::string compact;
         };
         struct Postings {
             std::unordered_map<Id, Range> ranges;
@@ -646,12 +676,13 @@ namespace LibrarySearch
                 std::sort(pairs.begin(), pairs.end());
                 pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
                 values.reserve(pairs.size());
-                for (auto pair : pairs) {
-                    const Id key = pair >> 32;
-                    auto inserted =
-                        ranges.try_emplace(key, Range {static_cast<Id>(values.size()), 0});
-                    ++inserted.first->second.count;
-                    values.push_back(static_cast<Id>(pair));
+                for (size_t at {0}; at < pairs.size();) {
+                    const Id key = pairs[at] >> 32;
+                    const Id begin = values.size();
+                    do {
+                        values.push_back(static_cast<Id>(pairs[at++]));
+                    } while (at < pairs.size() && (pairs[at] >> 32) == key);
+                    ranges.emplace(key, Range {begin, static_cast<Id>(values.size() - begin)});
                 }
             }
             void append(Id key, std::vector<Id>& out) const
@@ -710,7 +741,7 @@ namespace LibrarySearch
                    entityMatches(0, filter.developer) && entityMatches(1, filter.publisher) &&
                    entityMatches(2, filter.genre);
         }
-        std::string text, wordText;
+        std::string text, compactText, wordText;
         std::vector<Document> documents;
         std::vector<std::array<Id, 3>> gameDocuments;
         std::vector<std::array<Id, 4>> gameEntities;
@@ -748,6 +779,7 @@ namespace LibrarySearch
             return {pool.data() + r.begin, r.size};
         }
         std::string_view doc(Id id) const { return view(documents[id].text, text); }
+        std::string_view joined(Id id) const { return view(documents[id].compact, compactText); }
         std::string_view word(Id id) const { return view(vocabulary[id].text, wordText); }
         std::string_view key(Id id) const
         {
@@ -755,8 +787,8 @@ namespace LibrarySearch
             if (c.kind == SuggestionKind::Word)
                 return word(c.key);
             if (c.kind == SuggestionKind::Title)
-                return doc(c.key);
-            return entities[c.key].key;
+                return joined(c.key);
+            return entities[c.key].compact;
         }
         // Compare normalized strings with separators ignored without storing another copy.
         static int compare(std::string_view a, std::string_view b)
@@ -845,7 +877,7 @@ namespace LibrarySearch
                 auto begin = std::lower_bound(
                     wordOrder.begin(), wordOrder.end(), token.text,
                     [&](Id id, const std::string& value) { return word(id) < value; });
-                for (auto it = begin; it != wordOrder.end() && prefix(word(*it), token.text);
+                for (auto it = begin; it != wordOrder.end() && starts(word(*it), token.text);
                      ++it) {
                     if (digits(token.text) && word(*it) != token.text)
                         continue;
@@ -890,7 +922,7 @@ namespace LibrarySearch
                 auto it = std::lower_bound(
                     wordOrder.begin(), wordOrder.end(), q,
                     [&](Id id, const std::string& value) { return word(id) < value; });
-                for (; it != wordOrder.end() && prefix(word(*it), q); ++it)
+                for (; it != wordOrder.end() && starts(word(*it), q); ++it)
                     wordsFound.push_back(*it);
                 if (q.size() >= 3) {
                     std::vector<Id> grams;
@@ -908,10 +940,16 @@ namespace LibrarySearch
                     }
                     boundaries.append(gram(q, 0, 3), ids);
                 }
-                else
-                    for (Id w : wordOrder)
+                else if (!digits(q)) {
+                    const auto first = codepoints(q).front();
+                    const auto bits = signature(std::u32string {first});
+                    size_t bit {0};
+                    while (!(bits & (uint64_t {1} << bit)))
+                        ++bit;
+                    for (Id w : characterWords[bit])
                         if (word(w).find(q) != std::string_view::npos)
                             wordsFound.push_back(w);
+                }
                 const auto points = codepoints(q);
                 const bool digits = !q.empty() && std::all_of(q.begin(), q.end(), [](char c) {
                     return c >= '0' && c <= '9';
@@ -939,7 +977,7 @@ namespace LibrarySearch
                             v.length > points.size() + distance ||
                             bitCount(bits & ~v.bits) > distance)
                             continue;
-                        if (near(points, codepoints(std::string(word(w)))))
+                        if (nearWords(q, std::string(word(w))))
                             wordsFound.push_back(w);
                     }
                 }
@@ -1060,15 +1098,17 @@ namespace LibrarySearch
                     matches.push_back({g, d, kind, priority});
                 }
             };
-            auto begin = std::lower_bound(
-                documentOrder.begin(), documentOrder.end(), q,
-                [&](Id d, const std::string& value) { return compare(doc(d), value) < 0; });
+            const auto compactQuery = compact(q);
+            auto begin =
+                std::lower_bound(documentOrder.begin(), documentOrder.end(), compactQuery,
+                                 [&](Id d, const std::string& value) { return joined(d) < value; });
             bool numeric {false};
             for (const auto& w : qw)
                 if (digits(w.text))
                     numeric = true;
-            for (auto it = begin; it != documentOrder.end() && prefix(doc(*it), q); ++it) {
-                const bool exact = compare(doc(*it), q) == 0;
+            for (auto it = begin; it != documentOrder.end() && starts(joined(*it), compactQuery);
+                 ++it) {
+                const bool exact = joined(*it) == compactQuery;
                 if (!numeric)
                     put(*it, exact ? 0 : 1, exact ? 0 : 1);
             }
@@ -1080,11 +1120,31 @@ namespace LibrarySearch
                         put(d, 2, 2);
                         continue;
                     }
+                    if (qw.size() > 1) {
+                        size_t compatible {0};
+                        const auto value = doc(d);
+                        for (size_t at {0}; at < value.size();) {
+                            const size_t end = std::min(value.find(' ', at), value.size());
+                            const auto target = value.substr(at, end - at);
+                            if (std::any_of(qw.begin(), qw.end(),
+                                            [&](const Word& w) {
+                                                return starts(target, w.text) ||
+                                                       (LibrarySearch::numeric(w.text) &&
+                                                        number(std::string(target)) ==
+                                                            number(w.text));
+                                            }) &&
+                                ++compatible >= qw.size())
+                                break;
+                            at = end + 1;
+                        }
+                        if (compatible < qw.size())
+                            continue;
+                    }
                     auto t = textFor(d);
-                    if (Index::compare(doc(d), q) == 0)
+                    if (joined(d) == compactQuery)
                         put(d, 0, 0);
                     else if (wordMatch(qw, t, 0, nullptr)) {
-                        const int r = Index::prefix(doc(d), q) ? 1 : 2;
+                        const int r = starts(joined(d), compactQuery) ? 1 : 2;
                         put(d, r, r);
                     }
                     else if (wordMatch(qw, t, 4, nullptr)) {
@@ -1118,43 +1178,70 @@ namespace LibrarySearch
                 }
             }
             if (matches.size() < limit || complete) {
-                std::vector<Id> candidateDocuments;
+                std::vector<Id> docs;
                 const bool shortMembership = substringMembership && qw.size() == 1 && q.size() < 3;
                 if (shortMembership) {
-                    candidateDocuments.resize(documents.size());
-                    std::iota(candidateDocuments.begin(), candidateDocuments.end(), 0);
+                    docs.resize(documents.size());
+                    std::iota(docs.begin(), docs.end(), 0);
                 }
                 else
-                    candidateDocuments = candidates(qw);
-                for (Id d : candidateDocuments) {
-                    if (!allowed(documents[d].game))
+                    docs = candidates(qw);
+                std::vector<Id> ranked;
+                Id last {UINT32_MAX};
+                for (Id d : docs) {
+                    const Id g = documents[d].game;
+                    if (g == last)
                         continue;
-                    const auto previous = find(documents[d].game);
-                    if (previous && previous->priority <= 4)
-                        continue;
-                    // Once the displayed window is full, lower match classes need
-                    // membership only. Avoid reconstructing mapped text for substrings.
-                    if (substringMembership && matches.size() >= limit &&
-                        containsCompact(doc(d), compactQuery)) {
-                        put(d, 6, 6);
-                        continue;
+                    last = g;
+                    const auto previous = find(g);
+                    if (allowed(g) && (!previous || previous->priority > 4))
+                        ranked.push_back(g);
+                }
+                auto laterGame = [&](Id a, Id b) { return better(b, a); };
+                if (!complete)
+                    std::make_heap(ranked.begin(), ranked.end(), laterGame);
+                const bool fuzzy = std::any_of(qw.begin(), qw.end(), [](const Word& w) {
+                    return !digits(w.text) && codepoints(w.text).size() >= 5;
+                });
+                size_t strong = matches.size(), next {0};
+                while (complete ? next < ranked.size() : (!ranked.empty() && strong < limit)) {
+                    Id g;
+                    if (complete)
+                        g = ranked[next++];
+                    else {
+                        std::pop_heap(ranked.begin(), ranked.end(), laterGame);
+                        g = ranked.back();
+                        ranked.pop_back();
                     }
-                    if (shortMembership && !containsCompact(doc(d), compactQuery))
-                        continue;
-                    auto t = textFor(d);
-                    const int r = rank(q, qw, t, nullptr, 6) == 6 ? 6 : rank(q, qw, t, nullptr, 7);
-                    if (r >= 0) {
-                        int priority = r;
-                        if (r == 5) {
-                            auto canonical = [](const auto& ws) {
-                                std::string text;
-                                for (const auto& w : ws)
-                                    text += number(w.text);
-                                return text;
-                            };
-                            priority = canonical(qw) == canonical(t.tokens) ? 0 : 2;
+                    int best {9};
+                    Id bestDoc {0};
+                    const auto& fields = gameDocuments[g];
+                    for (size_t n {0}; n < fields.size(); ++n) {
+                        const Id d = fields[n];
+                        if ((n && d == fields[0]) || (n == 2 && d == fields[1]))
+                            continue;
+                        if (substringMembership && containsCompact(doc(d), compactQuery)) {
+                            best = 6;
+                            bestDoc = d;
+                            break;
                         }
-                        put(d, r, priority);
+                        if (shortMembership)
+                            continue;
+                        const auto t = textFor(d);
+                        const int r = rank(q, qw, t, nullptr, 6) == 6 ? 6 :
+                                      fuzzy                           ? rank(q, qw, t, nullptr, 7) :
+                                                                        -1;
+                        if (r >= 0 && r < best) {
+                            best = r;
+                            bestDoc = d;
+                        }
+                        if (best == 6)
+                            break;
+                    }
+                    if (best < 9) {
+                        put(bestDoc, best, best);
+                        if (best == 6)
+                            ++strong;
                     }
                 }
                 if (metadata && (matches.size() < limit || complete)) {
@@ -1263,6 +1350,21 @@ namespace LibrarySearch
     {
         clear(); // Release the old corpus before allocating a replacement index.
         auto& ix = *mIndex;
+#ifdef SEARCH_TEST_BUILD_TIMING
+        // Benchmark-only diagnostics, absent from the application build.
+        const bool timing = std::getenv("SEARCH_BUILD_PROFILE") != nullptr;
+        auto checkpoint = std::chrono::steady_clock::now();
+        auto phase = [&](const char* name) {
+            if (!timing)
+                return;
+            const auto now = std::chrono::steady_clock::now();
+            std::printf("BUILD phase=%s ms=%.3f\n", name,
+                        std::chrono::duration<double, std::milli>(now - checkpoint).count());
+            checkpoint = now;
+        };
+#else
+        auto phase = [](const char*) {};
+#endif
         std::unordered_set<std::string> identities;
         games.erase(std::remove_if(games.begin(), games.end(),
                                    [&](Game& g) {
@@ -1316,6 +1418,7 @@ namespace LibrarySearch
 
         identities.clear();
         identities.rehash(0);
+        phase("records");
         ix.recent.resize(ix.games.size());
         ix.letterX.resize(ix.games.size());
         // An attached X2/X3-style subseries establishes that X is a letter, not
@@ -1390,6 +1493,7 @@ namespace LibrarySearch
                 textBytes += g.fileStem.size();
         }
         ix.text.reserve(textBytes);
+        ix.compactText.reserve(textBytes);
         ix.documents.reserve(ix.games.size() * 2);
         Id displayDocument {0}, postingDocument {0};
         std::vector<Id> lastWordGame, emittedBoundary, emittedInitial;
@@ -1416,7 +1520,8 @@ namespace LibrarySearch
             }
             else
                 text = title(raw).text;
-            ix.documents.push_back({Index::append(ix.text, text), g});
+            ix.documents.push_back(
+                {Index::append(ix.text, text), Index::append(ix.compactText, compact(text)), g});
             const auto tokens = words(text);
             std::vector<Id> uniqueWords;
             for (const auto& w : tokens) {
@@ -1459,40 +1564,73 @@ namespace LibrarySearch
                     ++count;
             }
             emit(boundaryKeys, emittedBoundary, boundaryPairs);
-            std::vector<uint32_t> next {0}, current, initialKeys;
-            next.reserve(16);
-            current.reserve(16);
-            for (size_t p {tokens.size()}; p-- > 0;) {
-                current.clear();
-                current.push_back(0);
-                auto combine = [&](std::string_view choice) {
-                    const size_t length = std::min(size_t {3}, choice.size());
-                    const uint32_t code = gram(choice, 0, length) & 0xffffff;
-                    for (auto suffix : next) {
-                        const auto count = std::min(size_t {3}, length + (suffix >> 24));
-                        const uint32_t joined =
-                            length == 3 ? code : code | ((suffix & 0xffffff) << (8 * length));
-                        current.push_back(static_cast<uint32_t>(count << 24) | (joined & 0xffffff));
+            std::vector<uint32_t> initialKeys;
+            const bool ordinary = std::all_of(tokens.begin(), tokens.end(), [](const Word& w) {
+                return !small(w.text) && !numeric(w.text) &&
+                       static_cast<unsigned char>(w.text[0]) < 128;
+            });
+            if (ordinary) {
+                for (size_t p {0}; p + 1 < tokens.size(); ++p) {
+                    std::string initials;
+                    initials += tokens[p].text[0];
+                    initials += tokens[p + 1].text[0];
+                    initialKeys.push_back(gram(initials, 0, 2));
+                    if (p + 2 < tokens.size()) {
+                        initials += tokens[p + 2].text[0];
+                        initialKeys.push_back(gram(initials, 0, 3));
                     }
-                };
-                const auto& word = tokens[p].text;
-                if (!numeric(word) && !digits(word)) {
-                    const auto first = initial(word);
-                    combine(first);
                 }
-                else if (word == "x" && ix.letterX[g])
-                    combine("x");
-                else
-                    for (const auto& choice : letters(word))
-                        combine(choice);
-                if (small(word))
-                    current.insert(current.end(), next.begin(), next.end());
-                std::sort(current.begin(), current.end());
-                current.erase(std::unique(current.begin(), current.end()), current.end());
-                for (auto key : current)
-                    if ((key >> 24) >= 2)
-                        initialKeys.push_back(key);
-                next.swap(current);
+            }
+            else {
+                std::vector<uint32_t> next {0}, current;
+                next.reserve(16);
+                current.reserve(16);
+                size_t firstInitial {0};
+                if (!display && !original.empty() && starts(raw, original)) {
+                    const size_t prefixLength = ix.doc(displayDocument).size();
+                    size_t significant {0};
+                    for (size_t p {tokens.size()}; p-- > 0;) {
+                        if (tokens[p].offset >= prefixLength)
+                            continue;
+                        if (!small(tokens[p].text) && ++significant == 2) {
+                            firstInitial = p;
+                            break;
+                        }
+                    }
+                }
+                for (size_t p {tokens.size()}; p-- > firstInitial;) {
+                    current.clear();
+                    current.push_back(0);
+                    auto combine = [&](std::string_view choice) {
+                        const size_t length = std::min(size_t {3}, choice.size());
+                        const uint32_t code = gram(choice, 0, length) & 0xffffff;
+                        for (auto suffix : next) {
+                            const auto count = std::min(size_t {3}, length + (suffix >> 24));
+                            const uint32_t joined =
+                                length == 3 ? code : code | ((suffix & 0xffffff) << (8 * length));
+                            current.push_back(static_cast<uint32_t>(count << 24) |
+                                              (joined & 0xffffff));
+                        }
+                    };
+                    const auto& word = tokens[p].text;
+                    if (!numeric(word) && !digits(word)) {
+                        const auto first = initial(word);
+                        combine(first);
+                    }
+                    else if (word == "x" && ix.letterX[g])
+                        combine("x");
+                    else
+                        for (const auto& choice : letters(word))
+                            combine(choice);
+                    if (small(word))
+                        current.insert(current.end(), next.begin(), next.end());
+                    std::sort(current.begin(), current.end());
+                    current.erase(std::unique(current.begin(), current.end()), current.end());
+                    for (auto key : current)
+                        if ((key >> 24) >= 2)
+                            initialKeys.push_back(key);
+                    next.swap(current);
+                }
             }
             emit(initialKeys, emittedInitial, initialPairs);
             return d;
@@ -1545,6 +1683,7 @@ namespace LibrarySearch
                     ix.systems[compact(alias)].insert(std::string(game.system));
                 }
         }
+        phase("documents");
         // Flatten word/document lists: four-byte ids, no vector allocation per document.
         std::sort(wordPairs.begin(), wordPairs.end());
         wordPairs.erase(std::unique(wordPairs.begin(), wordPairs.end()), wordPairs.end());
@@ -1581,6 +1720,7 @@ namespace LibrarySearch
         for (auto& ids : ix.characterWords)
             ids.shrink_to_fit();
 
+        phase("postings");
         auto completion = [&](SuggestionKind kind, Id key, std::vector<Id>& ids) {
             Index::unique(ids);
             const Id id = ix.completions.size();
@@ -1616,15 +1756,19 @@ namespace LibrarySearch
                 if (starts(raw, article + " "))
                     ix.articles[article].push_back(c);
             if (end < titles.size()) {
-                const auto a = words(std::string(key)),
-                           b = words(std::string(titleKey(titles[end])));
-                size_t common {0};
-                while (common < a.size() && common < b.size() && a[common].text == b[common].text)
-                    ++common;
-                for (size_t n {2}; n <= common; ++n)
-                    if (!small(a[n - 1].text))
-                        series.insert(std::string(
-                            key.substr(0, n == a.size() ? key.size() : a[n].offset - 1)));
+                const auto otherTitle = titleKey(titles[end]);
+                size_t a {0}, b {0}, count {0};
+                while (a < key.size() && b < otherTitle.size()) {
+                    const size_t ae = std::min(key.find(' ', a), key.size());
+                    const size_t be = std::min(otherTitle.find(' ', b), otherTitle.size());
+                    const auto word = key.substr(a, ae - a);
+                    if (word != otherTitle.substr(b, be - b))
+                        break;
+                    if (++count >= 2 && !small(word))
+                        series.insert(std::string(key.substr(0, ae)));
+                    a = ae + 1;
+                    b = be + 1;
+                }
             }
             i = end;
         }
@@ -1642,13 +1786,15 @@ namespace LibrarySearch
             if (pair.first.second.empty())
                 continue;
             const Id entity = ix.entities.size();
-            ix.entities.push_back({pair.first.second, pair.first.first});
+            ix.entities.push_back(
+                {pair.first.second, pair.first.first, compact(pair.first.second)});
             if (pair.first.first != SuggestionKind::Series)
                 for (Id g : pair.second)
                     ix.gameEntities[g][static_cast<size_t>(pair.first.first) -
                                        static_cast<size_t>(SuggestionKind::Developer)] = entity;
             completion(pair.first.first, entity, pair.second);
         }
+        phase("completions");
         ix.wordOrder.resize(ix.vocabulary.size());
         std::iota(ix.wordOrder.begin(), ix.wordOrder.end(), 0);
         std::sort(ix.wordOrder.begin(), ix.wordOrder.end(),
@@ -1656,10 +1802,10 @@ namespace LibrarySearch
         ix.documentOrder.resize(ix.documents.size());
         std::iota(ix.documentOrder.begin(), ix.documentOrder.end(), 0);
         std::sort(ix.documentOrder.begin(), ix.documentOrder.end(),
-                  [&](Id a, Id b) { return Index::compare(ix.doc(a), ix.doc(b)) < 0; });
+                  [&](Id a, Id b) { return ix.joined(a) < ix.joined(b); });
         for (auto& order : ix.completionOrder)
             std::sort(order.begin(), order.end(),
-                      [&](Id a, Id b) { return Index::compare(ix.key(a), ix.key(b)) < 0; });
+                      [&](Id a, Id b) { return ix.key(a) < ix.key(b); });
         ix.rankingOrder.resize(ix.games.size());
         ix.rankingPosition.resize(ix.games.size());
         std::iota(ix.rankingOrder.begin(), ix.rankingOrder.end(), 0);
@@ -1671,6 +1817,7 @@ namespace LibrarySearch
             std::sort(ix.support.begin() + c.games.begin,
                       ix.support.begin() + c.games.begin + c.games.count,
                       [&](Id a, Id b) { return ix.better(a, b); });
+        phase("ordering");
         ix.vocabulary.shrink_to_fit();
         ix.wordText.shrink_to_fit();
         ix.support.shrink_to_fit();
@@ -2025,20 +2172,19 @@ namespace LibrarySearch
                                                                  q.substr(split + 1);
         std::vector<uint32_t> candidates;
         for (size_t kind {0}; kind < ix.completionOrder.size(); ++kind) {
-            const auto prefix = kind == static_cast<size_t>(SuggestionKind::Word) ?
-                                    partial :
-                                kind == static_cast<size_t>(SuggestionKind::Title) ||
-                                        kind == static_cast<size_t>(SuggestionKind::Series) ?
-                                    title(query).text :
-                                    q;
+            const auto prefix =
+                compact(kind == static_cast<size_t>(SuggestionKind::Word) ? partial :
+                        kind == static_cast<size_t>(SuggestionKind::Title) ||
+                                kind == static_cast<size_t>(SuggestionKind::Series) ?
+                                                                            title(query).text :
+                                                                            q);
             if (prefix.empty())
                 continue;
             const auto& order = ix.completionOrder[kind];
-            auto begin = std::lower_bound(order.begin(), order.end(), prefix,
-                                          [&](uint32_t id, const std::string& text) {
-                                              return Index::compare(ix.key(id), text) < 0;
-                                          });
-            for (auto it = begin; it != order.end() && Index::prefix(ix.key(*it), prefix); ++it)
+            auto begin = std::lower_bound(
+                order.begin(), order.end(), prefix,
+                [&](uint32_t id, const std::string& text) { return ix.key(id) < text; });
+            for (auto it = begin; it != order.end() && starts(ix.key(*it), prefix); ++it)
                 candidates.push_back(*it);
         }
         for (const auto& article : ix.articles)
@@ -2061,7 +2207,7 @@ namespace LibrarySearch
             if (x.kind != y.kind)
                 return (x.kind == SuggestionKind::Word ? 99 : static_cast<int>(x.kind)) <
                        (y.kind == SuggestionKind::Word ? 99 : static_cast<int>(y.kind));
-            const int compared = Index::compare(ix.key(a), ix.key(b));
+            const int compared = ix.key(a).compare(ix.key(b));
             return compared ? compared < 0 : a < b;
         };
         auto later = [&](uint32_t a, uint32_t b) { return preferredSuggestion(b, a); };
