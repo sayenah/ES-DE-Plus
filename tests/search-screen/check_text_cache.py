@@ -35,6 +35,10 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
         marker = ('std::shared_ptr<const SearchArtwork::Pixels> ' if name == 'get' else 'void ')
         (build / ('artwork-' + name + '.inc')).write_text(
             method(marker + 'SearchArtwork::' + name + '(', artwork))
+    search = (root / 'es-app/src/guis/GuiSearch.cpp').read_text()
+    (build / 'search-text-input.inc').write_text(method('void GuiSearch::startTextInput(', search))
+    (build / 'search-text-resume.inc').write_text(
+        method('if (mWindow->peekGui() == this && !SDL_IsTextInputActive())', search))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -43,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

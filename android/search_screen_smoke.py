@@ -295,6 +295,20 @@ def run(h, start, control, shot, record):
             ime('delete')
             h.wait_for(lambda: 'Search keystroke: query= results=' in h.log()[before:], 'IME deletes native prefill')
             timing('search-screen-touch-' + name)
+            before = len(h.log())
+            h.key('KEYCODE_BACK')
+            h.wait_for(lambda: 'mInputShown=true' not in h.shell('dumpsys', 'input_method') and
+                       'isInputViewShown=true' not in h.shell('dumpsys', 'input_method'),
+                       'one Back hides IME without search reopening it')
+            h.wait_for(lambda: 'Search text input resumed after focus loss' in h.log()[before:],
+                       'search retains text input after IME dismissal')
+            current = h.log()
+            assert current.rfind('Search screen opened:') > current.rfind('Search screen closed')
+            tap(0)
+            h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
+                       'isInputViewShown=true' in h.shell('dumpsys', 'input_method'),
+                       'field tap explicitly reopens IME')
+            record('search-screen-ime-back-' + name)
             tap(7)
             if name == 'tablet':
                 # Keep the original cold typing journey above unchanged. With the

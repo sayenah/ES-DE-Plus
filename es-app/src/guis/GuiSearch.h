@@ -90,7 +90,7 @@ private:
     void record();
     std::string queryForLog() const;
     void edit(const std::string& text);
-    void startTextInput(bool touch);
+    void startTextInput(bool touch, bool requestKeyboard = true);
     void close();
     std::shared_ptr<Font> searchFont(float size);
     void label(const std::string& value,

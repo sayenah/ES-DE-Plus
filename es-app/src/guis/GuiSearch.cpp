@@ -1130,7 +1130,7 @@ void GuiSearch::textEditing(const std::string& text, int, int)
     mDirty = true;
 }
 
-void GuiSearch::startTextInput(bool touch)
+void GuiSearch::startTextInput(bool touch, bool requestKeyboard)
 {
     const bool changed = mTouch != touch;
     mTouch = touch;
@@ -1139,7 +1139,7 @@ void GuiSearch::startTextInput(bool touch)
     SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
     // Android's screen keyboard is requested only after a touch. Controller/keyboard input
     // still receives SDL text events without opening an unwanted IME over the grid.
-    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, touch ? "1" : "0");
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, touch && requestKeyboard ? "1" : "0");
     if (changed)
         layout();
     const SDL_Rect rect {static_cast<int>(mFieldRect.x), static_cast<int>(mFieldRect.y),
@@ -1497,7 +1497,9 @@ void GuiSearch::update(int deltaTime)
     }
     if (mWindow->peekGui() == this && !SDL_IsTextInputActive()) {
         LOG(LogDebug) << "Search text input resumed after focus loss";
-        startTextInput(mTouch && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()));
+        // SDL stops text input before Android's Back-driven IME hide has finished.
+        // Recover text events without reversing that hide; a field tap requests the IME.
+        startTextInput(mTouch, false);
     }
     const bool caretWasVisible {mBlink < 550};
     mBlink = (mBlink + deltaTime) % 1100;
