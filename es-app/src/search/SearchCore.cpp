@@ -1280,13 +1280,9 @@ namespace LibrarySearch
                                 for (size_t at {0}; at < value.size() && !compatible;) {
                                     const size_t end = std::min(value.find(' ', at), value.size());
                                     const auto token = value.substr(at, end - at);
-                                    compatible =
-                                        (token.size() <= 5 &&
-                                         number(std::string(token)) == wanted) ||
-                                        (digits(qw[0].text) && !token.empty() &&
-                                         std::all_of(token.begin(), token.end(),
-                                                     [](char c) { return c >= '0' && c <= '9'; }) &&
-                                         starts(token, qw[0].text));
+                                    compatible = (token.size() <= 5 &&
+                                                  number(std::string(token)) == wanted) ||
+                                                 (digits(qw[0].text) && starts(token, qw[0].text));
                                     at = end + 1;
                                 }
                             }

@@ -787,7 +787,9 @@ namespace
                                               "Super Mario",   "Omario",
                                               "Metroid Prime", "Final Fantasy VII",
                                               "Final Fight",   "The Legend of Zelda",
-                                              "Pokémon",       "Other"};
+                                              "Pokémon",       "Other",
+                                              "Doom 64",       "Doom64",
+                                              "Red 64foo"};
         for (size_t i {0}; i < 100; ++i) {
             auto value = game(names[i % names.size()], std::to_string(i));
             value.fileStem = "rom_" + std::to_string(i);
@@ -801,8 +803,9 @@ namespace
         filter = {};
         filter.showHidden = false;
         filter.kidMode = true;
-        for (const auto& query : {"m", "ma", "mar", "fin", "ff7", "pokemon", "zeldda", "nintendo",
-                                  "rom 20", "i", "ii", "x", "1", "10", "64"}) {
+        for (const auto& query :
+             {"m", "ma", "mar", "fin", "ff7", "pokemon", "zeldda", "nintendo", "rom 20", "i", "ii",
+              "x", "1", "10", "6", "64", "doom64", "snes"}) {
             const auto reference = core.search(query, core.size(), filter);
             for (const size_t limit : {1, 2, 200}) {
                 const auto counted = core.query(query, limit, filter);
