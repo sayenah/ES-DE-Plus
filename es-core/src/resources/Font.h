@@ -38,7 +38,8 @@ public:
     virtual ~Font();
     static std::shared_ptr<Font> get(float size,
                                      const std::string& path = getDefaultPath(),
-                                     unsigned int atlasSize = 0);
+                                     unsigned int atlasSize = 0,
+                                     const std::shared_ptr<Font>& atlasOwner = nullptr);
     static float getMiniFont(bool forceUpdate = false)
     {
         static float sMiniFont {0.030f *
@@ -158,7 +159,10 @@ protected:
     friend TextComponent;
 
 private:
-    Font(float size, const std::string& path, unsigned int atlasSize);
+    Font(float size,
+         const std::string& path,
+         unsigned int atlasSize,
+         const std::shared_ptr<Font>& atlasOwner);
     static void initLibrary();
 
     struct FontTexture {
@@ -263,13 +267,16 @@ private:
     Glyph* getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, int xAdvance);
 
     static inline FT_Library sLibrary {nullptr};
-    static inline std::map<std::tuple<float, std::string, unsigned int>, std::weak_ptr<Font>>
+    static inline std::map<std::tuple<float, std::string, unsigned int, const Font*>,
+                           std::weak_ptr<Font>>
         sFontMap;
     static inline std::vector<FallbackFontCache> sFallbackFonts;
     static inline std::map<hb_font_t*, unsigned int> sFallbackSpaceGlyphs;
 
     Renderer* mRenderer;
     const unsigned int mAtlasSize;
+    // Opt-in sharing retains the owner until all glyph caches using its textures are gone.
+    const std::shared_ptr<Font> mAtlasOwner;
     std::unique_ptr<FontFace> mFontFace;
     std::vector<std::unique_ptr<FontTexture>> mTextures;
     std::map<unsigned int, Glyph> mGlyphMap;

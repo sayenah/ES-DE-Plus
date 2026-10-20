@@ -17,9 +17,13 @@
 #define DEBUG_SHAPING false
 #define DISABLE_SHAPING false
 
-Font::Font(float size, const std::string& path, unsigned int atlasSize)
+Font::Font(float size,
+           const std::string& path,
+           unsigned int atlasSize,
+           const std::shared_ptr<Font>& atlasOwner)
     : mRenderer {Renderer::getInstance()}
     , mAtlasSize {atlasSize}
+    , mAtlasOwner {atlasOwner}
     , mPath(path)
     , mFontHB {nullptr}
     , mBufHB {nullptr}
@@ -78,7 +82,8 @@ Font::~Font()
 
     unload(ResourceManager::getInstance());
 
-    auto fontEntry = sFontMap.find(std::make_tuple(mFontSize, mPath, mAtlasSize));
+    auto fontEntry =
+        sFontMap.find(std::make_tuple(mFontSize, mPath, mAtlasSize, mAtlasOwner.get()));
 
     if (fontEntry != sFontMap.cend())
         sFontMap.erase(fontEntry);
@@ -92,7 +97,10 @@ Font::~Font()
     }
 }
 
-std::shared_ptr<Font> Font::get(float size, const std::string& path, unsigned int atlasSize)
+std::shared_ptr<Font> Font::get(float size,
+                                const std::string& path,
+                                unsigned int atlasSize,
+                                const std::shared_ptr<Font>& atlasOwner)
 {
     float fontSize {size};
 
@@ -106,8 +114,9 @@ std::shared_ptr<Font> Font::get(float size, const std::string& path, unsigned in
     }
 
     const std::string canonicalPath {Utils::FileSystem::getCanonicalPath(path)};
-    const auto def = std::make_tuple(
-        fontSize, canonicalPath.empty() ? getDefaultPath() : canonicalPath, atlasSize);
+    const auto def =
+        std::make_tuple(fontSize, canonicalPath.empty() ? getDefaultPath() : canonicalPath,
+                        atlasSize, atlasOwner.get());
 
     auto foundFont = sFontMap.find(def);
     if (foundFont != sFontMap.cend()) {
@@ -115,7 +124,8 @@ std::shared_ptr<Font> Font::get(float size, const std::string& path, unsigned in
             return foundFont->second.lock();
     }
 
-    std::shared_ptr<Font> font {new Font(std::get<0>(def), std::get<1>(def), atlasSize)};
+    std::shared_ptr<Font> font {
+        new Font(std::get<0>(def), std::get<1>(def), atlasSize, atlasOwner)};
     sFontMap[def] = std::weak_ptr<Font>(font);
     ResourceManager::getInstance().addReloadable(font);
     return font;
@@ -1246,6 +1256,11 @@ void Font::getTextureForNewGlyph(const glm::ivec2& glyphSize,
                                  FontTexture*& texOut,
                                  glm::ivec2& cursorOut)
 {
+    if (mAtlasOwner) {
+        mAtlasOwner->getTextureForNewGlyph(glyphSize, texOut, cursorOut);
+        return;
+    }
+
     if (mTextures.size()) {
         // Check if the most recent texture has space available for the glyph.
         texOut = mTextures.back().get();

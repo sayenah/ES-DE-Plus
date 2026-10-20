@@ -24,6 +24,8 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                'glyph-cache': 'Font::Glyph* Font::getGlyphByIndex(',
                'font-get': 'std::shared_ptr<Font> Font::get(',
                'font-atlas': 'Font::FontTexture::FontTexture(',
+               'font-allocate': 'void Font::getTextureForNewGlyph(',
+               'font-find-empty': 'bool Font::FontTexture::findEmpty(',
                'font-solid-upload': 'void Font::uploadSolidPixel(',
                'font-solid': 'void Font::appendSolid('}
     for name, marker in methods.items():

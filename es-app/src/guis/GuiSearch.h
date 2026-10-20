@@ -124,6 +124,7 @@ private:
     Renderer* mRenderer;
     SearchArtwork mArtwork;
     std::map<float, std::shared_ptr<Font>> mFonts;
+    std::shared_ptr<Font> mFontAtlas;
     std::vector<Label> mLabels;
     TextCache mTextBatch;
     std::vector<Renderer::Vertex> mPanelBatch;

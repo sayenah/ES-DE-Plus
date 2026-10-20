@@ -298,7 +298,7 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
 {
     // Retain the small set of font sizes across layouts. Font's upstream map holds weak
     // references; destroying every label would otherwise reload fonts on each keystroke.
-    // Three legible type sizes share atlas/draw batches across the screen. Keep
+    // Preserve each size's glyph metrics while sharing one atlas/draw batch. Keep
     // smaller fitted fonts available when a translated control needs them.
     const float nominal = size / mUnit;
     const float grouped = nominal < 24 ? size :
@@ -306,9 +306,13 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
                           nominal < 36 ? 32 * mUnit :
                                          40 * mUnit;
     const float key = std::max(2.0f, std::round(grouped / 2) * 2);
+    const float atlasKey = std::max(2.0f, std::round(40 * mUnit / 2) * 2);
+    if (!mFontAtlas)
+        mFontAtlas = Font::get(atlasKey, Font::getDefaultPath(), 1024);
     auto& font = mFonts[key];
     if (!font)
-        font = Font::get(key, Font::getDefaultPath(), nominal < 24 ? 0 : 1024);
+        font =
+            key == atlasKey ? mFontAtlas : Font::get(key, Font::getDefaultPath(), 1024, mFontAtlas);
     return font;
 }
 
