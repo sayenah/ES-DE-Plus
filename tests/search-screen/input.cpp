@@ -34,12 +34,33 @@ namespace
     std::string capture;
     SDL_JoystickID controller {-1};
     SDL_Event release {};
+    bool typeWhileOpening {false};
     void acknowledge()
     {
         std::ofstream(directory() + "/ack.new") << sequence << '\n';
         std::rename((directory() + "/ack.new").c_str(), (directory() + "/ack").c_str());
     }
 } // namespace
+
+extern "C" void SDLCALL SDL_SetTextInputRect(const SDL_Rect* rect)
+{
+    static const auto forward = real<decltype(&SDL_SetTextInputRect)>("SDL_SetTextInputRect");
+    forward(rect);
+    if (typeWhileOpening && rect && rect->w > 0 && rect->h > 0) {
+        typeWhileOpening = false;
+        // Like Android's nativeCommitText, text arriving on the platform thread is
+        // discarded when SDL text events are disabled. Inject while the native field
+        // is being positioned, before the constructor returns to the event loop.
+        const bool active = SDL_IsTextInputActive();
+        std::ofstream(directory() + "/opening-text-state") << active << '\n';
+        if (active) {
+            SDL_Event text {};
+            text.type = SDL_TEXTINPUT;
+            SDL_strlcpy(text.text.text, "f", sizeof(text.text.text));
+            SDL_PushEvent(&text);
+        }
+    }
+}
 
 extern "C" int SDLCALL SDL_InitSubSystem(Uint32 flags)
 {
@@ -118,7 +139,8 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
         event->type = action == "text" ? SDL_TEXTINPUT : SDL_TEXTEDITING;
         SDL_strlcpy(event->text.text, value.c_str(), sizeof(event->text.text));
     }
-    else if (action == "pad") {
+    else if (action == "pad" || action == "pad-typing") {
+        typeWhileOpening = action == "pad-typing";
         if (controller < 0)
             std::abort();
         event->type = SDL_CONTROLLERBUTTONDOWN;

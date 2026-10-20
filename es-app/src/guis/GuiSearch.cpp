@@ -105,6 +105,9 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     }
     // Opening from a game list offers its scope, while the initial scope is always global.
     mTouch = InputManager::getInstance().lastInputWasTouch();
+    // Android commits text on its UI thread, even while this thread loads fonts/layout.
+    // Enable events first so a quick keystroke after Y is retained in SDL's queue.
+    startTextInput(mTouch);
     refresh();
     layout();
     for (const float size :
@@ -112,7 +115,11 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         searchFont(size * mUnit)
             ->sizeText("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
                        "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×");
-    startTextInput(mTouch);
+    const SDL_Rect rect {static_cast<int>(mFieldRect.x), static_cast<int>(mFieldRect.y),
+                         static_cast<int>(mFieldRect.z), static_cast<int>(mFieldRect.w)};
+    // Updating the IME rectangle must not stop text input and flush pending commits.
+    SDL_SetTextInputRect(&rect);
+    SDL_StartTextInput();
     LOG(LogDebug) << "Search screen opened: query=" << queryForLog() << " scope=" << mScopeName;
 }
 
@@ -1427,8 +1434,10 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                                       Renderer::BlendFactor::SRC_ALPHA,
                                       Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA);
     }
+    const auto panelsDrawn = std::chrono::steady_clock::now();
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mTextBatch);
+    const auto textDrawn = std::chrono::steady_clock::now();
     for (auto& cover : mCovers) {
         if (!cover.image)
             continue;
@@ -1446,8 +1455,12 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         const double renderMs = std::chrono::duration<double, std::milli>(
                                     std::chrono::steady_clock::now() - renderStart)
                                     .count();
-        LOG(LogDebug) << "Search frame: query=" << queryForLog()
-                      << " work_ms=" << mQueryWorkMs + renderMs << " render_ms=" << renderMs;
+        LOG(LogDebug)
+            << "Search frame: query=" << queryForLog() << " work_ms=" << mQueryWorkMs + renderMs
+            << " render_ms=" << renderMs << " panels_ms="
+            << std::chrono::duration<double, std::milli>(panelsDrawn - renderStart).count()
+            << " text_ms="
+            << std::chrono::duration<double, std::milli>(textDrawn - panelsDrawn).count();
         mMeasureFrame = false;
     }
 }
