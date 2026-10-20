@@ -34,6 +34,7 @@
 #include "guis/GuiEmulatorManager.h"
 #endif
 #include "guis/GuiMenu.h"
+#include "guis/GuiSearch.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/SearchEntry.h"
@@ -1244,6 +1245,8 @@ std::shared_ptr<SystemView> ViewController::getSystemListView()
 
 bool ViewController::input(InputConfig* config, Input input)
 {
+    if (input.value && mState.viewing == ViewMode::GAMELIST)
+        SearchEntry::observeGamelistCursor(getGamelistView(mState.getSystem()).get());
     // If using the %RUNINBACKGROUND% variable in a launch command or if enabling the
     // RunInBackground setting, ES-DE will run in the background while a game is launched.
     // If we're in this state and then register some input, it means that the user is back in ES-DE.
@@ -1579,6 +1582,7 @@ void ViewController::reloadGamelistView(GamelistView* view, bool reloadTheme)
 
 void ViewController::reloadAll()
 {
+    GuiSearch::releaseFonts();
     if (mRenderer->getSDLWindow() == nullptr)
         return;
 

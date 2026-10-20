@@ -9,8 +9,10 @@
 #ifndef ES_APP_SEARCH_DRAWING_H
 #define ES_APP_SEARCH_DRAWING_H
 
-#include "renderers/Renderer.h"
+#include "resources/Font.h"
 
+#include <algorithm>
+#include <optional>
 #include <vector>
 
 namespace SearchDrawing
@@ -47,5 +49,55 @@ namespace SearchDrawing
                  {rect.x, rect.y + rect.w}},
                 color);
     }
+    inline void appendClipped(TextCache& target,
+                              const TextCache& source,
+                              const glm::vec2& offset,
+                              const glm::vec4& clip,
+                              std::optional<unsigned int> color = std::nullopt)
+    {
+        for (const auto& list : source.getVertexLists()) {
+            auto output = std::find_if(
+                target.getVertexLists().begin(), target.getVertexLists().end(),
+                [&](const auto& item) { return item.textureIdPtr == list.textureIdPtr; });
+            if (output == target.getVertexLists().end()) {
+                target.getVertexLists().push_back({{}, list.textureIdPtr});
+                output = target.getVertexLists().end() - 1;
+            }
+            for (size_t at {0}; at + 5 < list.verts.size(); at += 6) {
+                auto topLeft = list.verts[at + 1];
+                auto bottomRight = list.verts[at + 4];
+                if (color) {
+                    topLeft.color = *color;
+                    bottomRight.color = *color;
+                }
+                topLeft.position += offset;
+                bottomRight.position += offset;
+                const glm::vec2 low = glm::max(topLeft.position, glm::vec2 {clip.x, clip.y});
+                const glm::vec2 high =
+                    glm::min(bottomRight.position, glm::vec2 {clip.x + clip.z, clip.y + clip.w});
+                if (low.x >= high.x || low.y >= high.y)
+                    continue;
+                const auto extent = bottomRight.position - topLeft.position;
+                const auto uv = bottomRight.texcoord - topLeft.texcoord;
+                const auto uvLow = topLeft.texcoord + (low - topLeft.position) / extent * uv;
+                const auto uvHigh = topLeft.texcoord + (high - topLeft.position) / extent * uv;
+                topLeft.position = low;
+                topLeft.texcoord = uvLow;
+                bottomRight.position = high;
+                bottomRight.texcoord = uvHigh;
+                auto bottomLeft = topLeft;
+                bottomLeft.position.y = high.y;
+                bottomLeft.texcoord.y = uvHigh.y;
+                auto topRight = topLeft;
+                topRight.position.x = high.x;
+                topRight.texcoord.x = uvHigh.x;
+                output->verts.insert(output->verts.end(), {topLeft, topLeft, bottomLeft, topRight,
+                                                           bottomRight, bottomRight});
+            }
+            if (output->verts.empty())
+                target.getVertexLists().erase(output);
+        }
+    }
+
 } // namespace SearchDrawing
 #endif

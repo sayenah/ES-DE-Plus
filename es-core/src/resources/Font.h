@@ -17,7 +17,6 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <hb-ft.h>
-#include <optional>
 #include <vector>
 
 class TextComponent;
@@ -320,13 +319,6 @@ public:
     const glm::vec2& getSize() { return metrics.size; }
     size_t getBatchCount() const { return vertexLists.size(); }
 
-    // Combine already-shaped runs for screens with many static labels. Clip each glyph
-    // on the CPU so the combined draw does not need a different scissor per label.
-    void appendClipped(const TextCache& source,
-                       const glm::vec2& offset,
-                       const glm::vec4& clip,
-                       std::optional<unsigned int> color = std::nullopt);
-
     // Used by TextEditComponent to position the cursor and scroll the text box.
     std::vector<glm::vec2> glyphPositions;
 
@@ -340,6 +332,10 @@ protected:
 
     std::vector<VertexList> vertexLists;
     glm::vec4 clipRegion;
+
+public:
+    const auto& getVertexLists() const { return vertexLists; }
+    auto& getVertexLists() { return vertexLists; }
 };
 
 #endif // ES_CORE_RESOURCES_FONT_H

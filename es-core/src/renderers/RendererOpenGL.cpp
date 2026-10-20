@@ -425,12 +425,9 @@ void RendererOpenGL::swapBuffers()
 #else
     SDL_GL_SwapWindow(getSDLWindow());
 #endif
+    framePresented();
     GL_CHECK_ERROR(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 }
-
-#if defined(__ANDROID__)
-void RendererOpenGL::finishRendering() { GL_CHECK_ERROR(glFinish()); }
-#endif
 
 unsigned int RendererOpenGL::createTexture(const unsigned int texUnit,
                                            const TextureType type,

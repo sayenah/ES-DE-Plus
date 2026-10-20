@@ -95,7 +95,8 @@ def fixture(home, remember=True, kid=False, scheme='dark', language='en_US', lar
         '<inputList><inputConfig type="keyboard" deviceName="Keyboard" deviceGUID="-1">' +
         ''.join(f'<input name="{name}" type="key" id="{key}" value="1"/>' for name, key in
                 [('a', 13), ('b', 8), ('up', 1073741906), ('down', 1073741905),
-                 ('left', 1073741904), ('right', 1073741903), ('start', 27)]) +
+                 ('left', 1073741904), ('right', 1073741903), ('start', 27),
+                 ('y', 1073741897), ('leftshoulder', 1073741899), ('rightshoulder', 1073741902)]) +
         '</inputConfig></inputList>')
     (appdata / 'settings/es_settings.xml').write_text(
         '<bool name="SplashScreen" value="false"/>\n'
@@ -170,13 +171,23 @@ def run(binary, probe, destination, width, height, variant='dark'):
         search()
         opening_ms = (time.monotonic() - opening_start) * 1000
         shot('zero')
+        before = len(log())
+        command('key', '1073741897')  # Insert maps to Y: one space in the editor.
+        wait(lambda: query_seen(' ', before), 'keyboard Y inserts space')
+        command('key', '8')
         for character in 'fin':
             before = len(log())
             command('text', character)
             wait(lambda: query_seen('fin'[:'fin'.index(character) + 1], before), 'live ' + character)
         shot('typing-fin')
-        command('pad', '10')  # R changes the system filter.
+        before = len(log())
+        command('key', '1073741902')  # Keyboard-mapped R / PageDown.
+        wait(lambda: 'Search system filter: system=' in log()[before:] and
+             'system=all ' not in log()[before:], 'keyboard R applies a system filter')
         shot('filter')
+        before = len(log())
+        command('key', '1073741899')  # Keyboard-mapped L / PageUp.
+        wait(lambda: 'Search system filter: system=all ' in log()[before:], 'keyboard L restores all systems')
         command('pad', '6')  # Start focuses results.
         before = len(log())
         command('pad', '11')  # Up reaches visible filters even with saved history.
@@ -194,8 +205,20 @@ def run(binary, probe, destination, width, height, variant='dark'):
             command('pad', '6')
             wait(lambda: 'Search focus: area=6 index=0' in log()[before:], 'edited query returns to best match')
         shot('results-focused')
+        before = len(log())
+        command('key', '1073741897')
+        wait(lambda: 'Favorites collection: game=Final Fantasy VII favorite=0 ' in log()[before:],
+             'keyboard Y removes the focused favorite')
+        before = len(log())
+        command('key', '1073741897')
+        wait(lambda: 'Favorites collection: game=Final Fantasy VII favorite=1 ' in log()[before:],
+             'keyboard Y restores the same focused favorite')
         command('key', '13')  # Enter shows the actual game list.
-        wait(lambda: 'Search show game:' in log(), 'game-list cursor navigation')
+        wait(lambda: 'Search show game:' in log(), 'search closes to game list')
+        before = len(log())
+        command('key', '1073742049')  # A harmless Shift key observes the actual view after closing.
+        wait(lambda: 'Gamelist actual cursor:' in log()[before:] and
+             'game=Final Fantasy VII ' in log()[before:], 'actual game-list cursor navigation')
         history = (appdata / 'settings/search_history.xml').read_text()
         if variant in ['kid', 'history-off']:
             assert '<query>fin</query>' not in history

@@ -20,8 +20,7 @@ def method(marker, source=source):
 
 with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     build = pathlib.Path(temporary)
-    methods = {'text-cache': 'void TextCache::appendClipped(',
-               'glyph-cache': 'Font::Glyph* Font::getGlyphByIndex(',
+    methods = {'glyph-cache': 'Font::Glyph* Font::getGlyphByIndex(',
                'font-get': 'std::shared_ptr<Font> Font::get(',
                'font-atlas': 'Font::FontTexture::FontTexture(',
                'font-allocate': 'void Font::getTextureForNewGlyph(',
@@ -36,6 +35,14 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
         (build / ('artwork-' + name + '.inc')).write_text(
             method(marker + 'SearchArtwork::' + name + '(', artwork))
     search = (root / 'es-app/src/guis/GuiSearch.cpp').read_text()
+    (build / 'search-font-owner.inc').write_text(
+        method('struct SearchFonts final', search) + ';\n' +
+        method('std::shared_ptr<SearchFonts> searchFonts()', search))
+    for name, marker in [('font', 'std::shared_ptr<Font> GuiSearch::searchFont('),
+                         ('font-release', 'void GuiSearch::releaseFonts('),
+                         ('label', 'void GuiSearch::label('),
+                         ('size', 'glm::vec2 GuiSearch::textSize(')]:
+        (build / ('search-' + name + '.inc')).write_text(method(marker, search))
     (build / 'search-text-input.inc').write_text(method('void GuiSearch::startTextInput(', search))
     (build / 'search-text-resume.inc').write_text(
         method('if (mWindow->peekGui() == this && !SDL_IsTextInputActive())', search))
@@ -47,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

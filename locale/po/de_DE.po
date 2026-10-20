@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:34-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: 2026-09-04 12:23+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Deutsch <info@es-de.org>\n"
@@ -1489,6 +1489,12 @@ msgstr "SUCHVERLAUF SPEICHERN"
 msgid "CLEAR SEARCH HISTORY"
 msgstr "SUCHVERLAUF VOLLSTÄNDIG LÖSCHEN"
 
+msgid "Clear all search history?"
+msgstr "Den gesamten Suchverlauf löschen?"
+
+msgid "Search history cleared."
+msgstr "Suchverlauf gelöscht."
+
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
 
@@ -2661,12 +2667,32 @@ msgstr "Bester Treffer"
 msgid "favorite"
 msgstr "Favorit"
 
+msgid "today"
+msgstr "heute"
+
+msgid "yesterday"
+msgstr "gestern"
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] "vor %d Tag"
+msgstr[1] "vor %d Tagen"
+
 msgid "Last played"
 msgstr "Zuletzt gespielt"
 
 #, c-format
-msgid "%d minutes played"
-msgstr "%d Minuten gespielt"
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] "%d Stunde"
+msgstr[1] "%d Stunden"
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] "%d Minute"
+msgstr[1] "%d Minuten"
 
 msgid "space"
 msgstr "Space"
@@ -2689,17 +2715,23 @@ msgstr ""
 msgid "Symbols / accents"
 msgstr "Sonderzeichen / Akzente"
 
+msgid "Searching for games..."
+msgstr "Suche nach Spielen.."
+
 #, c-format
 msgid "Search %s game"
 msgid_plural "Search %s games"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%s Spiel durchsuchen"
+msgstr[1] "%s Spiele durchsuchen"
+
+msgid "All systems"
+msgstr "Alle Systeme"
 
 msgid "In:"
 msgstr ""
 
-msgid "All systems"
-msgstr "Alle Systeme"
+msgid "Close"
+msgstr ""
 
 msgid "Recent searches"
 msgstr "Zuletzt verwendete Suchbegriffe"
@@ -2716,6 +2748,9 @@ msgstr "Geben Sie einen Namen ein, um Ihre Spielebibliothek zu durchsuchen."
 msgid "All"
 msgstr "Alle"
 
+msgid "Try another system or remove a filter."
+msgstr "Versuchen Sie ein anderes System oder entfernen Sie einen Filter."
+
 #, c-format
 msgid "No games match ‘%s’."
 msgstr "Keine Spiele entsprechen dem Suchbegriff „%s“."
@@ -2723,17 +2758,13 @@ msgstr "Keine Spiele entsprechen dem Suchbegriff „%s“."
 msgid "Did you mean"
 msgstr "Meinten Sie vielleicht"
 
-msgid "Try another system or remove a filter."
-msgstr "Versuchen Sie ein anderes System oder entfernen Sie einen Filter."
-
 msgid "More results below"
 msgstr "Weitere Suchergebnisse weiter unten"
 
-msgid "Close"
-msgstr ""
-
 msgid "Game list filters cleared to show the selected game."
-msgstr "Die Spielelistenfilter wurden zurückgesetzt, um das ausgewählte Spiel anzuzeigen."
+msgstr ""
+"Die Spielelistenfilter wurden zurückgesetzt, um das ausgewählte Spiel "
+"anzuzeigen."
 
 msgid "show in game list"
 msgstr "in Spieleliste anzeigen"
@@ -3851,9 +3882,6 @@ msgstr "21:9 vertikal"
 msgid "32:9 vertical"
 msgstr "32:9 vertikal"
 
-msgid "Searching for games..."
-msgstr "Suche nach Spielen.."
-
 msgid "Loading systems..."
 msgstr "Lade Systeme..."
 
@@ -3865,3 +3893,7 @@ msgstr "Quellen kopieren..."
 
 msgid "Creating system directories..."
 msgstr "Erzeuge System Verzeichnisse..."
+
+#, c-format
+#~ msgid "%d minutes played"
+#~ msgstr "%d Minuten gespielt"

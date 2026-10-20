@@ -23,6 +23,8 @@ class TimingBudgetExceeded(AssertionError):
 def run(h, start, control, shot, record):
     root = h.settings.rsplit('/settings/', 1)[0]
     measurements = []
+    presentations = []
+    entries = []
     timed_prefix = ''
     prefix = f'search-screen-api{h.api}-'
     def prepare(operation, **arguments):
@@ -115,7 +117,7 @@ def run(h, start, control, shot, record):
         def rendered():
             current = h.log()
             last = current.rfind('Search keystroke:')
-            return last >= 0 and 'Search frame:' in current[last:]
+            return last >= 0 and 'Search frame:' in current[last:] and 'Search presented:' in current[last:]
         h.wait_for(rendered, 'last search keystroke rendered before checkpoint')
         current = h.log()
         complete = current[:current.rfind('\n') + 1]
@@ -123,6 +125,10 @@ def run(h, start, control, shot, record):
         times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', added)]
         assert times, 'Missing actual search frame measurements'
         measurements.extend(times)
+        presented = [float(value) for value in re.findall(r'Search presented: .*? interval_ms=([0-9.]+)', added)]
+        assert len(presented) == len(times), ('Every measured frame must reach swap', len(times), len(presented))
+        presentations.extend(presented)
+        entries.extend(float(value) for value in re.findall(r'Search entry ready: ms=([0-9.]+)', added))
         timed_prefix = complete
         record(name)
     def scheduler_control():
@@ -201,9 +207,18 @@ def run(h, start, control, shot, record):
         shot(prefix + 'controller-fin')
         for _ in range(4): pad(11)
         h.wait_for(lambda: 'Search focus: area=2' in h.log(), 'Up reaches suggestions')
+        before = len(h.log())
         pad(0)
+        h.wait_for(lambda: 'Search suggestion applied: query=Final system= results=2' in h.log()[before:],
+                   'word suggestion completes fin to Final with both results')
+        before = len(h.log())
         pad(10)
+        h.wait_for(lambda: 'Search system filter: system=nes results=2' in h.log()[before:],
+                   'R selects NES and retains both matching games')
+        before = len(h.log())
         pad(9)
+        h.wait_for(lambda: 'Search system filter: system=all results=2' in h.log()[before:],
+                   'L returns to all systems and retains both matches')
         pad(6)
         shot(prefix + 'controller-results')
         before = len(h.log())
@@ -215,7 +230,11 @@ def run(h, start, control, shot, record):
         h.wait_for(lambda: 'game=Final Fantasy VII favorite=1' in h.log()[before:],
                    'Y keeps the same focused game after ranking changes')
         pad(0)
-        h.wait_for(lambda: 'Search show game: nes/Final Fantasy VII' in h.log(), 'A puts cursor on real game list')
+        h.wait_for(lambda: 'Search show game: nes/Final Fantasy VII' in h.log(), 'A closes search into game list')
+        before = len(h.log())
+        h.key('KEYCODE_SHIFT_LEFT')
+        h.wait_for(lambda: re.search(r'Gamelist actual cursor: system=nes game=Final Fantasy VII path=.*Smoke Alpha\.nes',
+                                    h.log()[before:]), 'actual game-list cursor after A')
         history = ET.fromstring(h.shell('cat', root + '/settings/search_history.xml'))
         query = history.findtext('query')
         assert query and history.find('game').get('path') in ['Smoke Alpha.nes', 'Smoke Beta.nes']
@@ -258,6 +277,10 @@ def run(h, start, control, shot, record):
             tap(0)  # Return to the touch IME before the direct result tap.
             tap(6)
             h.wait_for(lambda: 'Search show game: nes/Final' in h.log(), 'tap shows game list')
+            before = len(h.log())
+            h.key('KEYCODE_SHIFT_LEFT')
+            h.wait_for(lambda: 'Gamelist actual cursor: system=nes game=Final Fantasy VII ' in h.log()[before:],
+                       'actual game-list cursor after direct tap')
             magnifier()
             tap(5)
             h.wait_for(lambda: 'Search keystroke: query=fin ' in h.log(), 'recent search tap runs query')
@@ -348,8 +371,14 @@ def run(h, start, control, shot, record):
             after = h.shell('cat', root + '/settings/search_history.xml')
             assert before == after, 'Private search mutated history'
             record('search-screen-privacy-after-show-' + mode + '-' + str(remember))
-        ordered = sorted(measurements)
-        summary = dict(samples=len(ordered), p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=max(ordered))
+        def distribution(values):
+            ordered = sorted(values)
+            assert ordered, 'Missing timing samples'
+            return dict(samples=len(ordered), p50_ms=ordered[math.ceil(len(ordered) * .5) - 1],
+                        p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=ordered[-1])
+        summary = distribution(measurements)
+        summary['presented'] = distribution(presentations)
+        summary['entry'] = distribution(entries)
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
         try:
             scheduler_control()
@@ -358,7 +387,9 @@ def run(h, start, control, shot, record):
             # failure into a passing result.
             (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
         try:
-            assert summary['max_ms'] <= 50, ('Search-attributable work exceeded 50ms', summary)
+            assert summary['p95_ms'] <= 20 and summary['max_ms'] <= 33, ('Search work exceeded p95 20ms / max 33ms', summary)
+            assert summary['entry']['p95_ms'] <= 150, ('Search entry exceeded p95 150ms', summary)
+            assert summary['presented']['max_ms'] <= 50, ('Search presented frame exceeded 50ms', summary)
         except AssertionError as error:
             raise TimingBudgetExceeded(*error.args) from error
         (h.evidence / 'search-screen-result.txt').write_text(f'PASS: API {h.api} controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')

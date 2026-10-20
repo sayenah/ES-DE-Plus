@@ -46,9 +46,6 @@ public:
     void setScissor(const Rect& scissor) override;
     void setSwapInterval() override;
     void swapBuffers() override;
-#if defined(__ANDROID__)
-    void finishRendering() override;
-#endif
 
     unsigned int createTexture(const unsigned int texUnit,
                                const TextureType type,

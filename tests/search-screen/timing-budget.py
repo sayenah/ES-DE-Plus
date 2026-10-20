@@ -47,14 +47,21 @@ flow_function = ast.FunctionDef(name='exercise', args=ast.arguments(posonlyargs=
 flow = compile_nodes([flow_function, ast.Expr(ast.Call(ast.Name('exercise', ast.Load()), [], []))])
 checks = 1
 
-for maximum, should_fail in [(49.999, False), (50, False), (50.0001, True), (143.496, True)]:
-    summary = dict(samples=64, p95_ms=32.4266, max_ms=maximum)
+for p95, maximum, entry, presented, message in [
+    (20, 33, 150, 50, None),
+    (20.001, 33, 150, 50, 'Search work exceeded p95 20ms / max 33ms'),
+    (20, 33.001, 150, 50, 'Search work exceeded p95 20ms / max 33ms'),
+    (19, 32, 150.001, 50, 'Search entry exceeded p95 150ms'),
+    (19, 32, 149, 50.001, 'Search presented frame exceeded 50ms'),
+    (19, 143.496, 149, 49, 'Search work exceeded p95 20ms / max 33ms')]:
+    summary = dict(samples=64, p95_ms=p95, max_ms=maximum,
+                   entry=dict(p95_ms=entry), presented=dict(max_ms=presented))
     try:
         exec(gate, dict(summary=summary, TimingBudgetExceeded=subject.TimingBudgetExceeded))
     except subject.TimingBudgetExceeded as error:
-        assert should_fail and error.args == (('Search-attributable work exceeded 50ms', summary),)
+        assert message and error.args == ((message, summary),)
     else:
-        assert not should_fail
+        assert message is None
     checks += 1
 
 with tempfile.TemporaryDirectory(prefix='esde-search-budget-') as temporary:

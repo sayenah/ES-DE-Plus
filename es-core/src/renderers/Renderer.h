@@ -16,6 +16,8 @@
 #include "Log.h"
 #include "utils/MathUtil.h"
 
+#include <chrono>
+#include <functional>
 #include <stack>
 #include <string>
 #include <vector>
@@ -239,12 +241,24 @@ public:
     virtual void setScissor(const Rect& scissor) = 0;
     virtual void setSwapInterval() = 0;
     virtual void swapBuffers() = 0;
-#if defined(__ANDROID__)
-    // Complete initialization draws before an interactive screen is opened.
-    virtual void finishRendering() = 0;
-#endif
+    // Optional diagnostic observer; includes rendering, the swap wait and frame pacing.
+    void setFramePresentedCallback(std::function<void(double)> callback)
+    {
+        mFramePresented = std::move(callback);
+        mPreviousPresentation = std::chrono::steady_clock::now();
+    }
 
 protected:
+    void framePresented()
+    {
+        if (!mFramePresented)
+            return;
+        const auto now = std::chrono::steady_clock::now();
+        const double interval =
+            std::chrono::duration<double, std::milli>(now - mPreviousPresentation).count();
+        mPreviousPresentation = now;
+        mFramePresented(interval);
+    }
     Rect mViewport;
     int mWindowWidth {0};
     int mWindowHeight {0};
@@ -254,6 +268,8 @@ protected:
     int mScreenOffsetY {0};
 
 private:
+    std::function<void(double)> mFramePresented;
+    std::chrono::steady_clock::time_point mPreviousPresentation {};
     std::stack<Rect> mClipStack;
     SDL_Window* mSDLWindow {nullptr};
     glm::mat4 mProjectionMatrix {};

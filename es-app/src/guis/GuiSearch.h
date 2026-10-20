@@ -25,6 +25,7 @@ class GuiSearch : public GuiComponent
 public:
     GuiSearch(const std::string& initialText = "", SystemData* scopeSystem = nullptr);
     ~GuiSearch();
+    static void releaseFonts();
     bool input(InputConfig* config, Input input) override;
     void textInput(const std::string& text, bool pasting = false) override;
     void textEditing(const std::string& text, int start, int length) override;
@@ -60,6 +61,8 @@ private:
         unsigned int background;
         bool border;
         std::optional<unsigned int> textColor {};
+        glm::vec2 position {};
+        bool overlay {false};
     };
     struct Control {
         std::shared_ptr<TextComponent> text;
@@ -93,6 +96,7 @@ private:
     void startTextInput(bool touch, bool requestKeyboard = true);
     void close();
     std::shared_ptr<Font> searchFont(float size);
+    glm::vec2 textSize(const std::string& value, float size);
     void label(const std::string& value,
                const glm::vec4& rect,
                float fontSize,
@@ -129,8 +133,16 @@ private:
     std::shared_ptr<Font> mFontAtlas;
     std::vector<Label> mLabels;
     TextCache mTextBatch;
+    TextCache mBorderBatch;
     std::vector<Renderer::Vertex> mPanelBatch;
     std::map<std::pair<Area, int>, Control> mControls;
+    std::map<std::tuple<std::string, float, float, float, Alignment>,
+             std::shared_ptr<TextComponent>>
+        mLabelCache;
+    std::map<std::pair<std::string, float>, glm::vec2> mSizeCache;
+    std::vector<Label> mKeyboardLabels;
+    std::vector<Target> mKeyboardTargets;
+    std::tuple<glm::vec2, bool, bool, bool, int> mKeyboardLayout {};
     std::vector<Target> mTargets;
     std::vector<Cover> mCovers;
     std::vector<LibrarySearch::Match> mMatches;
@@ -176,6 +188,8 @@ private:
     int mBlink {0};
     double mQueryWorkMs {0};
     bool mMeasureFrame {false};
+    bool mMeasurePresentation {false};
+    std::string mPresentedQuery;
     bool mKeyboardShown {false};
     float mUnit {0};
     float mCaretX {0};

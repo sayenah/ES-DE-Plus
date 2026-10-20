@@ -1127,7 +1127,15 @@ void GuiMenu::openUIOptions()
                                                                   Font::get(FONT_SIZE_MEDIUM),
                                                                   mMenuColorPrimary),
                                   true);
-    clearSearchHistory.makeAcceptInputHandler([] { LibrarySearch::history().clear(); });
+    clearSearchHistory.makeAcceptInputHandler([this] {
+        mWindow->pushGui(new GuiMsgBox(
+            _("Clear all search history?"), _("YES"),
+            [this] {
+                LibrarySearch::history().clear();
+                mWindow->pushGui(new GuiMsgBox(_("Search history cleared."), _("OK")));
+            },
+            _("NO")));
+    });
     s->addRow(clearSearchHistory);
 
     auto gamelistYButton =

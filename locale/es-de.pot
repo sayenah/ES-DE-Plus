@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:34-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <info@es-de.org>\n"
@@ -1443,6 +1443,12 @@ msgstr ""
 msgid "CLEAR SEARCH HISTORY"
 msgstr ""
 
+msgid "Clear all search history?"
+msgstr ""
+
+msgid "Search history cleared."
+msgstr ""
+
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
 
@@ -2551,12 +2557,32 @@ msgstr ""
 msgid "favorite"
 msgstr ""
 
+msgid "today"
+msgstr ""
+
+msgid "yesterday"
+msgstr ""
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] ""
+msgstr[1] ""
+
 msgid "Last played"
 msgstr ""
 
 #, c-format
-msgid "%d minutes played"
-msgstr ""
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] ""
+msgstr[1] ""
 
 msgid "space"
 msgstr ""
@@ -2579,16 +2605,22 @@ msgstr ""
 msgid "Symbols / accents"
 msgstr ""
 
+msgid "Searching for games..."
+msgstr ""
+
 #, c-format
 msgid "Search %s game"
 msgid_plural "Search %s games"
 msgstr[0] ""
 msgstr[1] ""
 
+msgid "All systems"
+msgstr ""
+
 msgid "In:"
 msgstr ""
 
-msgid "All systems"
+msgid "Close"
 msgstr ""
 
 msgid "Recent searches"
@@ -2606,6 +2638,9 @@ msgstr ""
 msgid "All"
 msgstr ""
 
+msgid "Try another system or remove a filter."
+msgstr ""
+
 #, c-format
 msgid "No games match ‘%s’."
 msgstr ""
@@ -2613,13 +2648,7 @@ msgstr ""
 msgid "Did you mean"
 msgstr ""
 
-msgid "Try another system or remove a filter."
-msgstr ""
-
 msgid "More results below"
-msgstr ""
-
-msgid "Close"
 msgstr ""
 
 msgid "Game list filters cleared to show the selected game."
@@ -3633,9 +3662,6 @@ msgid "21:9 vertical"
 msgstr ""
 
 msgid "32:9 vertical"
-msgstr ""
-
-msgid "Searching for games..."
 msgstr ""
 
 msgid "Loading systems..."

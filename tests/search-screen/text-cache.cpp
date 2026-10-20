@@ -6,14 +6,12 @@
 //  Written for ES-DE-Plus. Tests the production clipping method without an OpenGL context.
 //
 
-#include "resources/Font.h"
+#include "search/SearchDrawing.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-
-#include "text-cache.inc"
 
 namespace
 {
@@ -48,7 +46,7 @@ int main()
     Cache source, fallback, output, clipped, degenerate;
     source.seed(&texture);
     fallback.seed(&fallbackTexture);
-    output.appendClipped(source, {20, 30}, {22, 33, 4, 5});
+    SearchDrawing::appendClipped(output, source, {20, 30}, {22, 33, 4, 5});
     require(output.batches() == 1 && output.vertices() == 6, "one nonempty triangle strip");
     require(output.at(1).position == glm::vec2 {22, 33} &&
                 output.at(4).position == glm::vec2 {26, 38},
@@ -61,20 +59,20 @@ int main()
     require(output.at(0).position == output.at(1).position &&
                 output.at(5).position == output.at(4).position,
             "degenerate strip boundaries survive clipping");
-    output.appendClipped(source, {}, {0, 0, 10, 10});
+    SearchDrawing::appendClipped(output, source, {}, {0, 0, 10, 10});
     require(output.batches() == 1 && output.vertices() == 12, "shared atlas batches together");
-    output.appendClipped(fallback, {}, {50, 50, 10, 10});
+    SearchDrawing::appendClipped(output, fallback, {}, {50, 50, 10, 10});
     require(output.batches() == 1 && output.vertices() == 12,
             "fully clipped fallback atlas never creates an empty draw");
-    output.appendClipped(fallback, {}, {0, 0, 10, 10});
+    SearchDrawing::appendClipped(output, fallback, {}, {0, 0, 10, 10});
     require(output.batches() == 2 && output.vertices(1) == 6, "visible fallback atlas retained");
-    clipped.appendClipped(source, {}, {50, 50, 10, 10});
+    SearchDrawing::appendClipped(clipped, source, {}, {50, 50, 10, 10});
     require(clipped.batches() == 0, "fully clipped first run leaves no draw list");
     degenerate.seed(&texture, 0);
-    clipped.appendClipped(degenerate, {}, {0, 0, 10, 10});
+    SearchDrawing::appendClipped(clipped, degenerate, {}, {0, 0, 10, 10});
     require(clipped.batches() == 0, "zero-area glyph never divides by zero");
     Cache highlighted;
-    highlighted.appendClipped(source, {20, 30}, {22, 33, 4, 5}, 0xFAAD00EE);
+    SearchDrawing::appendClipped(highlighted, source, {20, 30}, {22, 33, 4, 5}, 0xFAAD00EE);
     for (size_t i {0}; i < highlighted.vertices(); ++i) {
         require(highlighted.at(i).color == 0xFAAD00EE,
                 "highlight overrides every vertex color including alpha");
@@ -84,7 +82,7 @@ int main()
     }
     require(source.at(1).color == 0x12345678 && output.at(1).color == 0x12345678,
             "highlight never mutates the reusable source or an earlier draw");
-    highlighted.appendClipped(source, {}, {0, 0, 10, 10}, 0);
+    SearchDrawing::appendClipped(highlighted, source, {}, {0, 0, 10, 10}, 0);
     require(highlighted.vertices() == 12 && highlighted.batches() == 1 &&
                 highlighted.at(7).color == 0,
             "transparent black is an explicit override and reuses the same atlas batch");

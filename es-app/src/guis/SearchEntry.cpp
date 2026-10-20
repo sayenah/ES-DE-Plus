@@ -90,6 +90,15 @@ void SearchEntry::observeOptionsFocus(ComponentList* list)
 #endif
 }
 
+void SearchEntry::observeGamelistCursor(GamelistView* view)
+{
+    if (Log::getReportingLevel() < LogDebug)
+        return;
+    const auto cursor = view->getCursor();
+    LOG(LogDebug) << "Gamelist actual cursor: system=" << cursor->getSystem()->getName()
+                  << " game=" << cursor->getName() << " path=" << cursor->getPath();
+}
+
 void SearchEntry::logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites)
 {
     LOG(LogDebug) << "Favorites collection: game=" << source->getName()

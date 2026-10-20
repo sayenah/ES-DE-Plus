@@ -599,8 +599,12 @@ void Window::render()
     if (!mGuiStack.empty()) {
         auto& bottom = mGuiStack.front();
         auto& top = mGuiStack.back();
-        const bool opaqueFullscreen {bottom != top && top->isOpaqueFullscreen() &&
-                                     !mRenderLaunchScreen};
+        const auto opaque =
+            std::find_if(mGuiStack.rbegin(), mGuiStack.rend(),
+                         [](GuiComponent* gui) { return gui->isOpaqueFullscreen(); });
+        GuiComponent* backdrop =
+            opaque != mGuiStack.rend() && !mRenderLaunchScreen ? *opaque : nullptr;
+        const bool opaqueFullscreen {bottom != top && backdrop};
 
         if (mRenderMediaViewer || mRenderPDFViewer || mRenderScreensaver) {
             bottom->cancelAllAnimations();
@@ -627,7 +631,8 @@ void Window::render()
         // a new cached background has been generated.
         if (opaqueFullscreen) {
             // Keep the live view behind the scale-up animation, then stop drawing it.
-            renderBottom = Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
+            renderBottom = backdrop == top &&
+                           Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
                            mTopScale < 1.0f;
         }
         else if (mGuiStack.size() > 1 && mCachedBackground) {
@@ -767,12 +772,18 @@ void Window::render()
 #if defined(__ANDROID__)
             // Modal text and confirmation controls take visual priority. Keep
             // the exposed controller buttons usable around the dialog.
-            if (!mRenderLaunchScreen && dynamic_cast<GuiMsgBox*>(top) &&
+            if (!opaqueFullscreen && !mRenderLaunchScreen && dynamic_cast<GuiMsgBox*>(top) &&
                 Settings::getInstance()->getBool("InputTouchOverlay")) {
                 InputOverlay::getInstance().render(mRenderer->getIdentity());
                 overlayBelowDialog = true;
             }
 #endif
+            if (backdrop && backdrop != top) {
+                backdrop->render(trans);
+                mRenderer->setMatrix(trans);
+                mRenderer->drawRect(0, 0, mRenderer->getScreenWidth(), mRenderer->getScreenHeight(),
+                                    0x00000060, 0x00000060);
+            }
             if (!mRenderLaunchScreen)
                 top->render(trans);
         }
