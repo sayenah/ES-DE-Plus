@@ -1086,7 +1086,7 @@ namespace LibrarySearch
             // Per-thread scratch is reused across queries, including the restricted/full
             // passes. No library-sized allocation or initialization on a keystroke.
             struct Scratch {
-                std::vector<uint32_t> stamp, position;
+                std::vector<uint32_t> stamp, position, metadataStamp;
                 std::vector<Result> rows;
                 uint32_t epoch {0};
             };
@@ -1097,6 +1097,7 @@ namespace LibrarySearch
             }
             if (++scratch.epoch == 0) {
                 std::fill(scratch.stamp.begin(), scratch.stamp.end(), 0);
+                std::fill(scratch.metadataStamp.begin(), scratch.metadataStamp.end(), 0);
                 ++scratch.epoch;
             }
             auto& matches = scratch.rows;
@@ -1334,28 +1335,8 @@ namespace LibrarySearch
                             groups = std::move(found);
                         }
                     }
-                    struct Cursor {
-                        Id at, end;
-                    };
-                    auto later = [&](const Cursor& a, const Cursor& b) {
-                        return rankingPosition[support[a.at]] > rankingPosition[support[b.at]];
-                    };
-                    std::priority_queue<Cursor, std::vector<Cursor>, decltype(later)> heap {later};
-                    for (Id c : groups) {
-                        const auto range = completions[c].games;
-                        if (range.count)
-                            heap.push({range.begin, range.begin + range.count});
-                    }
-                    std::unordered_set<Id> checked;
-                    while (!heap.empty() && (matches.size() < limit || complete)) {
-                        auto cursor = heap.top();
-                        heap.pop();
-                        const Id g = support[cursor.at++];
-                        if (cursor.at < cursor.end)
-                            heap.push(cursor);
-                        if (!checked.insert(g).second || !allowed(g) || find(g))
-                            continue;
-                        const bool match = std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
+                    auto matchesMetadata = [&](Id g) {
+                        return std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
                             return std::any_of(
                                 gameEntities[g].begin(), gameEntities[g].end(), [&](Id entity) {
                                     if (entity == UINT32_MAX)
@@ -1368,8 +1349,50 @@ namespace LibrarySearch
                                                std::string::npos;
                                 });
                         });
-                        if (match)
-                            put(gameDocuments[g][0], 8, 8);
+                    };
+                    if (complete) {
+                        // Counts need every member, without the ranked heap used by
+                        // the top-results API. Reuse stamps to visit a candidate once.
+                        if (scratch.metadataStamp.size() < games.size())
+                            scratch.metadataStamp.resize(games.size());
+                        for (Id c : groups) {
+                            const auto range = completions[c].games;
+                            for (Id at = range.begin; at < range.begin + range.count; ++at) {
+                                const Id g = support[at];
+                                if (scratch.metadataStamp[g] == scratch.epoch)
+                                    continue;
+                                scratch.metadataStamp[g] = scratch.epoch;
+                                if (allowed(g) && !find(g) && matchesMetadata(g))
+                                    put(gameDocuments[g][0], 8, 8);
+                            }
+                        }
+                    }
+                    else {
+                        struct Cursor {
+                            Id at, end;
+                        };
+                        auto later = [&](const Cursor& a, const Cursor& b) {
+                            return rankingPosition[support[a.at]] > rankingPosition[support[b.at]];
+                        };
+                        std::priority_queue<Cursor, std::vector<Cursor>, decltype(later)> heap {
+                            later};
+                        for (Id c : groups) {
+                            const auto range = completions[c].games;
+                            if (range.count)
+                                heap.push({range.begin, range.begin + range.count});
+                        }
+                        std::unordered_set<Id> checked;
+                        while (!heap.empty() && matches.size() < limit) {
+                            auto cursor = heap.top();
+                            heap.pop();
+                            const Id g = support[cursor.at++];
+                            if (cursor.at < cursor.end)
+                                heap.push(cursor);
+                            if (!checked.insert(g).second || !allowed(g) || find(g))
+                                continue;
+                            if (matchesMetadata(g))
+                                put(gameDocuments[g][0], 8, 8);
+                        }
                     }
                 }
             }
@@ -1378,7 +1401,8 @@ namespace LibrarySearch
                 return a.priority != b.priority ? a.priority < b.priority : better(a.game, b.game);
             };
             const size_t count = std::min(limit, result.size());
-            std::partial_sort(result.begin(), result.begin() + count, result.end(), less);
+            if (!complete)
+                std::partial_sort(result.begin(), result.begin() + count, result.end(), less);
             return {result.begin(), complete ? result.end() : result.begin() + count};
         }
     };
