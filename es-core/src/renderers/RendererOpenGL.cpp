@@ -428,6 +428,8 @@ void RendererOpenGL::swapBuffers()
     GL_CHECK_ERROR(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 }
 
+void RendererOpenGL::finishRendering() { GL_CHECK_ERROR(glFinish()); }
+
 unsigned int RendererOpenGL::createTexture(const unsigned int texUnit,
                                            const TextureType type,
                                            const bool linearMinify,

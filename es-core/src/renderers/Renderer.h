@@ -239,6 +239,8 @@ public:
     virtual void setScissor(const Rect& scissor) = 0;
     virtual void setSwapInterval() = 0;
     virtual void swapBuffers() = 0;
+    // Complete initialization draws before an interactive screen is opened.
+    virtual void finishRendering() = 0;
 
 protected:
     Rect mViewport;

@@ -16,6 +16,10 @@ import xml.etree.ElementTree as ET
 TARGET = re.compile(r'Search touch target: area=(\d+) index=(\d+) norm=([0-9.]+),([0-9.]+)')
 
 
+class TimingBudgetExceeded(AssertionError):
+    """Preserves the exact timing failure while independent overlay checks finish."""
+
+
 def run(h, start, control, shot, record):
     root = h.settings.rsplit('/settings/', 1)[0]
     measurements = []
@@ -339,7 +343,10 @@ def run(h, start, control, shot, record):
             # A diagnostic failure cannot erase or turn the original budget
             # failure into a passing result.
             (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
-        assert summary['max_ms'] <= 50, ('Search-attributable work exceeded 50ms', summary)
+        try:
+            assert summary['max_ms'] <= 50, ('Search-attributable work exceeded 50ms', summary)
+        except AssertionError as error:
+            raise TimingBudgetExceeded(*error.args) from error
         (h.evidence / 'search-screen-result.txt').write_text(f'PASS: API {h.api} controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')
     finally:
         h.shell('am', 'force-stop', h.app)

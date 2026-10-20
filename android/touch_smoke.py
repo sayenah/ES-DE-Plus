@@ -523,12 +523,19 @@ def run(namespace):
             tap((s[0] + nx * s[2], s[1] + ny * s[3]), wait=wait)
             time.sleep(0.2)
 
+    search_timing_failure = None
     try:
         # Exercise search input/timing first, then shared entry points. Each fixture
         # restores its files before the existing overlay assertions continue.
         start(InputTouchOverlay=True)
         surface_bounds_cached = surface_bounds()
-        search_screen_smoke.run(h, start, touch_control, shot, record)
+        try:
+            search_screen_smoke.run(h, start, touch_control, shot, record)
+        except search_screen_smoke.TimingBudgetExceeded as failure:
+            # Collect independent overlay evidence, then re-raise this exact failure
+            # before writing an overall PASS summary. No functional failure is deferred.
+            search_timing_failure = failure
+            (h.evidence / 'search-screen-timing-failure-deferred.txt').write_text(str(failure) + '\n')
         search_entry_smoke.run(h, start, touch_control, shot, record)
         diameters = []
         for size in ('x-small', 'small', 'medium', 'large'):
@@ -1193,6 +1200,9 @@ def run(namespace):
         completion = h.adb('logcat', '-d', '-v', 'threadtime', '--pid', exit_pid)
         assert not re.search(r'Fatal signal|FATAL EXCEPTION|JNI DETECTED ERROR', completion), completion
         (h.evidence / 'touch-orderly-exit-logcat.txt').write_text(completion)
+
+        if search_timing_failure is not None:
+            raise search_timing_failure
 
         # Logical DPI, live resizing, focus loss and touch-only journeys remain in
         # the evidence matrix; do not infer hardware inset safety from these taps.

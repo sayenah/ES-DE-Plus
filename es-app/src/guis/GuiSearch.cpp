@@ -168,17 +168,17 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         // Complete uploads for every size before drawing their shared atlas.
         // Keep uploads ahead of draws so they do not repeatedly modify a texture
         // that is already in use by the renderer.
-        TextComponent text {alphabet, searchFont(size * mUnit), 0x00000000};
+        TextComponent text {alphabet, searchFont(size * mUnit), (mForeground & 0xFFFFFF00) | 0x80};
         if (const auto* source = text.getTextCache())
             preparedText.emplace_back(*source);
     }
-    // Preparing glyphs alone leaves the first actual draw to initialize the material.
+    // Use nonzero opacity so preparation exercises the actual blended material.
+    // The window redraws the full screen before presenting the first search frame.
     for (auto& cache : preparedText)
         mFontAtlas->renderTextCache(&cache);
     // Prepare the bounded raw-image upload/draw before making the screen interactive.
     // Drivers can specialize their sampling routines for power-of-two dimensions.
-    // Prepare both dimension classes; no media file is opened here, and transparent
-    // vertex color preserves the current backbuffer.
+    // Prepare both dimension classes without opening a media file.
     const auto artworkStart = std::chrono::steady_clock::now();
     size_t powerOfTwo {1};
     while (powerOfTwo <= SearchArtwork::MAX_DIMENSION / 2)
@@ -196,9 +196,14 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         artworkMaterial.setLinearInterpolation(true);
         artworkMaterial.setRawImage(pixels.data(), dimension, dimension);
         artworkMaterial.setResize(dimension, dimension);
-        artworkMaterial.setColorShift(0x00000000);
+        artworkMaterial.setOpacity(0.5f);
         artworkMaterial.render(glm::mat4 {1});
     }
+    // Restore the renderer's cleared backbuffer before scale-up can expose transparent
+    // areas of the underlying theme. No preparation draw is presented to the user.
+    mRenderer->setMatrix(glm::mat4 {1});
+    mRenderer->drawRect(0, 0, mSize.x, mSize.y, 0x000000FF, 0x000000FF);
+    mRenderer->finishRendering();
     LOG(LogDebug) << "Search artwork renderer prepared: ms="
                   << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                artworkStart)

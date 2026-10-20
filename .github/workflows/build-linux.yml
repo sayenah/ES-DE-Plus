@@ -56,7 +56,9 @@ jobs:
           ctest --test-dir build-search-sanitized -R 'search_logic|search_adapter|search_hooks|search_fuzz' --output-on-failure
 
       - name: Check production glyph caching, batching and artwork contention
-        run: python3 tests/search-screen/check_text_cache.py
+        run: |
+          python3 tests/search-screen/check_text_cache.py
+          python3 tests/search-screen/timing-budget.py
 
       - name: Build and run pure overlay model checks
         run: |
