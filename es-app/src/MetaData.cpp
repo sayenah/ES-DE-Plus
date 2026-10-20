@@ -10,6 +10,7 @@
 #include "MetaData.h"
 
 #include "Log.h"
+#include "search/SearchGeneration.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 
@@ -151,7 +152,10 @@ void MetaDataList::appendToXML(pugi::xml_node& parent,
 
 void MetaDataList::set(const std::string& key, const std::string& value)
 {
+    const bool changed {mMap[key] != value};
     mMap[key] = value;
+    if (changed)
+        LibrarySearch::metadataChanged(this, key);
     mWasChanged = true;
 }
 

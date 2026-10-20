@@ -81,6 +81,11 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/UIModeController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/VolumeControl.cpp
 
+    # Library search (pure core and frontend adapter).
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/search/SearchCore.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/search/SearchHistory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/search/LibrarySearch.cpp
+
     # GUIs
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiAlternativeEmulators.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiApplicationUpdater.cpp

@@ -46,6 +46,15 @@ jobs:
             clang-format-18 --dry-run --Werror "$file"
           done
 
+      - name: Build and run search correctness and 50k performance gates
+        run: |
+          cmake -S tests/search -B build-search -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-search --parallel 2
+          ctest --test-dir build-search --output-on-failure -V
+          cmake -S tests/search -B build-search-sanitized -DCMAKE_BUILD_TYPE=Debug -DSEARCH_SANITIZERS=ON
+          cmake --build build-search-sanitized --parallel 2
+          ctest --test-dir build-search-sanitized -R 'search_logic|search_adapter|search_hooks|search_fuzz' --output-on-failure
+
       - name: Build and run pure overlay model checks
         run: |
           cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import search_smoke
 import smoke_checks
 import launch_checks
 import pdf_smoke
@@ -1002,7 +1003,7 @@ def search_launch(term, name):
     screenshot(name + '-menu')
     key('KEYCODE_ENTER')
     screenshot(name + '-text-entry')
-    shell('input', 'text', term)
+    shell('input', 'text', term.replace(' ', '%s'))
     key('KEYCODE_ENTER')
     screenshot(name + '-results')
     key('KEYCODE_DPAD_DOWN')
@@ -1097,7 +1098,7 @@ def gamelist_recipient_flow(mode):
         launch_checks.equal('Found custom find rules configuration file' in log(), True, 'Custom user find rules loaded')
     def failed_target(name):
         start_custom()
-        search_launch('Smoke', mode + '-' + name + '-search')
+        search_launch('Smoke Alpha', mode + '-' + name + '-search')
         wait_for(lambda: "Couldn't launch game, emulator not found" in log(), name + ' target visible error')
         screenshot(mode + '-' + name + '-target-error')
         save_logs(mode + '-' + name + '-target-error')
@@ -1107,7 +1108,7 @@ def gamelist_recipient_flow(mode):
         start_custom()
         pid = shell('pidof', app).strip()
         frontend_uid = int(shell('run-as', app, 'id', '-u').strip())
-        search_launch('Smoke', mode + '-provider-search')
+        search_launch('Smoke Alpha', mode + '-provider-search')
         wait_for(lambda: 'Activity launch accepted: ComponentInfo{org.esdeplus.stub/' in adb('logcat', '-d'), 'native gamelist launch into recipient')
         wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/',
                  focused_window()), 'recipient focused window')
@@ -1130,7 +1131,7 @@ def gamelist_recipient_flow(mode):
             try:
                 start_custom()
                 failed_pid = shell('pidof', app).strip()
-                search_launch('Smoke', mode + '-unsupported-saf-search')
+                search_launch('Smoke Alpha', mode + '-unsupported-saf-search')
                 wait_for(lambda: 'Launch terminated with nonzero return value -1' in log(),
                          'app-owned SAF native launch error', timeout=20)
                 # The existing info popup lasts six seconds; capture it while
@@ -1308,7 +1309,7 @@ def real_retroarch_flow():
     try:
         adb('logcat', '-c')
         launch()
-        search_launch('Smoke', 'real-retroarch-search')
+        search_launch('Smoke Alpha', 'real-retroarch-search')
         wait_for(lambda: 'Timed out attempting to query RetroArch, proceeding with game launch anyway' in log(), 'bundled RetroArch query timeout proceeds')
         wait_for(lambda: launch_checks.activity_present(shell('dumpsys', 'activity', 'activities'),
                  'com.retroarch', 'com.retroarch.browser.retroactivity.RetroActivityFuture'),
@@ -1914,13 +1915,18 @@ try:
     key('KEYCODE_ESCAPE')
     screenshot('main-menu-search')
     key('KEYCODE_ENTER')
-    shell('input', 'text', 'Smoke')
+    # Keep the exact receipt fixture explicit: ranking can legitimately prefer Beta.
+    # This typo plus a second token must still find Smoke Alpha through the real UI.
+    shell('input', 'text', 'Smkoe%sAlpha')
     key('KEYCODE_ENTER')
     screenshot('search-results')
     # Move past the search header to the first result, then use the real launch path.
+    previous_launches = len(search_smoke.launches(globals()))
     key('KEYCODE_DPAD_DOWN')
     key('KEYCODE_ENTER')
     wait_for(lambda: "Couldn't launch game, emulator not found" in log(), 'existing missing-emulator error')
+    search_smoke.assert_launched(globals(), 'Smoke Alpha', previous_launches)
+    assert search_smoke.committed(globals(), data_root, 'Smkoe Alpha')
     screenshot('missing-emulator')
     save_logs('search-and-launch')
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
@@ -1947,6 +1953,7 @@ try:
     assert shell('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
+    search_smoke.restart(globals(), data_root, 'Smkoe Alpha', 'Smoke Alpha history', 'private-search')
     shell('am', 'force-stop', app)
     private('mkdir', '-p', 'files/themes/user-theme')
     # Write a genuine user file; the resource installer must not overwrite/delete it.

@@ -11,34 +11,27 @@
 
 #include "GuiComponent.h"
 #include "components/MenuComponent.h"
+#include "search/SearchGeneration.h"
 
 #include <string>
 #include <vector>
-
-class FileData;
 
 class GuiGlobalSearch : public GuiComponent
 {
 public:
     explicit GuiGlobalSearch(const std::string& query);
 
+    void update(int deltaTime) override;
     bool input(InputConfig* config, Input input) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
-    struct SearchResult {
-        FileData* game;
-        int rank;
-        std::string sortName;
-        std::string systemName;
-    };
-
     void populateResults();
-    void launchGame(FileData* game);
-    int getMatchRank(FileData* game) const;
+    void launchGame(const LibrarySearch::Handle& handle);
 
     MenuComponent mMenu;
     std::string mQuery;
+    uint64_t mVersion {0};
 };
 
 #endif // ES_APP_GUIS_GUI_GLOBAL_SEARCH_H
