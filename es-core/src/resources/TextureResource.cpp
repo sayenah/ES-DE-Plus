@@ -168,7 +168,8 @@ std::shared_ptr<TextureResource> TextureResource::get(const std::string& path,
                                                       float tileWidth,
                                                       float tileHeight)
 {
-    const std::string canonicalPath {Utils::FileSystem::getCanonicalPath(path)};
+    // In-memory textures have no path to resolve (or stat on the render thread).
+    const std::string canonicalPath {path.empty() ? "" : Utils::FileSystem::getCanonicalPath(path)};
     if (canonicalPath.empty()) {
         std::shared_ptr<TextureResource> tex(new TextureResource(
             "", tileWidth, tileHeight, tile, false, linearMagnify, mipmapping, false));

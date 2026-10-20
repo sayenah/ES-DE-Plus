@@ -594,13 +594,31 @@ def run(namespace):
         touch_control(1)
         touch_control(6)
         touch_control(0)  # Search.
+        h.wait_for(lambda: 'Search screen opened:' in h.log(), 'touch-only full-screen search')
+        h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
+                   'isInputViewShown=true' in h.shell('dumpsys', 'input_method'),
+                   'touch search uses IME with VirtualKeyboard enabled')
         shot('touch-only-text-empty')
-        touch_control(12)  # On-screen keyboard, first key.
-        touch_control(0)  # Enter a character using the overlay.
+        before = len(h.log())
+        result = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SearchInput',
+                         '--es', 'ime', 'commit', '--es', 'text', 'f')
+        assert 'PASS: active SDL input connection' in result, result
+        h.wait_for(lambda: 'Search keystroke: query=f results=' in h.log()[before:],
+                   'touch-only active IME enters one character')
         shot('touch-only-text-entered')
-        touch_control(1)  # Changed text opens its confirmation.
-        shot('touch-only-text-confirmation')
-        touch_control(0)
+        current = h.log().rsplit('Search layout:', 1)[-1]
+        close = re.findall(r'Search touch target: area=7 index=0 norm=([0-9.]+),([0-9.]+)', current)
+        assert close, 'Search Close must remain reachable above the IME'
+        geometry = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
+        assert 'PASS: owned surface geometry recorded' in geometry
+        view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
+        nx, ny = map(float, close[-1])
+        before = len(h.log())
+        h.shell('input', 'touchscreen', 'tap', str(round(view['x'] + nx * view['bufferWidth'])),
+                str(round(view['y'] + ny * view['bufferHeight'])))
+        h.wait_for(lambda: 'Search screen closed' in h.log()[before:], 'direct touch closes search')
+        assert 'GuiMsgBox:' not in h.log()[before:], 'Search close requested confirmation'
+        shot('touch-only-text-closed')
         record('touch-only-menu-device-settings-text')
         start(InputTouchOverlay=True, InputTouchOverlayFadeTime=10)
         # Refresh visibility after the normal startup wait before this render
