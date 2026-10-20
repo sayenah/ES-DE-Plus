@@ -293,9 +293,10 @@ GuiGamelistOptions::GuiGamelistOptions(SystemData* system)
     const auto observeFocus = [list] {
         if (list->getTouchFocused() && list->size() > 0) {
             const auto& row {list->getTouchRowData(list->getCursorId())};
-            if (!row.elements.empty())
+            if (!row.elements.empty()) {
                 LOG(LogDebug) << "Gamelist options: focused="
                               << row.elements.front().component->getValue();
+            }
         }
     };
     const auto previousCallback {list->getCursorChangedCallback()};
