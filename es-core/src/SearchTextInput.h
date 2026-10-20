@@ -22,6 +22,7 @@ public:
     void keyDown(
         InputConfig* config, Input input, bool browsing, GuiComponent* before, GuiComponent* after);
     void keyUp();
+    void keyRepeat();
     bool text(const std::string& value, GuiComponent* gui);
 
 private:
