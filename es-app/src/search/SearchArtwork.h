@@ -35,7 +35,9 @@ public:
     };
     SearchArtwork();
     ~SearchArtwork();
+    // UI-thread operations never wait for the worker; pending visibility is retried per frame.
     void request(std::vector<Request> visible);
+    void pump();
     std::shared_ptr<const Pixels> get(const std::string& id);
 
 private:
@@ -44,6 +46,9 @@ private:
     std::condition_variable mWake;
     bool mExit {false};
     std::vector<Request> mVisible;
+    // UI-owned; the worker only sees mVisible after a successful pump.
+    std::vector<Request> mPending;
+    bool mPendingDirty {false};
     // Cache paths (including misses) for this screen's lifetime. Pixel data is bounded to
     // visible rows; textures belong to the GUI thread and are never touched here.
     std::map<std::string, std::string> mPaths;

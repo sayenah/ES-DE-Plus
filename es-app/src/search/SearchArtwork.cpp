@@ -34,25 +34,38 @@ SearchArtwork::~SearchArtwork()
 
 void SearchArtwork::request(std::vector<Request> visible)
 {
-    {
-        std::lock_guard<std::mutex> lock {mMutex};
-        std::set<std::string> ids;
-        for (const auto& request : visible)
-            ids.insert(request.id);
-        for (auto it = mReady.begin(); it != mReady.end();) {
-            if (!ids.count(it->first))
-                it = mReady.erase(it);
-            else
-                ++it;
-        }
-        mVisible = std::move(visible);
+    mPending = std::move(visible);
+    mPendingDirty = true;
+    pump();
+}
+
+void SearchArtwork::pump()
+{
+    if (!mPendingDirty)
+        return;
+    std::unique_lock<std::mutex> lock {mMutex, std::try_to_lock};
+    if (!lock.owns_lock())
+        return;
+    std::set<std::string> ids;
+    for (const auto& request : mPending)
+        ids.insert(request.id);
+    for (auto it = mReady.begin(); it != mReady.end();) {
+        if (!ids.count(it->first))
+            it = mReady.erase(it);
+        else
+            ++it;
     }
+    mVisible = std::move(mPending);
+    mPendingDirty = false;
+    lock.unlock();
     mWake.notify_one();
 }
 
 std::shared_ptr<const SearchArtwork::Pixels> SearchArtwork::get(const std::string& id)
 {
-    std::lock_guard<std::mutex> lock {mMutex};
+    std::unique_lock<std::mutex> lock {mMutex, std::try_to_lock};
+    if (!lock.owns_lock())
+        return nullptr;
     const auto it = mReady.find(id);
     return it == mReady.end() ? nullptr : it->second;
 }

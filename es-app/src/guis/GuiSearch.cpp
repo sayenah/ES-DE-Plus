@@ -1441,6 +1441,7 @@ void GuiSearch::update(int deltaTime)
     }
     // At most one bounded upload per frame. No path lookup, stat or decode on this thread.
     const auto artworkStart = std::chrono::steady_clock::now();
+    mArtwork.pump();
     bool uploaded {false};
     for (auto& cover : mCovers) {
         if (!cover.image && !uploaded) {

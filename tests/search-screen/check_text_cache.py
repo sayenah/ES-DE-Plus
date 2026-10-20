@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# ES-DE-Plus — written for ES-DE-Plus. Compile the actual glyph-cache methods in isolation.
+# ES-DE-Plus — written for ES-DE-Plus. Compile production rendering/artwork methods in isolation.
 import pathlib
 import shlex
 import subprocess
@@ -8,7 +8,7 @@ import tempfile
 
 root = pathlib.Path(__file__).resolve().parents[2]
 source = (root / 'es-core/src/resources/Font.cpp').read_text()
-def method(marker):
+def method(marker, source=source):
     start = source.index(marker)
     opening = source.index('{', start)
     depth = 0
@@ -16,7 +16,7 @@ def method(marker):
         depth += (source[end] == '{') - (source[end] == '}')
         if not depth:
             return source[start:end + 1] + '\n'
-    raise RuntimeError('Production font method is not balanced')
+    raise RuntimeError('Production method is not balanced')
 
 with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     build = pathlib.Path(temporary)
@@ -30,6 +30,11 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                'font-solid': 'void Font::appendSolid('}
     for name, marker in methods.items():
         (build / (name + '.inc')).write_text(method(marker))
+    artwork = (root / 'es-app/src/search/SearchArtwork.cpp').read_text()
+    for name in ['request', 'pump', 'get']:
+        marker = ('std::shared_ptr<const SearchArtwork::Pixels> ' if name == 'get' else 'void ')
+        (build / ('artwork-' + name + '.inc')).write_text(
+            method(marker + 'SearchArtwork::' + name + '(', artwork))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -38,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache']:
-        subprocess.run(command + [str(root / ('tests/search-screen/' + name + '.cpp')),
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache']:
+        subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)
