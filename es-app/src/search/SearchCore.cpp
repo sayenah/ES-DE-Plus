@@ -1638,9 +1638,12 @@ namespace LibrarySearch
         ix.vocabulary.reserve(ix.games.size() * 2);
         ix.wordText.reserve(ix.games.size() * 12);
         std::vector<uint64_t> wordPairs, gramPairs, boundaryPairs, initialPairs;
-        wordPairs.reserve(ix.games.size() * 6);
-        initialPairs.reserve(ix.games.size() * 14);
-        boundaryPairs.reserve(ix.games.size() * 10);
+        // Tag-stripped filenames usually share the title's postings. Reserve for
+        // title words rather than a second full set of region/revision words;
+        // longer titles and genuinely different filenames can still grow normally.
+        wordPairs.reserve(ix.games.size() * 4);
+        initialPairs.reserve(ix.games.size() * 8);
+        boundaryPairs.reserve(ix.games.size() * 6);
         std::map<std::pair<SuggestionKind, std::string>, std::vector<Id>> other;
         std::vector<Id> titles;
         titles.reserve(ix.games.size());
