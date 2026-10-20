@@ -539,8 +539,11 @@ bool InputManager::parseEvent(const SDL_Event& event)
                     mWindow->textInput("\b");
             }
 
-            if (event.key.repeat)
+            if (event.key.repeat) {
+                if (mWindow->peekGui() && mWindow->peekGui()->acceptsSearchText())
+                    mSearchTextInput.keyRepeat();
                 return false;
+            }
 
 #if defined(__ANDROID__)
             // Quit application if the back button is pressed or if the back gesture is used,

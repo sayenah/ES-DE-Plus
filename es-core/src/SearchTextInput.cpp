@@ -63,6 +63,15 @@ void SearchTextInput::keyUp()
     mSuppressText = false;
 }
 
+void SearchTextInput::keyRepeat()
+{
+    // Browsing ignores repeat actions upstream. Discard their text too,
+    // whether SDL already delivered it or will deliver it after this event.
+    const bool follows {mText.empty()};
+    keyUp();
+    mSuppressText = follows;
+}
+
 bool SearchTextInput::text(const std::string& value, GuiComponent* gui)
 {
     if (mSuppressText) {
