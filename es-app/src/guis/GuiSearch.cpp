@@ -199,6 +199,8 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         artworkMaterial.setOpacity(0.5f);
         artworkMaterial.render(glm::mat4 {1});
     }
+    // Complete the blended draws before an opaque restore can hide their work.
+    mRenderer->finishRendering();
     // Restore the renderer's cleared backbuffer before scale-up can expose transparent
     // areas of the underlying theme. No preparation draw is presented to the user.
     mRenderer->setMatrix(glm::mat4 {1});
