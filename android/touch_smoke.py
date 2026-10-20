@@ -443,9 +443,9 @@ def run(namespace):
         current = h.log()
         if current.rfind('Search screen opened:') > current.rfind('Search screen closed'):
             # Overlay A can select Search in the main menu. Backspace edits its
-            # field. Hide the system IME first: rotated content can put Close
-            # behind it. Search owns this touch, so wait for its close marker
-            # rather than an InputOverlay event before the next overlay probe.
+            # field. Hide the system IME before Search's Escape action so the IME
+            # cannot consume it. This setup is independent of rotated/offset
+            # touch coordinates; direct Close is covered by the search journey.
             def ime_shown():
                 state = h.shell('dumpsys', 'input_method')
                 return 'mInputShown=true' in state or 'isInputViewShown=true' in state
@@ -456,15 +456,8 @@ def run(namespace):
                            'system IME hidden before closing search')
             current = h.log()
             if current.rfind('Search screen opened:') > current.rfind('Search screen closed'):
-                layout = current.rsplit('Search layout:', 1)[-1]
-                close = re.findall(r'Search touch target: area=7 index=0 norm=([0-9.]+),([0-9.]+)', layout)
                 before = len(current)
-                if close:
-                    sx, sy, sw, sh = surface_bounds()
-                    nx, ny = map(float, close[-1])
-                    tap((sx + nx * sw, sy + ny * sh), wait=False)
-                else:
-                    h.key('KEYCODE_ESCAPE')
+                h.key('KEYCODE_ESCAPE')
                 h.wait_for(lambda: 'Search screen closed' in h.log()[before:],
                            'search closed before ordinary overlay setup')
         # Return to the system view using the ordinary configured keyboard Back;
