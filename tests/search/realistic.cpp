@@ -23,6 +23,11 @@
 #else
 #include <malloc.h>
 #endif
+// Test-only phase marker from search_test_core; absent from the application build.
+namespace LibrarySearch
+{
+    const char* testBuildPhase();
+}
 using namespace LibrarySearch;
 namespace
 {
@@ -236,9 +241,14 @@ namespace
         const double baseline = heapMB();
         std::atomic<bool> running {true};
         std::atomic<double> maximum {baseline};
+        const char* peakPhase {"before-input"};
         std::thread sampler([&] {
             while (running.load()) {
-                maximum.store(std::max(maximum.load(), heapMB()));
+                const auto heap = heapMB();
+                if (heap > maximum.load()) {
+                    maximum.store(heap);
+                    peakPhase = testBuildPhase();
+                }
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
         });
@@ -253,8 +263,9 @@ namespace
         sampler.join();
         const double peak = maximum.load() - baseline;
         std::printf(
-            "MEMORY realistic games=%zu steady_mb=%.3f peak_mb=%.3f ratio=%.3f sample_us=100\n",
-            core.size(), steady, peak, peak / steady);
+            "MEMORY realistic games=%zu steady_mb=%.3f peak_mb=%.3f ratio=%.3f sample_us=100 "
+            "peak_after=%s\n",
+            core.size(), steady, peak, peak / steady, peakPhase);
         std::fflush(stdout);
         require(steady <= 40, "steady heap <=40MB");
         require(peak <= steady * 1.5, "peak heap <=1.5x steady");

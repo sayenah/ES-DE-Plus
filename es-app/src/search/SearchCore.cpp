@@ -39,6 +39,9 @@ namespace LibrarySearch
 {
     namespace
     {
+#ifdef SEARCH_TEST_BUILD_TIMING
+        std::atomic<const char*> diagnosticPhase {"before-input"};
+#endif
         bool starts(std::string_view text, std::string_view prefix)
         {
             return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
@@ -1499,6 +1502,9 @@ namespace LibrarySearch
         }
     };
 
+#ifdef SEARCH_TEST_BUILD_TIMING
+    const char* testBuildPhase() { return diagnosticPhase.load(std::memory_order_relaxed); }
+#endif
     Core::Core()
         : mIndex {std::make_unique<Index>()}
     {
@@ -1532,6 +1538,9 @@ namespace LibrarySearch
     uint64_t Core::version() const { return mVersion; }
     void Core::clear()
     {
+#ifdef SEARCH_TEST_BUILD_TIMING
+        diagnosticPhase.store("cleared", std::memory_order_relaxed);
+#endif
         mIndex = std::make_unique<Index>();
         mVersion = nextVersion.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1546,6 +1555,7 @@ namespace LibrarySearch
         const bool memory = std::getenv("SEARCH_MEMORY_PROFILE") != nullptr;
         auto checkpoint = std::chrono::steady_clock::now();
         auto phase = [&](const char* name) {
+            diagnosticPhase.store(name, std::memory_order_relaxed);
             if (memory) {
 #if defined(__APPLE__)
                 malloc_statistics_t stats;
@@ -1915,13 +1925,17 @@ namespace LibrarySearch
         wordIds.rehash(0);
         // Finish and release the large document-pair buffers before building the
         // vocabulary grams; their temporary peaks must not overlap.
+        phase("word-ids");
         ix.initials.build(std::move(initialPairs));
+        phase("initials");
         ix.boundaries.build(std::move(boundaryPairs));
+        phase("boundaries");
         for (Id w {0}; w < ix.vocabulary.size(); ++w) {
             const auto text = ix.word(w);
             for (size_t p {0}; p + 3 <= text.size(); ++p)
                 gramPairs.push_back(uint64_t {gram(text, p, 3)} << 32 | w);
         }
+        phase("gram-input");
         ix.wordGrams.build(std::move(gramPairs));
         for (Id w {0}; w < ix.vocabulary.size(); ++w) {
             const auto text = ix.word(w);
