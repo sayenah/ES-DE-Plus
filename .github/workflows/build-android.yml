@@ -1013,6 +1013,7 @@ jobs:
             android/evidence/**/*.png
             android/evidence/**/audio-*-progress.json
             android/evidence/**/audio-startup-relaunches.jsonl
+            android/evidence/**/search-screen-timing.json
           retention-days: 7
 
   publish-apk:

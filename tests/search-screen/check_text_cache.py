@@ -21,18 +21,22 @@ def method(marker):
 with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     build = pathlib.Path(temporary)
     methods = {'text-cache': 'void TextCache::appendClipped(',
-               'glyph-cache': 'Font::Glyph* Font::getGlyphByIndex('}
+               'glyph-cache': 'Font::Glyph* Font::getGlyphByIndex(',
+               'font-get': 'std::shared_ptr<Font> Font::get(',
+               'font-atlas': 'Font::FontTexture::FontTexture(',
+               'font-solid-upload': 'void Font::uploadSolidPixel(',
+               'font-solid': 'void Font::appendSolid('}
     for name, marker in methods.items():
         (build / (name + '.inc')).write_text(method(marker))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
-    includes = ['es-core/src', 'external/glm', 'external/rapidjson/include',
+    includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
                 'external/rlottie/inc', 'external/utfcpp']
     command = ['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in methods:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache']:
         subprocess.run(command + [str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

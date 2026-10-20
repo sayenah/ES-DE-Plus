@@ -18,6 +18,7 @@
 #include "SystemData.h"
 #include "Window.h"
 #include "guis/GuiMsgBox.h"
+#include "search/SearchDrawing.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
@@ -307,7 +308,7 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
     const float key = std::max(2.0f, std::round(grouped / 2) * 2);
     auto& font = mFonts[key];
     if (!font)
-        font = Font::get(key);
+        font = Font::get(key, Font::getDefaultPath(), nominal < 24 ? 0 : 1024);
     return font;
 }
 
@@ -1367,6 +1368,7 @@ void GuiSearch::update(int deltaTime)
         LOG(LogDebug) << "Search text input resumed after focus loss";
         startTextInput(mTouch && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()));
     }
+    const bool caretWasVisible {mBlink < 550};
     mBlink = (mBlink + deltaTime) % 1100;
     const auto pumpStart = std::chrono::steady_clock::now();
     LibrarySearch::engine();
@@ -1384,6 +1386,14 @@ void GuiSearch::update(int deltaTime)
     }
     if (mDirty)
         layout();
+    else if (caretWasVisible != (mBlink < 550)) {
+        const auto start = std::chrono::steady_clock::now();
+        prepareDraw();
+        if (mMeasureFrame)
+            mQueryWorkMs +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count();
+    }
     // At most one bounded upload per frame. No path lookup, stat or decode on this thread.
     const auto artworkStart = std::chrono::steady_clock::now();
     bool uploaded {false};
@@ -1413,24 +1423,14 @@ void GuiSearch::prepareDraw()
     mTextBatch = TextCache {};
     mTextBatch.setClipRegion({0, 0, 0, 0});
     mPanelBatch.clear();
-    auto triangle = [&](glm::vec2 a, glm::vec2 b, glm::vec2 c, unsigned int color) {
-        const unsigned int nativeColor = color;
-        const Renderer::Vertex first {a, {}, nativeColor};
-        const Renderer::Vertex second {b, {}, nativeColor};
-        const Renderer::Vertex third {c, {}, nativeColor};
-        mPanelBatch.insert(mPanelBatch.end(), {first, first, second, third, third, third});
-    };
     auto rectangle = [&](const glm::vec4& rect, unsigned int color) {
-        const glm::vec2 a {rect.x, rect.y}, b {rect.x + rect.z, rect.y};
-        const glm::vec2 c {rect.x, rect.y + rect.w}, d {rect.x + rect.z, rect.y + rect.w};
-        triangle(a, b, c, color);
-        triangle(b, d, c, color);
+        SearchDrawing::rectangle(mPanelBatch, rect, color);
     };
+    rectangle({0, 0, mSize.x, mSize.y}, mBackground);
     for (const auto& label : mLabels) {
         if (label.background) {
             const auto& r = label.rect;
             const float radius = std::min({10 * mUnit, r.z / 2, r.w / 2});
-            const glm::vec2 center {r.x + r.z / 2, r.y + r.w / 2};
             std::vector<glm::vec2> outline;
             for (int corner {0}; corner < 4; ++corner) {
                 const glm::vec2 origin {corner == 0 || corner == 3 ? r.x + radius :
@@ -1442,8 +1442,7 @@ void GuiSearch::prepareDraw()
                                       radius * glm::vec2 {std::cos(angle), std::sin(angle)});
                 }
             }
-            for (size_t i {0}; i < outline.size(); ++i)
-                triangle(center, outline[i], outline[(i + 1) % outline.size()], label.background);
+            SearchDrawing::polygon(mPanelBatch, outline, label.background);
         }
         if (label.border) {
             const auto& r = label.rect;
@@ -1454,6 +1453,12 @@ void GuiSearch::prepareDraw()
                                      {r.x + r.z - line, r.y, line, r.w}})
                 rectangle(edge, mAccent);
         }
+    }
+    // Solid panels use one opaque texel in the field font's atlas. Its text and
+    // caret therefore share the same draw, without changing the font material.
+    auto panelFont = searchFont(40 * mUnit);
+    panelFont->appendSolid(&mTextBatch, mPanelBatch);
+    for (const auto& label : mLabels) {
         if (!label.text)
             continue;
         const auto* cache = label.text->getTextCache();
@@ -1465,6 +1470,14 @@ void GuiSearch::prepareDraw()
                 std::round(std::max(0.0f, (label.text->getSize().y - cache->metrics.size.y) / 2))};
         mTextBatch.appendClipped(*cache, offset, label.rect);
     }
+    if (mBlink < 550) {
+        std::vector<Renderer::Vertex> caret;
+        SearchDrawing::rectangle(caret,
+                                 {mFieldRect.x + 14 * mUnit + mCaretX, mFieldRect.y + 20 * mUnit,
+                                  3 * mUnit, mFieldRect.w - 40 * mUnit},
+                                 mAccent);
+        panelFont->appendSolid(&mTextBatch, caret);
+    }
 }
 
 void GuiSearch::render(const glm::mat4& parentTrans)
@@ -1474,14 +1487,6 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         layout();
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
-    mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground);
-    if (!mPanelBatch.empty()) {
-        mRenderer->bindTexture(0, 0);
-        mRenderer->drawTriangleStrips(mPanelBatch.data(), mPanelBatch.size(),
-                                      Renderer::BlendFactor::SRC_ALPHA,
-                                      Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA);
-    }
-    const auto panelsDrawn = std::chrono::steady_clock::now();
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mTextBatch);
     const auto textDrawn = std::chrono::steady_clock::now();
@@ -1493,21 +1498,18 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                                  cover.rect.y + (cover.rect.w - cover.image->getSize().y) / 2);
         cover.image->render(transform);
     }
-    if (mBlink < 550) {
-        mRenderer->setMatrix(transform);
-        mRenderer->drawRect(mFieldRect.x + 14 * mUnit + mCaretX, mFieldRect.y + 20 * mUnit,
-                            3 * mUnit, mFieldRect.w - 40 * mUnit, mAccent, mAccent);
-    }
     if (mMeasureFrame) {
         const double renderMs = std::chrono::duration<double, std::milli>(
                                     std::chrono::steady_clock::now() - renderStart)
                                     .count();
         LOG(LogDebug)
             << "Search frame: query=" << queryForLog() << " work_ms=" << mQueryWorkMs + renderMs
-            << " render_ms=" << renderMs << " panels_ms="
-            << std::chrono::duration<double, std::milli>(panelsDrawn - renderStart).count()
-            << " text_ms="
-            << std::chrono::duration<double, std::milli>(textDrawn - panelsDrawn).count();
+            << " render_ms=" << renderMs << " batch_ms="
+            << std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
+            << " covers_ms="
+            << renderMs - std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
+            << " batches=" << mTextBatch.getBatchCount()
+            << " panel_vertices=" << mPanelBatch.size();
         mMeasureFrame = false;
     }
 }

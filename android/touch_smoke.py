@@ -440,6 +440,22 @@ def run(namespace):
                        'native touch UP processed and frame log flushed', timeout=20)
 
     def neutral():
+        current = h.log()
+        if current.rfind('Search screen opened:') > current.rfind('Search screen closed'):
+            # Overlay A can select Search in the main menu. Backspace edits its
+            # field, and Android may give Escape to the IME. Close the visible
+            # screen through its own control before the next overlay-ID probe.
+            layout = current.rsplit('Search layout:', 1)[-1]
+            close = re.findall(r'Search touch target: area=7 index=0 norm=([0-9.]+),([0-9.]+)', layout)
+            before = len(current)
+            if close:
+                sx, sy, sw, sh = surface_bounds()
+                nx, ny = map(float, close[-1])
+                tap((sx + nx * sw, sy + ny * sh))
+            else:
+                h.key('KEYCODE_ESCAPE')
+            h.wait_for(lambda: 'Search screen closed' in h.log()[before:],
+                       'search closed before ordinary overlay setup')
         # Return to the system view using the ordinary configured keyboard Back;
         # this is setup for ID probes, not the touch-only user journey.
         for _ in range(4):

@@ -36,7 +36,9 @@ class Font : public IReloadable
 {
 public:
     virtual ~Font();
-    static std::shared_ptr<Font> get(float size, const std::string& path = getDefaultPath());
+    static std::shared_ptr<Font> get(float size,
+                                     const std::string& path = getDefaultPath(),
+                                     unsigned int atlasSize = 0);
     static float getMiniFont(bool forceUpdate = false)
     {
         static float sMiniFont {0.030f *
@@ -131,6 +133,8 @@ public:
     static size_t getTotalMemUsage();
 
     void renderTextCache(TextCache* cache);
+    // Batch solid geometry with glyphs using one opaque texel in this font's atlas.
+    void appendSolid(TextCache* cache, const std::vector<Renderer::Vertex>& vertices);
 
 protected:
     TextCache* buildTextCache(const std::string& text,
@@ -154,7 +158,7 @@ protected:
     friend TextComponent;
 
 private:
-    Font(float size, const std::string& path);
+    Font(float size, const std::string& path, unsigned int atlasSize);
     static void initLibrary();
 
     struct FontTexture {
@@ -163,7 +167,7 @@ private:
         glm::ivec2 writePos;
         int rowHeight;
 
-        FontTexture(const int mFontSize);
+        FontTexture(const int mFontSize, unsigned int atlasSize = 0);
         ~FontTexture();
         bool findEmpty(const glm::ivec2& size, glm::ivec2& cursorOut);
 
@@ -246,6 +250,7 @@ private:
     // Completely recreate the texture data for all glyph atlas entries.
     void rebuildTextures();
     void unloadTextures();
+    void uploadSolidPixel();
 
     void getTextureForNewGlyph(const glm::ivec2& glyphSize,
                                FontTexture*& texOut,
@@ -258,16 +263,20 @@ private:
     Glyph* getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, int xAdvance);
 
     static inline FT_Library sLibrary {nullptr};
-    static inline std::map<std::tuple<float, std::string>, std::weak_ptr<Font>> sFontMap;
+    static inline std::map<std::tuple<float, std::string, unsigned int>, std::weak_ptr<Font>>
+        sFontMap;
     static inline std::vector<FallbackFontCache> sFallbackFonts;
     static inline std::map<hb_font_t*, unsigned int> sFallbackSpaceGlyphs;
 
     Renderer* mRenderer;
+    const unsigned int mAtlasSize;
     std::unique_ptr<FontFace> mFontFace;
     std::vector<std::unique_ptr<FontTexture>> mTextures;
     std::map<unsigned int, Glyph> mGlyphMap;
     std::map<std::tuple<unsigned int, hb_font_t*, int>, Glyph> mGlyphMapByIndex;
     std::map<std::pair<unsigned int, hb_font_t*>, GlyphTexture> mGlyphTextureMap;
+    FontTexture* mSolidTexture {nullptr};
+    glm::ivec2 mSolidCursor {};
 
     const std::string mPath;
     hb_font_t* mFontHB;
@@ -301,6 +310,7 @@ public:
     void setDimming(float dimming);
     void setClipRegion(const glm::vec4& clip) { clipRegion = clip; }
     const glm::vec2& getSize() { return metrics.size; }
+    size_t getBatchCount() const { return vertexLists.size(); }
 
     // Combine already-shaped runs for screens with many static labels. Clip each glyph
     // on the CPU so the combined draw does not need a different scissor per label.
