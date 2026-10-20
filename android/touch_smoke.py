@@ -1035,7 +1035,7 @@ def run(namespace):
             assert h.shell('cat', h.settings) == before
             record('touch-tv-key-input')
 
-        # Select must open Search, and Back must restore the same menu under
+        # Select must open Sound settings, and Back must restore the same menu under
         # either button-swap setting. Compare settled UI content above the deck.
         def menu_error(first, second):
             w, height, channels, rows = pdf_smoke.pixels(first)
@@ -1142,6 +1142,7 @@ def run(namespace):
             start(InputTouchOverlay=True, UIMode='full', InputSwapButtons=swapped)
             surface_bounds_cached = surface_bounds()
             touch_control(6)
+            touch_control(12, 3)  # Sound submenu retains the overlay for A/B checks.
             time.sleep(0.5)
             menu = shot(f'touch-swap-{swapped}-menu')
             touch_control(1 if swapped else 0)
