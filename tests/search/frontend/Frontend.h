@@ -10,9 +10,12 @@
 #define SEARCH_TEST_FRONTEND_H
 #include "MetaData.h"
 #include "search/SearchGeneration.h"
+#include <atomic>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 class FileData;
@@ -68,7 +71,12 @@ public:
     {
         return metadata.get("sortname").empty() ? getName() : metadata.get("sortname");
     }
-    std::string getDisplayName() { return "game"; }
+    inline static std::atomic<unsigned> displayNameReads {0};
+    std::string getDisplayName()
+    {
+        ++displayNameReads;
+        return "game";
+    }
     const std::string& getPath() { return path; }
     SystemData* getSystem() { return system; }
 };
@@ -108,6 +116,22 @@ namespace Utils
     namespace FileSystem
     {
         inline std::string appData;
+        inline const auto uiThread = std::this_thread::get_id();
+        inline std::atomic<unsigned> stemReads {0}, uiStemReads {0};
+        inline std::string getStem(const std::string& path)
+        {
+            ++stemReads;
+            if (std::this_thread::get_id() == uiThread)
+                ++uiStemReads;
+            auto file = std::filesystem::path(path).filename().string();
+            std::error_code error;
+            if (!std::filesystem::is_directory(path, error)) {
+                const auto dot = file.find_last_of('.');
+                if (dot != std::string::npos)
+                    file.erase(dot);
+            }
+            return file;
+        }
         inline std::string getAppDataDirectory() { return appData; }
         inline std::string createRelativePath(const std::string& path,
                                               const std::string& root,

@@ -107,7 +107,9 @@ namespace LibrarySearch
                 value.id = identity(game);
                 value.title = game->getName();
                 value.sortName = game->getSortName();
-                value.fileStem = game->getDisplayName();
+                // Keep only immutable path text here. getDisplayName()/getStem()
+                // stats directory ROMs; resolve that on the worker before indexing.
+                value.fileStem = game->getPath();
                 value.developer = game->metadata.get("developer");
                 value.publisher = game->metadata.get("publisher");
                 value.genre = game->metadata.get("genre");
@@ -196,6 +198,8 @@ namespace LibrarySearch
                                 std::vector<Game> corpus;
                                 corpus.reserve(records.size());
                                 while (!records.empty()) {
+                                    records.front().fileStem =
+                                        Utils::FileSystem::getStem(records.front().fileStem);
                                     corpus.push_back(std::move(records.front()));
                                     records.pop_front();
                                 }

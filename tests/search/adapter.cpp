@@ -50,6 +50,9 @@ int main()
     };
     const auto& first {complete()};
     require(first.size() == 1, "adapter never duplicates collection aliases or real game handles");
+    require(first.game(0).fileStem == "game" && Utils::FileSystem::stemReads == 1 &&
+                Utils::FileSystem::uiStemReads == 0 && FileData::displayNameReads == 0,
+            "filename resolution runs only on the worker, not in the UI snapshot");
     const auto original {handle(first.search("before")[0].index, currentGeneration())};
     require(resolve(original) == file.get(), "adapter resolves a live handle");
     const auto generation {currentGeneration()};
@@ -169,6 +172,21 @@ int main()
 #endif
     real.root.files.clear();
     large.clear();
+    complete();
+    const auto directory = path / "Directory Game.iso";
+    std::filesystem::create_directory(directory);
+    auto directoryGame = std::make_unique<FileData>(&real);
+    directoryGame->path = directory.string();
+    directoryGame->metadata.set("name", "Different metadata title");
+    real.root.files = {directoryGame.get()};
+    invalidate();
+    require(complete().game(0).fileStem == "Directory Game.iso" &&
+                engine().search("directory game iso").size() == 1,
+            "worker retains the complete directory-ROM filename");
+    require(Utils::FileSystem::uiStemReads == 0 && FileData::displayNameReads == 0,
+            "initial and replacement indexes never resolve filenames on the UI thread");
+    real.root.files.clear();
+    directoryGame.reset();
     complete();
     SystemData::sSystemVector.clear();
     std::filesystem::remove_all(path);
