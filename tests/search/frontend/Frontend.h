@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -62,7 +63,13 @@ public:
     {
     }
     ~FileData() { LibrarySearch::invalidate(); }
-    bool getCountAsGame() { return metadata.get("nogamecount") != "true"; }
+    // Observe actual snapshot progress without calling the stat-performing display getter.
+    inline static size_t snapshotReads {0};
+    bool getCountAsGame()
+    {
+        ++snapshotReads;
+        return metadata.get("nogamecount") != "true";
+    }
     bool getFavorite() { return metadata.get("favorite") == "true"; }
     bool getHidden() { return metadata.get("hidden") == "true"; }
     bool getKidgame() { return metadata.get("kidgame") == "true"; }
@@ -147,5 +154,32 @@ namespace Utils
         }
     } // namespace FileSystem
 } // namespace Utils
-#define LOG(level) std::cout
+// A controllable log sink proves shutdown joins the emitting worker before close.
+class FrontendLog
+{
+public:
+    inline static std::atomic<bool> hold {false}, waiting {false}, closed {false};
+    inline static std::atomic<unsigned> lateWrites {0};
+    template <typename T> FrontendLog& operator<<(const T& value)
+    {
+        message << value;
+        return *this;
+    }
+    ~FrontendLog()
+    {
+        if (hold.load()) {
+            waiting.store(true);
+            while (hold.load())
+                std::this_thread::yield();
+        }
+        if (closed.load())
+            ++lateWrites;
+        std::cout << message.str() << '\n';
+    }
+
+private:
+    std::ostringstream message;
+};
+#define LOG(level)                                                                                 \
+    FrontendLog {}
 #endif

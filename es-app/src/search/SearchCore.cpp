@@ -175,6 +175,44 @@ namespace LibrarySearch
             return out;
         }
 
+        std::string withoutFileTags(std::string_view input)
+        {
+            // Filename dump/region/revision tags are not title vocabulary. Keep an
+            // unmatched delimiter literal rather than dropping the rest of a name.
+            std::string result;
+            result.reserve(input.size());
+            for (size_t at {0}; at < input.size();) {
+                if (input[at] != '(' && input[at] != '[') {
+                    result += input[at++];
+                    continue;
+                }
+                std::string closing;
+                size_t end = at;
+                for (; end < input.size(); ++end) {
+                    const char c = input[end];
+                    if (c == '(' || c == '[')
+                        closing += c == '(' ? ')' : ']';
+                    else if (c == ')' || c == ']') {
+                        if (closing.empty() || closing.back() != c)
+                            break;
+                        closing.pop_back();
+                        if (closing.empty())
+                            break;
+                    }
+                }
+                if (end == input.size() || !closing.empty()) {
+                    result.append(input.substr(at));
+                    break;
+                }
+                result += ' ';
+                at = end + 1;
+            }
+            const auto begin = result.find_first_not_of(" \t");
+            return begin == std::string::npos ?
+                       std::string {} :
+                       result.substr(begin, result.find_last_not_of(" \t") - begin + 1);
+        }
+
         struct Word {
             std::string text;
             size_t offset;
@@ -1896,10 +1934,10 @@ namespace LibrarySearch
             const Id sort = game.sortName.empty() || game.sortName == game.title ?
                                 display :
                                 document(game.sortName, g, false);
-            const Id file = game.fileStem.empty() || game.fileStem == game.title ||
-                                    game.fileStem == game.sortName ?
-                                (game.fileStem == game.sortName ? sort : display) :
-                                document(game.fileStem, g, false);
+            const auto stem = withoutFileTags(game.fileStem);
+            const Id file = stem.empty() || stem == game.title || stem == game.sortName ?
+                                (stem == game.sortName ? sort : display) :
+                                document(stem, g, false);
             ix.gameDocuments.push_back({display, sort, file});
             titles.push_back(g);
             for (const auto& field : {std::make_pair(SuggestionKind::Developer, &game.developer),

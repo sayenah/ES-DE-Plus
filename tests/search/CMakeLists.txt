@@ -73,7 +73,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/search_hooks.inc"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_hooks.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../.." "${CMAKE_CURRENT_BINARY_DIR}/search_hooks.inc"
-    DEPENDS extract_hooks.py ../../es-app/src/FileData.cpp ../../es-app/src/SystemData.cpp)
+    DEPENDS extract_hooks.py ../../es-app/src/FileData.cpp ../../es-app/src/SystemData.cpp ../../es-app/src/main.cpp)
 add_executable(search_hook_tests hooks.cpp "${CMAKE_CURRENT_BINARY_DIR}/search_hooks.inc")
 target_include_directories(search_hook_tests PRIVATE ../../es-app/src "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(search_hook_tests PRIVATE cxx_std_17)
@@ -85,3 +85,16 @@ endif()
 add_test(NAME search_hooks COMMAND search_hook_tests)
 
 set_tests_properties(search_performance search_realistic_performance PROPERTIES ENVIRONMENT "SEARCH_BUILD_PROFILE=1")
+
+add_executable(search_snapshot_tests snapshot.cpp ../../es-app/src/search/LibrarySearch.cpp
+    ../../es-app/src/search/SearchHistory.cpp ../../es-app/src/MetaData.cpp)
+target_include_directories(search_snapshot_tests PRIVATE frontend ../../es-app/src)
+target_compile_features(search_snapshot_tests PRIVATE cxx_std_17)
+target_compile_options(search_snapshot_tests PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(search_snapshot_tests PRIVATE search_test_core ICU::uc pugixml::pugixml)
+if(SEARCH_SANITIZERS)
+    target_compile_options(search_snapshot_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(search_snapshot_tests PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME search_adapter_snapshot COMMAND search_snapshot_tests)
+set_tests_properties(search_adapter_snapshot PROPERTIES TIMEOUT 180)

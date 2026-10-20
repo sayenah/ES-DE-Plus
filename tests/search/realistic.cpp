@@ -2,6 +2,7 @@
 // ES-DE-Plus
 // Written for ES-DE-Plus; corpus/probe/memory measurements adapted from
 // ES-DE-Plus QA search-q1/perf.cpp, probe.cpp and mem.cpp (MIT).
+// Region outliers adapted from QA search-q2/probe/perf.cpp and region.cpp (MIT).
 #include "search/SearchCore.h"
 #include <algorithm>
 #include <atomic>
@@ -163,7 +164,7 @@ namespace
         for (size_t i {0}; i < 200; ++i)
             queries.push_back(games[(i * 7919) % games.size()].title.substr(0, 24));
         for (const std::string q : {"zelad", "metriod", "castelvania", "a", "e", "s", "th", "the",
-                                    "an", "sup", "ff 7", "doom 64"})
+                                    "an", "sup", "ff 7", "doom 64", "europa", "japon", "usance s"})
             queries.push_back(q);
         require(std::set<std::string>(queries.begin(), queries.end()).size() >= 200,
                 "at least 200 distinct representative queries");
@@ -200,6 +201,29 @@ namespace
                         .count(),
                     partial);
             }
+        for (const std::string query : {"europa", "japon", "usance s"}) {
+            double maximum {0};
+            for (const auto& sample : times)
+                if (sample.second == query)
+                    maximum = std::max(maximum, sample.first);
+            const auto results = core.search(query);
+            std::vector<Game> titleRecords;
+            for (const auto& match : results) {
+                auto original = core.game(match.index);
+                original.fileStem = original.title;
+                titleRecords.push_back(std::move(original));
+            }
+            Core titleOnly;
+            titleOnly.rebuild(std::move(titleRecords));
+            require(titleOnly.search(query, results.size() + 1).size() == results.size(),
+                    "region outliers match titles/metadata rather than filename tags");
+            const auto metadata = std::count_if(results.begin(), results.end(), [](const Match& m) {
+                return m.kind == MatchClass::Metadata;
+            });
+            std::printf("REGION query=[%s] search_suggest_ms=%.3f results=%zu metadata=%zu "
+                        "file_tag_only=0\n",
+                        query.c_str(), maximum, results.size(), static_cast<size_t>(metadata));
+        }
         std::sort(times.begin(), times.end());
         const double p95 = times[times.size() * 95 / 100].first;
         std::printf("PERF %s games=%zu vocabulary=%zu systems=%zu queries=%zu prefixes=%zu "
