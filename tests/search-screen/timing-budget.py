@@ -4,6 +4,8 @@
 import ast
 import importlib.util
 from pathlib import Path
+import re
+import subprocess
 import tempfile
 from types import SimpleNamespace
 
@@ -113,5 +115,15 @@ assert 'ESDE_TOUCH_SUITE: overlay' in overlay_step
 assert 'smoke_session.py touch-overlay' in overlay_step
 assert workflow.index('Upload search evidence before') < workflow.index('Fresh-emulator overlay baseline')
 assert 'emulator-result touch-overlay "${{ steps.overlay-session.outcome }}"' in workflow
+checks += 1
+scripts = re.findall(r'^          script: \|\n((?:            .*\n)+)', workflow, re.M)
+assert len(scripts) == 2, 'Check both emulator actions'
+for script in scripts:
+    # The pinned emulator action starts a new shell for each line, not one shell
+    # for the YAML block. This rejects a multiline if before spending CI builds.
+    for line in script.splitlines():
+        command = re.sub(r'\$\{\{.*?\}\}', 'touch', line.strip())
+        subprocess.run(['sh', '-n', '-c', command], check=True, capture_output=True, text=True)
+assert "ESDE_TOUCH_SUITE: ${{ matrix.session == 'touch' && 'search' || 'all' }}" in workflow
 checks += 1
 print(f'PASS: {checks} actual timing/phase controls; exact failures stay hard; fresh overlay runs after failed search')

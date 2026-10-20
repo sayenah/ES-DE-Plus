@@ -980,6 +980,8 @@ jobs:
         id: smoke-session
         timeout-minutes: ${{ matrix.cap }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ESDE_TOUCH_SUITE: ${{ matrix.session == 'touch' && 'search' || 'all' }}
         with:
           api-level: ${{ matrix.api }}
           arch: x86_64
@@ -995,12 +997,7 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            session="${{ matrix.session }}"
-            if [ "$session" = touch ]; then
-              export ESDE_TOUCH_SUITE=search
-              session=touch-search
-            fi
-            python3 android/smoke_session.py "$session" -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase "${{ matrix.session }}"
+            python3 android/smoke_session.py "${{ matrix.session == 'touch' && 'touch-search' || matrix.session }}" -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase "${{ matrix.session }}"
       - name: Record emulator result without hiding a failed child
         if: ${{ always() }}
         run: python3 android/smoke_session.py emulator-result "${{ matrix.session == 'touch' && 'touch-search' || matrix.session }}" "${{ steps.smoke-session.outcome }}"
