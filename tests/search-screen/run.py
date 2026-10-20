@@ -236,6 +236,10 @@ def run(binary, probe, destination, width, height, variant='dark'):
         wait(lambda: query_seen('f', before), 'platform text arriving while search opens')
         assert (destination / 'opening-text-state').read_text().strip() == '1', 'Opening lost SDL text input'
         command('key', '27')
+        before = len(log())
+        command('pad-pending-text', '3')
+        wait(lambda: query_seen('fin', before), 'platform text queued before search takes ownership')
+        command('key', '27')
         command('pad', '3')
         command('text', 'Final Fantasy VII')
         command('key', '1073741905')

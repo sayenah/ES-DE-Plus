@@ -139,7 +139,7 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
         event->type = action == "text" ? SDL_TEXTINPUT : SDL_TEXTEDITING;
         SDL_strlcpy(event->text.text, value.c_str(), sizeof(event->text.text));
     }
-    else if (action == "pad" || action == "pad-typing") {
+    else if (action == "pad" || action == "pad-typing" || action == "pad-pending-text") {
         typeWhileOpening = action == "pad-typing";
         if (controller < 0)
             std::abort();
@@ -150,6 +150,15 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
         release = *event;
         release.type = SDL_CONTROLLERBUTTONUP;
         release.cbutton.state = SDL_RELEASED;
+        if (action == "pad-pending-text") {
+            // Model native commits already queued behind Y while browsing accepts
+            // text. The screen must retain them when it takes over the input field.
+            SDL_EventState(SDL_TEXTINPUT, SDL_ENABLE);
+            SDL_Event text {};
+            text.type = SDL_TEXTINPUT;
+            SDL_strlcpy(text.text.text, "fin", sizeof(text.text.text));
+            SDL_PushEvent(&text);
+        }
     }
     else if (action == "key") {
         std::istringstream key(value);

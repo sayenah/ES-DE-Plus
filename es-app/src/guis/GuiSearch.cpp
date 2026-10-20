@@ -107,7 +107,11 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     mTouch = InputManager::getInstance().lastInputWasTouch();
     // Android commits text on its UI thread, even while this thread loads fonts/layout.
     // Enable events first so a quick keystroke after Y is retained in SDL's queue.
-    startTextInput(mTouch);
+    // Browsing may already have queued text after the event that opened search.
+    // Do not stop text input here: doing so would flush those later commits.
+    SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0");
+    SDL_StartTextInput();
     refresh();
     layout();
     for (const float size :
@@ -115,16 +119,25 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         searchFont(size * mUnit)
             ->sizeText("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
                        "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×");
-    // Prepare the same raw-image material used by covers before making the screen
-    // interactive. Some GLES drivers defer its first upload/draw setup until use.
-    // No media file is opened here; the normal frame overwrites this single pixel.
+    // Prepare the bounded raw-image upload/draw before making the screen interactive.
+    // One-pixel preparation did not remove first-thumbnail stalls on GLES. No media
+    // file is opened here; transparent vertex color preserves the current backbuffer.
     const auto artworkStart = std::chrono::steady_clock::now();
     {
-        constexpr unsigned char pixel[] {255, 255, 255, 255};
+        constexpr size_t dimension {SearchArtwork::MAX_DIMENSION};
+        std::vector<unsigned char> pixels(dimension * dimension * 4, 255);
+        for (size_t y {0}; y < dimension; ++y)
+            for (size_t x {0}; x < dimension; ++x) {
+                const size_t at {(y * dimension + x) * 4};
+                pixels[at] = static_cast<unsigned char>(x % 256);
+                pixels[at + 1] = static_cast<unsigned char>(y % 256);
+                pixels[at + 2] = static_cast<unsigned char>((x + y) % 256);
+            }
         ImageComponent artworkMaterial {false, true};
         artworkMaterial.setLinearInterpolation(true);
-        artworkMaterial.setRawImage(pixel, 1, 1);
-        artworkMaterial.setResize(1, 1);
+        artworkMaterial.setRawImage(pixels.data(), dimension, dimension);
+        artworkMaterial.setResize(dimension, dimension);
+        artworkMaterial.setColorShift(0xFFFFFF00);
         artworkMaterial.render(glm::mat4 {1});
     }
     LOG(LogDebug) << "Search artwork renderer prepared: ms="
@@ -135,6 +148,7 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
                          static_cast<int>(mFieldRect.z), static_cast<int>(mFieldRect.w)};
     // Updating the IME rectangle must not stop text input and flush pending commits.
     SDL_SetTextInputRect(&rect);
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, mTouch ? "1" : "0");
     SDL_StartTextInput();
     LOG(LogDebug) << "Search screen opened: query=" << queryForLog() << " scope=" << mScopeName;
 }

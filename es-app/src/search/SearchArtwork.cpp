@@ -107,7 +107,8 @@ void SearchArtwork::work()
                     if (width && height && decoded.size() == width * height * 4) {
                         // Bound each upload to TV thumbnail size; decoding and resampling stay
                         // off the input/render thread even for very large downloaded covers.
-                        const double scale = std::min(1.0, 384.0 / std::max(width, height));
+                        const double scale = std::min(1.0, static_cast<double>(MAX_DIMENSION) /
+                                                               std::max(width, height));
                         pixels->width = std::max<size_t>(1, width * scale);
                         pixels->height = std::max<size_t>(1, height * scale);
                         pixels->rgba.resize(pixels->width * pixels->height * 4);

@@ -40,7 +40,7 @@ def run(h, start, control, shot, record):
         h.wait_for(lambda: 'Search smoke controller' in h.log(), 'real virtual controller configured')
     def point(nx, ny):
         geometry = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
-        assert 'PASS: owned surface geometry recorded' in geometry
+        assert 'PASS: owned surface geometry recorded' in geometry, geometry
         view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
         return str(round(view['x'] + nx * view['bufferWidth'])), str(round(view['y'] + ny * view['bufferHeight']))
     def magnifier():
@@ -84,6 +84,20 @@ def run(h, start, control, shot, record):
             else:
                 h.wait_for(lambda: 'Search keystroke: query=' + value + ' results=' in h.log()[before:], 'live stroke ' + value)
             time.sleep(.15)
+    def return_from_game():
+        previous_pid = h.shell('pidof', h.app, check=False).strip()
+        released = 'Android foreground input block released'
+        previous_releases = h.log().count(released)
+        h.key('KEYCODE_BACK')
+        h.wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(h.app) + '/', h.focused_window()),
+                   'return from game to frontend focus')
+        def native_ready():
+            current = h.log()
+            if h.shell('pidof', h.app, check=False).strip() == previous_pid:
+                return current.count(released) > previous_releases
+            return ('Application startup time:' in current and
+                    current.rfind(released) >= current.rfind('Android foreground input block started'))
+        h.wait_for(native_ready, 'native frontend ready for input after game return')
     def timing(name):
         nonlocal timed_prefix
         def rendered():
@@ -170,8 +184,7 @@ def run(h, start, control, shot, record):
         timing('search-screen-controller')
         pad(2)
         h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'X normal game launch')
-        h.key('KEYCODE_BACK')
-        h.wait_for(lambda: re.search(r'mCurrentFocus=.* ' + re.escape(h.app) + '/', h.focused_window()), 'return from game')
+        return_from_game()
         record('search-screen-controller-launch-return')
         # Magnifier starts a touch session with the actual system keyboard, irrespective of VirtualKeyboard.
         for name, width, height, density in [('phone', 1080, 2400, 420), ('tablet', 2560, 1600, 320)]:
@@ -212,7 +225,7 @@ def run(h, start, control, shot, record):
                        'direct touch confirms Play now')
             assert 'InputOverlay: owner=overlay' not in h.log()[before:], 'Overlay stole modal Play now'
             h.wait_for(lambda: re.search(r'mCurrentFocus=.* org\.esdeplus\.stub/', h.focused_window()), 'long-press Play now normal launch')
-            h.key('KEYCODE_BACK')
+            return_from_game()
             magnifier()
             typed('qqqqqqqq')
             shot(prefix + name + '-no-results')

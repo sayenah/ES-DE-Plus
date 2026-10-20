@@ -20,6 +20,7 @@
 class SearchArtwork
 {
 public:
+    static constexpr size_t MAX_DIMENSION {384};
     struct Request {
         std::string id;
         std::string gamePath;
