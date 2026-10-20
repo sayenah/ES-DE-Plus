@@ -44,11 +44,13 @@ def run(h, start, control, shot, record):
         view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
         return str(round(view['x'] + nx * view['bufferWidth'])), str(round(view['y'] + ny * view['bufferHeight']))
     def magnifier():
+        before = h.log().count('Search entry ready:')
         current = h.log().rsplit('InputOverlay: layout ', 1)[-1]
         match = re.findall(r'InputOverlay: button id=102 .*? norm=([0-9.]+),([0-9.]+)', current)
         assert match, current
         h.shell('input', 'touchscreen', 'tap', *point(*map(float, match[-1])))
-        time.sleep(.3)
+        h.wait_for(lambda: h.log().count('Search entry ready:') == before + 1,
+                   'one complete search screen from magnifier')
     def target(area, index=0):
         current = h.log().rsplit('Search layout:', 1)[-1]
         found = [(float(x), float(y)) for a, i, x, y in TARGET.findall(current)

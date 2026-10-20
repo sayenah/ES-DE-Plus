@@ -115,6 +115,22 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         searchFont(size * mUnit)
             ->sizeText("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
                        "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×");
+    // Prepare the same raw-image material used by covers before making the screen
+    // interactive. Some GLES drivers defer its first upload/draw setup until use.
+    // No media file is opened here; the normal frame overwrites this single pixel.
+    const auto artworkStart = std::chrono::steady_clock::now();
+    {
+        constexpr unsigned char pixel[] {255, 255, 255, 255};
+        ImageComponent artworkMaterial {false, true};
+        artworkMaterial.setLinearInterpolation(true);
+        artworkMaterial.setRawImage(pixel, 1, 1);
+        artworkMaterial.setResize(1, 1);
+        artworkMaterial.render(glm::mat4 {1});
+    }
+    LOG(LogDebug) << "Search artwork renderer prepared: ms="
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               artworkStart)
+                         .count();
     const SDL_Rect rect {static_cast<int>(mFieldRect.x), static_cast<int>(mFieldRect.y),
                          static_cast<int>(mFieldRect.z), static_cast<int>(mFieldRect.w)};
     // Updating the IME rectangle must not stop text input and flush pending commits.
