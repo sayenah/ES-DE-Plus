@@ -2421,7 +2421,8 @@ namespace LibrarySearch
                                      size_t limit,
                                      const Filter& inputFilter) const
     {
-        const auto q = codepoints(normalize(query));
+        const auto normalized = normalize(query);
+        const auto q = codepoints(normalized);
         if (q.empty() || q.size() > 128 || !limit)
             return {};
         const auto filter = normalizedFilter(inputFilter);
@@ -2429,24 +2430,46 @@ namespace LibrarySearch
         // Recommendations are separate from real typo matches. Reuse interned title
         // views and cache word distances without allocating owning game records.
         std::unordered_map<std::string_view, size_t> distances, titles;
+        distances.reserve(ix.vocabulary.size());
+        std::array<uint64_t, 128> asciiPattern {};
         std::unordered_map<char32_t, uint64_t> pattern;
         if (q.size() <= 64)
-            for (size_t i {0}; i < q.size(); ++i)
-                pattern[q[i]] |= uint64_t {1} << i;
-        auto distance = [&](std::string_view text) {
+            for (size_t i {0}; i < q.size(); ++i) {
+                if (q[i] < asciiPattern.size())
+                    asciiPattern[q[i]] |= uint64_t {1} << i;
+                else
+                    pattern[q[i]] |= uint64_t {1} << i;
+            }
+        auto distance = [&](std::string_view text, size_t threshold) {
             const auto cached = distances.find(text);
             if (cached != distances.end())
                 return cached->second;
-            const auto points = codepoints(std::string(text));
+            const size_t length =
+                std::min<size_t>(256, std::count_if(text.begin(), text.end(), [](unsigned char c) {
+                                     return (c & 0xc0) != 0x80;
+                                 }));
+            // A length difference alone can rule out a better recommendation.
+            // Do not cache this bound as an exact edit distance.
+            if (length >= q.size() ? length - q.size() >= threshold :
+                                     q.size() - length >= threshold)
+                return threshold;
             if (q.size() <= 64) {
                 // Bit-parallel Levenshtein keeps closest recommendations bounded for
                 // varied libraries, including Unicode code points rather than UTF-8 bytes.
                 uint64_t positive = UINT64_MAX, negative {0};
                 size_t score = q.size();
                 const uint64_t high = uint64_t {1} << (q.size() - 1);
-                for (size_t i {0}; i < points.size() && i < 256; ++i) {
-                    const auto mask = pattern.find(points[i]);
-                    const uint64_t equal = mask == pattern.end() ? 0 : mask->second;
+                for (int32_t at {0}, count {0};
+                     at < static_cast<int32_t>(text.size()) && count < 256; ++count) {
+                    // Decode directly from the interned view. Most library text is
+                    // ASCII; neither allocate a UTF-32 copy nor hash each such letter.
+                    UChar32 point;
+                    U8_NEXT(text.data(), at, static_cast<int32_t>(text.size()), point);
+                    uint64_t equal {0};
+                    if (point >= 0 && point < static_cast<int32_t>(asciiPattern.size()))
+                        equal = asciiPattern[point];
+                    else if (const auto mask = pattern.find(point); mask != pattern.end())
+                        equal = mask->second;
                     const uint64_t vertical = equal | negative;
                     const uint64_t horizontal =
                         (((equal & positive) + positive) ^ positive) | equal;
@@ -2462,6 +2485,7 @@ namespace LibrarySearch
                 distances.emplace(text, score);
                 return score;
             }
+            const auto points = codepoints(text);
             std::vector<size_t> previous(q.size() + 1), current(q.size() + 1);
             std::iota(previous.begin(), previous.end(), 0);
             for (size_t i {0}; i < points.size() && i < 256; ++i) {
@@ -2474,33 +2498,47 @@ namespace LibrarySearch
             distances.emplace(text, previous.back());
             return previous.back();
         };
-        const bool phrase = normalize(query).find(' ') != std::string::npos;
-        std::vector<std::pair<size_t, uint32_t>> nearest;
+        const bool phrase = normalized.find(' ') != std::string::npos;
+        std::priority_queue<std::pair<size_t, uint32_t>> nearest;
         for (uint32_t id {0}; id < ix.games.size(); ++id) {
             if (!ix.allowed(id, filter))
                 continue;
+            const size_t threshold = nearest.size() == limit ? nearest.top().first : q.size() + 256;
+            // IDs increase, so an equal score cannot displace an earlier game.
+            if (!threshold)
+                break;
             const auto text = ix.doc(ix.gameDocuments[id][0]);
             auto found = titles.find(text);
+            size_t score;
             if (found == titles.end()) {
-                size_t score = phrase ? distance(text) : q.size() + 256;
+                score = phrase ? distance(text, threshold) : threshold;
                 // Word views point into the immutable title arena, not temporary tokens.
                 for (size_t begin {0}; begin < text.size();) {
                     auto end = text.find(' ', begin);
                     if (end == std::string_view::npos)
                         end = text.size();
                     if (end > begin)
-                        score = std::min(score, distance(text.substr(begin, end - begin)));
+                        score = std::min(score, distance(text.substr(begin, end - begin), score));
                     begin = end + 1;
                 }
-                found = titles.emplace(text, score).first;
+                if (score < threshold)
+                    titles.emplace(text, score);
             }
-            nearest.emplace_back(found->second, id);
+            else
+                score = found->second;
+            const std::pair<size_t, uint32_t> candidate {score, id};
+            if (nearest.size() < limit || candidate < nearest.top()) {
+                nearest.push(candidate);
+                if (nearest.size() > limit)
+                    nearest.pop();
+            }
         }
-        const auto retained = std::min(limit, nearest.size());
-        std::partial_sort(nearest.begin(), nearest.begin() + retained, nearest.end());
         std::vector<Match> result;
-        for (size_t i {0}; i < retained; ++i)
-            result.push_back({nearest[i].second, MatchClass::Typo, {}});
+        while (!nearest.empty()) {
+            result.push_back({nearest.top().second, MatchClass::Typo, {}});
+            nearest.pop();
+        }
+        std::reverse(result.begin(), result.end());
         return result;
     }
 

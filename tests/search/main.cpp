@@ -20,6 +20,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <unicode/unistr.h>
 #if !defined(_WIN64)
 #include <sys/stat.h>
 #endif
@@ -877,6 +878,11 @@ namespace
                                                             "Metroid",
                                                             "Pokémon",
                                                             "Final Fantasy VII",
+                                                            "学生",
+                                                            "学生",
+                                                            "学園",
+                                                            "東京 物語",
+                                                            "𐐀𐐁𐐂",
                                                             std::string(64, 'a'),
                                                             std::string(65, 'b')};
         std::vector<Game> recommendationGames;
@@ -884,9 +890,18 @@ namespace
             recommendationGames.push_back(game(recommendationNames[i], std::to_string(i)));
         recommendations.rebuild(recommendationGames);
         auto distance = [](const std::string& first, const std::string& second) {
-            // These inputs normalize to ASCII; use ordinary dynamic programming as an
-            // independent oracle for the production bit-parallel distance calculation.
-            const auto a = normalize(first), b = normalize(second);
+            // Decode through ICU's UTF-16 API independently of the production UTF-8
+            // loop, then use ordinary DP as the oracle for bit-parallel distance.
+            auto points = [](const std::string& value) {
+                const auto text = icu::UnicodeString::fromUTF8(normalize(value));
+                std::vector<UChar32> result;
+                for (int32_t at {0}; at < text.length();) {
+                    result.push_back(text.char32At(at));
+                    at = text.moveIndex32(at, 1);
+                }
+                return result;
+            };
+            const auto a = points(first), b = points(second);
             std::vector<size_t> row(b.size() + 1);
             std::iota(row.begin(), row.end(), 0);
             for (size_t i {0}; i < a.size(); ++i) {
@@ -900,9 +915,9 @@ namespace
             }
             return row.back();
         };
-        for (const auto& query :
-             std::vector<std::string> {"maroi", "metriod", "pokemno", "final fantazy",
-                                       std::string(64, 'a'), std::string(65, 'b')}) {
+        for (const auto& query : std::vector<std::string> {
+                 "maroi", "metriod", "pokemno", "final fantazy", "学性", "学生", "東京 物語", "𐐀𐐁𐐃",
+                 std::string(64, 'a'), std::string(65, 'b')}) {
             std::vector<std::pair<size_t, size_t>> reference;
             for (size_t i {0}; i < recommendationNames.size(); ++i) {
                 std::istringstream words(normalize(recommendationNames[i]));
@@ -915,11 +930,13 @@ namespace
                 reference.push_back({best, i});
             }
             std::sort(reference.begin(), reference.end());
-            const auto found = recommendations.closest(query, recommendationNames.size());
-            require(found.size() == reference.size(), "closest includes every eligible candidate");
-            for (size_t i {0}; i < found.size(); ++i)
-                require(found[i].index == reference[i].second,
-                        "closest distance agrees with independent DP oracle");
+            for (const size_t limit : {size_t {1}, size_t {3}, recommendationNames.size()}) {
+                const auto found = recommendations.closest(query, limit);
+                require(found.size() == limit, "closest retains the requested candidate count");
+                for (size_t i {0}; i < found.size(); ++i)
+                    require(found[i].index == reference[i].second,
+                            "closest distance agrees with independent DP oracle");
+            }
         }
         core.rebuild({game("Zelda"), game("Metroid", "2")});
         require(core.search("zeld").front().kind != MatchClass::Typo && core.search("zelx").empty(),
