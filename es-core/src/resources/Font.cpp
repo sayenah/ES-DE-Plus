@@ -1401,7 +1401,8 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
     // Check if there is already a texture entry for the glyph, otherwise create it.
     // This makes sure we don't create multiple identical glyph atlas entries and waste VRAM.
     auto it2 = mGlyphTextureMap.find(std::make_pair(id, fontArg));
-    if (it2 != mGlyphTextureMap.end()) {
+    const bool textureCached {it2 != mGlyphTextureMap.end()};
+    if (textureCached) {
         tex = (*it2).second.texture;
         cursor = (*it2).second.cursor;
     }
@@ -1432,8 +1433,9 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
     glyph.bearing = {glyphSlot->metrics.horiBearingX >> 6, glyphSlot->metrics.horiBearingY >> 6};
     glyph.rows = glyphSize.y;
 
-    // Upload glyph bitmap to glyph atlas texture.
-    if (glyphSize.x > 0 && glyphSize.y > 0) {
+    // Kerning changes the advance, not the bitmap. Avoid synchronizing the GPU
+    // to upload pixels which are already present in this font's atlas.
+    if (!textureCached && glyphSize.x > 0 && glyphSize.y > 0) {
         mRenderer->updateTexture(tex->textureId, 0, Renderer::TextureType::RED, cursor.x, cursor.y,
                                  glyphSize.x, glyphSize.y, glyphSlot->bitmap.buffer);
     }
