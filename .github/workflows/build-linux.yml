@@ -97,6 +97,8 @@ jobs:
           for variant in light german kid history-off large; do
             python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen 1280 720 $variant
           done
+          # Diagnostic control for unpaced offscreen GPU backlog; ordinary checks above are unchanged.
+          ESDE_SEARCH_SYNC_GPU=1 python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen/synchronized 1920 1080
       - name: Retain search screen evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

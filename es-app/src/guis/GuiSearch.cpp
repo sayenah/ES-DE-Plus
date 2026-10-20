@@ -118,15 +118,18 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     const std::string alphabet {"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
                                 "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×‘’·…"};
     mRenderer->setMatrix(glm::mat4 {1});
+    std::vector<TextCache> preparedText;
     for (const float size : {26.0f, 32.0f, 40.0f}) {
-        // Prepare both glyphs and their draw path. Measuring glyphs alone leaves
-        // the first actual text draw to initialize the driver's font material.
+        // Complete uploads for every size before drawing their shared atlas.
+        // Keep uploads ahead of draws so they do not repeatedly modify a texture
+        // that is already in use by the renderer.
         TextComponent text {alphabet, searchFont(size * mUnit), 0x00000000};
-        if (const auto* source = text.getTextCache()) {
-            TextCache cache {*source};
-            text.getFont()->renderTextCache(&cache);
-        }
+        if (const auto* source = text.getTextCache())
+            preparedText.emplace_back(*source);
     }
+    // Preparing glyphs alone leaves the first actual draw to initialize the material.
+    for (auto& cache : preparedText)
+        mFontAtlas->renderTextCache(&cache);
     // Prepare the bounded raw-image upload/draw before making the screen interactive.
     // One-pixel preparation did not remove first-thumbnail stalls on GLES. No media
     // file is opened here; transparent vertex color preserves the current backbuffer.
