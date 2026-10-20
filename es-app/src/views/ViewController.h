@@ -104,6 +104,7 @@ public:
 
     bool input(InputConfig* config, Input input) override;
     void openSearch(const std::string& initialText = "") override;
+    bool acceptsSearchText() const override;
     void update(int deltaTime) override;
     void render(const glm::mat4& parentTrans) override;
 

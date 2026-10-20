@@ -12,11 +12,20 @@
 #include <string>
 
 class SystemData;
+class FileData;
+class ComponentList;
+class GamelistView;
 
 namespace SearchEntry
 {
     // WO-S2 replaces the legacy popup/results flow behind this single entry point.
-    void open(const std::string& initialText, SystemData* scopeSystem);
+    void open(const std::string& initialText,
+              SystemData* scopeSystem,
+              float verticalPosition = 0.0f);
+    bool preservesPasskeyY();
+    void observeOptionsFocus(ComponentList* list);
+    void logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites);
+    void logFavoriteAction(FileData* source, bool editing, GamelistView* view);
 } // namespace SearchEntry
 
 #endif // ES_APP_GUIS_SEARCH_ENTRY_H

@@ -116,6 +116,18 @@ def run(h, start, control, shot, record):
             close_popup()
             record('search-entry-' + mode)
 
+        for mode in ['kid', 'kiosk']:
+            start(InputTouchOverlay=True, UIMode=mode, UIMode_passkey='yya',
+                  GamelistYButton='search')
+            count = opens()
+            h.key('KEYCODE_INSERT')
+            h.key('KEYCODE_INSERT')
+            assert opens() == count, 'Y interrupted a custom restricted-mode passkey'
+            h.key('KEYCODE_ENTER')
+            h.wait_for(lambda: 'Passkey sequence completed, switching UI mode to Full' in h.log(),
+                       'custom passkey containing Y completed')
+            record('search-entry-passkey-' + mode)
+
         start(InputTouchOverlay=True, UIMode='full', GamelistYButton='search')
         # Mapped Enter keeps its select action, and the magnifier is independent of Y.
         h.key('KEYCODE_ENTER')
@@ -143,6 +155,16 @@ def run(h, start, control, shot, record):
                 # Enter submits an empty query and returns to browsing, without results.
                 h.key('KEYCODE_ENTER')
                 assert re.findall(r'SearchEntry: submit query=(.*?) scope=', h.log())[-1] == ''
+        # A shifted digit produces punctuation on a real Android keyboard layout.
+        # The text event, rather than its numeric key identity, must seed the field.
+        opening(lambda: h.shell('input', 'keycombination', 'KEYCODE_SHIFT_LEFT', 'KEYCODE_7'),
+                'nes', '&')
+        h.key('KEYCODE_ENTER')
+        h.wait_for(lambda: 'SearchEntry: submit query=& scope=nes' in h.log(),
+                   'layout text submitted exactly once')
+        assert re.findall(r'SearchEntry: submit query=(.*?) scope=', h.log())[-1] == '&'
+        h.key('KEYCODE_DEL')
+        record('search-entry-layout-text')
         mappings = dict(up=1073741906, down=1073741905, left=1073741904, right=1073741903,
                         a=13, b=8, x=127, y=1073741897, back=1073741882, start=27)
         keyboard = ET.Element('inputList')
@@ -257,6 +279,16 @@ def run(h, start, control, shot, record):
         # Use the format ES-DE itself saves. Shell aliases such as /sdcard need
         # not match the frontend's canonical keys in its all-games index.
         write('collections/custom-SearchEntrySmoke.cfg', '%ROMPATH%/nes/Smoke Alpha.nes\n')
+        start(InputTouchOverlay=True, UIMode='full', StartupSystem='collections',
+              StartupView='gamelist', CollectionSystemsCustom='SearchEntrySmoke',
+              CollectionCustomGrouping='always', GamelistYButton='search')
+        assert 'ignoring entry' not in h.log(), 'Grouped custom collection fixture did not load'
+        count = opens()
+        h.key('KEYCODE_INSERT')  # Upstream jumps from the folder to its sole game.
+        assert opens() == count, 'Y opened search instead of jumping into the grouped collection'
+        opening(lambda: h.key('KEYCODE_INSERT'), 'collections')
+        close_popup()
+        record('search-entry-grouped-collection-jump')
         start(InputTouchOverlay=True, UIMode='full', StartupSystem='SearchEntrySmoke',
               StartupView='gamelist', CollectionSystemsCustom='SearchEntrySmoke',
               CollectionCustomGrouping='never', GamelistYButton='search', FavoritesAddButton=False)
@@ -305,4 +337,5 @@ def run(h, start, control, shot, record):
         'PASS: Y in full/kiosk/kid system and gamelist views; magnifier; no stacking; '
         'physical letter/digit exactly once; slash and search key empty; main-menu ownership; '
         'screensaver ownership; Select favorites flag/collection/sort; favorites preference and '
-        'disabled upstream button; custom collection editing.\n')
+        'disabled upstream button; grouped collection jump; custom collection editing; '
+        'layout text exactly once; custom kid/kiosk passkeys containing Y.\n')

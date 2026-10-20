@@ -120,12 +120,15 @@ def self_test():
                  'resources/graphics/overlay/button_a.svg']:
         assert path_plan([path])[0] == {'api33': ['core', 'touch'], 'api35': ['core', 'touch']}
     touch_callers = ['es-core/src/GuiComponent.h', 'es-app/src/main.cpp',
-                     'es-core/src/TouchOverlayReset.h',
+                     'es-core/src/TouchOverlayReset.h', 'es-core/src/Settings.cpp',
                      'android/app/src/main/kotlin/org/esdeplus/frontend/ConfiguratorSession.kt',
                      'android/app/src/main/kotlin/org/esdeplus/frontend/ConfiguratorActivity.kt']
     for stem in ['es-core/src/Window', 'es-core/src/renderers/Renderer',
                  'es-core/src/guis/GuiDetectDevice', 'es-app/src/guis/GuiMenu',
-                 'es-app/src/EmulatorManagerTouch']:
+                 'es-app/src/EmulatorManagerTouch', 'es-app/src/views/ViewController',
+                 'es-app/src/CollectionSystemsManager', 'es-core/src/SearchTextInput',
+                 'es-app/src/guis/SearchEntry', 'es-app/src/views/GamelistBase',
+                 'es-app/src/guis/GuiGamelistOptions']:
         touch_callers.extend(stem + suffix for suffix in ('.h', '.cpp'))
     for path in touch_callers:
         plan, _ = path_plan([path])
