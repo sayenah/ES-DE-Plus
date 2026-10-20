@@ -545,6 +545,32 @@ namespace
                                        s.text.find("The Legend") == 0;
                             }),
                 "the completes article-bearing titles");
+        auto plain = game("Legend of Zelda", "plain");
+        plain.favourite = true;
+        std::vector<Game> crowded {plain, game("The Legend of Zelda", "article")};
+        for (size_t n {0}; n < 100; ++n)
+            crowded.push_back(game("Theft", "theft" + std::to_string(n)));
+        core.rebuild(crowded);
+        const auto firstArticle = core.suggest("the", 1);
+        require(firstArticle.size() == 1 && firstArticle[0].kind == SuggestionKind::Title &&
+                    firstArticle[0].text == "The Legend of Zelda",
+                "a frequent theft completion and favourite non-article alias cannot crowd out The "
+                "titles");
+        core.rebuild({game("Mega Man X2", "x2"), game("Mega Man X3", "x3")});
+        const auto subseries = core.suggest("mega man", 100);
+        require(std::any_of(subseries.begin(), subseries.end(),
+                            [](const auto& s) {
+                                return s.kind == SuggestionKind::Series && s.text == "Mega Man X";
+                            }),
+                "series supports attached sequel numbers");
+        core.rebuild({game("Sonic the Hedgehog 3", "3"), game("Sonic 3D Blast", "3d")});
+        const auto sonic = core.search("sonic 3");
+        require(sonic.size() == 2 && core.game(sonic[0].index).title == "Sonic the Hedgehog 3" &&
+                    sonic[1].kind == MatchClass::Substring,
+                "whole number outranks the final typed alphanumeric prefix");
+        core.rebuild({game("Metroid II")});
+        require(core.search("metriod 2").size() == 1,
+                "a fuzzy word can accompany a whole equivalent numeral");
         core.rebuild({game("Pokémon", "a"), game("Pokémon Yellow", "b")});
         const auto accents = core.suggest("pok", 100);
         require(std::any_of(accents.begin(), accents.end(),
@@ -563,6 +589,22 @@ namespace
         require(!systems.empty() && (systems.front().kind == SuggestionKind::Title ||
                                      systems.front().kind == SuggestionKind::Word),
                 "short prefixes prefer titles/words");
+        auto owned = game("Super Mario", "owned");
+        auto titled = game("SNES Doom", "titled");
+        titled.system = "md";
+        titled.systemName = "Sega Genesis";
+        core.rebuild({owned, titled});
+        const auto shortSystem = core.search("snes");
+        require(shortSystem.size() == 2 && core.game(shortSystem[0].index).id == "titled" &&
+                    shortSystem[1].kind == MatchClass::Metadata,
+                "short system fields match alongside titles without swallowing the query");
+        const auto shortSuggestions = core.suggest("sne", 100);
+        require(std::any_of(shortSuggestions.begin(), shortSuggestions.end(),
+                            [](const auto& s) {
+                                return s.kind == SuggestionKind::System &&
+                                       s.text == "Super Nintendo";
+                            }),
+                "system short-name completion inserts one original full-name label");
     }
     void history()
     {

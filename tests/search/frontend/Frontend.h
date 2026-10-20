@@ -47,7 +47,11 @@ public:
     SystemData* system;
     std::vector<FileData*> files;
     int type {GAME};
-    const std::vector<FileData*>& getChildren() const { return files; }
+    const std::vector<FileData*>* sourceChildren {nullptr};
+    const std::vector<FileData*>& getChildren() const
+    {
+        return sourceChildren ? *sourceChildren : files;
+    }
     int getType() const { return type; }
     std::string path {"/roms/snes/game.zip"};
     explicit FileData(SystemData* s)
@@ -74,7 +78,7 @@ inline FileData* SystemData::getRootFolder()
     static std::map<SystemData*, FileData> roots;
     auto it = roots.try_emplace(this, this).first;
     it->second.type = FOLDER;
-    it->second.files = root.files;
+    it->second.sourceChildren = &root.files;
     return &it->second;
 }
 class Settings

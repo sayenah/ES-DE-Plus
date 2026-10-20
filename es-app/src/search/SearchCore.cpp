@@ -3,7 +3,7 @@
 //  ES-DE-Plus
 //  SearchCore.cpp
 //
-//  Written for ES-DE-Plus. Immutable indexed library search and autocomplete.
+//  Written for ES-DE-Plus. Indexed library search with mutable ranking state.
 //
 
 #include "search/SearchCore.h"
@@ -51,6 +51,7 @@ namespace LibrarySearch
         struct Folded {
             std::string text;
             std::vector<Span> source;
+            uint8_t article {0};
         };
 
         Folded fold(std::string_view input, bool mapping = false)
@@ -200,11 +201,15 @@ namespace LibrarySearch
         {
             auto result = fold(text, mapping);
             size_t remove {0};
-            for (const std::string article : {"the ", "an ", "a "})
+            uint8_t articleIndex {0};
+            for (const std::string article : {"the ", "an ", "a "}) {
+                ++articleIndex;
                 if (starts(result.text, article)) {
                     remove = article.size();
+                    result.article = articleIndex;
                     break;
                 }
+            }
             if (remove) {
                 result.text.erase(0, remove);
                 if (mapping)
@@ -396,8 +401,7 @@ namespace LibrarySearch
                     return false;
                 if (numeric(token))
                     return numeric(target) &&
-                           (mode == 2 || mode == 4 ? number(target) == number(token) :
-                                                     target == token);
+                           (mode >= 2 ? number(target) == number(token) : target == token);
                 if (mode == 3)
                     return starts(target, token) || (!digits(target) && nearWords(token, target));
                 return starts(target, token);
@@ -611,8 +615,7 @@ namespace LibrarySearch
                         return true;
                     return std::any_of(t.tokens.begin(), t.tokens.end(), [&](const auto& target) {
                         return number(target.text) == number(w.text) ||
-                               (&w == &qw.back() && digits(w.text) && digits(target.text) &&
-                                starts(target.text, w.text));
+                               (&w == &qw.back() && digits(w.text) && starts(target.text, w.text));
                     });
                 }));
             if ((wanted < 0 || wanted == 6) && pos != std::string::npos && numericSubstring) {
@@ -660,6 +663,7 @@ namespace LibrarySearch
             std::string key;
             SuggestionKind kind;
             std::string compact;
+            std::vector<std::string> aliases;
         };
         struct Postings {
             std::unordered_map<Id, Range> ranges;
@@ -687,11 +691,12 @@ namespace LibrarySearch
             }
         };
         struct Record {
-            Ref id, title, sortName, fileStem, developer, publisher, genre, system, systemName,
-                lastPlayed;
+            Ref id, title, sortName, fileStem, developer, publisher, genre, system, systemName;
+            std::array<char, 16> lastPlayed;
             int playCount;
             uint32_t titleLength;
             bool favourite, hidden, kid, countAsGame, collection;
+            uint8_t article {0};
         };
         struct GameView {
             std::string_view id, title, sortName, fileStem, developer, publisher, genre, system,
@@ -699,6 +704,12 @@ namespace LibrarySearch
             int playCount;
             bool favourite, hidden, kid, countAsGame, collection;
         };
+        static std::array<char, 16> date(std::string_view value)
+        {
+            std::array<char, 16> result {};
+            std::copy(value.begin(), value.end(), result.begin());
+            return result;
+        }
         std::vector<Record> games;
         std::string rawText;
         GameView get(Id id) const
@@ -713,7 +724,7 @@ namespace LibrarySearch
                     view(g.genre, rawText),
                     view(g.system, rawText),
                     view(g.systemName, rawText),
-                    view(g.lastPlayed, rawText),
+                    std::string_view(g.lastPlayed.data(), g.lastPlayed[1] ? 15 : 1),
                     g.playCount,
                     g.favourite,
                     g.hidden,
@@ -776,6 +787,17 @@ namespace LibrarySearch
             if (c.kind == SuggestionKind::Title)
                 return joined(c.key);
             return entities[c.key].compact;
+        }
+        bool entityMatches(Id completion, const std::string& query) const
+        {
+            const auto& c = completions[completion];
+            if (key(completion).find(query) != std::string_view::npos)
+                return true;
+            return c.kind == SuggestionKind::System &&
+                   std::any_of(entities[c.key].aliases.begin(), entities[c.key].aliases.end(),
+                               [&](const std::string& alias) {
+                                   return alias.find(query) != std::string::npos;
+                               });
         }
         // Compare normalized strings with separators ignored without storing another copy.
         static int compare(std::string_view a, std::string_view b)
@@ -1195,7 +1217,7 @@ namespace LibrarySearch
                         for (auto kind : {SuggestionKind::Developer, SuggestionKind::Publisher,
                                           SuggestionKind::Genre, SuggestionKind::System})
                             for (Id c : completionOrder[static_cast<size_t>(kind)])
-                                if (key(c).find(w.text) != std::string_view::npos) {
+                                if (entityMatches(c, w.text)) {
                                     found.push_back(c);
                                     count += completions[c].games.count;
                                 }
@@ -1232,8 +1254,14 @@ namespace LibrarySearch
                         const bool match = std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
                             return std::any_of(
                                 gameEntities[g].begin(), gameEntities[g].end(), [&](Id entity) {
-                                    return entity != UINT32_MAX &&
-                                           entities[entity].key.find(w.text) != std::string::npos;
+                                    if (entity == UINT32_MAX)
+                                        return false;
+                                    const auto& field = entities[entity];
+                                    if (field.compact.find(w.text) != std::string::npos)
+                                        return true;
+                                    return field.kind == SuggestionKind::System &&
+                                           fold(view(games[g].system, rawText)).text.find(w.text) !=
+                                               std::string::npos;
                                 });
                         });
                         if (match)
@@ -1316,6 +1344,8 @@ namespace LibrarySearch
                                        if (!validDate(g.lastPlayed))
                                            g.lastPlayed = "0";
                                        g.playCount = std::max(0, g.playCount);
+                                       if (g.systemName.empty())
+                                           g.systemName = g.system;
                                        return false;
                                    }),
                     games.end());
@@ -1345,7 +1375,7 @@ namespace LibrarySearch
                                                          Index::append(ix.rawText, g.fileStem);
             ix.games.push_back(
                 {id, display, sort, file, intern(g.developer), intern(g.publisher), intern(g.genre),
-                 intern(g.system), intern(g.systemName), intern(g.lastPlayed), g.playCount,
+                 intern(g.system), intern(g.systemName), Index::date(g.lastPlayed), g.playCount,
                  static_cast<uint32_t>(
                      std::count_if(g.title.begin(), g.title.end(),
                                    [](unsigned char c) { return (c & 0xc0) != 0x80; })),
@@ -1460,8 +1490,12 @@ namespace LibrarySearch
                     text += suffix;
                 }
             }
-            else
-                text = title(raw).text;
+            else {
+                auto normalized = title(raw);
+                if (display)
+                    ix.games[g].article = normalized.article;
+                text = std::move(normalized.text);
+            }
             ix.documents.push_back(
                 {Index::append(ix.text, text), Index::append(ix.compactText, compact(text)), g});
             const auto tokens = words(text);
@@ -1693,10 +1727,14 @@ namespace LibrarySearch
                 ++end;
             group.assign(titles.begin() + i, titles.begin() + end);
             const Id c = completion(SuggestionKind::Title, ix.gameDocuments[titles[i]][0], group);
-            const auto raw = fold(ix.get(titles[i]).title).text;
-            for (const std::string article : {"the", "a", "an"})
-                if (starts(raw, article + " "))
-                    ix.articles[article].push_back(c);
+            uint8_t articles {0};
+            for (Id g : group)
+                if (ix.games[g].article)
+                    articles |= 1 << (ix.games[g].article - 1);
+            const std::array<const char*, 3> names {"the", "an", "a"};
+            for (size_t n {0}; n < names.size(); ++n)
+                if (articles & (1 << n))
+                    ix.articles[names[n]].push_back(c);
             if (end < titles.size()) {
                 const auto otherTitle = titleKey(titles[end]);
                 size_t a {0}, b {0}, count {0};
@@ -1704,8 +1742,24 @@ namespace LibrarySearch
                     const size_t ae = std::min(key.find(' ', a), key.size());
                     const size_t be = std::min(otherTitle.find(' ', b), otherTitle.size());
                     const auto word = key.substr(a, ae - a);
-                    if (word != otherTitle.substr(b, be - b))
+                    const auto otherWord = otherTitle.substr(b, be - b);
+                    if (word != otherWord) {
+                        size_t common {0};
+                        while (common < word.size() && common < otherWord.size() &&
+                               word[common] == otherWord[common])
+                            ++common;
+                        while (common && word[common - 1] >= '0' && word[common - 1] <= '9')
+                            --common;
+                        const auto numericSuffix = [](std::string_view text) {
+                            return std::all_of(text.begin(), text.end(),
+                                               [](char c) { return c >= '0' && c <= '9'; });
+                        };
+                        if (count && common && !small(word.substr(0, common)) &&
+                            numericSuffix(word.substr(common)) &&
+                            numericSuffix(otherWord.substr(common)))
+                            series.insert(std::string(key.substr(0, a + common)));
                         break;
+                    }
                     if (++count >= 2 && !small(word))
                         series.insert(std::string(key.substr(0, ae)));
                     a = ae + 1;
@@ -1720,7 +1774,9 @@ namespace LibrarySearch
                                  [&](Id g, const std::string& key) { return titleKey(g) < key; });
             auto& ids = other[{SuggestionKind::Series, s}];
             for (; it != titles.end() && starts(titleKey(*it), s) &&
-                   (titleKey(*it).size() == s.size() || titleKey(*it)[s.size()] == ' ');
+                   (titleKey(*it).size() == s.size() || titleKey(*it)[s.size()] == ' ' ||
+                    (!(s.back() >= '0' && s.back() <= '9') && titleKey(*it)[s.size()] >= '0' &&
+                     titleKey(*it)[s.size()] <= '9'));
                  ++it)
                 ids.push_back(*it);
         }
@@ -1729,7 +1785,15 @@ namespace LibrarySearch
                 continue;
             const Id entity = ix.entities.size();
             ix.entities.push_back(
-                {pair.first.second, pair.first.first, compact(pair.first.second)});
+                {pair.first.second, pair.first.first, compact(pair.first.second), {}});
+            if (pair.first.first == SuggestionKind::System) {
+                std::map<Id, Index::Ref> names;
+                for (Id g : pair.second)
+                    names.emplace(ix.games[g].system.begin, ix.games[g].system);
+                for (const auto& name : names)
+                    ix.entities.back().aliases.push_back(
+                        compact(fold(ix.view(name.second, ix.rawText)).text));
+            }
             if (pair.first.first != SuggestionKind::Series)
                 for (Id g : pair.second)
                     ix.gameEntities[g][static_cast<size_t>(pair.first.first) -
@@ -1896,6 +1960,12 @@ namespace LibrarySearch
             for (auto it = begin; it != order.end() && starts(ix.key(*it), prefix); ++it)
                 candidates.push_back(*it);
         }
+        for (uint32_t id : ix.completionOrder[static_cast<size_t>(SuggestionKind::System)]) {
+            const auto& entity = ix.entities[ix.completions[id].key];
+            if (std::any_of(entity.aliases.begin(), entity.aliases.end(),
+                            [&](const std::string& alias) { return starts(alias, compact(q)); }))
+                candidates.push_back(id);
+        }
         for (const auto& article : ix.articles)
             if (starts(article.first, q))
                 candidates.insert(candidates.end(), article.second.begin(), article.second.end());
@@ -1903,9 +1973,17 @@ namespace LibrarySearch
         if (candidates.empty())
             return {};
         const bool shortQuery = codepoints(q).size() <= 2;
+        const auto article = ix.articles.find(q);
+        const uint8_t articleCode = q == "the" ? 1 : q == "an" ? 2 : q == "a" ? 3 : 0;
+        auto articleTitle = [&](uint32_t id) {
+            return article != ix.articles.end() &&
+                   std::binary_search(article->second.begin(), article->second.end(), id);
+        };
         auto preferredSuggestion = [&](uint32_t a, uint32_t b) {
             const auto& x = ix.completions[a];
             const auto& y = ix.completions[b];
+            if (articleTitle(a) != articleTitle(b))
+                return articleTitle(a);
             auto preferred = [](SuggestionKind k) {
                 return k == SuggestionKind::Word || k == SuggestionKind::Title;
             };
@@ -1958,7 +2036,8 @@ namespace LibrarySearch
             bool valid {false};
             for (uint32_t n {0}; n < c.games.count; ++n) {
                 const auto g = ix.support[c.games.begin + n];
-                if (!ix.allowed(g, filter))
+                if (!ix.allowed(g, filter) ||
+                    (articleTitle(id) && ix.games[g].article != articleCode))
                     continue;
                 const auto game = ix.get(g);
                 if (c.kind == SuggestionKind::Word) {
@@ -2029,6 +2108,14 @@ namespace LibrarySearch
     {
         auto& ix = *mIndex;
         auto& game = ix.games.at(index);
+        const auto timestamp = Index::date(validDate(value.lastPlayed) ? value.lastPlayed : "0");
+        if (game.favourite == value.favourite && game.lastPlayed == timestamp &&
+            game.playCount == std::max(0, value.playCount)) {
+            game.hidden = value.hidden;
+            game.kid = value.kid;
+            mVersion = nextVersion.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
         std::vector<uint32_t> changed {static_cast<uint32_t>(index)};
         std::unordered_map<uint32_t, uint32_t> oldBoost;
         // Only the former/new top thirty can change recent vocabulary boosts.
@@ -2040,16 +2127,14 @@ namespace LibrarySearch
         oldBoost[index] = ix.boost(index);
         const auto oldPosition = ix.rankingPosition[index];
         ix.rankingOrder.erase(ix.rankingOrder.begin() + oldPosition);
-        ix.played.erase(
-            {std::string(ix.view(game.lastPlayed, ix.rawText)), static_cast<uint32_t>(index)});
+        ix.played.erase({std::string(game.lastPlayed.data()), static_cast<uint32_t>(index)});
         game.favourite = value.favourite;
-        game.lastPlayed =
-            Index::append(ix.rawText, validDate(value.lastPlayed) ? value.lastPlayed : "0");
+        game.lastPlayed = timestamp;
         game.playCount = std::max(0, value.playCount);
         game.hidden = value.hidden;
         game.kid = value.kid;
-        if (game.lastPlayed.size == 15)
-            ix.played.emplace(std::string(ix.view(game.lastPlayed, ix.rawText)), index);
+        if (game.lastPlayed[1])
+            ix.played.emplace(std::string(game.lastPlayed.data()), index);
         for (auto g : recent)
             ix.recent[g] = 0;
         for (auto it = ix.played.rbegin(); it != ix.played.rend() && changed.size() < 31; ++it) {
@@ -2083,9 +2168,16 @@ namespace LibrarySearch
                         keys.push_back(w.text);
                 else if (kind == SuggestionKind::Series) {
                     const auto ws = words(titleText);
-                    for (size_t n {2}; n <= ws.size(); ++n)
+                    for (size_t n {2}; n <= ws.size(); ++n) {
                         keys.push_back(titleText.substr(0, n == ws.size() ? titleText.size() :
                                                                             ws[n].offset - 1));
+                        const auto& word = ws[n - 1];
+                        size_t base = word.text.size();
+                        while (base && word.text[base - 1] >= '0' && word.text[base - 1] <= '9')
+                            --base;
+                        if (base && base < word.text.size())
+                            keys.push_back(titleText.substr(0, word.offset + base));
+                    }
                 }
                 else
                     keys.push_back(fold(kind == SuggestionKind::Developer ? ix.get(g).developer :
