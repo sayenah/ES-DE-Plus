@@ -36,6 +36,7 @@
 #include "guis/GuiMenu.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
+#include "guis/SearchEntry.h"
 #include "utils/LocalizationUtil.h"
 #include "views/GamelistView.h"
 #include "views/SystemView.h"
@@ -1321,10 +1322,54 @@ bool ViewController::input(InputConfig* config, Input input)
     if (UIModeController::getInstance()->listen(config, input))
         return true;
 
+    if (input.value && mWindow->peekGui() == this && mCurrentView &&
+        !mWindow->isScreensaverActive() && !mWindow->isMediaViewerActive() &&
+        !mWindow->isPDFViewerActive()) {
+        const bool gameList {mState.viewing == ViewMode::GAMELIST};
+        const bool collectionJump {gameList &&
+                                   getGamelistView(mState.getSystem())->hasCollectionJump()};
+        if (config->isMappedTo("y", input) && !collectionJump &&
+            !SearchEntry::preservesPasskeyY() &&
+            !(gameList && CollectionSystemsManager::getInstance()->isEditing()) &&
+            (!gameList || Settings::getInstance()->getString("GamelistYButton") != "favorites")) {
+            openSearch();
+            return true;
+        }
+        // Explicit mappings always win, including letters mapped to navigation or Y.
+        if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
+            config->getMappedTo(input).empty() &&
+            !(input.modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+            if (input.id == SDLK_AC_SEARCH) {
+                openSearch();
+                return true;
+            }
+            // Printable keys are paired with SDL_TEXTINPUT by SearchTextInput.
+        }
+    }
+
     if (mCurrentView)
         return mCurrentView->input(config, input);
 
     return false;
+}
+
+bool ViewController::acceptsSearchText() const
+{
+    return mWindow->peekGui() == this && mCurrentView &&
+           (mState.viewing == ViewMode::SYSTEM_SELECT || mState.viewing == ViewMode::GAMELIST) &&
+           !mWindow->getBlockInput() && !mWindow->isScreensaverActive() &&
+           !mWindow->isMediaViewerActive() && !mWindow->isPDFViewerActive() &&
+           !mWindow->isLaunchScreenDisplayed();
+}
+
+void ViewController::openSearch(const std::string& initialText)
+{
+    if (!acceptsSearchText())
+        return;
+    stopScrolling();
+    cancelViewTransitions();
+    SearchEntry::open(initialText,
+                      mState.viewing == ViewMode::GAMELIST ? mState.getSystem() : nullptr);
 }
 
 void ViewController::update(int deltaTime)
@@ -1726,6 +1771,17 @@ std::vector<HelpPrompt> ViewController::getHelpPrompts()
         return prompts;
 
     prompts = mCurrentView->getHelpPrompts();
+    if (!SearchEntry::preservesPasskeyY() &&
+        (mState.viewing == ViewMode::SYSTEM_SELECT ||
+         (mState.viewing == ViewMode::GAMELIST &&
+          Settings::getInstance()->getString("GamelistYButton") != "favorites" &&
+          !CollectionSystemsManager::getInstance()->isEditing() &&
+          !getGamelistView(mState.getSystem())->hasCollectionJump()))) {
+        prompts.erase(std::remove_if(prompts.begin(), prompts.end(),
+                                     [](const HelpPrompt& prompt) { return prompt.first == "y"; }),
+                      prompts.end());
+        prompts.push_back(HelpPrompt("y", _("search")));
+    }
     if (!(UIModeController::getInstance()->isUIModeKid() &&
           !Settings::getInstance()->getBool("EnableMenuKidMode")))
         prompts.push_back(HelpPrompt("start", _("menu")));

@@ -16,8 +16,9 @@ import xml.etree.ElementTree as ET
 import pdf_smoke
 import smoke_support
 import touch_startup
+import search_entry_smoke
 
-IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101]
+IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101, 102]
 MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
                           'leftshoulder', 'rightshoulder', 'lefttrigger', 'righttrigger']))
 TOUCH = re.compile(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=.*?value=([01])')
@@ -32,7 +33,11 @@ def transitions(log):
 
 def balanced(log):
     for button, names in re.findall(r'Window::logInput\(Touch\): Button (\d+), isMappedTo=(.*?)value=', log):
-        assert int(button) in IDS and MAPPINGS[int(button)] in [n.strip() for n in names.split(',')], (button, names)
+        assert int(button) in IDS, (button, names)
+        if int(button) == 102:
+            assert not names.strip(), ('Search is a fork action, never mapped', names)
+        else:
+            assert MAPPINGS[int(button)] in [n.strip() for n in names.split(',')], (button, names)
     held = set()
     for button, value in transitions(log):
         assert button in IDS, ('Unmapped touch ID', button)
@@ -50,7 +55,7 @@ def buttons(log):
                        'centre': tuple(map(float, centre.split(','))),
                        'norm': tuple(map(float, norm.split(',')))}
               for i, hit, centre, norm in BUTTON.findall(layout)}
-    assert set(result) == set(IDS), ('Fourteen layout centres required', layout)
+    assert set(result) == set(IDS), ('Fifteen layout centres required', layout)
     assert all(0 <= n <= 1 for b in result.values() for n in b['norm']), layout
     return result
 
@@ -502,6 +507,11 @@ def run(namespace):
             time.sleep(0.2)
 
     try:
+        # Exercise the new entry points first; restoration leaves the existing
+        # overlay suite's fixtures and assertions intact.
+        start(InputTouchOverlay=True)
+        surface_bounds_cached = surface_bounds()
+        search_entry_smoke.run(h, start, touch_control, shot, record)
         diameters = []
         for size in ('x-small', 'small', 'medium', 'large'):
             sized = start(InputTouchOverlay=True, InputTouchOverlaySize=size)
@@ -517,7 +527,7 @@ def run(namespace):
         off = shot('touch-disabled-reference')
         output = start(InputTouchOverlay=True)
         centres = buttons(output)
-        on = shot('touch-startup-fourteen-controls')
+        on = shot('touch-startup-fifteen-controls')
         surface = surface_bounds()
         surface_bounds_cached = surface
         pixels, boxes = rendered_centres(off, on, centres, surface)
@@ -773,12 +783,14 @@ def run(namespace):
             step('up', [a])], [], menu='true')
         inject('touch-cannot-cross-clusters', [step('down', [up]), step('move', [a]),
             step('up', [a])], [(11, 1), (11, 0)], menu='true')
+        # Y opens search while browsing. Keep a menu on top so only the actual
+        # SDK ACTION_CANCEL releases these three holds, in the same order as before.
         down = pointer(12, 0); shoulder = pointer(9, 5); face = pointer(3, 11)
         inject('touch-three-clusters-cancel', [step('down', [down]),
             step('pointer-down', [shoulder, down], changed=5),
             step('pointer-down', [face, down, shoulder], changed=11),
             step('cancel', [shoulder, face, down])],
-            [(12, 1), (9, 1), (3, 1), (9, 0), (3, 0), (12, 0)])
+            [(12, 1), (9, 1), (3, 1), (9, 0), (3, 0), (12, 0)], menu='true')
 
         for absence in [100, 3000]:
             for lift_delay in [0, 150, 400]:
@@ -1146,7 +1158,7 @@ def run(namespace):
         # Logical DPI, live resizing, focus loss and touch-only journeys remain in
         # the evidence matrix; do not infer hardware inset safety from these taps.
         (h.evidence / 'touch-summary.txt').write_text(
-            'PASS: rendered fourteen-ID taps; empty space; lazy disabled textures; Android multi-pointer '
+            'PASS: rendered fifteen-ID taps; empty space; lazy disabled textures; Android multi-pointer '
             'refcounts, index reordering, stationary slide-and-hold and ACTION_CANCEL; importer cancellation; rotations; wake-only fade.\n'
             'PASS: held-pointer live resize; overlay-first/direct-manager ownership; non-destructive warning; setup reset.\n'
             'OPEN: hardware ergonomics/multitouch, gesture-navigation/cutout safety. See PR AC evidence for remaining checks.\n')

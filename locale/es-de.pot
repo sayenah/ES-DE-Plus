@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 05:41-0500\n"
+"POT-Creation-Date: 2026-10-19 15:21-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <info@es-de.org>\n"
@@ -1125,6 +1125,12 @@ msgstr ""
 msgid "SORT GAMES BY"
 msgstr ""
 
+msgid "REMOVE FROM FAVORITES"
+msgstr ""
+
+msgid "ADD TO FAVORITES"
+msgstr ""
+
 msgid "THIS SYSTEM HAS NO GAMES"
 msgstr ""
 
@@ -1237,12 +1243,6 @@ msgid "UTILITIES"
 msgstr ""
 
 msgid "QUIT ES-DE"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid "THEME"
@@ -1453,6 +1453,12 @@ msgid "ENABLE TEXTLIST QUICK SCROLLING OVERLAY"
 msgstr ""
 
 msgid "ENABLE VIRTUAL KEYBOARD"
+msgstr ""
+
+msgid "Y BUTTON IN GAME LISTS"
+msgstr ""
+
+msgid "FAVORITES"
 msgstr ""
 
 msgid "ENABLE TOGGLE FAVORITES BUTTON"
@@ -2729,6 +2735,12 @@ msgstr ""
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
 msgstr ""
 
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
+
 msgid ""
 "Unable to save the touch overlay setup. Check that your application data "
 "folder is writable and has free space, then start ES-DE Plus again. Your "
@@ -3194,6 +3206,9 @@ msgstr ""
 
 #, c-format
 msgid "LAUNCHING GAME '%s'"
+msgstr ""
+
+msgid "search"
 msgstr ""
 
 msgid "menu"

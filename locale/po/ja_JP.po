@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 05:41-0500\n"
+"POT-Creation-Date: 2026-10-19 15:21-0500\n"
 "PO-Revision-Date: 2026-09-09 19:23+0800\n"
 "Last-Translator: ice <natsumekyousuke211314@gmail.com>\n"
 "Language-Team: 日本語 <info@es-de.org>\n"
@@ -1150,6 +1150,12 @@ msgstr "...に移動"
 msgid "SORT GAMES BY"
 msgstr "ゲームを並べ替える"
 
+msgid "REMOVE FROM FAVORITES"
+msgstr ""
+
+msgid "ADD TO FAVORITES"
+msgstr ""
+
 msgid "THIS SYSTEM HAS NO GAMES"
 msgstr "このシステムにゲームがありません"
 
@@ -1263,12 +1269,6 @@ msgstr "ユーティリティ"
 
 msgid "QUIT ES-DE"
 msgstr "ES-DEを終了"
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
-msgstr ""
 
 msgid "THEME"
 msgstr "テーマ"
@@ -1494,6 +1494,12 @@ msgstr "クイックスクロールオーバーレイを有効に"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "仮想キーボードを有効に"
+
+msgid "Y BUTTON IN GAME LISTS"
+msgstr ""
+
+msgid "FAVORITES"
+msgstr ""
 
 msgid "ENABLE TOGGLE FAVORITES BUTTON"
 msgstr "お気に入りの切り替えボタンを有効に"
@@ -2864,6 +2870,12 @@ msgstr ""
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
 msgstr ""
 
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
+
 msgid ""
 "Unable to save the touch overlay setup. Check that your application data "
 "folder is writable and has free space, then start ES-DE Plus again. Your "
@@ -3384,6 +3396,9 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "ゲーム '%s' を起動中"
+
+msgid "search"
+msgstr ""
 
 msgid "menu"
 msgstr "メニュー"

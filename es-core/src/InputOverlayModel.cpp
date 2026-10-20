@@ -351,6 +351,46 @@ namespace TouchOverlay
             const float h {i < 8 ? hit : std::max(b.height * 1.15f, 48 * mDensity)};
             b.hit = {b.centre.x - w / 2, b.centre.y - h / 2, w, h};
         }
+        // Keep the established deck anchors. Prefer the central space beside Start/Select,
+        // then above their row. The last anchor uses the otherwise empty top centre on
+        // short viewports. Fitting all fifteen controls can shrink the whole deck by
+        // up to 4.06% on near-square viewports around 322–356 dp.
+        Button& search {mButtons[14]};
+        search = {};
+        search.id = SEARCH_BUTTON;
+        search.cluster = 8;
+        search.width = 0.9f * d;
+        search.height = 0.66f * d;
+        const float sw {std::max(search.width * 1.15f, 48 * mDensity)};
+        const float sh {std::max(search.height * 1.15f, 48 * mDensity)};
+        const float centreX {mSafe.x + mSafe.w / 2};
+        const float pillY {mButtons[8].centre.y};
+        const float sector {1.15f * radius};
+        const auto available = [&] {
+            const Rect& r {search.hit};
+            if (r.x < mSafe.x || r.y < mSafe.y || r.x + r.w > mSafe.x + mSafe.w ||
+                r.y + r.h > mSafe.y + mSafe.h)
+                return false;
+            // Capture sectors, including the neutral D-pad centre, own their whole discs.
+            for (Point centre : {Point {left, y}, Point {right, y}})
+                if (distance(centre, {std::clamp(centre.x, r.x, r.x + r.w),
+                                      std::clamp(centre.y, r.y, r.y + r.h)}) < sector)
+                    return false;
+            for (int i {8}; i < 14; ++i) {
+                const auto& other {mButtons[i].hit};
+                if (r.x < other.x + other.w && other.x < r.x + r.w && r.y < other.y + other.h &&
+                    other.y < r.y + r.h)
+                    return false;
+            }
+            return true;
+        };
+        for (float candidate : {pillY, pillY + pillH + gap, pillY - pillH - gap,
+                                mButtons[12].hit.y - gap - sh / 2, mSafe.y + sh / 2}) {
+            search.centre = {centreX, candidate};
+            search.hit = {centreX - sw / 2, candidate - sh / 2, sw, sh};
+            if (available())
+                break;
+        }
     }
 
     void Model::compactLayout(float requested)
@@ -359,11 +399,11 @@ namespace TouchOverlay
         const int columns {std::min(7, static_cast<int>(mSafe.w / cell))};
         if (columns < 1)
             return;
-        const int rows {(14 + columns - 1) / columns};
+        const int rows {(15 + columns - 1) / columns};
         const float spacing {std::min(mSafe.w / columns, mSafe.h / rows)};
         // Include the 1.08x black underlay inside each fixed 48 dp hit cell.
         mDiameter = std::min({requested, spacing / 1.5f, cell / 1.08f});
-        for (int i {0}; i < 14; ++i) {
+        for (int i {0}; i < 15; ++i) {
             Button& b {mButtons[i]};
             b = {};
             b.id = IDS[i];
@@ -371,10 +411,11 @@ namespace TouchOverlay
             b.centre = {mSafe.x + (i % columns + 0.5f) * spacing,
                         mSafe.y + mSafe.h - (rows - i / columns - 0.5f) * spacing};
             b.width = mDiameter;
-            b.height = i < 4  ? mDiameter * 40 / 52 :
-                       i < 8  ? mDiameter :
-                       i < 10 ? mDiameter * 38 / 52 :
-                                mDiameter * 30 / 78;
+            b.height = i == 14 ? mDiameter * 38 / 52 :
+                       i < 4   ? mDiameter * 40 / 52 :
+                       i < 8   ? mDiameter :
+                       i < 10  ? mDiameter * 38 / 52 :
+                                 mDiameter * 30 / 78;
             // Rotate only D-pad art; other compact controls keep upright glyphs.
             b.rotation = i == 0 ? 90 : i == 1 ? -90 : i == 3 ? 180 : 0;
             b.hit = {b.centre.x - cell / 2, b.centre.y - cell / 2, cell, cell};
@@ -384,9 +425,12 @@ namespace TouchOverlay
     bool Model::fits(float* failureMargin) const
     {
         constexpr float epsilon {0.01f};
+        int checking {0};
         const auto fail = [&](float margin) {
+            // The magnifier can switch between free anchors. Its placement is
+            // discontinuous, so search failures must not skip fine-scan samples.
             if (failureMargin)
-                *failureMargin = margin;
+                *failureMargin = checking == 14 ? 0 : margin;
             return false;
         };
         const auto visible {mGeometry.visible()};
@@ -397,7 +441,8 @@ namespace TouchOverlay
                                              {visible.x + visible.w, visible.y + visible.h}}};
         if (mSafe.w <= 0 || mSafe.h <= 0)
             return false;
-        for (int i {0}; i < 14; ++i) {
+        for (int i {0}; i < 15; ++i) {
+            checking = i;
             const Button& b {mButtons[i]};
             if (!std::isfinite(b.hit.x) || !std::isfinite(b.hit.y) ||
                 b.hit.w + epsilon < 48 * mDensity || b.hit.h + epsilon < 48 * mDensity ||
@@ -437,10 +482,21 @@ namespace TouchOverlay
         }
         // Sector capture regions, not just the arm circles, must remain disjoint.
         if (!mCompact) {
+            checking = 0;
             const float r {(mButtons[1].centre.y - mButtons[0].centre.y + mButtons[0].hit.w) / 2};
             if (mButtons[4].centre.x - mButtons[0].centre.x < 2.15f * r + 0.15f * mDiameter)
                 return fail(2.15f * r + 0.15f * mDiameter -
                             (mButtons[4].centre.x - mButtons[0].centre.x));
+            checking = 14;
+            const auto& search {mButtons[14].hit};
+            for (Point centre : {Point {mButtons[0].centre.x, mButtons[2].centre.y},
+                                 Point {mButtons[4].centre.x, mButtons[5].centre.y}}) {
+                const float clearance {
+                    distance(centre, {std::clamp(centre.x, search.x, search.x + search.w),
+                                      std::clamp(centre.y, search.y, search.y + search.h)})};
+                if (clearance + epsilon < 1.15f * r)
+                    return fail(1.15f * r - clearance - epsilon);
+            }
         }
         return true;
     }
@@ -459,7 +515,7 @@ namespace TouchOverlay
             if (distance(p, face) <= radius * 1.15f)
                 return 1;
         }
-        for (int i {mCompact ? 0 : 8}; i < 14; ++i)
+        for (int i {mCompact ? 0 : 8}; i < 15; ++i)
             if (mButtons[i].hit.contains(p))
                 return mButtons[i].cluster;
         return -1;
@@ -591,7 +647,7 @@ namespace TouchOverlay
     Transitions Model::cancel()
     {
         Transitions result;
-        for (int i {0}; i < 14; ++i)
+        for (int i {0}; i < 15; ++i)
             if (mReferences[i])
                 result.add(IDS[i], 0);
         mFingers = {};
@@ -612,7 +668,7 @@ namespace TouchOverlay
 
     void Model::suppress()
     {
-        for (int i {0}; i < 14; ++i)
+        for (int i {0}; i < 15; ++i)
             if (mReferences[i])
                 mSuppressed[i] = true;
     }

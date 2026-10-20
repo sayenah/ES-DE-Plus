@@ -84,6 +84,10 @@ public:
     // Return true if the input is consumed, false if it should continue to be passed
     // to other children.
     virtual bool input(InputConfig* config, Input input);
+
+    // Fork-only search action; only the browsing view handles it.
+    virtual void openSearch(const std::string& = "") {}
+    virtual bool acceptsSearchText() const { return false; }
 #if defined(__ANDROID__)
     virtual bool nativeTouch(int, int64_t, float, float) { return false; }
     virtual void cancelNativeTouch() {}

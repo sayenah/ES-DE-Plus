@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 05:41-0500\n"
+"POT-Creation-Date: 2026-10-19 15:21-0500\n"
 "PO-Revision-Date: 2026-09-08 20:53+0200\n"
 "Last-Translator: wakeboxer <ljhmd0825@gmail.com>\n"
 "Language-Team: 한국어 <info@es-de.org>\n"
@@ -1132,6 +1132,12 @@ msgstr "이동..."
 msgid "SORT GAMES BY"
 msgstr "게임 정렬"
 
+msgid "REMOVE FROM FAVORITES"
+msgstr ""
+
+msgid "ADD TO FAVORITES"
+msgstr ""
+
 msgid "THIS SYSTEM HAS NO GAMES"
 msgstr "현재 시스템에는 게임이 없습니다"
 
@@ -1245,12 +1251,6 @@ msgstr "유틸리티"
 
 msgid "QUIT ES-DE"
 msgstr "ES-DE 종료"
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
-msgstr ""
 
 msgid "THEME"
 msgstr "테마"
@@ -1476,6 +1476,12 @@ msgstr "텍스트리스트 빠른 스크롤시 오버레이 활성화"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "가상 키보드 활성화"
+
+msgid "Y BUTTON IN GAME LISTS"
+msgstr ""
+
+msgid "FAVORITES"
+msgstr ""
 
 msgid "ENABLE TOGGLE FAVORITES BUTTON"
 msgstr "즐겨찾기 버튼 토글 활성화"
@@ -2814,6 +2820,12 @@ msgstr ""
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
 msgstr ""
 
+msgid "SEARCH ALL GAMES"
+msgstr ""
+
+msgid "START SEARCH?"
+msgstr ""
+
 msgid ""
 "Unable to save the touch overlay setup. Check that your application data "
 "folder is writable and has free space, then start ES-DE Plus again. Your "
@@ -3321,6 +3333,9 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "게임 '%s' 시작 중"
+
+msgid "search"
+msgstr ""
 
 msgid "menu"
 msgstr "메뉴"

@@ -165,6 +165,11 @@ class TouchSmoke : Instrumentation() {
                 finish(-1, result)
                 return
             }
+            if (mode == "search-fixture") {
+                result.putString("stream", SearchEntrySmokeFixtures.run(targetContext, script))
+                finish(-1, result)
+                return
+            }
             if (mode == "kid-prepare" || mode == "kid-restore") {
                 val gamelist = File(StorageModel(targetContext).appData(), "gamelists/nes/gamelist.xml")
                 val backup = File(targetContext.cacheDir, "touch-kid-gamelist-backup")

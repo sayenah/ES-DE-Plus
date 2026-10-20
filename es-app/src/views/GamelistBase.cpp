@@ -11,6 +11,7 @@
 #include <winsock2.h>
 #endif
 
+#include "guis/SearchEntry.h"
 #include "views/GamelistBase.h"
 
 #include "CollectionSystemsManager.h"
@@ -266,230 +267,8 @@ bool GamelistBase::input(InputConfig* config, Input input)
         else if (config->isMappedTo("y", input) &&
                  !UIModeController::getInstance()->isUIModeKid() &&
                  !UIModeController::getInstance()->isUIModeKiosk()) {
-            // Notify the user if attempting to add a custom collection to a custom collection.
-            if (CollectionSystemsManager::getInstance()->isEditing() &&
-                mRoot->getSystem()->isGameSystem() && getCursor()->getType() != PLACEHOLDER &&
-                getCursor()->getParent()->getPath() == "collections") {
-                NavigationSounds::getInstance().playThemeNavigationSound(FAVORITESOUND);
-                mWindow->queueInfoPopup(_("CAN'T ADD CUSTOM COLLECTIONS TO CUSTOM COLLECTIONS"),
-                                        4000);
-            }
-            // Notify the user if attempting to add a placeholder to a custom collection.
-            if (CollectionSystemsManager::getInstance()->isEditing() &&
-                mRoot->getSystem()->isGameSystem() && getCursor()->getType() == PLACEHOLDER) {
-                NavigationSounds::getInstance().playThemeNavigationSound(FAVORITESOUND);
-                mWindow->queueInfoPopup(_("CAN'T ADD PLACEHOLDERS TO CUSTOM COLLECTIONS"), 4000);
-            }
-            else if (mRoot->getSystem()->isGameSystem() && getCursor()->getType() != PLACEHOLDER &&
-                     getCursor()->getParent()->getPath() != "collections") {
-                if (getCursor()->getType() == GAME || getCursor()->getType() == FOLDER)
-                    NavigationSounds::getInstance().playThemeNavigationSound(FAVORITESOUND);
-                // When marking or unmarking a game as favorite, don't jump to the new position
-                // it gets after the gamelist sorting. Instead retain the cursor position in the
-                // list using the logic below.
-                FileData* entryToUpdate {getCursor()};
-                SystemData* system {getCursor()->getSystem()};
-                bool favoritesSorting;
-                bool removedLastFavorite {false};
-                bool selectLastEntry {false};
-                bool isEditing {CollectionSystemsManager::getInstance()->isEditing()};
-                bool foldersOnTop {Settings::getInstance()->getBool("FoldersOnTop")};
-                // If the current list only contains folders, then treat it as if the folders
-                // are not sorted on top, this way the logic should work exactly as for mixed
-                // lists or files-only lists.
-                if (getCursor()->getType() == FOLDER && foldersOnTop == true)
-                    foldersOnTop = !getCursor()->getParent()->getOnlyFoldersFlag();
-
-                if (mRoot->getSystem()->isCustomCollection() ||
-                    mRoot->getSystem()->getThemeFolder() == "custom-collections")
-                    favoritesSorting = Settings::getInstance()->getBool("FavFirstCustom");
-                else
-                    favoritesSorting = Settings::getInstance()->getBool("FavoritesFirst");
-
-                if (favoritesSorting && mRoot->getSystem()->getName() != "recent" && !isEditing) {
-                    FileData* entryToSelect;
-                    // Add favorite flag.
-                    if (!getCursor()->getFavorite()) {
-                        // If it's a folder and folders are sorted on top, select the current entry.
-                        if (foldersOnTop && getCursor()->getType() == FOLDER) {
-                            entryToSelect = getCursor();
-                        }
-                        // If it's the first entry to be marked as favorite, select the next entry.
-                        else if (getCursor() == getFirstEntry()) {
-                            entryToSelect = getNextEntry();
-                        }
-                        else if (getCursor() == getLastEntry() &&
-                                 getPreviousEntry()->getFavorite()) {
-                            entryToSelect = getLastEntry();
-                            selectLastEntry = true;
-                        }
-                        // If we are on the favorite marking boundary, select the next entry.
-                        else if (getCursor()->getFavorite() != getPreviousEntry()->getFavorite()) {
-                            entryToSelect = getNextEntry();
-                        }
-                        // If we mark the second entry as favorite and the first entry is not a
-                        // favorite, then select this entry if they are of the same type.
-                        else if (getPreviousEntry() == getFirstEntry() &&
-                                 getCursor()->getType() == getPreviousEntry()->getType()) {
-                            entryToSelect = getPreviousEntry();
-                        }
-                        // For all other scenarios try to select the next entry, and if it doesn't
-                        // exist, select the previous entry.
-                        else {
-                            entryToSelect =
-                                getCursor() != getNextEntry() ? getNextEntry() : getPreviousEntry();
-                        }
-                    }
-                    // Remove favorite flag.
-                    else {
-                        // If it's a folder and folders are sorted on top, select the current entry.
-                        if (foldersOnTop && getCursor()->getType() == FOLDER) {
-                            entryToSelect = getCursor();
-                        }
-                        // If it's the last entry, select the previous entry.
-                        else if (getCursor() == getLastEntry()) {
-                            entryToSelect = getPreviousEntry();
-                        }
-                        // If we are on the favorite marking boundary, select the previous entry,
-                        // unless folders are sorted on top and the previous entry is a folder.
-                        else if (foldersOnTop &&
-                                 getCursor()->getFavorite() != getNextEntry()->getFavorite()) {
-                            entryToSelect = getPreviousEntry()->getType() == FOLDER ?
-                                                getCursor() :
-                                                getPreviousEntry();
-                        }
-                        // If we are on the favorite marking boundary, select the previous entry.
-                        else if (getCursor()->getFavorite() != getNextEntry()->getFavorite()) {
-                            entryToSelect = getPreviousEntry();
-                        }
-                        // For all other scenarios try to select the next entry, and if it doesn't
-                        // exist, select the previous entry.
-                        else {
-                            entryToSelect =
-                                getCursor() != getNextEntry() ? getNextEntry() : getPreviousEntry();
-                        }
-
-                        // If we removed the last favorite marking, set the flag to jump to the
-                        // first list entry after the sorting has been performed.
-                        if (foldersOnTop && getCursor() == getFirstGameEntry() &&
-                            !getNextEntry()->getFavorite())
-                            removedLastFavorite = true;
-                        else if (getCursor() == getFirstEntry() && !getNextEntry()->getFavorite())
-                            removedLastFavorite = true;
-                    }
-
-                    setCursor(entryToSelect);
-                    system = entryToUpdate->getSystem();
-                }
-
-                // Marking folders as favorites don't make them part of any collections,
-                // so it makes more sense to handle it here than to add the function to
-                // CollectionSystemsManager.
-                if (entryToUpdate->getType() == FOLDER) {
-                    if (isEditing) {
-                        mWindow->queueInfoPopup(_("CAN'T ADD FOLDERS TO CUSTOM COLLECTIONS"), 4000);
-                    }
-                    else {
-                        MetaDataList* md {&entryToUpdate->getSourceFileData()->metadata};
-                        if (md->get("favorite") == "false") {
-                            md->set("favorite", "true");
-                            mWindow->queueInfoPopup(
-                                Utils::String::format(
-                                    _("MARKED FOLDER '%s' AS FAVORITE"),
-                                    Utils::String::toUpper(
-                                        Utils::String::removeParenthesis(entryToUpdate->getName()))
-                                        .c_str()),
-                                4000);
-                        }
-                        else {
-                            md->set("favorite", "false");
-                            mWindow->queueInfoPopup(
-                                Utils::String::format(
-                                    _("REMOVED FAVORITE MARKING FOR FOLDER '%s'"),
-                                    Utils::String::toUpper(
-                                        Utils::String::removeParenthesis(entryToUpdate->getName()))
-                                        .c_str()),
-                                4000);
-                        }
-                    }
-
-                    entryToUpdate->getSourceFileData()->getSystem()->onMetaDataSavePoint();
-
-                    getCursor()->getParent()->sort(
-                        mRoot->getSortTypeFromString(mRoot->getSortTypeString()),
-                        Settings::getInstance()->getBool("FavoritesFirst"));
-
-                    ViewController::getInstance()->onFileChanged(getCursor(), false);
-
-                    // Always jump to the first entry in the gamelist if the last favorite
-                    // was unmarked. We couldn't do this earlier as we didn't have the list
-                    // sorted yet.
-                    if (removedLastFavorite) {
-                        ViewController::getInstance()
-                            ->getGamelistView(entryToUpdate->getSystem())
-                            ->setCursor(ViewController::getInstance()
-                                            ->getGamelistView(entryToUpdate->getSystem())
-                                            ->getFirstEntry());
-                    }
-                    return true;
-                }
-                else if (isEditing && entryToUpdate->metadata.get("nogamecount") == "true") {
-                    mWindow->queueInfoPopup(_("CAN'T ADD ENTRIES THAT ARE NOT COUNTED "
-                                              "AS GAMES TO CUSTOM COLLECTIONS"),
-                                            4000);
-                }
-                else if (CollectionSystemsManager::getInstance()->toggleGameInCollection(
-                             entryToUpdate)) {
-                    // Needed to avoid some minor transition animation glitches.
-                    auto grid =
-                        ViewController::getInstance()->getGamelistView(system).get()->mGrid.get();
-                    if (grid != nullptr)
-                        grid->setSuppressTransitions(true);
-
-                    // As the toggling of the game destroyed this object, we need to get the view
-                    // from ViewController instead of using the reference that existed before the
-                    // destruction. Otherwise we get random crashes.
-                    GamelistView* view {
-                        ViewController::getInstance()->getGamelistView(system).get()};
-
-                    // Jump to the first entry in the gamelist if the last favorite was unmarked.
-                    if (foldersOnTop && removedLastFavorite &&
-                        !entryToUpdate->getSystem()->isCustomCollection()) {
-                        ViewController::getInstance()
-                            ->getGamelistView(entryToUpdate->getSystem())
-                            ->setCursor(ViewController::getInstance()
-                                            ->getGamelistView(entryToUpdate->getSystem())
-                                            ->getFirstGameEntry());
-                    }
-                    else if (removedLastFavorite &&
-                             !entryToUpdate->getSystem()->isCustomCollection()) {
-                        setCursor(getFirstEntry());
-                        view->setCursor(view->getFirstEntry());
-                    }
-                    else if (selectLastEntry && view->getPrimary()->size() > 0) {
-                        view->setCursor(view->getLastEntry());
-                    }
-
-                    if (grid != nullptr)
-                        grid->setSuppressTransitions(false);
-
-                    // Display the indication icons which show what games are part of the
-                    // custom collection currently being edited. This is done cheaply using
-                    // onFileChanged() which will trigger populateList().
-                    if (isEditing) {
-                        for (auto it = SystemData::sSystemVector.begin();
-                             it != SystemData::sSystemVector.end(); ++it) {
-                            ViewController::getInstance()->getGamelistView((*it))->onFileChanged(
-                                ViewController::getInstance()->getGamelistView((*it))->getCursor(),
-                                false);
-                        }
-                    }
-                    return true;
-                }
-            }
-            else if (config->isMappedTo("y", input) && getCursor()->isPlaceHolder()) {
-                NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
-            }
+            if (toggleCollectionEntry())
+                return true;
         }
     }
 
@@ -519,6 +298,228 @@ bool GamelistBase::input(InputConfig* config, Input input)
     }
 
     return GuiComponent::input(config, input);
+}
+
+bool GamelistBase::toggleCollectionEntry(bool favoriteOnly)
+{
+    // Notify the user if attempting to add a custom collection to a custom collection.
+    if ((CollectionSystemsManager::getInstance()->isEditing() && !favoriteOnly) &&
+        mRoot->getSystem()->isGameSystem() && getCursor()->getType() != PLACEHOLDER &&
+        getCursor()->getParent()->getPath() == "collections") {
+        NavigationSounds::getInstance().playThemeNavigationSound(FAVORITESOUND);
+        mWindow->queueInfoPopup(_("CAN'T ADD CUSTOM COLLECTIONS TO CUSTOM COLLECTIONS"), 4000);
+    }
+    // Notify the user if attempting to add a placeholder to a custom collection.
+    if ((CollectionSystemsManager::getInstance()->isEditing() && !favoriteOnly) &&
+        mRoot->getSystem()->isGameSystem() && getCursor()->getType() == PLACEHOLDER) {
+        NavigationSounds::getInstance().playThemeNavigationSound(FAVORITESOUND);
+        mWindow->queueInfoPopup(_("CAN'T ADD PLACEHOLDERS TO CUSTOM COLLECTIONS"), 4000);
+    }
+    else if (mRoot->getSystem()->isGameSystem() && getCursor()->getType() != PLACEHOLDER &&
+             getCursor()->getParent()->getPath() != "collections") {
+        if (getCursor()->getType() == GAME || getCursor()->getType() == FOLDER)
+            NavigationSounds::getInstance().playThemeNavigationSound(FAVORITESOUND);
+        // When marking or unmarking a game as favorite, don't jump to the new position
+        // it gets after the gamelist sorting. Instead retain the cursor position in the
+        // list using the logic below.
+        FileData* entryToUpdate {getCursor()};
+        SystemData* system {getCursor()->getSystem()};
+        SystemData* entrySystem {system};
+        FileData* source {entryToUpdate->getSourceFileData()};
+        bool favoritesSorting;
+        bool removedLastFavorite {false};
+        bool selectLastEntry {false};
+        bool isEditing {(CollectionSystemsManager::getInstance()->isEditing() && !favoriteOnly)};
+        bool foldersOnTop {Settings::getInstance()->getBool("FoldersOnTop")};
+        // If the current list only contains folders, then treat it as if the folders
+        // are not sorted on top, this way the logic should work exactly as for mixed
+        // lists or files-only lists.
+        if (getCursor()->getType() == FOLDER && foldersOnTop == true)
+            foldersOnTop = !getCursor()->getParent()->getOnlyFoldersFlag();
+
+        if (mRoot->getSystem()->isCustomCollection() ||
+            mRoot->getSystem()->getThemeFolder() == "custom-collections")
+            favoritesSorting = Settings::getInstance()->getBool("FavFirstCustom");
+        else
+            favoritesSorting = Settings::getInstance()->getBool("FavoritesFirst");
+
+        if (favoritesSorting && mRoot->getSystem()->getName() != "recent" && !isEditing) {
+            FileData* entryToSelect;
+            // Add favorite flag.
+            if (!getCursor()->getFavorite()) {
+                // If it's a folder and folders are sorted on top, select the current entry.
+                if (foldersOnTop && getCursor()->getType() == FOLDER) {
+                    entryToSelect = getCursor();
+                }
+                // If it's the first entry to be marked as favorite, select the next entry.
+                else if (getCursor() == getFirstEntry()) {
+                    entryToSelect = getNextEntry();
+                }
+                else if (getCursor() == getLastEntry() && getPreviousEntry()->getFavorite()) {
+                    entryToSelect = getLastEntry();
+                    selectLastEntry = true;
+                }
+                // If we are on the favorite marking boundary, select the next entry.
+                else if (getCursor()->getFavorite() != getPreviousEntry()->getFavorite()) {
+                    entryToSelect = getNextEntry();
+                }
+                // If we mark the second entry as favorite and the first entry is not a
+                // favorite, then select this entry if they are of the same type.
+                else if (getPreviousEntry() == getFirstEntry() &&
+                         getCursor()->getType() == getPreviousEntry()->getType()) {
+                    entryToSelect = getPreviousEntry();
+                }
+                // For all other scenarios try to select the next entry, and if it doesn't
+                // exist, select the previous entry.
+                else {
+                    entryToSelect =
+                        getCursor() != getNextEntry() ? getNextEntry() : getPreviousEntry();
+                }
+            }
+            // Remove favorite flag.
+            else {
+                // If it's a folder and folders are sorted on top, select the current entry.
+                if (foldersOnTop && getCursor()->getType() == FOLDER) {
+                    entryToSelect = getCursor();
+                }
+                // If it's the last entry, select the previous entry.
+                else if (getCursor() == getLastEntry()) {
+                    entryToSelect = getPreviousEntry();
+                }
+                // If we are on the favorite marking boundary, select the previous entry,
+                // unless folders are sorted on top and the previous entry is a folder.
+                else if (foldersOnTop &&
+                         getCursor()->getFavorite() != getNextEntry()->getFavorite()) {
+                    entryToSelect =
+                        getPreviousEntry()->getType() == FOLDER ? getCursor() : getPreviousEntry();
+                }
+                // If we are on the favorite marking boundary, select the previous entry.
+                else if (getCursor()->getFavorite() != getNextEntry()->getFavorite()) {
+                    entryToSelect = getPreviousEntry();
+                }
+                // For all other scenarios try to select the next entry, and if it doesn't
+                // exist, select the previous entry.
+                else {
+                    entryToSelect =
+                        getCursor() != getNextEntry() ? getNextEntry() : getPreviousEntry();
+                }
+
+                // If we removed the last favorite marking, set the flag to jump to the
+                // first list entry after the sorting has been performed.
+                if (foldersOnTop && getCursor() == getFirstGameEntry() &&
+                    !getNextEntry()->getFavorite())
+                    removedLastFavorite = true;
+                else if (getCursor() == getFirstEntry() && !getNextEntry()->getFavorite())
+                    removedLastFavorite = true;
+            }
+
+            setCursor(entryToSelect);
+            system = entryToUpdate->getSystem();
+        }
+
+        // Marking folders as favorites don't make them part of any collections,
+        // so it makes more sense to handle it here than to add the function to
+        // CollectionSystemsManager.
+        if (entryToUpdate->getType() == FOLDER) {
+            if (isEditing) {
+                mWindow->queueInfoPopup(_("CAN'T ADD FOLDERS TO CUSTOM COLLECTIONS"), 4000);
+            }
+            else {
+                MetaDataList* md {&entryToUpdate->getSourceFileData()->metadata};
+                if (md->get("favorite") == "false") {
+                    md->set("favorite", "true");
+                    mWindow->queueInfoPopup(
+                        Utils::String::format(
+                            _("MARKED FOLDER '%s' AS FAVORITE"),
+                            Utils::String::toUpper(
+                                Utils::String::removeParenthesis(entryToUpdate->getName()))
+                                .c_str()),
+                        4000);
+                }
+                else {
+                    md->set("favorite", "false");
+                    mWindow->queueInfoPopup(
+                        Utils::String::format(
+                            _("REMOVED FAVORITE MARKING FOR FOLDER '%s'"),
+                            Utils::String::toUpper(
+                                Utils::String::removeParenthesis(entryToUpdate->getName()))
+                                .c_str()),
+                        4000);
+                }
+            }
+
+            entryToUpdate->getSourceFileData()->getSystem()->onMetaDataSavePoint();
+
+            getCursor()->getParent()->sort(mRoot->getSortTypeFromString(mRoot->getSortTypeString()),
+                                           Settings::getInstance()->getBool("FavoritesFirst"));
+
+            ViewController::getInstance()->onFileChanged(getCursor(), false);
+
+            // Always jump to the first entry in the gamelist if the last favorite
+            // was unmarked. We couldn't do this earlier as we didn't have the list
+            // sorted yet.
+            if (removedLastFavorite) {
+                ViewController::getInstance()
+                    ->getGamelistView(entryToUpdate->getSystem())
+                    ->setCursor(ViewController::getInstance()
+                                    ->getGamelistView(entryToUpdate->getSystem())
+                                    ->getFirstEntry());
+            }
+            return true;
+        }
+        else if (isEditing && entryToUpdate->metadata.get("nogamecount") == "true") {
+            mWindow->queueInfoPopup(_("CAN'T ADD ENTRIES THAT ARE NOT COUNTED "
+                                      "AS GAMES TO CUSTOM COLLECTIONS"),
+                                    4000);
+        }
+        else if (CollectionSystemsManager::getInstance()->toggleGameInCollection(entryToUpdate,
+                                                                                 favoriteOnly)) {
+            // Needed to avoid some minor transition animation glitches.
+            auto grid = ViewController::getInstance()->getGamelistView(system).get()->mGrid.get();
+            if (grid != nullptr)
+                grid->setSuppressTransitions(true);
+
+            // As the toggling of the game destroyed this object, we need to get the view
+            // from ViewController instead of using the reference that existed before the
+            // destruction. Otherwise we get random crashes.
+            GamelistView* view {ViewController::getInstance()->getGamelistView(system).get()};
+
+            // Jump to the first entry in the gamelist if the last favorite was unmarked.
+            if (foldersOnTop && removedLastFavorite && !entrySystem->isCustomCollection()) {
+                ViewController::getInstance()
+                    ->getGamelistView(entrySystem)
+                    ->setCursor(ViewController::getInstance()
+                                    ->getGamelistView(entrySystem)
+                                    ->getFirstGameEntry());
+            }
+            else if (removedLastFavorite && !entrySystem->isCustomCollection()) {
+                view->setCursor(view->getFirstEntry());
+            }
+            else if (selectLastEntry && view->getPrimary()->size() > 0) {
+                view->setCursor(view->getLastEntry());
+            }
+
+            if (grid != nullptr)
+                grid->setSuppressTransitions(false);
+            SearchEntry::logFavoriteAction(source, isEditing, view);
+
+            // Display the indication icons which show what games are part of the
+            // custom collection currently being edited. This is done cheaply using
+            // onFileChanged() which will trigger populateList().
+            if (isEditing) {
+                for (auto it = SystemData::sSystemVector.begin();
+                     it != SystemData::sSystemVector.end(); ++it) {
+                    ViewController::getInstance()->getGamelistView((*it))->onFileChanged(
+                        ViewController::getInstance()->getGamelistView((*it))->getCursor(), false);
+                }
+            }
+            return true;
+        }
+    }
+    else if (getCursor()->isPlaceHolder()) {
+        NavigationSounds::getInstance().playThemeNavigationSound(SCROLLSOUND);
+    }
+    return false;
 }
 
 void GamelistBase::enterDirectory(FileData* cursor)
@@ -1148,4 +1149,10 @@ std::string GamelistBase::getQuickSystemSelectRightButton()
         return "right";
     else
         return "rightshoulder";
+}
+
+bool GamelistBase::hasCollectionJump() const
+{
+    return mRoot->getSystem()->getThemeFolder() == "custom-collections" &&
+           !CollectionSystemsManager::getInstance()->isEditing() && mCursorStack.empty();
 }

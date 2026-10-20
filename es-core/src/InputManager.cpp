@@ -295,7 +295,7 @@ void InputManager::cancelTouchInput()
     mAcceptedTouch = {};
     if (!mTouchInputConfig)
         return;
-    for (int i {0}; i < 14; ++i) {
+    for (int i {0}; i < 15; ++i) {
         if (accepted[i]) {
             LOG(LogDebug) << "InputOverlay: cancelled id=" << TouchOverlay::IDS[i];
             mWindow->releaseTouchInput(
@@ -417,7 +417,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
             if (epoch != mInputOverlay.epoch() || mWindow->getBlockInput())
                 break;
             const auto t {transitions.entries[n]};
-            for (int i {0}; i < 14; ++i) {
+            for (int i {0}; i < 15; ++i) {
                 if (TouchOverlay::IDS[i] != t.id)
                     continue;
                 if (mAcceptedTouch[i] == static_cast<bool>(t.value))
@@ -539,8 +539,11 @@ bool InputManager::parseEvent(const SDL_Event& event)
                     mWindow->textInput("\b");
             }
 
-            if (event.key.repeat)
+            if (event.key.repeat) {
+                if (mWindow->peekGui() && mWindow->peekGui()->acceptsSearchText())
+                    mSearchTextInput.keyRepeat();
                 return false;
+            }
 
 #if defined(__ANDROID__)
             // Quit application if the back button is pressed or if the back gesture is used,
@@ -594,11 +597,18 @@ bool InputManager::parseEvent(const SDL_Event& event)
             if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
                 return true;
 
-            mWindow->input(getInputConfigByDevice(DEVICE_KEYBOARD),
-                           Input(DEVICE_KEYBOARD, TYPE_KEY, event.key.keysym.sym, 1, false));
+            auto* previousGui {mWindow->peekGui()};
+            const bool browsing {previousGui && previousGui->acceptsSearchText()};
+            const auto key {event.key.keysym.sym};
+            Input keyboardInput {DEVICE_KEYBOARD, TYPE_KEY, key, 1, false};
+            keyboardInput.modifiers = static_cast<SDL_Keymod>(event.key.keysym.mod);
+            mWindow->input(getInputConfigByDevice(DEVICE_KEYBOARD), keyboardInput);
+            mSearchTextInput.keyDown(getInputConfigByDevice(DEVICE_KEYBOARD), keyboardInput,
+                                     browsing, previousGui, mWindow->peekGui());
             return true;
         }
         case SDL_KEYUP: {
+            mSearchTextInput.keyUp();
             if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
                 return true;
 
@@ -663,6 +673,10 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
 #endif
         case SDL_TEXTINPUT: {
+            if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
+                break;
+            if (mSearchTextInput.text(event.text.text, mWindow->peekGui()))
+                break;
             mWindow->textInput(event.text.text);
             break;
         }
@@ -973,4 +987,10 @@ void InputManager::removeControllerByJoystickID(Window* window, SDL_JoystickID j
     else {
         LOG(LogError) << "Couldn't find joystick entry to remove (instance ID: " << joyID << ")";
     }
+}
+
+void InputManager::prepareSearchTextInput()
+{
+    if (!Settings::getInstance()->getBool("InputIgnoreKeyboard"))
+        mSearchTextInput.prepare(mWindow->peekGui());
 }

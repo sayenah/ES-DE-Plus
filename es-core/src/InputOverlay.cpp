@@ -19,12 +19,12 @@
 
 namespace
 {
-    const std::array<const char*, 14> ART {
+    const std::array<const char*, 15> ART {
         "button_dpad.svg",      "button_dpad.svg",       "button_dpad.svg",
         "button_dpad.svg",      "button_a.svg",          "button_b.svg",
         "button_x.svg",         "button_y.svg",          "button_back.svg",
         "button_start.svg",     "button_shoulder_l.svg", "button_shoulder_r.svg",
-        "button_trigger_l.svg", "button_trigger_r.svg"};
+        "button_trigger_l.svg", "button_trigger_r.svg",  "button_search.svg"};
 }
 
 InputOverlay& InputOverlay::getInstance()
@@ -221,7 +221,7 @@ void InputOverlay::logLayout() const
 }
 void InputOverlay::buildTextures()
 {
-    for (int i {0}; i < 14; ++i) {
+    for (int i {0}; i < 15; ++i) {
         mImages[i].reset();
         mLabels[i].reset();
         const auto& b {mModel.buttons()[i]};
@@ -246,9 +246,9 @@ void InputOverlay::buildTextures()
             LOG(LogError) << "InputOverlay: unavailable art id=" << b.id << "; primitive fallback";
             // Controller glyphs are fixed, like the reused SVGs. Back/Start use
             // existing localized control names; no new art or font is introduced.
-            const std::array<std::string, 14> labels {"↑",  "↓",  "←",  "→",       "A",
+            const std::array<std::string, 15> labels {"↑",  "↓",  "←",  "→",       "A",
                                                       "B",  "X",  "Y",  _("BACK"), _("START"),
-                                                      "LB", "RB", "LT", "RT"};
+                                                      "LB", "RB", "LT", "RT",      _("SEARCH")};
             auto label {std::make_unique<TextComponent>(
                 labels[i], Font::get(std::min(b.width, b.height) * 0.4f), 0xFFFFFFFF, ALIGN_CENTER,
                 ALIGN_CENTER, glm::ivec2 {0, 0})};
@@ -270,7 +270,7 @@ void InputOverlay::render(const glm::mat4& parentTrans)
         buildTextures();
     auto* renderer {Renderer::getInstance()};
     const float alpha {mModel.alpha()};
-    for (int i {0}; i < 14; ++i) {
+    for (int i {0}; i < 15; ++i) {
         const auto& b {mModel.buttons()[i]};
         const bool pressed {mModel.highlighted(i)};
         const float w {b.width * (pressed ? 0.94f : 1.0f)};

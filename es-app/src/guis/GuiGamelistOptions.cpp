@@ -16,6 +16,7 @@
 #endif
 
 #include "guis/GuiGamelistOptions.h"
+#include "guis/SearchEntry.h"
 
 #include "CollectionSystemsManager.h"
 #include "FileFilterIndex.h"
@@ -155,6 +156,23 @@ GuiGamelistOptions::GuiGamelistOptions(SystemData* system)
         }
     }
 
+    if (file->getType() == GAME && mSystem->isGameSystem() &&
+        UIModeController::getInstance()->isUIModeFull()) {
+        row.elements.clear();
+        row.addElement(std::make_shared<TextComponent>(
+                           file->getFavorite() ? _("REMOVE FROM FAVORITES") : _("ADD TO FAVORITES"),
+                           Font::get(FONT_SIZE_MEDIUM), mMenuColorPrimary),
+                       true);
+        row.makeAcceptInputHandler([this] {
+            SystemData* system {mSystem};
+            // Commit menu sorting/filter changes, then acquire the resulting view.
+            delete this;
+            auto view {ViewController::getInstance()->getGamelistView(system)};
+            view->toggleCollectionEntry(true);
+        });
+        mMenu.addRow(row);
+    }
+
     // Add the filters entry, unless this is the grouped custom collections system or if there
     // are no games for the system.
     if (!mIsCustomCollectionGroup && system->getRootFolder()->getChildren().size() > 0) {
@@ -269,6 +287,8 @@ GuiGamelistOptions::GuiGamelistOptions(SystemData* system)
     // Center the menu.
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
     mMenu.setPosition((mSize.x - mMenu.getSize().x) / 2.0f, (mSize.y - mMenu.getSize().y) / 2.0f);
+
+    SearchEntry::observeOptionsFocus(mMenu.getList().get());
 }
 
 GuiGamelistOptions::~GuiGamelistOptions()

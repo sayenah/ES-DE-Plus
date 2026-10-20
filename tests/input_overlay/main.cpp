@@ -57,17 +57,17 @@ static Geometry geometry(int w = 1920, int h = 1080, int rotation = 0)
 }
 
 struct Oracle {
-    std::array<int, 14> held {};
+    std::array<int, 15> held {};
     void accept(const Transitions& transitions)
     {
-        require(transitions.count <= 14, "bounded cancellation");
+        require(transitions.count <= 15, "bounded cancellation");
         for (int n {0}; n < transitions.count; ++n) {
             const auto t {transitions.entries[n]};
             int index {-1};
-            for (int i {0}; i < 14; ++i)
+            for (int i {0}; i < 15; ++i)
                 if (IDS[i] == t.id)
                     index = i;
-            require(index >= 0, "only the fourteen mapped ids");
+            require(index >= 0, "only the fifteen mapped ids");
             require(held[index] != t.value, "press/release alternation");
             held[index] = t.value;
         }
@@ -314,7 +314,7 @@ static void layouts()
                     if (!m.supported()) {
                         std::fprintf(stderr, "unsupported %.0fx%.0f dpi=%.0f size=%s\n", g.width,
                                      g.height, density, size);
-                        require(false, "supported viewport has fourteen controls");
+                        require(false, "supported viewport has fifteen controls");
                     }
                     require(m.diameter() + 0.01f >= previous * 1.1f,
                             "each size grows by at least 10 percent");
@@ -322,7 +322,7 @@ static void layouts()
                     require(m.diameter() <= 84 * m.density() * options.size + 0.01f,
                             "diameter cap");
                     const Rect safe {m.safeArea()};
-                    for (int i {0}; i < 14; ++i) {
+                    for (int i {0}; i < 15; ++i) {
                         const Button& b {m.buttons()[i]};
                         if (i < 4) {
                             // Native SVG inner arrow is Left: rotate (-1, 0),
@@ -503,13 +503,13 @@ static void normalDeckRegressions()
                         m.rebuild(g, options, density * 160);
                         require(m.supported(), "full sweep viewport supported");
                         require(!historicalNormal || !m.compact(),
-                                "41590bc75 normal deck never regresses to compact");
+                                "93218fc9e normal deck never regresses to compact");
                         require(m.diameter() + 0.01f >= previous * 1.1f,
                                 "full sweep retains four 10 percent steps");
                         require(m.diameter() <= 84 * density * options.size + 0.01f,
                                 "full sweep visual cap");
                         previous = m.diameter();
-                        for (int i {0}; i < 14; ++i) {
+                        for (int i {0}; i < 15; ++i) {
                             const auto& b {m.buttons()[i]};
                             const auto& safe {m.safeArea()};
                             require(b.hit.w + 0.01f >= 48 * density &&
@@ -545,7 +545,7 @@ static void normalDeckRegressions()
                         ++cases;
                     }
                 }
-    require(cases == 232848 && normal == 210241 && run + 1 == NORMAL_LAYOUT_RUNS.size() &&
+    require(cases == 232848 && normal == 223208 && run + 1 == NORMAL_LAYOUT_RUNS.size() &&
                 remaining == 0,
             "complete historical oracle consumed");
     std::printf(
@@ -628,7 +628,7 @@ static void generated()
         const Event event {!down[index]      ? Event::DOWN :
                            random() % 3 == 0 ? Event::UP :
                                                Event::MOTION};
-        const Point point {position(m, random() % 14)};
+        const Point point {position(m, random() % 15)};
         const auto transitions {m.input(event, index + 1, point)};
         require(transitions.count <= 2, "bounded valid-gesture transitions");
         oracle.accept(transitions);
@@ -646,7 +646,7 @@ static void generated()
     for (int n {0}; n < 100000; ++n) {
         const int id {static_cast<int>(random() % 12 + 1)};
         const int choice {static_cast<int>(random() % 100)};
-        Point point {position(m, random() % 14)};
+        Point point {position(m, random() % 15)};
         if (choice < 5)
             point = {NAN, INFINITY};
         else if (choice < 10)
@@ -663,7 +663,7 @@ static void generated()
             require(t.count <= 2, "bounded per-event transitions");
             oracle.accept(t);
         }
-        for (int i {0}; i < 14; ++i)
+        for (int i {0}; i < 15; ++i)
             require(m.references(i) >= 0, "nonnegative refcounts");
         m.update(16);
         if (n % 100 == 99)

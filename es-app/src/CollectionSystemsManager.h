@@ -107,7 +107,7 @@ public:
     void exitEditMode(bool showPopup = true);
     const bool inCustomCollection(const std::string& collectionName, FileData* gameFile);
     // Add or remove a game from a specific collection.
-    const bool toggleGameInCollection(FileData* file);
+    const bool toggleGameInCollection(FileData* file, bool favoriteOnly = false);
 
     SystemData* getSystemToView(SystemData* sys);
     // Used to generate a description of the collection (all other metadata fields are hidden).

@@ -15,6 +15,8 @@
 #include "InputOverlay.h"
 #endif
 
+#include "SearchTextInput.h"
+
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_joystick.h>
 
@@ -47,6 +49,7 @@ public:
     InputConfig* getInputConfigByDevice(int deviceId);
 
     bool parseEvent(const SDL_Event& event);
+    void prepareSearchTextInput();
 #if defined(__ANDROID__)
     void cancelTouchInput();
 #endif
@@ -75,6 +78,7 @@ private:
     static const int DEADZONE_TRIGGERS = 18000;
     static const int DEADZONE_THUMBSTICKS = 23000;
     bool mConfigFileExists;
+    SearchTextInput mSearchTextInput;
 
     std::map<SDL_JoystickID, SDL_Joystick*> mJoysticks;
     std::map<SDL_JoystickID, SDL_GameController*> mControllers;
@@ -83,7 +87,7 @@ private:
     std::unique_ptr<InputConfig> mKeyboardInputConfig;
     std::unique_ptr<InputConfig> mTouchInputConfig;
 #if defined(__ANDROID__)
-    std::array<bool, 14> mAcceptedTouch {};
+    std::array<bool, 15> mAcceptedTouch {};
     struct TouchOwner {
         int64_t finger {-1};
         GuiComponent* gui {nullptr};
