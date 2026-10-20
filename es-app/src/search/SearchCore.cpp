@@ -13,6 +13,11 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#else
+#include <malloc.h>
+#endif
 #endif
 #include <array>
 #include <atomic>
@@ -34,6 +39,9 @@ namespace LibrarySearch
 {
     namespace
     {
+#ifdef SEARCH_TEST_BUILD_TIMING
+        std::atomic<const char*> diagnosticPhase {"before-input"};
+#endif
         bool starts(std::string_view text, std::string_view prefix)
         {
             return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
@@ -1597,6 +1605,9 @@ namespace LibrarySearch
         }
     };
 
+#ifdef SEARCH_TEST_BUILD_TIMING
+    const char* testBuildPhase() { return diagnosticPhase.load(std::memory_order_relaxed); }
+#endif
     Core::Core()
         : mIndex {std::make_unique<Index>()}
     {
@@ -1630,6 +1641,9 @@ namespace LibrarySearch
     uint64_t Core::version() const { return mVersion; }
     void Core::clear()
     {
+#ifdef SEARCH_TEST_BUILD_TIMING
+        diagnosticPhase.store("cleared", std::memory_order_relaxed);
+#endif
         mIndex = std::make_unique<Index>();
         mVersion = nextVersion.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1641,8 +1655,21 @@ namespace LibrarySearch
 #ifdef SEARCH_TEST_BUILD_TIMING
         // Benchmark-only diagnostics, absent from the application build.
         const bool timing = std::getenv("SEARCH_BUILD_PROFILE") != nullptr;
+        const bool memory = std::getenv("SEARCH_MEMORY_PROFILE") != nullptr;
         auto checkpoint = std::chrono::steady_clock::now();
         auto phase = [&](const char* name) {
+            diagnosticPhase.store(name, std::memory_order_relaxed);
+            if (memory) {
+#if defined(__APPLE__)
+                malloc_statistics_t stats;
+                malloc_zone_statistics(nullptr, &stats);
+                const double heap = stats.size_in_use / 1048576.0;
+#else
+                const auto stats = mallinfo2();
+                const double heap = (stats.uordblks + stats.hblkhd) / 1048576.0;
+#endif
+                std::printf("HEAP phase=%s mb=%.3f\n", name, heap);
+            }
             if (!timing)
                 return;
             const auto now = std::chrono::steady_clock::now();
@@ -1653,6 +1680,7 @@ namespace LibrarySearch
 #else
         auto phase = [](const char*) {};
 #endif
+        phase("input");
         std::unordered_set<std::string> identities;
         games.erase(std::remove_if(games.begin(), games.end(),
                                    [&](Game& g) {
@@ -1667,15 +1695,19 @@ namespace LibrarySearch
                                        return false;
                                    }),
                     games.end());
+        phase("identified");
         identities.clear();
         identities.rehash(0);
-        ix.games.reserve(games.size());
+        // Grow packed records as input strings are released. Reserving the full
+        // output array here would overlap all input and output allocations.
+
         // Intern raw fields once; views use arena offsets so arena growth is safe.
         std::unordered_map<std::string, Index::Ref> strings;
         size_t rawBytes {0};
         for (const auto& g : games)
             rawBytes += g.id.size() + g.title.size() + g.fileStem.size();
         ix.rawText.reserve(rawBytes);
+        phase("raw-reserved");
         auto intern = [&](const std::string& value) {
             auto found = strings.find(value);
             if (found != strings.end())
@@ -1702,6 +1734,7 @@ namespace LibrarySearch
         }
         games.clear();
         games.shrink_to_fit();
+        ix.games.shrink_to_fit();
         strings.clear();
         strings.rehash(0);
         ix.rawText.shrink_to_fit();
@@ -1995,13 +2028,17 @@ namespace LibrarySearch
         wordIds.rehash(0);
         // Finish and release the large document-pair buffers before building the
         // vocabulary grams; their temporary peaks must not overlap.
+        phase("word-ids");
         ix.initials.build(std::move(initialPairs));
+        phase("initials");
         ix.boundaries.build(std::move(boundaryPairs));
+        phase("boundaries");
         for (Id w {0}; w < ix.vocabulary.size(); ++w) {
             const auto text = ix.word(w);
             for (size_t p {0}; p + 3 <= text.size(); ++p)
                 gramPairs.push_back(uint64_t {gram(text, p, 3)} << 32 | w);
         }
+        phase("gram-input");
         ix.wordGrams.build(std::move(gramPairs));
         for (Id w {0}; w < ix.vocabulary.size(); ++w) {
             const auto text = ix.word(w);
