@@ -90,6 +90,7 @@ public:
 
     // Fork-only search action; only the browsing view handles it.
     virtual void openSearch(const std::string& = "") {}
+    virtual bool acceptsSearchText() const { return false; }
 #if defined(__ANDROID__)
     virtual bool ownsTouch(float, float) { return false; }
     virtual bool nativeTouch(int, int64_t, float, float) { return false; }

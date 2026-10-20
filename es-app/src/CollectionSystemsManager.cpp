@@ -20,6 +20,7 @@
 //
 
 #include "CollectionSystemsManager.h"
+#include "guis/SearchEntry.h"
 
 #include "FileData.h"
 #include "FileFilterIndex.h"
@@ -789,10 +790,7 @@ const bool CollectionSystemsManager::toggleGameInCollection(FileData* file, bool
                 ViewController::getInstance()->reloadGamelistView(
                     mAutoCollectionSystemsData["favorites"].system);
             const auto& favorites {mAutoCollectionSystemsData["favorites"]};
-            LOG(LogDebug) << "Favorites collection: game=" << source->getName()
-                          << " favorite=" << source->getFavorite()
-                          << " enabled=" << favorites.isEnabled
-                          << " count=" << favorites.system->getRootFolder()->getChildren().size();
+            SearchEntry::logFavoritesCollection(source, favorites.isEnabled, favorites.system);
         }
         std::string sysTemp {sysName};
         if (sysTemp == "Favorites")

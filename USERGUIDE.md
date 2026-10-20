@@ -701,7 +701,7 @@ Starts the media viewer in the gamelist view or the screensaver in the system vi
 **Y button**\
 _(Insert on Linux and Windows, F13 on macOS)_
 
-Opens Search in the system view and game lists in every UI mode. While editing a custom collection, Y still adds or removes collection entries. To restore the previous favorites action in game lists, set _Y button in game lists_ to _Favorites_ in _UI settings_. The Select game options menu includes _Add to favorites_ / _Remove from favorites_. Search can also be opened by typing an unmapped letter or digit on a physical keyboard, or by pressing `/` or a keyboard/remote Search key; mapped keys keep their actions. These shortcuts operate only while browsing, with no menu, screensaver or media viewer on top.
+Opens Search in the system view and game lists in every UI mode. While editing a custom collection, Y still adds or removes collection entries. In the grouped custom-collections list, Y keeps its jump-to-game action and help prompt. In kid/kiosk mode with a custom unlock passkey containing `y`, Y keeps its upstream action so the passkey remains usable; use the menu, keyboard or magnifier for Search. To restore the previous favorites action in game lists, set _Y button in game lists_ to _Favorites_ in _UI settings_. The Select game options menu includes _Add to favorites_ / _Remove from favorites_. Search can also be opened by typing an unmapped letter or digit on a physical keyboard, or by pressing `/` or a keyboard/remote Search key; mapped keys keep their actions. These shortcuts operate only while browsing, with no menu, screensaver or media viewer on top.
 
 **Alt + F4 (Windows and Linux) or Command + Q (macOS) (keyboard only)**
 

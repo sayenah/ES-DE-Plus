@@ -225,11 +225,22 @@ def run(binary, probe, destination, width, height, variant='dark'):
             command('text', 'X')
             wait(lambda: query_seen('XPokが' + tail, before), 'caret insertion in a long UTF-8 query')
         command('key', '27')
+        count = log().count('SearchEntry: open ')
+        command('key', '109')
+        assert log().count('SearchEntry: open ') == count, 'Search guessed text from a key identity'
+        for action, value, expected in [('key-text', '109 0 m', 'm'),
+                                        ('text-key', '113 0 a', 'a'),
+                                        ('key-text', '55 1 &', '&'),
+                                        ('key-text', '47 1 ?', '?')]:
+            before = len(log())
+            command(action, value)
+            wait(lambda: query_seen(expected, before), 'layout-aware physical typing seeds search')
+            assert not query_seen(expected * 2, before), 'Opening text was inserted twice'
+            command('key', '27')
         before = len(log())
-        command('key', '109')  # SDL key-up can precede the same opening character's commit.
-        wait(lambda: query_seen('m', before), 'physical typing seeds search')
-        command('text', 'm')
-        assert not query_seen('mm', before), 'Opening key-up cleared duplicate suppression'
+        command('key-text', '47 0 /')
+        wait(lambda: 'Search screen opened:' in log()[before:], 'slash opens search')
+        assert not query_seen('/', before), 'Slash shortcut was inserted into the field'
         command('key', '27')
         before = len(log())
         command('pad-typing', '3')

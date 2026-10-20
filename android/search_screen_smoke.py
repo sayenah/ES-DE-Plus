@@ -249,7 +249,8 @@ def run(h, start, control, shot, record):
             tap(7)
         # A real privacy-mode launch must not expose or write the previous query history.
         for mode, remember in [('kid', True), ('full', False)]:
-            start(InputTouchOverlay=False, UIMode=mode, SearchHistory=remember)
+            start(InputTouchOverlay=False, UIMode=mode, SearchHistory=remember,
+                  expected_games=1 if mode == 'kid' else 2)
             before = h.shell('cat', root + '/settings/search_history.xml')
             h.key('KEYCODE_INSERT')
             current = h.log().rsplit('Search layout:', 1)[-1]

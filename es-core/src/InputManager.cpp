@@ -524,7 +524,6 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
         case SDL_KEYDOWN: {
             mLastInputWasTouch = false;
-            mOpeningText.clear();
             if (SDL_IsTextInputActive()) {
                 // Paste from clipboard.
 #if defined(__APPLE__)
@@ -602,26 +601,17 @@ bool InputManager::parseEvent(const SDL_Event& event)
                 return true;
 
             auto* previousGui {mWindow->peekGui()};
+            const bool browsing {previousGui && previousGui->acceptsSearchText()};
             const auto key {event.key.keysym.sym};
             Input keyboardInput {DEVICE_KEYBOARD, TYPE_KEY, key, 1, false};
             keyboardInput.modifiers = static_cast<SDL_Keymod>(event.key.keysym.mod);
             mWindow->input(getInputConfigByDevice(DEVICE_KEYBOARD), keyboardInput);
-            // A text event from this same key must not enter the GUI it opened:
-            // the search field already has its seed, or a mapped action opened it empty.
-            if (previousGui != mWindow->peekGui() &&
-                ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9) ||
-                 key == SDLK_SLASH)) {
-                mOpeningText.assign(1, static_cast<char>(key));
-                if (key >= SDLK_a && key <= SDLK_z &&
-                    static_cast<bool>(event.key.keysym.mod & KMOD_SHIFT) !=
-                        static_cast<bool>(event.key.keysym.mod & KMOD_CAPS))
-                    mOpeningText = Utils::String::toUpper(mOpeningText);
-            }
+            mSearchTextInput.keyDown(getInputConfigByDevice(DEVICE_KEYBOARD), keyboardInput,
+                                     browsing, previousGui, mWindow->peekGui());
             return true;
         }
         case SDL_KEYUP: {
-            // Android's IME can emit a generated down/up pair before its text commit.
-            // Keep the opening character pending until text or the next key-down.
+            mSearchTextInput.keyUp();
             if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
                 return true;
 
@@ -692,12 +682,10 @@ bool InputManager::parseEvent(const SDL_Event& event)
             break;
         }
         case SDL_TEXTINPUT: {
-            if (!mOpeningText.empty()) {
-                const bool openingCharacter {mOpeningText == event.text.text};
-                mOpeningText.clear();
-                if (openingCharacter)
-                    break;
-            }
+            if (Settings::getInstance()->getBool("InputIgnoreKeyboard"))
+                break;
+            if (mSearchTextInput.text(event.text.text, mWindow->peekGui()))
+                break;
             mWindow->textInput(event.text.text);
             break;
         }
@@ -1008,4 +996,10 @@ void InputManager::removeControllerByJoystickID(Window* window, SDL_JoystickID j
     else {
         LOG(LogError) << "Couldn't find joystick entry to remove (instance ID: " << joyID << ")";
     }
+}
+
+void InputManager::prepareSearchTextInput()
+{
+    if (!Settings::getInstance()->getBool("InputIgnoreKeyboard"))
+        mSearchTextInput.prepare(mWindow->peekGui());
 }

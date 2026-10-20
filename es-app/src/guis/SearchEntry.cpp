@@ -8,14 +8,17 @@
 
 #include "guis/SearchEntry.h"
 
+#include "FileData.h"
 #include "Log.h"
 #include "Settings.h"
 #include "SystemData.h"
 #include "UIModeController.h"
 #include "Window.h"
+#include "components/ComponentList.h"
 #include "guis/GuiSearch.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
+#include "views/GamelistView.h"
 
 #include <chrono>
 #include <memory>
@@ -42,7 +45,7 @@ namespace
     };
 } // namespace
 
-void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem)
+void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem, float)
 {
     if (!activeSearch.expired())
         return;
@@ -60,4 +63,52 @@ void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem)
                   << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                started)
                          .count();
+}
+
+void SearchEntry::observeOptionsFocus(ComponentList* list)
+{
+#if defined(__ANDROID__)
+    // Let input-driven smoke checks observe actual focus before activating a row.
+    const auto observeFocus = [list] {
+        if (list->getTouchFocused() && list->size() > 0) {
+            const auto& row {list->getTouchRowData(list->getCursorId())};
+            if (!row.elements.empty()) {
+                LOG(LogDebug) << "Gamelist options: focused="
+                              << row.elements.front().component->getValue();
+            }
+        }
+    };
+    const auto previousCallback {list->getCursorChangedCallback()};
+    list->setCursorChangedCallback([previousCallback, observeFocus](CursorState state) {
+        if (previousCallback)
+            previousCallback(state);
+        observeFocus();
+    });
+    observeFocus();
+#else
+    (void)list;
+#endif
+}
+
+void SearchEntry::logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites)
+{
+    LOG(LogDebug) << "Favorites collection: game=" << source->getName()
+                  << " favorite=" << source->getFavorite() << " enabled=" << enabled
+                  << " count=" << favorites->getRootFolder()->getChildren().size();
+}
+
+void SearchEntry::logFavoriteAction(FileData* source, bool editing, GamelistView* view)
+{
+    LOG(LogDebug) << "Gamelist favorite action: game=" << source->getName()
+                  << " favorite=" << source->getFavorite() << " editing=" << editing
+                  << " first=" << view->getFirstEntry()->getName()
+                  << " cursor=" << view->getCursor()->getName();
+}
+
+bool SearchEntry::preservesPasskeyY()
+{
+    // Restricted modes keep upstream Y whenever their custom passkey uses it.
+    return (UIModeController::getInstance()->isUIModeKid() ||
+            UIModeController::getInstance()->isUIModeKiosk()) &&
+           Settings::getInstance()->getString("UIMode_passkey").find('y') != std::string::npos;
 }

@@ -521,6 +521,7 @@ void applicationLoop()
 #if !defined(__EMSCRIPTEN__)
     while (true) {
 #endif
+        InputManager::getInstance().prepareSearchTextInput();
         if (SDL_PollEvent(&event)) {
             do {
 #if defined(__ANDROID__)

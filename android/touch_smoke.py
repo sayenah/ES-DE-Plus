@@ -393,11 +393,11 @@ def run(namespace):
         balanced(output)
         return output
 
-    def start(**changes):
+    def start(*, expected_games=2, **changes):
         nonlocal ready_surface_nodes
         selected = dict(common, **changes)
         h.user_file('settings/es_settings.xml', configure(original, **selected))
-        ready_surface_nodes = h.launch()
+        ready_surface_nodes = h.launch(expected_games=expected_games)
         return h.log()
 
     def shot(name):

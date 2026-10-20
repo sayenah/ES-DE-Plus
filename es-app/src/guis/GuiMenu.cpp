@@ -121,7 +121,11 @@ GuiMenu::~GuiMenu()
     }
 }
 
-void GuiMenu::openGlobalSearch() { SearchEntry::open("", nullptr); }
+void GuiMenu::openGlobalSearch()
+{
+    SearchEntry::open("", nullptr,
+                      Renderer::getIsVerticalOrientation() ? mMenu.getPosition().y : 0.0f);
+}
 
 void GuiMenu::openScraperOptions()
 {

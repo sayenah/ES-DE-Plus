@@ -11,6 +11,7 @@
 #include <winsock2.h>
 #endif
 
+#include "guis/SearchEntry.h"
 #include "views/GamelistBase.h"
 
 #include "CollectionSystemsManager.h"
@@ -500,10 +501,7 @@ bool GamelistBase::toggleCollectionEntry(bool favoriteOnly)
 
             if (grid != nullptr)
                 grid->setSuppressTransitions(false);
-            LOG(LogDebug) << "Gamelist favorite action: game=" << source->getName()
-                          << " favorite=" << source->getFavorite() << " editing=" << isEditing
-                          << " first=" << view->getFirstEntry()->getName()
-                          << " cursor=" << view->getCursor()->getName();
+            SearchEntry::logFavoriteAction(source, isEditing, view);
 
             // Display the indication icons which show what games are part of the
             // custom collection currently being edited. This is done cheaply using
@@ -1151,4 +1149,10 @@ std::string GamelistBase::getQuickSystemSelectRightButton()
         return "right";
     else
         return "rightshoulder";
+}
+
+bool GamelistBase::hasCollectionJump() const
+{
+    return mRoot->getSystem()->getThemeFolder() == "custom-collections" &&
+           !CollectionSystemsManager::getInstance()->isEditing() && mCursorStack.empty();
 }

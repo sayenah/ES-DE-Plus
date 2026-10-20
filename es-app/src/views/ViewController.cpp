@@ -1326,7 +1326,10 @@ bool ViewController::input(InputConfig* config, Input input)
         !mWindow->isScreensaverActive() && !mWindow->isMediaViewerActive() &&
         !mWindow->isPDFViewerActive()) {
         const bool gameList {mState.viewing == ViewMode::GAMELIST};
-        if (config->isMappedTo("y", input) &&
+        const bool collectionJump {gameList &&
+                                   getGamelistView(mState.getSystem())->hasCollectionJump()};
+        if (config->isMappedTo("y", input) && !collectionJump &&
+            !SearchEntry::preservesPasskeyY() &&
             !(gameList && CollectionSystemsManager::getInstance()->isEditing()) &&
             (!gameList || Settings::getInstance()->getString("GamelistYButton") != "favorites")) {
             openSearch();
@@ -1336,21 +1339,11 @@ bool ViewController::input(InputConfig* config, Input input)
         if (input.device == DEVICE_KEYBOARD && input.type == TYPE_KEY &&
             config->getMappedTo(input).empty() &&
             !(input.modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
-            const auto modifiers {input.modifiers};
-            if ((input.id == SDLK_SLASH && !(modifiers & KMOD_SHIFT)) ||
-                input.id == SDLK_AC_SEARCH) {
+            if (input.id == SDLK_AC_SEARCH) {
                 openSearch();
                 return true;
             }
-            const bool letter {input.id >= SDLK_a && input.id <= SDLK_z};
-            if (letter || (input.id >= SDLK_0 && input.id <= SDLK_9 && !(modifiers & KMOD_SHIFT))) {
-                std::string initialText(1, static_cast<char>(input.id));
-                if (letter && static_cast<bool>(modifiers & KMOD_SHIFT) !=
-                                  static_cast<bool>(modifiers & KMOD_CAPS))
-                    initialText = Utils::String::toUpper(initialText);
-                openSearch(initialText);
-                return true;
-            }
+            // Printable keys are paired with SDL_TEXTINPUT by SearchTextInput.
         }
     }
 
@@ -1360,13 +1353,18 @@ bool ViewController::input(InputConfig* config, Input input)
     return false;
 }
 
+bool ViewController::acceptsSearchText() const
+{
+    return mWindow->peekGui() == this && mCurrentView &&
+           (mState.viewing == ViewMode::SYSTEM_SELECT || mState.viewing == ViewMode::GAMELIST) &&
+           !mWindow->getBlockInput() && !mWindow->isScreensaverActive() &&
+           !mWindow->isMediaViewerActive() && !mWindow->isPDFViewerActive() &&
+           !mWindow->isLaunchScreenDisplayed();
+}
+
 void ViewController::openSearch(const std::string& initialText)
 {
-    if (mWindow->peekGui() != this || !mCurrentView ||
-        (mState.viewing != ViewMode::SYSTEM_SELECT && mState.viewing != ViewMode::GAMELIST) ||
-        mWindow->getBlockInput() || mWindow->isScreensaverActive() ||
-        mWindow->isMediaViewerActive() || mWindow->isPDFViewerActive() ||
-        mWindow->isLaunchScreenDisplayed())
+    if (!acceptsSearchText())
         return;
     stopScrolling();
     cancelViewTransitions();
@@ -1773,10 +1771,12 @@ std::vector<HelpPrompt> ViewController::getHelpPrompts()
         return prompts;
 
     prompts = mCurrentView->getHelpPrompts();
-    if (mState.viewing == ViewMode::SYSTEM_SELECT ||
-        (mState.viewing == ViewMode::GAMELIST &&
-         Settings::getInstance()->getString("GamelistYButton") != "favorites" &&
-         !CollectionSystemsManager::getInstance()->isEditing())) {
+    if (!SearchEntry::preservesPasskeyY() &&
+        (mState.viewing == ViewMode::SYSTEM_SELECT ||
+         (mState.viewing == ViewMode::GAMELIST &&
+          Settings::getInstance()->getString("GamelistYButton") != "favorites" &&
+          !CollectionSystemsManager::getInstance()->isEditing() &&
+          !getGamelistView(mState.getSystem())->hasCollectionJump()))) {
         prompts.erase(std::remove_if(prompts.begin(), prompts.end(),
                                      [](const HelpPrompt& prompt) { return prompt.first == "y"; }),
                       prompts.end());

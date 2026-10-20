@@ -14,6 +14,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -33,6 +34,7 @@ namespace
     unsigned sequence {0};
     std::string capture;
     SDL_JoystickID controller {-1};
+    SDL_Event queued {};
     SDL_Event release {};
     bool typeWhileOpening {false};
     void acknowledge()
@@ -112,6 +114,11 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
     static const auto forward = real<decltype(&SDL_PollEvent)>("SDL_PollEvent");
     if (!event || directory().empty())
         return forward(event);
+    if (queued.type) {
+        *event = queued;
+        queued.type = 0;
+        return 1;
+    }
     if (release.type) {
         *event = release;
         release.type = 0;
@@ -160,7 +167,7 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
             SDL_PushEvent(&text);
         }
     }
-    else if (action == "key") {
+    else if (action == "key" || action == "key-text" || action == "text-key") {
         std::istringstream key(value);
         int symbol {0}, modifier {0};
         key >> symbol >> modifier;
@@ -170,6 +177,17 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
         event->key.keysym.mod = modifier;
         release = *event;
         release.type = SDL_KEYUP;
+        if (action != "key") {
+            std::string text;
+            std::getline(key, text);
+            if (!text.empty() && text.front() == ' ')
+                text.erase(0, 1);
+            queued.type = SDL_TEXTINPUT;
+            SDL_strlcpy(queued.text.text, text.c_str(), sizeof(queued.text.text));
+            // Desktop normally commits after key-down; Android commits before it.
+            if (action == "text-key")
+                std::swap(*event, queued);
+        }
     }
     acknowledge();
     return event->type ? 1 : 0;

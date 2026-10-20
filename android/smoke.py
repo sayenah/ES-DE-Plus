@@ -213,10 +213,10 @@ def screenshot(name):
     (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
 
 
-def launch(audio_relaunch=None):
+def launch(audio_relaunch=None, expected_games=2):
     global startup_number
     if audio_relaunch:
-        launch_attempt(lambda: None, audio_relaunch)
+        launch_attempt(lambda: None, audio_relaunch, expected_games)
         return
     startup_number += 1
     name = f'startup-{startup_number}'
@@ -227,7 +227,7 @@ def launch(audio_relaunch=None):
             output.write(json.dumps(result) + '\n')
         print('STARTUP_OUTCOME ' + json.dumps(result), flush=True)
     fresh_session_checks.startup(
-        launch_attempt, lambda: onboarding_dismissals,
+        lambda reached: launch_attempt(reached, expected_games=expected_games), lambda: onboarding_dismissals,
         lambda number: capture_startup_failure(f'{name}-attempt-{number + 1}-failure', marker),
         lambda: shell('am', 'force-stop', app), record, app, current_startup_ready)
     return startup_surface_nodes
@@ -304,7 +304,7 @@ def current_startup_ready():
     return True
 
 
-def launch_attempt(reached_readiness, audio_relaunch=None):
+def launch_attempt(reached_readiness, audio_relaunch=None, expected_games=2):
     # Each stopped-process restart must produce new startup evidence.
     global startup_baseline, startup_monitoring, startup_surface_nodes
     startup_surface_nodes = None
@@ -316,7 +316,8 @@ def launch_attempt(reached_readiness, audio_relaunch=None):
         wait_for(current_startup_ready, 'fresh frontend startup/system loading')
     reached_readiness()
     assert 'Error:' not in log(), log()
-    assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
+    assert re.search(r'Total game count: ' + str(expected_games) + r'\s', log()), \
+        f'Unexpected visible fixture game count (expected {expected_games}): ' + log()
     # Startup logging precedes the render loop's first frame/texture uploads.
     time.sleep(10)
     # Dismiss the real Android immersive-mode tutorial through its actual UI.

@@ -353,7 +353,8 @@ namespace TouchOverlay
         }
         // Keep the established deck anchors. Prefer the central space beside Start/Select,
         // then above their row. The last anchor uses the otherwise empty top centre on
-        // short viewports; no existing target is moved or reduced to make room.
+        // short viewports. Fitting all fifteen controls can shrink the whole deck by
+        // up to 4.06% on near-square viewports around 322–356 dp.
         Button& search {mButtons[14]};
         search = {};
         search.id = SEARCH_BUTTON;
