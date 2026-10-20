@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <sstream>
 #include <string>
 #if !defined(_WIN64)
 #include <sys/stat.h>
@@ -220,8 +221,9 @@ namespace
         const auto orderedClasses {core.search("mario 2")};
         require(orderedClasses.size() == 9, "all nine classes match one query");
         for (size_t i {0}; i < orderedClasses.size(); ++i) {
-            require(core.game(orderedClasses[i].index).id == std::to_string(i) &&
-                        static_cast<size_t>(orderedClasses[i].kind) == i,
+            const size_t expected = std::vector<size_t> {0, 5, 1, 2, 3, 4, 6, 7, 8}[i];
+            require(core.game(orderedClasses[i].index).id == std::to_string(expected) &&
+                        static_cast<size_t>(orderedClasses[i].kind) == expected,
                     "all classes rank before lower-class favourites");
             if (i < 8)
                 require(!orderedClasses[i].spans.empty(),
@@ -362,7 +364,8 @@ namespace
         const auto tokenOnly {core.suggest("fant v", 100)};
         require(std::any_of(tokenOnly.begin(), tokenOnly.end(),
                             [](const Suggestion& s) {
-                                return s.kind == SuggestionKind::Word && s.text == "fant vii";
+                                return s.kind == SuggestionKind::Word &&
+                                       normalize(s.text) == "fant vii";
                             }),
                 "word insertion preserves the preceding query token");
         has("finalfantasy v", SuggestionKind::Title, "Final Fantasy VII");
@@ -453,6 +456,113 @@ namespace
                         "visible suggestion spelling yields visible results");
             }
         }
+    }
+    void roundTwo()
+    {
+        std::vector<Game> games;
+        std::ifstream input(SEARCH_REAL_TITLES);
+        std::string line;
+        while (std::getline(input, line)) {
+            if (line.empty() || line.front() == '#')
+                continue;
+            std::stringstream fields(line);
+            auto g = game("", "real" + std::to_string(games.size()));
+            std::getline(fields, g.system, '|');
+            std::getline(fields, g.systemName, '|');
+            std::getline(fields, g.title);
+            g.sortName = g.title;
+            g.fileStem = g.title + " (USA)";
+            g.favourite = g.title == "Street Fighter Alpha 2" || g.title == "Mega Man X3";
+            games.push_back(g);
+        }
+        require(games.size() == 307, "307 QA real titles loaded");
+        for (const auto& title : {"Street Fighter II", "Mega Man 10", "Switch", "Quake"})
+            games.push_back(game(title, title));
+        Core core;
+        core.rebuild({game("Mega Man X")});
+        require(core.search("mega man 10").empty(), "standalone X series brand is not Roman ten");
+        core.rebuild(games);
+        auto includes = [&](const std::string& query, const std::string& title) {
+            const auto matches = core.search(query, 1000);
+            return std::any_of(matches.begin(), matches.end(), [&](const auto& row) {
+                return core.game(row.index).title == title;
+            });
+        };
+        for (const auto& example :
+             {std::make_pair("doom 64", "Doom 64"),
+              {"doom", "Doom"},
+              {"doom", "Final Doom"},
+              {"doom", "Doom II"},
+              {"tmnt arcade", "Teenage Mutant Ninja Turtles II: The Arcade Game"},
+              {"arcade's greatest hits", "Arcade's Greatest Hits: The Atari Collection 1"},
+              {"quake", "Quake"},
+              {"switch", "Switch"},
+              {"ff 7", "Final Fantasy VII"},
+              {"ff 2", "Final Fantasy II"},
+              {"mk 2", "Mortal Kombat II"},
+              {"gta 3", "Grand Theft Auto III"},
+              {"sf 2", "Street Fighter II"}})
+            require(includes(example.first, example.second),
+                    std::string("round-two real title: ") + example.first + "/" + example.second);
+        require(core.game(core.search("street fighter 2")[0].index).title == "Street Fighter II",
+                "whole numeral-equivalent title outranks 2010 and favourite Alpha 2");
+        require(core.game(core.search("sonic 3")[0].index).title == "Sonic the Hedgehog 3",
+                "whole number outranks Sonic 3D Blast");
+        require(includes("mega man 10", "Mega Man 10") && !includes("mega man 10", "Mega Man X"),
+                "X subseries is a letter, not ten");
+        core.rebuild({game("1942")});
+        require(core.search("1943").empty(), "numbers never typo matched");
+        core.rebuild({game("Sons")});
+        require(core.search("sonc").empty(), "four-letter tokens never typo matched");
+        core.rebuild({game("Metroid")});
+        require(!core.search("metriod").empty(), "five-plus character typo tolerance");
+        auto before = core.version();
+        auto changed = core.game(0);
+        changed.favourite = true;
+        changed.lastPlayed = "20261019T120000";
+        changed.playCount = 7;
+        core.update(0, changed);
+        require(core.version() > before && core.game(0).favourite &&
+                    core.recentlyPlayed().size() == 1,
+                "in-place ranking update advances result version");
+        core.rebuild({game("The Legend of Zelda: A Link to the Past", "a"),
+                      game("The Legend of Zelda: Link's Awakening", "b"),
+                      game("Streets of Rage", "c"), game("Streets of Fire", "d"),
+                      game("King of Fighters", "e"), game("King of Dragons", "f"),
+                      game("Theft", "g")});
+        for (const auto& query : {"legend", "streets", "king"})
+            for (const auto& suggestion : core.suggest(query, 100))
+                require(
+                    suggestion.kind != SuggestionKind::Series ||
+                        (normalize(suggestion.text).size() < 3 ||
+                         normalize(suggestion.text).substr(normalize(suggestion.text).size() - 3) !=
+                             " of"),
+                    "series never ends in a stopword");
+        const auto the = core.suggest("the", 100);
+        require(std::any_of(the.begin(), the.end(),
+                            [](const auto& s) {
+                                return s.kind == SuggestionKind::Title &&
+                                       s.text.find("The Legend") == 0;
+                            }),
+                "the completes article-bearing titles");
+        core.rebuild({game("Pokémon", "a"), game("Pokémon Yellow", "b")});
+        const auto accents = core.suggest("pok", 100);
+        require(std::any_of(accents.begin(), accents.end(),
+                            [](const auto& s) {
+                                return s.kind == SuggestionKind::Word && s.text == "Pokémon";
+                            }),
+                "word suggestions retain original spelling/case/accents");
+        auto dos = game("Doom");
+        dos.system = "dos";
+        dos.systemName = "DOS (PC)";
+        core.rebuild({dos});
+        const auto systems = core.suggest("do", 100);
+        require(std::count_if(systems.begin(), systems.end(),
+                              [](const auto& s) { return s.kind == SuggestionKind::System; }) == 1,
+                "one suggestion per system");
+        require(!systems.empty() && (systems.front().kind == SuggestionKind::Title ||
+                                     systems.front().kind == SuggestionKind::Word),
+                "short prefixes prefer titles/words");
     }
     void history()
     {
@@ -712,6 +822,7 @@ int main(int argc, char** argv)
         runChecks("UTF-8 spans", spans);
         runChecks("ranking and filters", rankingAndFilters);
         runChecks("suggestions", suggestions);
+        runChecks("round two", roundTwo);
         runChecks("history", history);
         runChecks("lifecycle", lifecycle);
     }

@@ -21,7 +21,7 @@
 #include "ThemeData.h"
 #include "UIModeController.h"
 #include "resources/ResourceManager.h"
-#include "search/LibrarySearch.h"
+#include "search/SearchGeneration.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
@@ -1227,7 +1227,6 @@ bool SystemData::loadConfig()
     if (sSystemVector.size() > 0)
         CollectionSystemsManager::getInstance()->loadCollectionSystems();
 
-    LibrarySearch::engine();
     return false;
 }
 

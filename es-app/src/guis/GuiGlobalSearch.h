@@ -21,6 +21,7 @@ class GuiGlobalSearch : public GuiComponent
 public:
     explicit GuiGlobalSearch(const std::string& query);
 
+    void update(int deltaTime) override;
     bool input(InputConfig* config, Input input) override;
     std::vector<HelpPrompt> getHelpPrompts() override;
 
@@ -30,6 +31,7 @@ private:
 
     MenuComponent mMenu;
     std::string mQuery;
+    uint64_t mVersion {0};
 };
 
 #endif // ES_APP_GUIS_GUI_GLOBAL_SEARCH_H

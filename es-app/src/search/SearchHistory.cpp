@@ -10,6 +10,7 @@
 #include "search/SearchCore.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <pugixml.hpp>
@@ -17,6 +18,9 @@
 #include <system_error>
 #if defined(_WIN64)
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace LibrarySearch
@@ -144,6 +148,15 @@ namespace LibrarySearch
                 return false;
             }
 #if defined(_WIN64)
+            HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            const bool synced = file != INVALID_HANDLE_VALUE && FlushFileBuffers(file) != 0;
+            if (file != INVALID_HANDLE_VALUE)
+                CloseHandle(file);
+            if (!synced) {
+                std::filesystem::remove(temporary, error);
+                return false;
+            }
             const bool replaced {MoveFileExW(temporary.c_str(), path.c_str(),
                                              MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) !=
                                  0};
@@ -151,6 +164,24 @@ namespace LibrarySearch
                 std::filesystem::remove(temporary, error);
             return replaced;
 #else
+            const int file = open(temporary.c_str(), O_WRONLY | O_CLOEXEC);
+            if (file < 0) {
+                std::filesystem::remove(temporary, error);
+                return false;
+            }
+            int synced;
+            do {
+#if defined(_POSIX_SYNCHRONIZED_IO) && _POSIX_SYNCHRONIZED_IO > 0
+                synced = fdatasync(file);
+#else
+                synced = fsync(file);
+#endif
+            } while (synced < 0 && errno == EINTR);
+            const int closed = close(file);
+            if (synced != 0 || closed != 0) {
+                std::filesystem::remove(temporary, error);
+                return false;
+            }
             std::filesystem::rename(temporary, path, error);
             if (!error)
                 return true;

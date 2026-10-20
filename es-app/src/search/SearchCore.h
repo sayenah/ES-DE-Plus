@@ -85,7 +85,11 @@ namespace LibrarySearch
         Core(Core&&) noexcept;
         Core& operator=(Core&&) noexcept;
         void rebuild(std::vector<Game> games);
-        const Game& game(size_t index) const;
+        void clear();
+        void update(size_t index, const Game& state);
+        uint64_t version() const;
+        // Returns an owning value; the index stores interned strings.
+        Game game(size_t index) const;
         size_t size() const;
         std::vector<Match> search(const std::string& query,
                                   size_t limit = 200,
@@ -96,14 +100,9 @@ namespace LibrarySearch
         std::vector<size_t> recentlyPlayed(size_t limit = 30, const Filter& filter = {}) const;
 
     private:
-        std::vector<Match> find(const std::string& query,
-                                size_t limit,
-                                const Filter& filter,
-                                bool firstOnly,
-                                const std::vector<size_t>* support = nullptr,
-                                std::vector<uint8_t>* matchingGames = nullptr) const;
         struct Index;
         std::unique_ptr<Index> mIndex;
+        uint64_t mVersion {0};
     };
 } // namespace LibrarySearch
 #endif

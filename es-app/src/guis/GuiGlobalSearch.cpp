@@ -29,6 +29,7 @@ GuiGlobalSearch::GuiGlobalSearch(const std::string& query)
     , mQuery {Utils::String::trim(query)}
 {
     addChild(&mMenu);
+    LibrarySearch::history().addQuery(mQuery);
     populateResults();
 
     mMenu.addButton(_("BACK"), _("back"), [this] { delete this; });
@@ -40,6 +41,7 @@ GuiGlobalSearch::GuiGlobalSearch(const std::string& query)
 
 void GuiGlobalSearch::populateResults()
 {
+    mMenu.getList()->clear();
     ComponentListRow row;
     auto font {Font::get(FONT_SIZE_MEDIUM)};
 
@@ -51,9 +53,16 @@ void GuiGlobalSearch::populateResults()
 
     const auto& engine {LibrarySearch::engine()};
     const auto generation {LibrarySearch::currentGeneration()};
+    mVersion = generation;
+    if (!LibrarySearch::ready()) {
+        row.elements.clear();
+        row.addElement(std::make_shared<TextComponent>(_("WORKING..."), font, mMenuColorPrimary),
+                       true);
+        mMenu.addRow(row);
+        return;
+    }
     const auto results {
         engine.search(mQuery, MAX_SEARCH_RESULTS + 1, LibrarySearch::currentFilter())};
-    LibrarySearch::history().addQuery(mQuery);
 
     if (results.empty()) {
         row.elements.clear();
@@ -104,6 +113,14 @@ void GuiGlobalSearch::launchGame(const LibrarySearch::Handle& handle)
     // at the bottom of the GUI stack and handles the normal ES-DE launch flow.
     while (window->peekGui() != ViewController::getInstance())
         delete window->peekGui();
+}
+
+void GuiGlobalSearch::update(int deltaTime)
+{
+    LibrarySearch::engine();
+    if (mVersion != LibrarySearch::currentGeneration())
+        populateResults();
+    GuiComponent::update(deltaTime);
 }
 
 bool GuiGlobalSearch::input(InputConfig* config, Input input)

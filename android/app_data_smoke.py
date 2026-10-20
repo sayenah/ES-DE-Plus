@@ -168,6 +168,11 @@ def run(harness):
         h.shell('mv', roots[1] + '.unavailable', roots[1])
     choose(roots[2], changed=True)
     loaded(roots[2], 'app-data-shared-loaded')
+    import search_smoke
+    before_search = len(search_smoke.launches(h))
+    h.search_launch('Retained Alpha', 'shared-history-search')
+    search_smoke.assert_launched(h, 'Retained Alpha', before_search)
+    search_smoke.restart(h, roots[2], 'Retained Alpha', 'Retained', 'shared-search')
 
     # Permission revocation and an in-place data-folder obstruction are real
     # recovery paths; the existing regression pass covers permission denial.
