@@ -230,6 +230,7 @@ def run(binary, probe, destination, width, height, variant='dark'):
         assert log().count('SearchEntry: open ') == count, 'Search guessed text from a key identity'
         for action, value, expected in [('key-text', '109 0 m', 'm'),
                                         ('text-key', '113 0 a', 'a'),
+                                        ('key-text', '233 0 é', 'é'),
                                         ('key-text', '55 1 &', '&'),
                                         ('key-text', '47 1 ?', '?')]:
             before = len(log())
