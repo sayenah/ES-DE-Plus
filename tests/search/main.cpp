@@ -799,7 +799,8 @@ namespace
             diverse ? "varied-titles" : "unique-stems", core.size(), uniqueTitles.size(),
             times.size(), buildMs, p95, maximum, checksum);
         require(uniqueQueries.size() == 200, "200 distinct representative queries");
-        require(buildMs <= 300, "50k index build <= 300ms");
+        // D-028 amendment 2 sets the 50k build budget to 400 ms.
+        require(buildMs <= 400, "50k index build <= 400ms");
         require(p95 <= 5, "per-keystroke search + suggest p95 <= 5ms");
         require(maximum <= 20, "per-keystroke search + suggest max <= 20ms");
     }

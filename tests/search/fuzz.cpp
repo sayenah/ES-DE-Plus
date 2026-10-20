@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // ES-DE-Plus — adapted from ES-DE-Plus QA search-q1/fuzz.cpp (MIT).
+// Written for ES-DE-Plus.
 #include "search/SearchCore.h"
 #include <cstdio>
 #include <random>

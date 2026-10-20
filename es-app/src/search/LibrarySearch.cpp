@@ -15,10 +15,12 @@
 #include "utils/FileSystemUtil.h"
 
 #include <chrono>
+#include <deque>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
-#include <unordered_map>
+#include <set>
 #include <unordered_set>
 
 namespace LibrarySearch
@@ -37,10 +39,10 @@ namespace LibrarySearch
             uint64_t textEpoch {0}, builds {0};
             Phase phase {Phase::Idle};
             std::future<Core> worker;
-            std::vector<Game> corpus;
-            std::unordered_map<std::string, FileData*> files;
-            std::unordered_map<const void*, size_t> metadata;
-            std::vector<FileData*> byIndex;
+            std::deque<Game> corpus;
+            std::map<std::string, FileData*> files;
+            std::map<const void*, size_t> metadata;
+            std::deque<FileData*> byIndex;
             struct Cursor {
                 FileData* folder;
                 size_t next;
@@ -54,7 +56,8 @@ namespace LibrarySearch
             return value;
         }
         std::mutex dirtyMutex;
-        std::unordered_set<const void*> dirty, registered;
+        std::unordered_set<const void*> dirty;
+        std::set<const void*> registered;
         bool metadataUpdate(const void* metadata)
         {
             std::lock_guard<std::mutex> lock {dirtyMutex};
@@ -65,7 +68,8 @@ namespace LibrarySearch
         }
         void retire(Snapshot& state, Core old)
         {
-            std::unordered_set<const void*> oldRegistered, oldDirty;
+            std::set<const void*> oldRegistered;
+            std::unordered_set<const void*> oldDirty;
             {
                 std::lock_guard<std::mutex> lock {dirtyMutex};
                 oldRegistered.swap(registered);
@@ -181,9 +185,15 @@ namespace LibrarySearch
                     if (state.system == SystemData::sSystemVector.size()) {
                         state.phase = Phase::Building;
                         state.worker = std::async(
-                            std::launch::async, [corpus = std::move(state.corpus)]() mutable {
+                            std::launch::async, [records = std::move(state.corpus)]() mutable {
                                 Core built;
                                 const auto start = Clock::now();
+                                std::vector<Game> corpus;
+                                corpus.reserve(records.size());
+                                while (!records.empty()) {
+                                    corpus.push_back(std::move(records.front()));
+                                    records.pop_front();
+                                }
                                 built.rebuild(std::move(corpus));
                                 LOG(LogDebug) << "Library search index: games=" << built.size()
                                               << " build_ms="
