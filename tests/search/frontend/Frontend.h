@@ -20,7 +20,7 @@ class RootFolder
 {
 public:
     std::vector<FileData*> files;
-    std::vector<FileData*> getFilesRecursive(int) { return files; }
+    const std::vector<FileData*>& getChildren() const { return files; }
 };
 class SystemData
 {
@@ -34,17 +34,21 @@ public:
     std::string start {"/roms/snes"};
     bool isCollection() { return collection; }
     bool isGameSystem() { return gameSystem; }
-    RootFolder* getRootFolder() { return &root; }
+    FileData* getRootFolder();
     const std::string& getName() { return name; }
     const std::string& getFullName() { return fullName; }
     const std::string& getStartPath() { return start; }
 };
-constexpr int GAME {1};
+constexpr int GAME {1}, FOLDER {2};
 class FileData
 {
 public:
     MetaDataList metadata {GAME_METADATA};
     SystemData* system;
+    std::vector<FileData*> files;
+    int type {GAME};
+    const std::vector<FileData*>& getChildren() const { return files; }
+    int getType() const { return type; }
     std::string path {"/roms/snes/game.zip"};
     explicit FileData(SystemData* s)
         : system {s}
@@ -64,6 +68,15 @@ public:
     const std::string& getPath() { return path; }
     SystemData* getSystem() { return system; }
 };
+inline FileData* SystemData::getRootFolder()
+{
+    // Keep the seam's root compatible with the real folder traversal API.
+    static std::map<SystemData*, FileData> roots;
+    auto it = roots.try_emplace(this, this).first;
+    it->second.type = FOLDER;
+    it->second.files = root.files;
+    return &it->second;
+}
 class Settings
 {
 public:

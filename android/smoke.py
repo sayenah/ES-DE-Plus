@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import search_smoke
 import smoke_checks
 import launch_checks
 import pdf_smoke
@@ -1920,13 +1921,13 @@ try:
     shell('input', 'text', 'Smkoe%sAlpha')
     key('KEYCODE_ENTER')
     screenshot('search-results')
-    timings = re.findall(r'Library search index: games=\d+ build_ms=[\d.]+ search_suggest_ms=[\d.]+', log())
-    assert timings, 'Missing real-corpus search index/query measurement'
-    print('SEARCH EMULATOR TIMING: ' + timings[-1], flush=True)
+    previous_launches = len(search_smoke.launches(globals()))
     # Results are already focused. Ctrl+Enter uses the screen's direct-play action.
     shell('input', 'keycombination', '113', '66')
     time.sleep(0.4)
     wait_for(lambda: "Couldn't launch game, emulator not found" in log(), 'existing missing-emulator error')
+    search_smoke.assert_launched(globals(), 'Smoke Alpha', previous_launches)
+    assert search_smoke.committed(globals(), data_root, 'Smkoe Alpha')
     screenshot('missing-emulator')
     save_logs('search-and-launch')
     assert shell('pidof', app).strip(), 'Launch attempt terminated the frontend'
@@ -1953,6 +1954,7 @@ try:
     assert shell('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
+    search_smoke.restart(globals(), data_root, 'Smkoe Alpha', 'Smoke Alpha', 'private-search')
     shell('am', 'force-stop', app)
     private('mkdir', '-p', 'files/themes/user-theme')
     # Write a genuine user file; the resource installer must not overwrite/delete it.

@@ -15,26 +15,97 @@
 #include "utils/FileSystemUtil.h"
 
 #include <chrono>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace LibrarySearch
 {
     namespace
     {
+        using Clock = std::chrono::steady_clock;
+        enum class Phase {
+            Idle,
+            Releasing,
+            Snapshot,
+            Building
+        };
         struct Snapshot {
             Core core;
-            uint64_t generation {0};
+            uint64_t textEpoch {0}, builds {0};
+            Phase phase {Phase::Idle};
+            std::future<Core> worker;
+            std::vector<Game> corpus;
             std::unordered_map<std::string, FileData*> files;
+            std::unordered_map<const void*, size_t> metadata;
+            std::vector<FileData*> byIndex;
+            struct Cursor {
+                FileData* folder;
+                size_t next;
+            };
+            std::vector<Cursor> folders;
+            size_t system {0};
         };
         Snapshot& snapshot()
         {
             static Snapshot value;
             return value;
         }
+        std::mutex dirtyMutex;
+        std::unordered_set<const void*> dirty, registered;
+        bool metadataUpdate(const void* metadata)
+        {
+            std::lock_guard<std::mutex> lock {dirtyMutex};
+            if (!registered.count(metadata))
+                return false;
+            dirty.insert(metadata);
+            return true;
+        }
+        void retire(Snapshot& state, Core old)
+        {
+            std::unordered_set<const void*> oldRegistered, oldDirty;
+            {
+                std::lock_guard<std::mutex> lock {dirtyMutex};
+                oldRegistered.swap(registered);
+                oldDirty.swap(dirty);
+            }
+            state.phase = Phase::Releasing;
+            state.worker = std::async(
+                std::launch::async,
+                [core = std::move(old), files = std::move(state.files),
+                 metadata = std::move(state.metadata), byIndex = std::move(state.byIndex),
+                 corpus = std::move(state.corpus), registrations = std::move(oldRegistered),
+                 changes = std::move(oldDirty)]() mutable {
+                    core.clear();
+                    return Core {};
+                });
+        }
         std::string identity(FileData* game)
         {
             return game->getSystem()->getName() + "\n" + game->getPath();
+        }
+        Game record(FileData* game, bool text)
+        {
+            Game value;
+            value.lastPlayed = game->metadata.get("lastplayed");
+            value.playCount = game->metadata.getInt("playcount");
+            value.favourite = game->getFavorite();
+            value.hidden = game->getHidden();
+            value.kid = game->getKidgame();
+            if (text) {
+                value.id = identity(game);
+                value.title = game->getName();
+                value.sortName = game->getSortName();
+                value.fileStem = game->getDisplayName();
+                value.developer = game->metadata.get("developer");
+                value.publisher = game->metadata.get("publisher");
+                value.genre = game->metadata.get("genre");
+                value.system = game->getSystem()->getName();
+                value.systemName = game->getSystem()->getFullName();
+            }
+            return value;
         }
     } // namespace
     Filter currentFilter()
@@ -44,65 +115,147 @@ namespace LibrarySearch
         result.kidMode = UIModeController::getInstance()->isUIModeKid();
         return result;
     }
+    bool ready()
+    {
+        const auto& state = snapshot();
+        return state.phase == Phase::Idle && state.textEpoch == textGeneration.load();
+    }
+    uint64_t buildCount() { return snapshot().builds; }
     const Core& engine()
     {
-        auto& state {snapshot()};
-        const auto generation {currentGeneration()};
-        if (state.generation == generation)
-            return state.core;
-        const auto start {std::chrono::steady_clock::now()};
-        state.files.clear();
-        std::vector<Game> corpus;
-        for (auto* system : SystemData::sSystemVector) {
-            if (!system || system->isCollection() || !system->isGameSystem())
-                continue;
-            for (auto* game : system->getRootFolder()->getFilesRecursive(GAME)) {
-                if (!game || !game->getCountAsGame())
-                    continue;
-                Game entry;
-                entry.id = identity(game);
-                entry.title = game->getName();
-                entry.sortName = game->getSortName();
-                entry.fileStem = game->getDisplayName();
-                entry.developer = game->metadata.get("developer");
-                entry.publisher = game->metadata.get("publisher");
-                entry.genre = game->metadata.get("genre");
-                entry.system = system->getName();
-                entry.systemName = system->getFullName();
-                entry.lastPlayed = game->metadata.get("lastplayed");
-                entry.playCount = game->metadata.getInt("playcount");
-                entry.favourite = game->getFavorite();
-                entry.hidden = game->getHidden();
-                entry.kid = game->getKidgame();
-                state.files.emplace(entry.id, game);
-                corpus.push_back(std::move(entry));
+        auto& state = snapshot();
+        metadataObserver.store(metadataUpdate, std::memory_order_release);
+        const auto epoch = textGeneration.load();
+        static Filter lastFilter;
+        const auto filter = currentFilter();
+        if (lastFilter.showHidden != filter.showHidden || lastFilter.kidMode != filter.kidMode) {
+            lastFilter = filter;
+            generation.fetch_add(1);
+        }
+        const auto deadline = Clock::now() + std::chrono::milliseconds(3);
+        if (state.phase == Phase::Building || state.phase == Phase::Releasing) {
+            if (state.worker.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                return state.core;
+            auto built = state.worker.get();
+            if (state.phase == Phase::Building && state.textEpoch == epoch) {
+                state.core = std::move(built);
+                ++state.builds;
+                generation.fetch_add(1);
+                state.phase = Phase::Idle;
+            }
+            else if (state.phase == Phase::Building) {
+                retire(state, std::move(built));
+                return state.core;
+            }
+            else {
+                {
+                    std::lock_guard<std::mutex> lock {dirtyMutex};
+                    registered.clear();
+                    dirty.clear();
+                }
+                state.phase = Phase::Snapshot;
+                state.textEpoch = epoch;
+                state.system = 0;
+                state.folders.clear();
+                state.corpus.clear();
+                state.files.clear();
+                state.metadata.clear();
+                state.byIndex.clear();
             }
         }
-        state.core.rebuild(std::move(corpus));
-        state.generation = generation;
-        const auto built {std::chrono::steady_clock::now()};
-        // Real corpus measurement on desktop and Android, independent of auto-collections.
-        const auto probe {state.core.size() ? state.core.game(0).title : std::string {}};
-        state.core.search(probe, 200, currentFilter());
-        state.core.suggest(probe.substr(0, probe.find(' ')), 8, currentFilter());
-        const auto queried {std::chrono::steady_clock::now()};
-        LOG(LogInfo) << "Library search index: games=" << state.core.size() << " build_ms="
-                     << std::chrono::duration<double, std::milli>(built - start).count()
-                     << " search_suggest_ms="
-                     << std::chrono::duration<double, std::milli>(queried - built).count();
+        if (state.phase == Phase::Idle && state.textEpoch != epoch) {
+            // Retire the previous index off-thread before collecting the next snapshot.
+            // This avoids both a UI-thread destruction stall and two live full indexes.
+            Core retired = std::move(state.core);
+            state.core = Core {};
+            retire(state, std::move(retired));
+            return state.core;
+        }
+        if (state.phase == Phase::Snapshot) {
+            if (state.textEpoch != epoch) {
+                retire(state, Core {});
+                return state.core;
+            }
+            while (Clock::now() < deadline) {
+                if (state.folders.empty()) {
+                    if (state.system == SystemData::sSystemVector.size()) {
+                        state.phase = Phase::Building;
+                        state.worker = std::async(
+                            std::launch::async, [corpus = std::move(state.corpus)]() mutable {
+                                Core built;
+                                const auto start = Clock::now();
+                                built.rebuild(std::move(corpus));
+                                LOG(LogDebug) << "Library search index: games=" << built.size()
+                                              << " build_ms="
+                                              << std::chrono::duration<double, std::milli>(
+                                                     Clock::now() - start)
+                                                     .count();
+                                return built;
+                            });
+                        break;
+                    }
+                    auto* system = SystemData::sSystemVector[state.system++];
+                    if (!system || system->isCollection() || !system->isGameSystem())
+                        continue;
+                    state.folders.push_back({system->getRootFolder(), 0});
+                }
+                auto& cursor = state.folders.back();
+                const auto& children = cursor.folder->getChildren();
+                if (cursor.next == children.size()) {
+                    state.folders.pop_back();
+                    continue;
+                }
+                auto* file = children[cursor.next++];
+                if (!file)
+                    continue;
+                if (file->getType() == FOLDER) {
+                    state.folders.push_back({file, 0});
+                    continue;
+                }
+                if (file->getType() != GAME)
+                    continue;
+                {
+                    std::lock_guard<std::mutex> lock {dirtyMutex};
+                    registered.insert(&file->metadata);
+                }
+                if (!file->getCountAsGame())
+                    continue;
+                auto value = record(file, true);
+                if (!state.files.emplace(value.id, file).second)
+                    continue;
+                state.metadata.emplace(&file->metadata, state.corpus.size());
+                {
+                    std::lock_guard<std::mutex> lock {dirtyMutex};
+                    registered.insert(&file->metadata);
+                }
+                state.byIndex.push_back(file);
+                state.corpus.push_back(std::move(value));
+            }
+        }
+        if (ready()) {
+            std::unordered_set<const void*> changed;
+            {
+                std::lock_guard<std::mutex> lock {dirtyMutex};
+                changed.swap(dirty);
+            }
+            for (const auto* metadata : changed) {
+                auto it = state.metadata.find(metadata);
+                if (it != state.metadata.end())
+                    state.core.update(it->second, record(state.byIndex[it->second], false));
+            }
+        }
         return state.core;
     }
     Handle handle(size_t index, uint64_t generation)
     {
-        const auto& state {snapshot()};
-        if (state.generation != generation || currentGeneration() != generation)
+        const auto& state = snapshot();
+        if (!ready() || currentGeneration() != generation || index >= state.core.size())
             return {0, {}};
         return {generation, state.core.game(index).id};
     }
     FileData* resolve(const Handle& handle)
     {
-        // Check the epoch before even looking up a pointer. A reload may reuse an address.
-        if (!handle.current() || snapshot().generation != handle.generation)
+        if (!ready() || !handle.current())
             return nullptr;
         auto it = snapshot().files.find(handle.id);
         return it == snapshot().files.end() ? nullptr : it->second;

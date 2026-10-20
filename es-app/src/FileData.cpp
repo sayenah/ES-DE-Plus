@@ -74,7 +74,8 @@ FileData::FileData(FileType type,
 
 FileData::~FileData()
 {
-    LibrarySearch::invalidate();
+    if (!mSystem->isCollection())
+        LibrarySearch::invalidate();
     while (mChildren.size() > 0)
         delete (mChildren.front());
 
@@ -594,7 +595,8 @@ void FileData::addChild(FileData* file)
     if (mChildrenByFilename.find(key) == mChildrenByFilename.cend()) {
         mChildrenByFilename[key] = file;
         mChildren.emplace_back(file);
-        LibrarySearch::invalidate();
+        if (!mSystem->isCollection())
+            LibrarySearch::invalidate();
         file->mParent = this;
     }
 }
@@ -603,7 +605,8 @@ void FileData::removeChild(FileData* file)
 {
     assert(mType == FOLDER);
     assert(file->getParent() == this);
-    LibrarySearch::invalidate();
+    if (!mSystem->isCollection())
+        LibrarySearch::invalidate();
     mChildrenByFilename.erase(file->getKey());
     for (auto it = mChildren.cbegin(); it != mChildren.cend(); ++it) {
         if (*it == file) {

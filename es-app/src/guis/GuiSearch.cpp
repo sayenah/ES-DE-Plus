@@ -148,7 +148,7 @@ bool GuiSearch::zeroState() const
            mPublisher.empty() && !mFavouritesOnly;
 }
 
-void GuiSearch::refresh()
+void GuiSearch::refresh(bool preserveFocus)
 {
     if (mUnit > 0 && !mMeasureFrame) {
         mQueryWorkMs = 0;
@@ -156,41 +156,49 @@ void GuiSearch::refresh()
     }
     const auto start = std::chrono::steady_clock::now();
     const std::string oldGame =
-        mArea == Area::Games && mIndex >= 0 && mIndex < static_cast<int>(mGames.size()) ?
-            mGames[mIndex].id :
+        preserveFocus && mArea == Area::Games ?
+            (mIndex >= 0 && mIndex < static_cast<int>(mGames.size()) ? mGames[mIndex].id :
+                                                                       mPendingGame) :
             "";
     if (mArea != Area::Games) {
         mFirstGame = 0;
-        mResultLimit = 200;
+        mOffset = 0;
     }
     const auto& engine = LibrarySearch::engine();
     const bool changed = mGeneration != LibrarySearch::currentGeneration();
     mGeneration = LibrarySearch::currentGeneration();
+    mLoading = !LibrarySearch::ready();
+    mPendingGame = mLoading ? oldGame : "";
     mHistory = LibrarySearch::history().queries();
     mSuggestions = engine.suggest(mQuery, 6, filter());
     mSuggestionOffset =
         std::min(mSuggestionOffset, std::max(0, static_cast<int>(mSuggestions.size()) - 1));
     if (changed)
         mLibraryCount = engine.query("", 1, LibrarySearch::currentFilter()).total;
-    const auto response = engine.query(mQuery, mResultLimit, filter(false));
+    const auto response =
+        engine.query(mQuery, mSystem.empty() ? mResultLimit : 0, filter(false),
+                     mSystem.empty() ? mOffset : 0, mSystem.empty() ? oldGame : "");
     mTotal = response.total;
     mSystems = response.systems;
     if (mSystem.empty()) {
         mMatches = response.matches;
         mMatchTotal = response.total;
+        mOffset = response.offset;
     }
     else {
-        const auto scoped = engine.query(mQuery, mResultLimit, filter());
+        const auto scoped = engine.query(mQuery, mResultLimit, filter(), mOffset, oldGame);
         mMatches = scoped.matches;
         mMatchTotal = scoped.total;
+        mOffset = scoped.offset;
     }
     mGames.clear();
     mRecent.clear();
     mFavorites.clear();
-    mNoResults =
-        mMatches.empty() && (!mQuery.empty() || !mSystem.empty() || !mGenre.empty() ||
-                             !mDeveloper.empty() || !mPublisher.empty() || mFavouritesOnly);
+    mNoResults = !mLoading && mMatches.empty() &&
+                 (!mQuery.empty() || !mSystem.empty() || !mGenre.empty() || !mDeveloper.empty() ||
+                  !mPublisher.empty() || mFavouritesOnly);
     if (zeroState()) {
+        mOffset = 0;
         const bool remember =
             Settings::getInstance()->getBool("SearchHistory") && !filter().kidMode;
         if (remember)
@@ -206,6 +214,7 @@ void GuiSearch::refresh()
     }
     else {
         if (mNoResults) {
+            mOffset = 0;
             mMatches = engine.closest(mQuery, 3, filter());
             if (mSuggestions.empty())
                 for (const auto& match : mMatches)
@@ -222,6 +231,10 @@ void GuiSearch::refresh()
     else if (mArea == Area::Games) {
         mIndex = 0;
         mFirstGame = 0;
+        if (mGames.empty() && !mLoading) {
+            mArea = mTouch ? Area::Field : Area::Keys;
+            updateHelpPrompts();
+        }
     }
     else
         mIndex = std::max(0, std::min(mIndex, count(mArea) - 1));
@@ -453,7 +466,9 @@ void GuiSearch::layout()
                        mFieldRect.z - 60 * mUnit);
     if (!mComposition.empty())
         field.insert(mCursor - visibleBegin, mComposition);
-    if (field.empty())
+    if (field.empty() && mLoading)
+        field = _("Searching for games...");
+    else if (field.empty())
         field = Utils::String::format(_n("Search %s game", "Search %s games", mLibraryCount),
                                       std::to_string(mLibraryCount).c_str());
     // Keep the editor on one line even when the caret is in the middle of a long query.
@@ -565,7 +580,10 @@ void GuiSearch::layout()
         top += 60 * mUnit;
     const bool zero = zeroState();
     mResultsRect = {rightX, top, right, mContentBottom - top};
-    if (zero) {
+    if (mLoading) {
+        label(_("Searching for games..."), {rightX, top, right, 100 * mUnit}, 36 * mUnit, mMuted);
+    }
+    else if (zero) {
         if (!mHistory.empty()) {
             label(_("Recent searches"), {rightX, top, right, 40 * mUnit}, 28 * mUnit, mMuted);
             top += 52 * mUnit;
@@ -667,7 +685,7 @@ void GuiSearch::layout()
                 label(_("Try another system or remove a filter."),
                       {rightX, top, right, 100 * mUnit}, 32 * mUnit, mMuted);
         }
-        const float bestHeight = mNoResults ? 118 * mUnit : 252 * mUnit;
+        const float bestHeight = mNoResults || mOffset ? 118 * mUnit : 252 * mUnit;
         const float rowHeight = 118 * mUnit;
         mVisibleRows =
             std::max(1, static_cast<int>((mContentBottom - top - bestHeight) / rowHeight) + 1);
@@ -679,14 +697,14 @@ void GuiSearch::layout()
         }
         mFirstGame = std::max(0, std::min(mFirstGame, static_cast<int>(mGames.size()) - 1));
         for (int i = mFirstGame; i < static_cast<int>(mGames.size()); ++i) {
-            const bool best = i == 0 && !mNoResults;
+            const bool best = mOffset + i == 0 && !mNoResults;
             const float height = best ? bestHeight : rowHeight - 10 * mUnit;
             if (top + height > mContentBottom)
                 break;
             result(i, {rightX, top, right, height}, best);
             top += height + 10 * mUnit;
         }
-        if (mFirstGame + mVisibleRows < static_cast<int>(mGames.size()))
+        if (!mNoResults && mOffset + mFirstGame + mVisibleRows < mMatchTotal)
             label(_("More results below"), {rightX, mContentBottom, right, 32 * mUnit}, 24 * mUnit,
                   mMuted);
     }
@@ -708,6 +726,7 @@ void GuiSearch::layout()
     }
     mCovers.erase(mCovers.begin(), mCovers.begin() + oldCovers);
     requestArtwork();
+    prepareDraw();
     const double milliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (mMeasureFrame)
@@ -763,12 +782,23 @@ int GuiSearch::count(Area area) const
 
 void GuiSearch::focus(Area area, int index)
 {
-    // Extend the indexed result window as navigation approaches its end. A broad query
-    // must not silently make every game after the initial fast window unreachable.
-    if (area == Area::Games && !mNoResults && !mMatches.empty() && mMatchTotal > mGames.size() &&
-        index >= static_cast<int>(mGames.size()) - mVisibleRows) {
-        mResultLimit = std::min(mMatchTotal, mResultLimit + 200);
-        refresh();
+    // Keep a bounded result page. Only visible titles/artwork need materializing,
+    // including when a focused game moves far down the ranking after a favorite change.
+    if (area == Area::Games && !mNoResults && !mMatches.empty() && mMatchTotal) {
+        const int64_t wanted =
+            std::max<int64_t>(0, std::min<int64_t>(static_cast<int64_t>(mOffset) + index,
+                                                   static_cast<int64_t>(mMatchTotal) - 1));
+        if (wanted < static_cast<int64_t>(mOffset) ||
+            wanted >= static_cast<int64_t>(mOffset + mGames.size())) {
+            const int64_t first = static_cast<int64_t>(mOffset) + mFirstGame;
+            mOffset = wanted > static_cast<int64_t>(mOffset) ?
+                          std::max<int64_t>(0, wanted - mVisibleRows + 1) :
+                          std::max<int64_t>(0, wanted - static_cast<int64_t>(mResultLimit) + 1);
+            refresh(false);
+            index = wanted - static_cast<int64_t>(mOffset);
+            mFirstGame = std::max<int64_t>(0, first + (wanted >= first ? 1 : -1) -
+                                                  static_cast<int64_t>(mOffset));
+        }
     }
     mArea = area;
     mIndex = std::max(0, std::min(index, count(area) - 1));
@@ -778,13 +808,18 @@ void GuiSearch::focus(Area area, int index)
         mSuggestionOffset = 0;
     mDirty = true;
     updateHelpPrompts();
-    LOG(LogDebug) << "Search focus: area=" << static_cast<int>(area) << " index=" << mIndex;
+    LOG(LogDebug) << "Search focus: area=" << static_cast<int>(area) << " index="
+                  << (area == Area::Games && !zeroState() && !mNoResults ? mOffset + mIndex :
+                                                                           mIndex);
 }
 
 void GuiSearch::focusResults()
 {
     const bool zero = zeroState();
-    focus(zero && mGames.empty() && !mHistory.empty() ? Area::History : Area::Games);
+    if (mGames.empty())
+        focus(zero && !mHistory.empty() ? Area::History : (mTouch ? Area::Field : Area::Keys));
+    else
+        focus(Area::Games);
 }
 
 void GuiSearch::move(int x, int y)
@@ -830,7 +865,7 @@ void GuiSearch::move(int x, int y)
     else if (mArea == Area::Games) {
         if (x < 0)
             focus(Area::Keys, 9);
-        else if (y < 0 && mIndex == 0)
+        else if (y < 0 && mIndex == 0 && !mOffset)
             focus(header);
         else if (y)
             focus(Area::Games, mIndex + y);
@@ -1272,9 +1307,20 @@ void GuiSearch::update(int deltaTime)
         setPosition(mOrigin.x * screen.x, mOrigin.y * screen.y);
         mDirty = true;
     }
+    if (mWindow->peekGui() == this && !SDL_IsTextInputActive()) {
+        LOG(LogDebug) << "Search text input resumed after focus loss";
+        startTextInput(mTouch && SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()));
+    }
     mBlink = (mBlink + deltaTime) % 1100;
-    if (mGeneration != LibrarySearch::currentGeneration())
+    const auto pumpStart = std::chrono::steady_clock::now();
+    LibrarySearch::engine();
+    const double pumpMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - pumpStart)
+            .count();
+    if (mGeneration != LibrarySearch::currentGeneration() || mLoading != !LibrarySearch::ready())
         refresh();
+    if (mMeasureFrame)
+        mQueryWorkMs += pumpMs;
     const bool keyboardShown = SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow());
     if (keyboardShown != mKeyboardShown) {
         mKeyboardShown = keyboardShown;
@@ -1306,6 +1352,64 @@ void GuiSearch::update(int deltaTime)
                             .count();
 }
 
+void GuiSearch::prepareDraw()
+{
+    mTextBatch = TextCache {};
+    mPanelBatch.clear();
+    auto triangle = [&](glm::vec2 a, glm::vec2 b, glm::vec2 c, unsigned int color) {
+        const unsigned int nativeColor = color;
+        const Renderer::Vertex first {a, {}, nativeColor};
+        const Renderer::Vertex second {b, {}, nativeColor};
+        const Renderer::Vertex third {c, {}, nativeColor};
+        mPanelBatch.insert(mPanelBatch.end(), {first, first, second, third, third, third});
+    };
+    auto rectangle = [&](const glm::vec4& rect, unsigned int color) {
+        const glm::vec2 a {rect.x, rect.y}, b {rect.x + rect.z, rect.y};
+        const glm::vec2 c {rect.x, rect.y + rect.w}, d {rect.x + rect.z, rect.y + rect.w};
+        triangle(a, b, c, color);
+        triangle(b, d, c, color);
+    };
+    for (const auto& label : mLabels) {
+        if (label.background) {
+            const auto& r = label.rect;
+            const float radius = std::min({10 * mUnit, r.z / 2, r.w / 2});
+            const glm::vec2 center {r.x + r.z / 2, r.y + r.w / 2};
+            std::vector<glm::vec2> outline;
+            for (int corner {0}; corner < 4; ++corner) {
+                const glm::vec2 origin {corner == 0 || corner == 3 ? r.x + radius :
+                                                                     r.x + r.z - radius,
+                                        corner < 2 ? r.y + radius : r.y + r.w - radius};
+                for (int step {0}; step <= 6; ++step) {
+                    const float angle = (180 + corner * 90 + step * 15) * 3.14159265f / 180;
+                    outline.push_back(origin +
+                                      radius * glm::vec2 {std::cos(angle), std::sin(angle)});
+                }
+            }
+            for (size_t i {0}; i < outline.size(); ++i)
+                triangle(center, outline[i], outline[(i + 1) % outline.size()], label.background);
+        }
+        if (label.border) {
+            const auto& r = label.rect;
+            const float line = 3 * mUnit;
+            for (const auto& edge : {glm::vec4 {r.x, r.y, r.z, line},
+                                     {r.x, r.y + r.w - line, r.z, line},
+                                     {r.x, r.y, line, r.w},
+                                     {r.x + r.z - line, r.y, line, r.w}})
+                rectangle(edge, mAccent);
+        }
+        if (!label.text)
+            continue;
+        const auto* cache = label.text->getTextCache();
+        if (!cache)
+            continue;
+        const glm::vec2 offset {
+            label.text->getPosition().x,
+            label.text->getPosition().y +
+                std::round(std::max(0.0f, (label.text->getSize().y - cache->metrics.size.y) / 2))};
+        mTextBatch.appendClipped(*cache, offset, label.rect);
+    }
+}
+
 void GuiSearch::render(const glm::mat4& parentTrans)
 {
     const auto renderStart = std::chrono::steady_clock::now();
@@ -1314,35 +1418,14 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
     mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground);
-    for (auto& label : mLabels) {
-        mRenderer->setMatrix(transform);
-        if (label.background) {
-            // The upstream corner shader expects rectangle-local vertex positions.
-            mRenderer->setMatrix(glm::translate(transform, {label.rect.x, label.rect.y, 0}));
-            mRenderer->drawRect(0, 0, label.rect.z, label.rect.w, label.background,
-                                label.background, false, 1, 1, Renderer::BlendFactor::SRC_ALPHA,
-                                Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA, 10 * mUnit);
-            mRenderer->setMatrix(transform);
-        }
-        if (label.border) {
-            const float line = 3 * mUnit;
-            for (const auto& edge :
-                 {glm::vec4 {label.rect.x, label.rect.y, label.rect.z, line},
-                  {label.rect.x, label.rect.y + label.rect.w - line, label.rect.z, line},
-                  {label.rect.x, label.rect.y, line, label.rect.w},
-                  {label.rect.x + label.rect.z - line, label.rect.y, line, label.rect.w}})
-                mRenderer->drawRect(edge.x, edge.y, edge.z, edge.w, mAccent, mAccent);
-        }
-        if (!label.text)
-            continue;
-        const auto point = transform * glm::vec4 {label.rect.x, label.rect.y, 0, 1};
-        const glm::vec2 scale {glm::length(glm::vec3(transform[0])),
-                               glm::length(glm::vec3(transform[1]))};
-        mRenderer->pushClipRect({point.x, point.y},
-                                {label.rect.z * scale.x, label.rect.w * scale.y});
-        label.text->render(transform);
-        mRenderer->popClipRect();
+    if (!mPanelBatch.empty()) {
+        mRenderer->bindTexture(0, 0);
+        mRenderer->drawTriangleStrips(mPanelBatch.data(), mPanelBatch.size(),
+                                      Renderer::BlendFactor::SRC_ALPHA,
+                                      Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA);
     }
+    if (!mFonts.empty())
+        mFonts.begin()->second->renderTextCache(&mTextBatch);
     for (auto& cover : mCovers) {
         if (!cover.image)
             continue;
@@ -1463,8 +1546,17 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
             else if (contains(mResultsRect, point.x, point.y) &&
                      std::abs(point.y - mTouchLast.y) > 70 * mUnit) {
                 const int direction = point.y < mTouchLast.y ? 1 : -1;
-                mFirstGame = std::max(0, std::min(mFirstGame + direction,
-                                                  static_cast<int>(mGames.size()) - mVisibleRows));
+                if (!mNoResults && ((direction < 0 && !mFirstGame && mOffset) ||
+                                    (direction > 0 &&
+                                     mFirstGame + mVisibleRows >= static_cast<int>(mGames.size()) &&
+                                     mOffset + mGames.size() < mMatchTotal))) {
+                    focus(Area::Games, direction < 0 ? -1 : static_cast<int>(mGames.size()));
+                    focus(Area::Games, mFirstGame);
+                }
+                else
+                    mFirstGame =
+                        std::max(0, std::min(mFirstGame + direction,
+                                             static_cast<int>(mGames.size()) - mVisibleRows));
                 const int selected =
                     std::max(mFirstGame, std::min(mIndex, mFirstGame + mVisibleRows - 1));
                 focus(Area::Games, selected);

@@ -40,12 +40,12 @@ namespace LibrarySearch
     };
     struct Filter {
         std::string system;
-        std::string genre;
-        std::string developer;
-        std::string publisher;
         bool favouritesOnly {false};
         bool showHidden {true};
         bool kidMode {false};
+        std::string genre;
+        std::string developer;
+        std::string publisher;
     };
     enum class MatchClass {
         Exact,
@@ -86,6 +86,7 @@ namespace LibrarySearch
         std::vector<Match> matches;
         std::vector<SystemCount> systems;
         size_t total {0};
+        size_t offset {0};
     };
 
     // Case/accent folding for history as well as search. Articles are title semantics only.
@@ -99,15 +100,21 @@ namespace LibrarySearch
         Core(Core&&) noexcept;
         Core& operator=(Core&&) noexcept;
         void rebuild(std::vector<Game> games);
-        const Game& game(size_t index) const;
+        void clear();
+        void update(size_t index, const Game& state);
+        uint64_t version() const;
+        // Returns an owning value; the index stores interned strings.
+        Game game(size_t index) const;
         size_t size() const;
         std::vector<Match> search(const std::string& query,
                                   size_t limit = 200,
                                   const Filter& filter = {}) const;
-        // Counts include every matching game, independent of the display limit.
+        // Complete counts are independent of the displayed result window.
         Results query(const std::string& query,
                       size_t limit = 200,
-                      const Filter& filter = {}) const;
+                      const Filter& filter = {},
+                      size_t offset = 0,
+                      const std::string& focusedGame = {}) const;
         std::vector<Match> closest(const std::string& query,
                                    size_t limit = 3,
                                    const Filter& filter = {}) const;
@@ -121,12 +128,12 @@ namespace LibrarySearch
         std::vector<Match> find(const std::string& query,
                                 size_t limit,
                                 const Filter& filter,
-                                bool firstOnly,
-                                const std::vector<size_t>* support = nullptr,
-                                std::vector<uint8_t>* matchingGames = nullptr,
-                                Results* counts = nullptr) const;
+                                Results* counts,
+                                size_t offset = 0,
+                                const std::string& focusedGame = {}) const;
         struct Index;
         std::unique_ptr<Index> mIndex;
+        uint64_t mVersion {0};
     };
 } // namespace LibrarySearch
 #endif

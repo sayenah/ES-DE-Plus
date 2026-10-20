@@ -15,7 +15,11 @@
 class FileData;
 namespace LibrarySearch
 {
+    // Nonblocking UI-thread pump: call on each frame while !ready(). Snapshot
+    // collection is time-sliced; only the frontend-free Core is built off-thread.
     const Core& engine();
+    bool ready();
+    uint64_t buildCount();
     Filter currentFilter();
     // Use the generation captured with the query; stale result indices never rebind.
     Handle handle(size_t index, uint64_t generation);

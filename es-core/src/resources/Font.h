@@ -130,6 +130,8 @@ public:
     // Returns an approximation of VRAM used by the glyph atlas textures for all font objects.
     static size_t getTotalMemUsage();
 
+    void renderTextCache(TextCache* cache);
+
 protected:
     TextCache* buildTextCache(const std::string& text,
                               float length,
@@ -143,7 +145,6 @@ protected:
                               bool multiLine,
                               bool needGlyphsPos);
 
-    void renderTextCache(TextCache* cache);
     // This is used to determine the horizontal text scrolling speed.
     float getSizeReference();
 
@@ -300,6 +301,10 @@ public:
     void setDimming(float dimming);
     void setClipRegion(const glm::vec4& clip) { clipRegion = clip; }
     const glm::vec2& getSize() { return metrics.size; }
+
+    // Combine already-shaped runs for screens with many static labels. Clip each glyph
+    // on the CPU so the combined draw does not need a different scissor per label.
+    void appendClipped(const TextCache& source, const glm::vec2& offset, const glm::vec4& clip);
 
     // Used by TextEditComponent to position the cursor and scroll the text box.
     std::vector<glm::vec2> glyphPositions;

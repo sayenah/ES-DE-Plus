@@ -1,0 +1,309 @@
+# SPDX-License-Identifier: MIT
+# ES-DE-Plus — 307 real-title fixtures from ES-DE-Plus QA search-q1 titles.txt (MIT).
+snes|Nintendo SNES (Super Nintendo)|Super Mario World
+snes|Nintendo SNES (Super Nintendo)|Super Mario World 2: Yoshi's Island
+snes|Nintendo SNES (Super Nintendo)|Super Mario Kart
+snes|Nintendo SNES (Super Nintendo)|Super Mario All-Stars
+snes|Nintendo SNES (Super Nintendo)|Super Mario RPG: Legend of the Seven Stars
+snes|Nintendo SNES (Super Nintendo)|The Legend of Zelda: A Link to the Past
+snes|Nintendo SNES (Super Nintendo)|Super Metroid
+snes|Nintendo SNES (Super Nintendo)|Final Fantasy II
+snes|Nintendo SNES (Super Nintendo)|Final Fantasy III
+snes|Nintendo SNES (Super Nintendo)|Final Fantasy VI
+snes|Nintendo SNES (Super Nintendo)|Final Fantasy: Mystic Quest
+snes|Nintendo SNES (Super Nintendo)|Chrono Trigger
+snes|Nintendo SNES (Super Nintendo)|Street Fighter II: The World Warrior
+snes|Nintendo SNES (Super Nintendo)|Street Fighter II Turbo
+snes|Nintendo SNES (Super Nintendo)|Super Street Fighter II
+snes|Nintendo SNES (Super Nintendo)|Street Fighter Alpha 2
+snes|Nintendo SNES (Super Nintendo)|Mortal Kombat
+snes|Nintendo SNES (Super Nintendo)|Mortal Kombat II
+snes|Nintendo SNES (Super Nintendo)|Mortal Kombat 3
+snes|Nintendo SNES (Super Nintendo)|Ultimate Mortal Kombat 3
+snes|Nintendo SNES (Super Nintendo)|Donkey Kong Country
+snes|Nintendo SNES (Super Nintendo)|Donkey Kong Country 2: Diddy's Kong Quest
+snes|Nintendo SNES (Super Nintendo)|Donkey Kong Country 3: Dixie Kong's Double Trouble!
+snes|Nintendo SNES (Super Nintendo)|Mega Man X
+snes|Nintendo SNES (Super Nintendo)|Mega Man X2
+snes|Nintendo SNES (Super Nintendo)|Mega Man X3
+snes|Nintendo SNES (Super Nintendo)|Mega Man 7
+snes|Nintendo SNES (Super Nintendo)|Castlevania: Dracula X
+snes|Nintendo SNES (Super Nintendo)|Super Castlevania IV
+snes|Nintendo SNES (Super Nintendo)|F-Zero
+snes|Nintendo SNES (Super Nintendo)|Star Fox
+snes|Nintendo SNES (Super Nintendo)|EarthBound
+snes|Nintendo SNES (Super Nintendo)|Secret of Mana
+snes|Nintendo SNES (Super Nintendo)|Kirby Super Star
+snes|Nintendo SNES (Super Nintendo)|Kirby's Dream Course
+snes|Nintendo SNES (Super Nintendo)|Super Punch-Out!!
+snes|Nintendo SNES (Super Nintendo)|Contra III: The Alien Wars
+snes|Nintendo SNES (Super Nintendo)|Teenage Mutant Ninja Turtles IV: Turtles in Time
+snes|Nintendo SNES (Super Nintendo)|Pilotwings
+snes|Nintendo SNES (Super Nintendo)|ActRaiser
+snes|Nintendo SNES (Super Nintendo)|Disney's Aladdin
+snes|Nintendo SNES (Super Nintendo)|The Lion King
+snes|Nintendo SNES (Super Nintendo)|Killer Instinct
+snes|Nintendo SNES (Super Nintendo)|NBA Jam
+snes|Nintendo SNES (Super Nintendo)|Super Bomberman
+snes|Nintendo SNES (Super Nintendo)|Harvest Moon
+snes|Nintendo SNES (Super Nintendo)|Breath of Fire
+snes|Nintendo SNES (Super Nintendo)|Breath of Fire II
+snes|Nintendo SNES (Super Nintendo)|Illusion of Gaia
+snes|Nintendo SNES (Super Nintendo)|Lufia II: Rise of the Sinistrals
+snes|Nintendo SNES (Super Nintendo)|Tetris Attack
+snes|Nintendo SNES (Super Nintendo)|Zombies Ate My Neighbors
+snes|Nintendo SNES (Super Nintendo)|Final Fight
+snes|Nintendo SNES (Super Nintendo)|Final Fight 2
+snes|Nintendo SNES (Super Nintendo)|Final Fight 3
+snes|Nintendo SNES (Super Nintendo)|Fatal Fury
+snes|Nintendo SNES (Super Nintendo)|Fatal Fury 2
+snes|Nintendo SNES (Super Nintendo)|Fatal Fury Special
+snes|Nintendo SNES (Super Nintendo)|Doom
+snes|Nintendo SNES (Super Nintendo)|Wolfenstein 3D
+snes|Nintendo SNES (Super Nintendo)|SimCity
+snes|Nintendo SNES (Super Nintendo)|Super Ghouls 'n Ghosts
+snes|Nintendo SNES (Super Nintendo)|Demon's Crest
+snes|Nintendo SNES (Super Nintendo)|Super Mario World (Hack) Kaizo Mario World
+snes|Nintendo SNES (Super Nintendo)|The Legend of Zelda: Parallel Worlds (Hack)
+snes|Nintendo SNES (Super Nintendo)|Super Metroid: Redesign (Hack)
+snes|Nintendo SNES (Super Nintendo)|Ys III: Wanderers from Ys
+nes|Nintendo Entertainment System|Super Mario Bros.
+nes|Nintendo Entertainment System|Super Mario Bros. 2
+nes|Nintendo Entertainment System|Super Mario Bros. 3
+nes|Nintendo Entertainment System|The Legend of Zelda
+nes|Nintendo Entertainment System|Zelda II: The Adventure of Link
+nes|Nintendo Entertainment System|Metroid
+nes|Nintendo Entertainment System|Kid Icarus
+nes|Nintendo Entertainment System|Mega Man
+nes|Nintendo Entertainment System|Mega Man 2
+nes|Nintendo Entertainment System|Mega Man 3
+nes|Nintendo Entertainment System|Mega Man 4
+nes|Nintendo Entertainment System|Mega Man 5
+nes|Nintendo Entertainment System|Mega Man 6
+nes|Nintendo Entertainment System|Castlevania
+nes|Nintendo Entertainment System|Castlevania II: Simon's Quest
+nes|Nintendo Entertainment System|Castlevania III: Dracula's Curse
+nes|Nintendo Entertainment System|Final Fantasy
+nes|Nintendo Entertainment System|Dragon Warrior
+nes|Nintendo Entertainment System|Contra
+nes|Nintendo Entertainment System|DuckTales
+nes|Nintendo Entertainment System|Mike Tyson's Punch-Out!!
+nes|Nintendo Entertainment System|Ninja Gaiden
+nes|Nintendo Entertainment System|Ninja Gaiden II: The Dark Sword of Chaos
+nes|Nintendo Entertainment System|Double Dragon
+nes|Nintendo Entertainment System|Double Dragon II: The Revenge
+nes|Nintendo Entertainment System|Street Fighter 2010: The Final Fight
+nes|Nintendo Entertainment System|Tetris
+nes|Nintendo Entertainment System|Dr. Mario
+nes|Nintendo Entertainment System|Excitebike
+nes|Nintendo Entertainment System|Ice Climber
+nes|Nintendo Entertainment System|Balloon Fight
+nes|Nintendo Entertainment System|Kirby's Adventure
+nes|Nintendo Entertainment System|Battletoads
+nes|Nintendo Entertainment System|River City Ransom
+nes|Nintendo Entertainment System|Teenage Mutant Ninja Turtles
+nes|Nintendo Entertainment System|Teenage Mutant Ninja Turtles II: The Arcade Game
+nes|Nintendo Entertainment System|Bionic Commando
+nes|Nintendo Entertainment System|Ghosts 'n Goblins
+nes|Nintendo Entertainment System|Blaster Master
+nes|Nintendo Entertainment System|1942
+nes|Nintendo Entertainment System|1943: The Battle of Midway
+nes|Nintendo Entertainment System|Pac-Man
+nes|Nintendo Entertainment System|Donkey Kong
+nes|Nintendo Entertainment System|Donkey Kong Jr.
+nes|Nintendo Entertainment System|Super Mario Bros. 3 (Hack) Mario Adventure
+genesis|Sega Genesis|Sonic the Hedgehog
+genesis|Sega Genesis|Sonic the Hedgehog 2
+genesis|Sega Genesis|Sonic the Hedgehog 3
+genesis|Sega Genesis|Sonic & Knuckles
+genesis|Sega Genesis|Sonic 3D Blast
+genesis|Sega Genesis|Streets of Rage
+genesis|Sega Genesis|Streets of Rage 2
+genesis|Sega Genesis|Streets of Rage 3
+genesis|Sega Genesis|Gunstar Heroes
+genesis|Sega Genesis|Phantasy Star II
+genesis|Sega Genesis|Phantasy Star IV
+genesis|Sega Genesis|Shining Force
+genesis|Sega Genesis|Shining Force II
+genesis|Sega Genesis|Ecco the Dolphin
+genesis|Sega Genesis|ToeJam & Earl
+genesis|Sega Genesis|Altered Beast
+genesis|Sega Genesis|Golden Axe
+genesis|Sega Genesis|Golden Axe II
+genesis|Sega Genesis|Comix Zone
+genesis|Sega Genesis|Vectorman
+genesis|Sega Genesis|Earthworm Jim
+genesis|Sega Genesis|Earthworm Jim 2
+genesis|Sega Genesis|Mortal Kombat II
+genesis|Sega Genesis|Street Fighter II': Special Champion Edition
+genesis|Sega Genesis|Castlevania: Bloodlines
+genesis|Sega Genesis|Contra: Hard Corps
+psx|Sony PlayStation|Final Fantasy VII
+psx|Sony PlayStation|Final Fantasy VIII
+psx|Sony PlayStation|Final Fantasy IX
+psx|Sony PlayStation|Final Fantasy Tactics
+psx|Sony PlayStation|Castlevania: Symphony of the Night
+psx|Sony PlayStation|Metal Gear Solid
+psx|Sony PlayStation|Resident Evil
+psx|Sony PlayStation|Resident Evil 2
+psx|Sony PlayStation|Resident Evil 3: Nemesis
+psx|Sony PlayStation|Silent Hill
+psx|Sony PlayStation|Crash Bandicoot
+psx|Sony PlayStation|Crash Bandicoot 2: Cortex Strikes Back
+psx|Sony PlayStation|Crash Bandicoot: Warped
+psx|Sony PlayStation|Spyro the Dragon
+psx|Sony PlayStation|Tony Hawk's Pro Skater
+psx|Sony PlayStation|Tony Hawk's Pro Skater 2
+psx|Sony PlayStation|Gran Turismo
+psx|Sony PlayStation|Gran Turismo 2
+psx|Sony PlayStation|Tekken
+psx|Sony PlayStation|Tekken 2
+psx|Sony PlayStation|Tekken 3
+psx|Sony PlayStation|Chrono Cross
+psx|Sony PlayStation|Xenogears
+psx|Sony PlayStation|Vagrant Story
+psx|Sony PlayStation|Suikoden
+psx|Sony PlayStation|Suikoden II
+psx|Sony PlayStation|Parasite Eve
+psx|Sony PlayStation|Ape Escape
+psx|Sony PlayStation|Driver
+psx|Sony PlayStation|Twisted Metal 2
+psx|Sony PlayStation|Wipeout XL
+psx|Sony PlayStation|Street Fighter Alpha 3
+psx|Sony PlayStation|Mega Man X4
+psx|Sony PlayStation|Mega Man Legends
+psx|Sony PlayStation|Dino Crisis
+psx|Sony PlayStation|The Legend of Dragoon
+psx|Sony PlayStation|Oddworld: Abe's Oddysee
+psx|Sony PlayStation|Rayman
+psx|Sony PlayStation|Final Doom
+psx|Sony PlayStation|V-Rally
+psx|Sony PlayStation|Arcade's Greatest Hits: The Atari Collection 1
+psx|Sony PlayStation|ファイナルファンタジーVII
+psx|Sony PlayStation|Crisis Core: Final Fantasy VII
+n64|Nintendo 64|Super Mario 64
+n64|Nintendo 64|The Legend of Zelda: Ocarina of Time
+n64|Nintendo 64|The Legend of Zelda: Majora's Mask
+n64|Nintendo 64|Mario Kart 64
+n64|Nintendo 64|GoldenEye 007
+n64|Nintendo 64|Perfect Dark
+n64|Nintendo 64|Banjo-Kazooie
+n64|Nintendo 64|Banjo-Tooie
+n64|Nintendo 64|Star Fox 64
+n64|Nintendo 64|Super Smash Bros.
+n64|Nintendo 64|Paper Mario
+n64|Nintendo 64|Mario Party
+n64|Nintendo 64|Mario Party 2
+n64|Nintendo 64|Mario Party 3
+n64|Nintendo 64|Diddy Kong Racing
+n64|Nintendo 64|Conker's Bad Fur Day
+n64|Nintendo 64|F-Zero X
+n64|Nintendo 64|Wave Race 64
+n64|Nintendo 64|1080° Snowboarding
+n64|Nintendo 64|Pokémon Snap
+n64|Nintendo 64|Pokémon Stadium
+n64|Nintendo 64|Doom 64
+n64|Nintendo 64|Mortal Kombat 4
+n64|Nintendo 64|Mortal Kombat Trilogy
+n64|Nintendo 64|Kirby 64: The Crystal Shards
+n64|Nintendo 64|Donkey Kong 64
+gb|Nintendo Game Boy|Pokémon Red Version
+gb|Nintendo Game Boy|Pokémon Blue Version
+gb|Nintendo Game Boy|Tetris
+gb|Nintendo Game Boy|The Legend of Zelda: Link's Awakening
+gb|Nintendo Game Boy|Metroid II: Return of Samus
+gb|Nintendo Game Boy|Super Mario Land
+gb|Nintendo Game Boy|Super Mario Land 2: 6 Golden Coins
+gb|Nintendo Game Boy|Kirby's Dream Land
+gb|Nintendo Game Boy|Final Fantasy Legend II
+gba|Nintendo Game Boy Advance|Pokémon Emerald Version
+gba|Nintendo Game Boy Advance|Pokémon FireRed Version
+gba|Nintendo Game Boy Advance|The Legend of Zelda: The Minish Cap
+gba|Nintendo Game Boy Advance|Metroid Fusion
+gba|Nintendo Game Boy Advance|Metroid: Zero Mission
+gba|Nintendo Game Boy Advance|Castlevania: Aria of Sorrow
+gba|Nintendo Game Boy Advance|Golden Sun
+gba|Nintendo Game Boy Advance|Advance Wars
+gba|Nintendo Game Boy Advance|Fire Emblem
+gba|Nintendo Game Boy Advance|Final Fantasy Tactics Advance
+gba|Nintendo Game Boy Advance|Mario Kart: Super Circuit
+gba|Nintendo Game Boy Advance|Super Mario Advance 4: Super Mario Bros. 3
+gba|Nintendo Game Boy Advance|Final Fantasy I & II: Dawn of Souls
+arcade|Arcade|Street Fighter II: The World Warrior
+arcade|Arcade|Street Fighter II': Champion Edition
+arcade|Arcade|Street Fighter II' Turbo: Hyper Fighting
+arcade|Arcade|Super Street Fighter II Turbo
+arcade|Arcade|Street Fighter III: 3rd Strike
+arcade|Arcade|Street Fighter
+arcade|Arcade|Marvel vs. Capcom
+arcade|Arcade|X-Men vs. Street Fighter
+arcade|Arcade|Metal Slug
+arcade|Arcade|Metal Slug 2
+arcade|Arcade|Metal Slug X
+arcade|Arcade|The King of Fighters '98
+arcade|Arcade|The King of Fighters 2002
+arcade|Arcade|Mortal Kombat
+arcade|Arcade|Mortal Kombat II
+arcade|Arcade|Ms. Pac-Man
+arcade|Arcade|Galaga
+arcade|Arcade|Dig Dug
+arcade|Arcade|Frogger
+arcade|Arcade|1942
+arcade|Arcade|Final Fight
+arcade|Arcade|Teenage Mutant Ninja Turtles
+arcade|Arcade|The Simpsons
+arcade|Arcade|X-Men
+arcade|Arcade|Out Run
+arcade|Arcade|Space Invaders
+arcade|Arcade|Robotron: 2084
+arcade|Arcade|Gauntlet
+ps2|Sony PlayStation 2|Final Fantasy X
+ps2|Sony PlayStation 2|Final Fantasy X-2
+ps2|Sony PlayStation 2|Final Fantasy XII
+ps2|Sony PlayStation 2|Kingdom Hearts
+ps2|Sony PlayStation 2|Kingdom Hearts II
+ps2|Sony PlayStation 2|Shadow of the Colossus
+ps2|Sony PlayStation 2|Ico
+ps2|Sony PlayStation 2|God of War
+ps2|Sony PlayStation 2|God of War II
+ps2|Sony PlayStation 2|Grand Theft Auto: San Andreas
+ps2|Sony PlayStation 2|Grand Theft Auto III
+ps2|Sony PlayStation 2|Grand Theft Auto: Vice City
+ps2|Sony PlayStation 2|Metal Gear Solid 2: Sons of Liberty
+ps2|Sony PlayStation 2|Metal Gear Solid 3: Snake Eater
+ps2|Sony PlayStation 2|Silent Hill 2
+ps2|Sony PlayStation 2|Devil May Cry
+ps2|Sony PlayStation 2|Devil May Cry 3: Dante's Awakening
+ps2|Sony PlayStation 2|Ōkami
+ps2|Sony PlayStation 2|Shin Megami Tensei: Persona 4
+ps2|Sony PlayStation 2|Dragon Quest VIII: Journey of the Cursed King
+ps2|Sony PlayStation 2|Tekken 5
+ps2|Sony PlayStation 2|Gran Turismo 4
+ps2|Sony PlayStation 2|Ratchet & Clank
+ps2|Sony PlayStation 2|Jak and Daxter: The Precursor Legacy
+ps2|Sony PlayStation 2|Katamari Damacy
+wii|Nintendo Wii|Super Mario Galaxy
+wii|Nintendo Wii|Super Mario Galaxy 2
+wii|Nintendo Wii|Wii Sports
+wii|Nintendo Wii|Mario Kart Wii
+wii|Nintendo Wii|New Super Mario Bros. Wii
+wii|Nintendo Wii|Xenoblade Chronicles
+wii|Nintendo Wii|Super Smash Bros. Brawl
+wii|Nintendo Wii|The Legend of Zelda: Twilight Princess
+dos|DOS (PC)|I Have No Mouth, and I Must Scream
+dos|DOS (PC)|Doom II: Hell on Earth
+dos|DOS (PC)|Prince of Persia
+dos|DOS (PC)|Commander Keen 4: Secret of the Oracle
+dos|DOS (PC)|Duke Nukem 3D
+doom|Doom|Doom
+doom|Doom|Doom II
+doom|Doom|Final Doom: TNT Evilution
+quake|Quake|Quake
+sfc|Nintendo SFC (Super Famicom)|ゼルダの伝説 神々のトライフォース
+sfc|Nintendo SFC (Super Famicom)|スーパーマリオワールド
+sfc|Nintendo SFC (Super Famicom)|ドラゴンクエストV 天空の花嫁
+sfc|Nintendo SFC (Super Famicom)|星のカービィ スーパーデラックス
+sfc|Nintendo SFC (Super Famicom)|Mōryō Senki MADARA
+megadrive|Sega Mega Drive|Astérix and the Great Rescue
+megadrive|Sega Mega Drive|Die Schlümpfe
+megadrive|Sega Mega Drive|Señor Ñandú Fútbol

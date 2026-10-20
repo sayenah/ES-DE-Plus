@@ -73,8 +73,9 @@ private:
         float opacity {0};
     };
     bool zeroState() const;
-    void refresh();
+    void refresh(bool preserveFocus = true);
     void layout();
+    void prepareDraw();
     void focus(Area area, int index = 0);
     void focusResults();
     void move(int x, int y);
@@ -124,6 +125,8 @@ private:
     SearchArtwork mArtwork;
     std::map<float, std::shared_ptr<Font>> mFonts;
     std::vector<Label> mLabels;
+    TextCache mTextBatch;
+    std::vector<Renderer::Vertex> mPanelBatch;
     std::map<std::pair<Area, int>, Control> mControls;
     std::vector<Target> mTargets;
     std::vector<Cover> mCovers;
@@ -135,6 +138,7 @@ private:
     std::vector<size_t> mRecent;
     std::vector<size_t> mFavorites;
     std::string mQuery;
+    std::string mPendingGame;
     std::string mComposition;
     std::string mScopeName;
     std::string mScopeLabel;
@@ -149,6 +153,7 @@ private:
     size_t mTotal {0};
     size_t mMatchTotal {0};
     size_t mResultLimit {200};
+    size_t mOffset {0};
     size_t mLibraryCount {0};
     uint64_t mGeneration {0};
     Area mArea {Area::Keys};
@@ -161,6 +166,7 @@ private:
     bool mTouch {false};
     bool mPortrait {false};
     bool mNoResults {false};
+    bool mLoading {true};
     bool mDirty {true};
     int mBlink {0};
     double mQueryWorkMs {0};
