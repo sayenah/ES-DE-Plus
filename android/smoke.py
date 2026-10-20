@@ -1954,7 +1954,7 @@ try:
     assert shell('cat', settings) == before, 'Settings changed on second launch'
     save_logs('second-launch')
     print('PASS: second launch skips copying and preserves settings', flush=True)
-    search_smoke.restart(globals(), data_root, 'Smkoe Alpha', 'Smoke Alpha', 'private-search')
+    search_smoke.restart(globals(), data_root, 'Smkoe Alpha', 'Smoke Alpha history', 'private-search')
     shell('am', 'force-stop', app)
     private('mkdir', '-p', 'files/themes/user-theme')
     # Write a genuine user file; the resource installer must not overwrite/delete it.

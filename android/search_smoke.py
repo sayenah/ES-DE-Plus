@@ -44,22 +44,29 @@ def committed(scope, root, query, game=True):
 def restart(scope, root, query, next_query, name):
     h = context(scope)
     assert committed(h, root, query), 'History missing before restart: ' + root
+    assert not committed(h, root, next_query, game=False), 'Restart probe query already exists'
+    previous_pid = h.shell('pidof', h.app, check=False).strip()
     h.shell('am', 'force-stop', h.app)
+    h.wait_for(lambda: not h.shell('pidof', h.app, check=False).strip(), 'search history process stopped')
     h.adb('logcat', '-c')
     h.start_entry()
     h.configured_system(name + '-restarted')
+    assert h.shell('pidof', h.app).strip() != previous_pid, 'History probe did not restart the process'
     assert committed(h, root, query), 'History missing after restart: ' + root
     # A second committed query makes the new process load and rewrite the store,
     # proving that both the old query and opened game were actually read back.
     h.key('KEYCODE_ESCAPE')
+    h.screenshot(name + '-restart-menu')
     h.key('KEYCODE_ENTER')
+    h.screenshot(name + '-restart-text-entry')
     h.shell('input', 'text', next_query.replace(' ', '%s'))
     h.key('KEYCODE_ENTER')
+    h.screenshot(name + '-restart-results')
     h.wait_for(lambda: committed(h, root, next_query), 'new process rewrote search history')
     assert committed(h, root, query), 'History was overwritten instead of loaded'
     value = history(h, root)
     assert value.findall('query')[0].text == next_query
-    h.evidence.joinpath(name + '-history.xml').write_text(ET.tostring(value, encoding='unicode'))
+    h.evidence.joinpath(name + '-history.txt').write_text(ET.tostring(value, encoding='unicode'))
     h.key('KEYCODE_ESCAPE')
     h.key('KEYCODE_ESCAPE')
     print('PASS: search query and opened game survive restart/read/rewrite: ' + name, flush=True)

@@ -10,6 +10,7 @@
 #include "search/LibrarySearch.h"
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <memory>
 #include <thread>
@@ -22,6 +23,13 @@ static void require(bool value, const char* message)
         std::cerr << "FAIL: " << message << '\n';
         std::exit(1);
     }
+}
+static double threadMilliseconds()
+{
+    timespec value {};
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) != 0)
+        std::abort();
+    return value.tv_sec * 1000.0 + value.tv_nsec / 1000000.0;
 }
 int main()
 {
@@ -132,16 +140,25 @@ int main()
         large.push_back(std::move(item));
     }
     invalidate();
-    double maxPump {0};
+    double maxPump {0}, maxCpu {0};
     size_t pumps {0};
     auto collectLarge = [&] {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
         do {
+            const auto cpu = threadMilliseconds();
+            const auto beforeBuild = buildCount();
             const auto start = std::chrono::steady_clock::now();
             engine();
-            maxPump = std::max(maxPump, std::chrono::duration<double, std::milli>(
-                                            std::chrono::steady_clock::now() - start)
-                                            .count());
+            const auto wall =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count();
+            const auto work = threadMilliseconds() - cpu;
+            maxPump = std::max(maxPump, wall);
+            maxCpu = std::max(maxCpu, work);
+            if (wall > 10)
+                std::cout << "SLOW UI "
+                          << (buildCount() != beforeBuild ? "publish" : "snapshot/poll")
+                          << " wall_ms=" << wall << " cpu_ms=" << work << '\n';
             ++pumps;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } while (!ready() && std::chrono::steady_clock::now() < deadline);
@@ -150,9 +167,15 @@ int main()
     };
     collectLarge();
     const auto largeBuilds = buildCount();
-    large[0]->metadata.set("favorite", "true");
-    large[0]->metadata.set("lastplayed", "20261020T120000");
+    large.back()->metadata.set("favorite", "true");
+    large.back()->metadata.set("lastplayed", "20261020T120000");
+    const auto rankedCpu = threadMilliseconds();
+    const auto rankedAt = std::chrono::steady_clock::now();
     engine();
+    maxPump = std::max(maxPump, std::chrono::duration<double, std::milli>(
+                                    std::chrono::steady_clock::now() - rankedAt)
+                                    .count());
+    maxCpu = std::max(maxCpu, threadMilliseconds() - rankedCpu);
     require(buildCount() == largeBuilds && ready(),
             "50k launch/favourite updates keep the existing index");
     const auto staleLarge = handle(0, currentGeneration());
@@ -161,7 +184,7 @@ int main()
     require(!resolve(staleLarge) && engine().search("metadata changed").size() == 1,
             "50k replacement invalidates handles and reflects real text edits");
     std::cout << "ADAPTER snapshot games=50000 pumps=" << pumps << " max_ui_pump_ms=" << maxPump
-              << '\n';
+              << " max_ui_cpu_ms=" << maxCpu << '\n';
 #ifndef __SANITIZE_ADDRESS__
     // Sanitizers deliberately trade speed for instrumentation; Release is the frame budget.
 #if !defined(__has_feature)
