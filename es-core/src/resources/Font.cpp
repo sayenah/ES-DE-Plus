@@ -1511,5 +1511,7 @@ void TextCache::appendClipped(const TextCache& source,
             output->verts.insert(output->verts.end(), {topLeft, topLeft, bottomLeft, topRight,
                                                        bottomRight, bottomRight});
         }
+        if (output->verts.empty())
+            vertexLists.erase(output);
     }
 }

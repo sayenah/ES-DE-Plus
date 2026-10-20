@@ -55,6 +55,9 @@ jobs:
           cmake --build build-search-sanitized --parallel 2
           ctest --test-dir build-search-sanitized -R 'search_logic|search_adapter|search_hooks|search_fuzz' --output-on-failure
 
+      - name: Check production glyph clipping and batching
+        run: python3 tests/search-screen/check_text_cache.py
+
       - name: Build and run pure overlay model checks
         run: |
           cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
