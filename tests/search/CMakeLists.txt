@@ -97,3 +97,5 @@ if(SEARCH_SANITIZERS)
 endif()
 add_test(NAME search_adapter_snapshot COMMAND search_snapshot_tests)
 set_tests_properties(search_adapter_snapshot PROPERTIES TIMEOUT 180)
+
+set_tests_properties(search_memory PROPERTIES ENVIRONMENT "SEARCH_MEMORY_PROFILE=1")
