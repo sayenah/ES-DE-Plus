@@ -37,7 +37,8 @@ void SearchTextInput::keyDown(
 {
     mSuppressText = false;
     mKeyReady = false;
-    const bool printable {input.id >= SDLK_SPACE && input.id < SDLK_DELETE};
+    const bool printable {input.id >= SDLK_SPACE && input.id != SDLK_DELETE &&
+                          !(input.id & SDLK_SCANCODE_MASK)};
     if (browsing && before == after && printable && config->getMappedTo(input).empty() &&
         !(input.modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
         mOwner = before;
