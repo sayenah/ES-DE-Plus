@@ -114,11 +114,18 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     SDL_StartTextInput();
     refresh();
     layout();
-    for (const float size :
-         {24.0f, 25.0f, 26.0f, 27.0f, 28.0f, 30.0f, 32.0f, 34.0f, 36.0f, 38.0f, 42.0f})
-        searchFont(size * mUnit)
-            ->sizeText("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-                       "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×");
+    const std::string alphabet {"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                                "' -:.!?@#$%&*()+áàâäãåæçéèêëíìîïñóòôöõøœúùûüß★›×‘’·…"};
+    mRenderer->setMatrix(glm::mat4 {1});
+    for (const float size : {26.0f, 32.0f, 40.0f}) {
+        // Prepare both glyphs and their draw path. Measuring glyphs alone leaves
+        // the first actual text draw to initialize the driver's font material.
+        TextComponent text {alphabet, searchFont(size * mUnit), 0x00000000};
+        if (const auto* source = text.getTextCache()) {
+            TextCache cache {*source};
+            text.getFont()->renderTextCache(&cache);
+        }
+    }
     // Prepare the bounded raw-image upload/draw before making the screen interactive.
     // One-pixel preparation did not remove first-thumbnail stalls on GLES. No media
     // file is opened here; transparent vertex color preserves the current backbuffer.
@@ -290,7 +297,14 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
 {
     // Retain the small set of font sizes across layouts. Font's upstream map holds weak
     // references; destroying every label would otherwise reload fonts on each keystroke.
-    const float key = std::max(2.0f, std::round(size / 2) * 2);
+    // Three legible type sizes share atlas/draw batches across the screen. Keep
+    // smaller fitted fonts available when a translated control needs them.
+    const float nominal = size / mUnit;
+    const float grouped = nominal < 24 ? size :
+                          nominal < 30 ? 26 * mUnit :
+                          nominal < 36 ? 32 * mUnit :
+                                         40 * mUnit;
+    const float key = std::max(2.0f, std::round(grouped / 2) * 2);
     auto& font = mFonts[key];
     if (!font)
         font = Font::get(key);
@@ -344,6 +358,9 @@ void GuiSearch::target(
             width > available ?
                 std::max(2.0f, std::floor(fontSize * std::max(0.65f, available / width) / 2) * 2) :
                 fontSize;
+        while (control.fittedSize > 2 &&
+               searchFont(control.fittedSize)->sizeText(value).x > available)
+            control.fittedSize = std::max(2.0f, control.fittedSize - 2);
     }
     label(value, rect, control.fittedSize, active ? mFocusInk : mForeground,
           active ? mAccent : (area == Area::Keys ? mPanel : mRaised), active,
