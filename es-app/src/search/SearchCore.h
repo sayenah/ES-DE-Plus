@@ -101,6 +101,7 @@ namespace LibrarySearch
         Core& operator=(Core&&) noexcept;
         void rebuild(std::vector<Game> games);
         void clear();
+        // Ranking/visibility state only; text and membership changes require rebuild().
         void update(size_t index, const Game& state);
         uint64_t version() const;
         // Returns an owning value; the index stores interned strings.

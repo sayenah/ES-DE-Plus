@@ -131,18 +131,32 @@ int main()
     invalidate();
     double maxPump {0};
     size_t pumps {0};
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-    do {
-        const auto start = std::chrono::steady_clock::now();
-        engine();
-        maxPump = std::max(maxPump, std::chrono::duration<double, std::milli>(
-                                        std::chrono::steady_clock::now() - start)
-                                        .count());
-        ++pumps;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    } while (!ready() && std::chrono::steady_clock::now() < deadline);
-    require(ready() && engine().size() == 50000 && pumps > 1,
-            "large first search remains a time-sliced snapshot/background build");
+    auto collectLarge = [&] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+        do {
+            const auto start = std::chrono::steady_clock::now();
+            engine();
+            maxPump = std::max(maxPump, std::chrono::duration<double, std::milli>(
+                                            std::chrono::steady_clock::now() - start)
+                                            .count());
+            ++pumps;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (!ready() && std::chrono::steady_clock::now() < deadline);
+        require(ready() && engine().size() == 50000 && pumps > 1,
+                "large first search remains a time-sliced snapshot/background build");
+    };
+    collectLarge();
+    const auto largeBuilds = buildCount();
+    large[0]->metadata.set("favorite", "true");
+    large[0]->metadata.set("lastplayed", "20261020T120000");
+    engine();
+    require(buildCount() == largeBuilds && ready(),
+            "50k launch/favourite updates keep the existing index");
+    const auto staleLarge = handle(0, currentGeneration());
+    large[0]->metadata.set("name", "Metadata Changed");
+    collectLarge();
+    require(!resolve(staleLarge) && engine().search("metadata changed").size() == 1,
+            "50k replacement invalidates handles and reflects real text edits");
     std::cout << "ADAPTER snapshot games=50000 pumps=" << pumps << " max_ui_pump_ms=" << maxPump
               << '\n';
 #ifndef __SANITIZE_ADDRESS__

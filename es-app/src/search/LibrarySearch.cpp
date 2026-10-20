@@ -66,6 +66,9 @@ namespace LibrarySearch
             dirty.insert(metadata);
             return true;
         }
+        // Destroy payloads before a future becomes ready. Its callable itself may
+        // otherwise survive until get() releases the shared state on the UI thread.
+        template <typename... T> void releasePayload(T...) {}
         void retire(Snapshot& state, Core old)
         {
             std::set<const void*> oldRegistered;
@@ -82,7 +85,9 @@ namespace LibrarySearch
                  metadata = std::move(state.metadata), byIndex = std::move(state.byIndex),
                  corpus = std::move(state.corpus), registrations = std::move(oldRegistered),
                  changes = std::move(oldDirty)]() mutable {
-                    core.clear();
+                    releasePayload(std::move(core), std::move(files), std::move(metadata),
+                                   std::move(byIndex), std::move(corpus), std::move(registrations),
+                                   std::move(changes));
                     return Core {};
                 });
         }
@@ -194,6 +199,7 @@ namespace LibrarySearch
                                     corpus.push_back(std::move(records.front()));
                                     records.pop_front();
                                 }
+                                releasePayload(std::move(records));
                                 built.rebuild(std::move(corpus));
                                 LOG(LogDebug) << "Library search index: games=" << built.size()
                                               << " build_ms="
