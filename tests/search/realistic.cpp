@@ -145,7 +145,7 @@ namespace
         }
         return result;
     }
-    void performance()
+    void performance(bool screen = false)
     {
         const auto dict = vocabulary();
         auto games = corpus(dict);
@@ -178,7 +178,14 @@ namespace
             for (size_t n {1}; n <= q.size(); ++n) {
                 const auto partial = q.substr(0, n);
                 const auto a = std::chrono::steady_clock::now();
-                checksum += core.search(partial).size();
+                if (screen) {
+                    const auto result = core.query(partial, 200);
+                    checksum += result.matches.size() + result.total;
+                    if (result.matches.empty())
+                        checksum += core.closest(partial).size();
+                }
+                else
+                    checksum += core.search(partial).size();
                 const auto searched = std::chrono::steady_clock::now();
                 checksum += core.suggest(partial).size();
                 const double elapsed =
@@ -195,13 +202,18 @@ namespace
             }
         std::sort(times.begin(), times.end());
         const double p95 = times[times.size() * 95 / 100].first;
-        std::printf("PERF realistic games=%zu vocabulary=%zu systems=%zu queries=%zu prefixes=%zu "
+        std::printf("PERF %s games=%zu vocabulary=%zu systems=%zu queries=%zu prefixes=%zu "
                     "build_ms=%.3f search_suggest_p95_ms=%.3f max_ms=%.3f checksum=%zu\n",
-                    core.size(), words.size(), systems.size(), queries.size(), times.size(), build,
-                    p95, times.back().first, checksum);
+                    screen ? "screen-realistic" : "realistic", core.size(), words.size(),
+                    systems.size(), queries.size(), times.size(), build, p95, times.back().first,
+                    checksum);
         for (size_t i = times.size() - 5; i < times.size(); ++i)
             std::printf("SLOW realistic %.3f [%s]\n", times[i].first, times[i].second.c_str());
         std::fflush(stdout);
+        if (screen) {
+            require(times.back().first <= 50, "complete screen data max <=50ms");
+            return;
+        }
         require(build <= 400, "index build <=400ms");
         require(p95 <= 5, "combined p95 <=5ms");
         require(times.back().first <= 20, "combined max <=20ms");
@@ -241,5 +253,5 @@ int main(int argc, char** argv)
     if (argc > 1 && std::string(argv[1]) == "--memory")
         memory();
     else
-        performance();
+        performance(argc > 1 && std::string(argv[1]) == "--screen");
 }

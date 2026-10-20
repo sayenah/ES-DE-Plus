@@ -1054,7 +1054,6 @@ namespace LibrarySearch
                 complete && std::all_of(qw.begin(), qw.end(), [](const Word& w) {
                     return !digits(w.text) && number(w.text) == w.text;
                 });
-            const auto compactQuery = substringMembership ? compact(q) : std::string {};
             if (q.empty() || !limit)
                 return {};
             auto allowed = [&](Id g) {
@@ -1118,6 +1117,31 @@ namespace LibrarySearch
                         continue;
                     if (qw.size() == 1 && !numeric && number(qw[0].text) == qw[0].text) {
                         put(d, 2, 2);
+                        continue;
+                    }
+                    if (complete && qw.size() == 1 && LibrarySearch::numeric(qw[0].text)) {
+                        const auto value = doc(d);
+                        bool exactWord {false}, equivalent {false};
+                        const auto wanted = number(qw[0].text);
+                        for (size_t at {0}; at < value.size();) {
+                            const size_t end = std::min(value.find(' ', at), value.size());
+                            const auto token = value.substr(at, end - at);
+                            if (!(token == "x" && letterX[documents[d].game] &&
+                                  digits(qw[0].text))) {
+                                exactWord |= token == qw[0].text;
+                                if (token.size() <= 5)
+                                    equivalent |= number(std::string(token)) == wanted;
+                            }
+                            at = end + 1;
+                        }
+                        if (joined(d) == compactQuery)
+                            put(d, 0, 0);
+                        else if (exactWord) {
+                            const int kind = starts(joined(d), compactQuery) ? 1 : 2;
+                            put(d, kind, kind);
+                        }
+                        else if (equivalent)
+                            put(d, 5, value.find(' ') == std::string_view::npos ? 0 : 2);
                         continue;
                     }
                     if (qw.size() > 1) {
@@ -1224,6 +1248,32 @@ namespace LibrarySearch
                             best = 6;
                             bestDoc = d;
                             break;
+                        }
+                        if (complete && qw.size() == 1 && !fuzzy &&
+                            LibrarySearch::numeric(qw[0].text)) {
+                            const auto value = doc(d);
+                            bool compatible {false};
+                            if (joined(d).find(compactQuery) != std::string_view::npos) {
+                                const auto wanted = number(qw[0].text);
+                                for (size_t at {0}; at < value.size() && !compatible;) {
+                                    const size_t end = std::min(value.find(' ', at), value.size());
+                                    const auto token = value.substr(at, end - at);
+                                    compatible =
+                                        (token.size() <= 5 &&
+                                         number(std::string(token)) == wanted) ||
+                                        (digits(qw[0].text) && !token.empty() &&
+                                         std::all_of(token.begin(), token.end(),
+                                                     [](char c) { return c >= '0' && c <= '9'; }) &&
+                                         starts(token, qw[0].text));
+                                    at = end + 1;
+                                }
+                            }
+                            if (compatible) {
+                                best = 6;
+                                bestDoc = d;
+                                break;
+                            }
+                            continue;
                         }
                         if (shortMembership)
                             continue;
@@ -2055,11 +2105,39 @@ namespace LibrarySearch
         // Recommendations are separate from real typo matches. Reuse interned title
         // views and cache word distances without allocating owning game records.
         std::unordered_map<std::string_view, size_t> distances, titles;
+        std::unordered_map<char32_t, uint64_t> pattern;
+        if (q.size() <= 64)
+            for (size_t i {0}; i < q.size(); ++i)
+                pattern[q[i]] |= uint64_t {1} << i;
         auto distance = [&](std::string_view text) {
             const auto cached = distances.find(text);
             if (cached != distances.end())
                 return cached->second;
             const auto points = codepoints(std::string(text));
+            if (q.size() <= 64) {
+                // Bit-parallel Levenshtein keeps closest recommendations bounded for
+                // varied libraries, including Unicode code points rather than UTF-8 bytes.
+                uint64_t positive = UINT64_MAX, negative {0};
+                size_t score = q.size();
+                const uint64_t high = uint64_t {1} << (q.size() - 1);
+                for (size_t i {0}; i < points.size() && i < 256; ++i) {
+                    const auto mask = pattern.find(points[i]);
+                    const uint64_t equal = mask == pattern.end() ? 0 : mask->second;
+                    const uint64_t vertical = equal | negative;
+                    const uint64_t horizontal =
+                        (((equal & positive) + positive) ^ positive) | equal;
+                    uint64_t plus = negative | ~(horizontal | positive);
+                    uint64_t minus = positive & horizontal;
+                    score += (plus & high) != 0;
+                    score -= (minus & high) != 0;
+                    plus = (plus << 1) | 1;
+                    minus <<= 1;
+                    positive = minus | ~(vertical | plus);
+                    negative = plus & vertical;
+                }
+                distances.emplace(text, score);
+                return score;
+            }
             std::vector<size_t> previous(q.size() + 1), current(q.size() + 1);
             std::iota(previous.begin(), previous.end(), 0);
             for (size_t i {0}; i < points.size() && i < 256; ++i) {

@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <numeric>
 #include <set>
 #include <sstream>
 #include <string>
@@ -758,8 +759,8 @@ namespace
         filter = {};
         filter.showHidden = false;
         filter.kidMode = true;
-        for (const auto& query :
-             {"m", "ma", "mar", "fin", "ff7", "pokemon", "zeldda", "nintendo", "rom 20"}) {
+        for (const auto& query : {"m", "ma", "mar", "fin", "ff7", "pokemon", "zeldda", "nintendo",
+                                  "rom 20", "i", "ii", "x", "1", "10", "64"}) {
             const auto reference = core.search(query, core.size(), filter);
             for (const size_t limit : {1, 2, 200}) {
                 const auto counted = core.query(query, limit, filter);
@@ -772,6 +773,55 @@ namespace
                                 counted.matches[i].kind == reference[i].kind,
                             "counting shortcut preserves displayed ranking and match class");
             }
+        }
+        Core recommendations;
+        const std::vector<std::string> recommendationNames {"Mario",
+                                                            "Metroid",
+                                                            "Pokémon",
+                                                            "Final Fantasy VII",
+                                                            std::string(64, 'a'),
+                                                            std::string(65, 'b')};
+        std::vector<Game> recommendationGames;
+        for (size_t i {0}; i < recommendationNames.size(); ++i)
+            recommendationGames.push_back(game(recommendationNames[i], std::to_string(i)));
+        recommendations.rebuild(recommendationGames);
+        auto distance = [](const std::string& first, const std::string& second) {
+            // These inputs normalize to ASCII; use ordinary dynamic programming as an
+            // independent oracle for the production bit-parallel distance calculation.
+            const auto a = normalize(first), b = normalize(second);
+            std::vector<size_t> row(b.size() + 1);
+            std::iota(row.begin(), row.end(), 0);
+            for (size_t i {0}; i < a.size(); ++i) {
+                auto diagonal = row[0];
+                row[0] = i + 1;
+                for (size_t j {0}; j < b.size(); ++j) {
+                    auto previous = row[j + 1];
+                    row[j + 1] = std::min({row[j] + 1, row[j + 1] + 1, diagonal + (a[i] != b[j])});
+                    diagonal = previous;
+                }
+            }
+            return row.back();
+        };
+        for (const auto& query :
+             std::vector<std::string> {"maroi", "metriod", "pokemno", "final fantazy",
+                                       std::string(64, 'a'), std::string(65, 'b')}) {
+            std::vector<std::pair<size_t, size_t>> reference;
+            for (size_t i {0}; i < recommendationNames.size(); ++i) {
+                std::istringstream words(normalize(recommendationNames[i]));
+                std::string word;
+                size_t best = query.find(' ') != std::string::npos ?
+                                  distance(query, recommendationNames[i]) :
+                                  SIZE_MAX;
+                while (words >> word)
+                    best = std::min(best, distance(query, word));
+                reference.push_back({best, i});
+            }
+            std::sort(reference.begin(), reference.end());
+            const auto found = recommendations.closest(query, recommendationNames.size());
+            require(found.size() == reference.size(), "closest includes every eligible candidate");
+            for (size_t i {0}; i < found.size(); ++i)
+                require(found[i].index == reference[i].second,
+                        "closest distance agrees with independent DP oracle");
         }
         core.rebuild({game("Zelda"), game("Metroid", "2")});
         require(core.search("zeld").front().kind != MatchClass::Typo && core.search("zelx").empty(),
@@ -891,11 +941,18 @@ namespace
         }
         std::vector<double> screenTimes;
         for (const auto& partial : {"f", "fi", "fin", "final", "zelda", "m", "zzzzzz"}) {
-            double slowest {0};
+            double slowest {0}, queryMax {0}, suggestMax {0};
             for (int repeat {0}; repeat < 10; ++repeat) {
                 const auto before = std::chrono::steady_clock::now();
                 const auto result = core.query(partial, 200);
+                const auto queried = std::chrono::steady_clock::now();
                 checksum += result.total + core.suggest(partial, 6).size();
+                const auto suggested = std::chrono::steady_clock::now();
+                queryMax = std::max(
+                    queryMax, std::chrono::duration<double, std::milli>(queried - before).count());
+                suggestMax = std::max(
+                    suggestMax,
+                    std::chrono::duration<double, std::milli>(suggested - queried).count());
                 if (result.matches.empty())
                     checksum += core.closest(partial).size();
                 screenTimes.push_back(std::chrono::duration<double, std::milli>(
@@ -903,7 +960,8 @@ namespace
                                           .count());
                 slowest = std::max(slowest, screenTimes.back());
             }
-            std::printf("SCREEN prefix=%s max_ms=%.3f\n", partial, slowest);
+            std::printf("SCREEN prefix=%s max_ms=%.3f query_max_ms=%.3f suggest_max_ms=%.3f\n",
+                        partial, slowest, queryMax, suggestMax);
         }
         std::sort(screenTimes.begin(), screenTimes.end());
         std::printf("SCREEN 50k counts/suggestions/fallback p95_ms=%.3f max_ms=%.3f\n",

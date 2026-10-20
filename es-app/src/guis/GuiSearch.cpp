@@ -1167,6 +1167,8 @@ bool GuiSearch::input(InputConfig* config, Input input)
         return true;
     const bool keyboard = input.type == TYPE_KEY;
     if (keyboard) {
+        LOG(LogDebug) << "Search keyboard: text_active="
+                      << static_cast<bool>(SDL_IsTextInputActive());
         // Android normally hides the IME when a hardware keyboard is attached. Keep
         // software-keyboard commits in touch mode, but expose the grid for hardware keys.
         if (mTouch && !SDL_IsScreenKeyboardShown(mRenderer->getSDLWindow()))
@@ -1355,6 +1357,7 @@ void GuiSearch::update(int deltaTime)
 void GuiSearch::prepareDraw()
 {
     mTextBatch = TextCache {};
+    mTextBatch.setClipRegion({0, 0, 0, 0});
     mPanelBatch.clear();
     auto triangle = [&](glm::vec2 a, glm::vec2 b, glm::vec2 c, unsigned int color) {
         const unsigned int nativeColor = color;
