@@ -986,6 +986,10 @@ def run(namespace):
                 touch_control(control)
                 check_delta(resumed, [(control, 1), (control, 0)],
                             'fresh control after reload ' + str(control))
+                if control == 6:
+                    # Keep subsequent overlay probes in Sound; Search owns its controls.
+                    for _ in range(3):
+                        h.key('KEYCODE_DPAD_DOWN')
         finally:
             before_reset = h.log()
             h.shell('wm', 'size', 'reset')
