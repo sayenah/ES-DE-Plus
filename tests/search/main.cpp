@@ -568,6 +568,25 @@ namespace
         require(sonic.size() == 2 && core.game(sonic[0].index).title == "Sonic the Hedgehog 3" &&
                     sonic[1].kind == MatchClass::Substring,
                 "whole number outranks the final typed alphanumeric prefix");
+        auto year = game("Mortal Kombat 2010", "year");
+        year.favourite = true;
+        core.rebuild({game("Mortal Kombat II", "two"), year});
+        const auto sequel = core.search("mk2");
+        require(sequel.size() == 1 && core.game(sequel[0].index).id == "two",
+                "an acronym's numeric suffix is a whole number, not the first digit of a year");
+        const auto fullYear = core.search("mk2010");
+        require(fullYear.size() == 1 && core.game(fullYear[0].index).id == "year",
+                "an acronym accepts a complete numeric year");
+        auto initials = game("Final Fantasy Indigo Islands", "initials");
+        initials.favourite = true;
+        core.rebuild({game("Final Fantasy II", "number"), initials});
+        const auto separateRoman = core.search("ff ii");
+        require(separateRoman.size() == 1 && core.game(separateRoman[0].index).id == "number",
+                "a separate Roman numeral cannot become another initialism");
+        core.rebuild({game("Final Fantasy X", "ten"), game("Final Fantasy X2", "subseries")});
+        const auto ten = core.search("final fantasy 10");
+        require(ten.size() == 1 && core.game(ten[0].index).id == "ten",
+                "an attached X2 title cannot turn another game's Roman X into a letter");
         core.rebuild({game("Metroid II")});
         require(core.search("metriod 2").size() == 1,
                 "a fuzzy word can accompany a whole equivalent numeral");

@@ -172,7 +172,7 @@ def run(harness):
     before_search = len(search_smoke.launches(h))
     h.search_launch('Retained Alpha', 'shared-history-search')
     search_smoke.assert_launched(h, 'Retained Alpha', before_search)
-    search_smoke.restart(h, roots[2], 'Retained Alpha', 'Retained', 'shared-search')
+    search_smoke.restart(h, roots[2], 'Retained Alpha', 'Retained history', 'shared-search')
 
     # Permission revocation and an in-place data-folder obstruction are real
     # recovery paths; the existing regression pass covers permission denial.
