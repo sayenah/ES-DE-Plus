@@ -29,9 +29,26 @@
 #include <chrono>
 #include <cmath>
 #include <set>
+#if defined(__ANDROID__)
+#include <time.h>
+#endif
 
 namespace
 {
+    double threadCpuMilliseconds()
+    {
+#if defined(__ANDROID__)
+        timespec value {};
+        if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &value) == 0)
+            return value.tv_sec * 1000.0 + value.tv_nsec / 1000000.0;
+#endif
+        return -1.0;
+    }
+    double elapsedThreadCpu(double start)
+    {
+        const auto end = threadCpuMilliseconds();
+        return start < 0 || end < 0 ? -1.0 : end - start;
+    }
     [[maybe_unused]] bool contains(const glm::vec4& rect, float x, float y)
     {
         return x >= rect.x && y >= rect.y && x < rect.x + rect.z && y < rect.y + rect.w;
@@ -203,6 +220,7 @@ void GuiSearch::refresh(bool preserveFocus)
         mMeasureFrame = true;
     }
     const auto start = std::chrono::steady_clock::now();
+    const auto cpuStart = threadCpuMilliseconds();
     const std::string oldGame =
         preserveFocus && mArea == Area::Games ?
             (mIndex >= 0 && mIndex < static_cast<int>(mGames.size()) ? mGames[mIndex].id :
@@ -213,12 +231,15 @@ void GuiSearch::refresh(bool preserveFocus)
         mOffset = 0;
     }
     const auto& engine = LibrarySearch::engine();
+    const auto engineReady = std::chrono::steady_clock::now();
     const bool changed = mGeneration != LibrarySearch::currentGeneration();
     mGeneration = LibrarySearch::currentGeneration();
     mLoading = !LibrarySearch::ready();
     mPendingGame = mLoading ? oldGame : "";
     mHistory = LibrarySearch::history().queries();
+    const auto historyReady = std::chrono::steady_clock::now();
     mSuggestions = engine.suggest(mQuery, 6, filter());
+    const auto suggestionsReady = std::chrono::steady_clock::now();
     mSuggestionOffset =
         std::min(mSuggestionOffset, std::max(0, static_cast<int>(mSuggestions.size()) - 1));
     if (changed)
@@ -239,6 +260,7 @@ void GuiSearch::refresh(bool preserveFocus)
         mMatchTotal = scoped.total;
         mOffset = scoped.offset;
     }
+    const auto matchesReady = std::chrono::steady_clock::now();
     mGames.clear();
     mRecent.clear();
     mFavorites.clear();
@@ -287,14 +309,24 @@ void GuiSearch::refresh(bool preserveFocus)
     else
         mIndex = std::max(0, std::min(mIndex, count(mArea) - 1));
     mDirty = true;
+    const double cpuMilliseconds = elapsedThreadCpu(cpuStart);
     const double milliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (mMeasureFrame)
         mQueryWorkMs += milliseconds;
     else
         mQueryWorkMs = milliseconds;
-    LOG(LogDebug) << "Search keystroke: query=" << queryForLog() << " results=" << mTotal
-                  << " query_bytes=" << mQuery.size() << " search_ms=" << milliseconds;
+    LOG(LogDebug)
+        << "Search keystroke: query=" << queryForLog() << " results=" << mTotal
+        << " query_bytes=" << mQuery.size() << " search_ms=" << milliseconds
+        << " search_cpu_ms=" << cpuMilliseconds
+        << " engine_ms=" << std::chrono::duration<double, std::milli>(engineReady - start).count()
+        << " history_ms="
+        << std::chrono::duration<double, std::milli>(historyReady - engineReady).count()
+        << " suggest_ms="
+        << std::chrono::duration<double, std::milli>(suggestionsReady - historyReady).count()
+        << " matches_ms="
+        << std::chrono::duration<double, std::milli>(matchesReady - suggestionsReady).count();
 }
 
 std::shared_ptr<Font> GuiSearch::searchFont(float size)
@@ -386,6 +418,7 @@ void GuiSearch::title(const std::string& value,
     // Render the complete shaped title once. Overlay matching ranges using clipping of
     // the same shaped run, so accent/ligature expansion never changes letter positions.
     const auto font = searchFont(fontSize);
+    const Label shaped {mLabels.back()};
     for (const auto& span : spans) {
         if (span.begin >= span.end || span.end > value.size())
             continue;
@@ -393,7 +426,9 @@ void GuiSearch::title(const std::string& value,
         const float end = font->sizeText(value.substr(0, span.end)).x;
         if (begin >= rect.z - 24 * mUnit)
             continue;
-        label(value, rect, fontSize, mAccent);
+        // Recolor a clipped copy of the same glyph run; do not shape the title again.
+        mLabels.push_back(shaped);
+        mLabels.back().textColor = mAccent;
         // Clip the highlight overlay to its matched range in the complete shaped run.
         mLabels.back().rect = {rect.x + 12 * mUnit + begin, rect.y,
                                std::min(end, rect.z - 24 * mUnit) - begin, rect.w};
@@ -498,6 +533,7 @@ std::vector<std::string> GuiSearch::keys() const
 void GuiSearch::layout()
 {
     const auto start = std::chrono::steady_clock::now();
+    const auto cpuStart = threadCpuMilliseconds();
     mDirty = false;
     mLabels.clear();
     mTargets.clear();
@@ -789,12 +825,14 @@ void GuiSearch::layout()
     mCovers.erase(mCovers.begin(), mCovers.begin() + oldCovers);
     requestArtwork();
     prepareDraw();
+    const double cpuMilliseconds = elapsedThreadCpu(cpuStart);
     const double milliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     if (mMeasureFrame)
         mQueryWorkMs += milliseconds;
     LOG(LogDebug) << "Search layout: ms=" << milliseconds << " covers=" << mCovers.size()
-                  << " focus=" << static_cast<int>(mArea) << ":" << mIndex;
+                  << " focus=" << static_cast<int>(mArea) << ":" << mIndex
+                  << " layout_cpu_ms=" << cpuMilliseconds;
 #if defined(__ANDROID__)
     if (Log::getReportingLevel() >= LogDebug) {
         for (const auto& target : mTargets) {
@@ -1475,7 +1513,7 @@ void GuiSearch::prepareDraw()
             label.text->getPosition().x,
             label.text->getPosition().y +
                 std::round(std::max(0.0f, (label.text->getSize().y - cache->metrics.size.y) / 2))};
-        mTextBatch.appendClipped(*cache, offset, label.rect);
+        mTextBatch.appendClipped(*cache, offset, label.rect, label.textColor);
     }
     if (mBlink < 550) {
         std::vector<Renderer::Vertex> caret;
@@ -1490,6 +1528,7 @@ void GuiSearch::prepareDraw()
 void GuiSearch::render(const glm::mat4& parentTrans)
 {
     const auto renderStart = std::chrono::steady_clock::now();
+    const auto cpuStart = mMeasureFrame ? threadCpuMilliseconds() : -1.0;
     if (mDirty)
         layout();
     const glm::mat4 transform = parentTrans * getTransform();
@@ -1497,6 +1536,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mTextBatch);
     const auto textDrawn = std::chrono::steady_clock::now();
+    const auto batchCpu = mMeasureFrame ? elapsedThreadCpu(cpuStart) : -1.0;
     for (auto& cover : mCovers) {
         if (!cover.image)
             continue;
@@ -1506,6 +1546,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         cover.image->render(transform);
     }
     if (mMeasureFrame) {
+        const auto renderCpu = elapsedThreadCpu(cpuStart);
         const double renderMs = std::chrono::duration<double, std::milli>(
                                     std::chrono::steady_clock::now() - renderStart)
                                     .count();
@@ -1515,8 +1556,8 @@ void GuiSearch::render(const glm::mat4& parentTrans)
             << std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
             << " covers_ms="
             << renderMs - std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
-            << " batches=" << mTextBatch.getBatchCount()
-            << " panel_vertices=" << mPanelBatch.size();
+            << " batches=" << mTextBatch.getBatchCount() << " panel_vertices=" << mPanelBatch.size()
+            << " render_cpu_ms=" << renderCpu << " batch_cpu_ms=" << batchCpu;
         mMeasureFrame = false;
     }
 }

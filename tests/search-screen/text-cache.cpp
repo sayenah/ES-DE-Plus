@@ -17,8 +17,10 @@
 
 namespace
 {
+    int checks {0};
     void require(bool condition, const char* message)
     {
+        ++checks;
         if (!condition) {
             std::fprintf(stderr, "FAIL: text cache %s\n", message);
             std::exit(1);
@@ -71,5 +73,20 @@ int main()
     degenerate.seed(&texture, 0);
     clipped.appendClipped(degenerate, {}, {0, 0, 10, 10});
     require(clipped.batches() == 0, "zero-area glyph never divides by zero");
-    std::puts("PASS: 10 production text-cache clipping/batching checks");
+    Cache highlighted;
+    highlighted.appendClipped(source, {20, 30}, {22, 33, 4, 5}, 0xFAAD00EE);
+    for (size_t i {0}; i < highlighted.vertices(); ++i) {
+        require(highlighted.at(i).color == 0xFAAD00EE,
+                "highlight overrides every vertex color including alpha");
+        require(highlighted.at(i).position == output.at(i).position &&
+                    highlighted.at(i).texcoord == output.at(i).texcoord,
+                "recoloring retains the exact shaped glyph geometry and UVs");
+    }
+    require(source.at(1).color == 0x12345678 && output.at(1).color == 0x12345678,
+            "highlight never mutates the reusable source or an earlier draw");
+    highlighted.appendClipped(source, {}, {0, 0, 10, 10}, 0);
+    require(highlighted.vertices() == 12 && highlighted.batches() == 1 &&
+                highlighted.at(7).color == 0,
+            "transparent black is an explicit override and reuses the same atlas batch");
+    std::printf("PASS: %d production text-cache clipping/batching checks\n", checks);
 }

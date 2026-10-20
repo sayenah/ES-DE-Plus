@@ -16,6 +16,7 @@
 #include "search/SearchArtwork.h"
 
 #include <map>
+#include <optional>
 
 class SystemData;
 
@@ -58,6 +59,7 @@ private:
         glm::vec4 rect;
         unsigned int background;
         bool border;
+        std::optional<unsigned int> textColor {};
     };
     struct Control {
         std::shared_ptr<TextComponent> text;

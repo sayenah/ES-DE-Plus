@@ -1537,7 +1537,8 @@ void TextCache::setDimming(float dimming)
 
 void TextCache::appendClipped(const TextCache& source,
                               const glm::vec2& offset,
-                              const glm::vec4& clip)
+                              const glm::vec4& clip,
+                              std::optional<unsigned int> color)
 {
     for (const auto& list : source.vertexLists) {
         auto output = std::find_if(vertexLists.begin(), vertexLists.end(), [&](const auto& item) {
@@ -1550,6 +1551,10 @@ void TextCache::appendClipped(const TextCache& source,
         for (size_t at {0}; at + 5 < list.verts.size(); at += 6) {
             auto topLeft = list.verts[at + 1];
             auto bottomRight = list.verts[at + 4];
+            if (color) {
+                topLeft.color = *color;
+                bottomRight.color = *color;
+            }
             topLeft.position += offset;
             bottomRight.position += offset;
             const glm::vec2 low = glm::max(topLeft.position, glm::vec2 {clip.x, clip.y});

@@ -17,6 +17,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <hb-ft.h>
+#include <optional>
 #include <vector>
 
 class TextComponent;
@@ -321,7 +322,10 @@ public:
 
     // Combine already-shaped runs for screens with many static labels. Clip each glyph
     // on the CPU so the combined draw does not need a different scissor per label.
-    void appendClipped(const TextCache& source, const glm::vec2& offset, const glm::vec4& clip);
+    void appendClipped(const TextCache& source,
+                       const glm::vec2& offset,
+                       const glm::vec4& clip,
+                       std::optional<unsigned int> color = std::nullopt);
 
     // Used by TextEditComponent to position the cursor and scroll the text box.
     std::vector<glm::vec2> glyphPositions;
