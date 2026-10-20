@@ -168,12 +168,16 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         // Complete uploads for every size before drawing their shared atlas.
         // Keep uploads ahead of draws so they do not repeatedly modify a texture
         // that is already in use by the renderer.
+#if defined(__ANDROID__)
         TextComponent text {alphabet, searchFont(size * mUnit), (mForeground & 0xFFFFFF00) | 0x80};
+#else
+        TextComponent text {alphabet, searchFont(size * mUnit), 0x00000000};
+#endif
         if (const auto* source = text.getTextCache())
             preparedText.emplace_back(*source);
     }
-    // Use nonzero opacity so preparation exercises the actual blended material.
-    // The window redraws the full screen before presenting the first search frame.
+    // Prepare glyphs before the initial draw. Android also prepares its blended
+    // material, completed before the window presents its first search frame.
     for (auto& cache : preparedText)
         mFontAtlas->renderTextCache(&cache);
     // Prepare the bounded raw-image upload/draw before making the screen interactive.
@@ -196,9 +200,14 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         artworkMaterial.setLinearInterpolation(true);
         artworkMaterial.setRawImage(pixels.data(), dimension, dimension);
         artworkMaterial.setResize(dimension, dimension);
+#if defined(__ANDROID__)
         artworkMaterial.setOpacity(0.5f);
+#else
+        artworkMaterial.setColorShift(0x00000000);
+#endif
         artworkMaterial.render(glm::mat4 {1});
     }
+#if defined(__ANDROID__)
     // Complete the blended draws before an opaque restore can hide their work.
     mRenderer->finishRendering();
     // Restore the renderer's cleared backbuffer before scale-up can expose transparent
@@ -206,6 +215,7 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     mRenderer->setMatrix(glm::mat4 {1});
     mRenderer->drawRect(0, 0, mSize.x, mSize.y, 0x000000FF, 0x000000FF);
     mRenderer->finishRendering();
+#endif
     LOG(LogDebug) << "Search artwork renderer prepared: ms="
                   << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                artworkStart)

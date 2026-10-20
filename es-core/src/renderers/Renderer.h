@@ -239,8 +239,10 @@ public:
     virtual void setScissor(const Rect& scissor) = 0;
     virtual void setSwapInterval() = 0;
     virtual void swapBuffers() = 0;
+#if defined(__ANDROID__)
     // Complete initialization draws before an interactive screen is opened.
     virtual void finishRendering() = 0;
+#endif
 
 protected:
     Rect mViewport;
