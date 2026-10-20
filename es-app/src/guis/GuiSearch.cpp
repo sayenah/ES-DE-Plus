@@ -1038,8 +1038,9 @@ void GuiSearch::layout()
                 lines = 0;
             }
         }
-        if (lines)
+        if (lines) {
             LOG(LogDebug) << targets.str();
+        }
     }
 #endif
     if (mMeasureFrame)
