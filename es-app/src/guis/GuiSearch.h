@@ -163,12 +163,14 @@ private:
     int mIndex {0};
     int mFirstGame {0};
     int mSuggestionOffset {0};
+    int mZeroShelf {-1};
     bool mFavouritesOnly {false};
     bool mSymbols {false};
     bool mUppercase {false};
     bool mTouch {false};
     bool mPortrait {false};
     bool mNoResults {false};
+    bool mZeroPaged {false};
     bool mLoading {true};
     bool mDirty {true};
     int mBlink {0};
@@ -189,6 +191,7 @@ private:
     std::string mTouchGame;
     uint32_t mTouchTime {0};
     bool mTouchMoved {false};
+    bool mZeroSwipeHandled {false};
 #endif
 };
 #endif

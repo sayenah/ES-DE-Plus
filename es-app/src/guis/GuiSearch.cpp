@@ -148,11 +148,14 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     for (auto& cache : preparedText)
         mFontAtlas->renderTextCache(&cache);
     // Prepare the bounded raw-image upload/draw before making the screen interactive.
-    // One-pixel preparation did not remove first-thumbnail stalls on GLES. No media
-    // file is opened here; transparent vertex color preserves the current backbuffer.
+    // Drivers can specialize their sampling routines for power-of-two dimensions.
+    // Prepare both dimension classes; no media file is opened here, and transparent
+    // vertex color preserves the current backbuffer.
     const auto artworkStart = std::chrono::steady_clock::now();
-    {
-        constexpr size_t dimension {SearchArtwork::MAX_DIMENSION};
+    size_t powerOfTwo {1};
+    while (powerOfTwo <= SearchArtwork::MAX_DIMENSION / 2)
+        powerOfTwo *= 2;
+    for (const size_t dimension : {powerOfTwo, SearchArtwork::MAX_DIMENSION}) {
         std::vector<unsigned char> pixels(dimension * dimension * 4, 255);
         for (size_t y {0}; y < dimension; ++y)
             for (size_t x {0}; x < dimension; ++x) {
@@ -677,11 +680,17 @@ void GuiSearch::layout()
     if (metadataIndex > static_cast<int>(mSystems.size()) + 2)
         top += 60 * mUnit;
     const bool zero = zeroState();
+    mZeroPaged = false;
+    if (!zero)
+        mZeroShelf = -1;
     mResultsRect = {rightX, top, right, mContentBottom - top};
     if (mLoading) {
         label(_("Searching for games..."), {rightX, top, right, 100 * mUnit}, 36 * mUnit, mMuted);
     }
     else if (zero) {
+        const float zeroTop = top;
+        const auto labelsBeforeHistory = mLabels.size();
+        const auto targetsBeforeHistory = mTargets.size();
         if (!mHistory.empty()) {
             label(_("Recent searches"), {rightX, top, right, 40 * mUnit}, 28 * mUnit, mMuted);
             top += 52 * mUnit;
@@ -704,7 +713,25 @@ void GuiSearch::layout()
             top += 80 * mUnit;
         }
         int gameIndex {0};
-        const int shelves = !mRecent.empty() + !mFavorites.empty();
+        int shelves = !mRecent.empty() + !mFavorites.empty();
+        // Each shelf needs its heading, a 90-unit cover, and caption/gap.
+        mZeroPaged = shelves > 0 && mContentBottom - top < shelves * 240 * mUnit;
+        if (!mZeroPaged)
+            mZeroShelf = -1;
+        else if (mArea == Area::Games)
+            mZeroShelf = mIndex < static_cast<int>(mRecent.size()) ? 0 : 1;
+        else if (mArea == Area::History)
+            mZeroShelf = -1;
+        if ((mZeroShelf == 0 && mRecent.empty()) || (mZeroShelf == 1 && mFavorites.empty()))
+            mZeroShelf = -1;
+        if (mZeroShelf >= 0) {
+            // Scroll a constrained zero state to the selected shelf. History and
+            // the other shelf remain reachable with a vertical gesture or focus.
+            mLabels.resize(labelsBeforeHistory);
+            mTargets.resize(targetsBeforeHistory);
+            top = zeroTop;
+            shelves = 1;
+        }
         const float shelfImageHeight =
             shelves ? std::max(90 * mUnit, (mContentBottom - top) / shelves - 150 * mUnit) : 0;
         auto shelf = [&](const std::string& heading, const std::vector<size_t>& games) {
@@ -734,8 +761,12 @@ void GuiSearch::layout()
             }
             top += height + 100 * mUnit;
         };
-        shelf(_("Jump back in"), mRecent);
-        shelf(_("Favorites"), mFavorites);
+        if (mZeroShelf != 1)
+            shelf(_("Jump back in"), mRecent);
+        else
+            gameIndex = static_cast<int>(mRecent.size());
+        if (mZeroShelf != 0)
+            shelf(_("Favorites"), mFavorites);
         if (mGames.empty() && mHistory.empty())
             label(_("Start typing to search your library."), {rightX, top, right, 100 * mUnit},
                   36 * mUnit, mMuted);
@@ -1605,6 +1636,7 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
         mTouchStart = mTouchLast = {point.x, point.y};
         mTouchTime = SDL_GetTicks();
         mTouchMoved = false;
+        mZeroSwipeHandled = false;
         mTouchGame.clear();
         mTouchTarget.index = -1;
         for (const auto& target : mTargets)
@@ -1660,6 +1692,22 @@ bool GuiSearch::nativeTouch(int type, int64_t finger, float x, float y)
             else if (contains(mResultsRect, point.x, point.y) &&
                      std::abs(point.y - mTouchLast.y) > 70 * mUnit) {
                 const int direction = point.y < mTouchLast.y ? 1 : -1;
+                if (zeroState() && mZeroPaged) {
+                    if (!mZeroSwipeHandled) {
+                        if (direction > 0)
+                            focus(Area::Games,
+                                  mFavorites.empty() ? 0 : static_cast<int>(mRecent.size()));
+                        else if (mZeroShelf == 1 && !mRecent.empty())
+                            focus(Area::Games);
+                        else {
+                            mZeroShelf = -1;
+                            focus(mHistory.empty() ? Area::Scope : Area::History);
+                        }
+                        mZeroSwipeHandled = true;
+                    }
+                    mTouchLast = {point.x, point.y};
+                    return true;
+                }
                 if (!mNoResults && ((direction < 0 && !mFirstGame && mOffset) ||
                                     (direction > 0 &&
                                      mFirstGame + mVisibleRows >= static_cast<int>(mGames.size()) &&

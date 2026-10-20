@@ -848,8 +848,10 @@ def run(namespace):
         # The corrupt override is the first resource lookup and parses as invalid;
         # APK asset fallback cannot hide this fixture, unlike deleting an internal copy.
         try:
+            # Keep A inside Sound settings. The main menu's first row now opens
+            # Search, whose full-screen touch ownership hides the overlay.
             invalid = inject('touch-invalid-art', [step('down', [pointer(0)]),
-                step('up', [pointer(0)])], [(0, 1), (0, 0)], asset='invalid', menu='true')
+                step('up', [pointer(0)])], [(0, 1), (0, 0)], asset='invalid', menu='sound')
             assert 'InputOverlay: unavailable art id=0; primitive fallback' in invalid
             assert 'emergencyShutdown' not in invalid
             button = buttons(invalid)[0]

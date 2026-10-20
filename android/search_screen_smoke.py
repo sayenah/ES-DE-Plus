@@ -51,12 +51,20 @@ def run(h, start, control, shot, record):
         h.shell('input', 'touchscreen', 'tap', *point(*map(float, match[-1])))
         h.wait_for(lambda: h.log().count('Search entry ready:') == before + 1,
                    'one complete search screen from magnifier')
-    def target(area, index=0):
+    def visible(area, index=0):
         current = h.log().rsplit('Search layout:', 1)[-1]
-        found = [(float(x), float(y)) for a, i, x, y in TARGET.findall(current)
-                 if int(a) == area and int(i) == index]
-        assert found, (area, index, current)
+        return [(float(x), float(y)) for a, i, x, y in TARGET.findall(current)
+                if int(a) == area and int(i) == index]
+    def target(area, index=0):
+        found = visible(area, index)
+        assert found, (area, index, h.log().rsplit('Search layout:', 1)[-1])
         return point(*found[-1])
+    def swipe_shelf(index, delta):
+        nx, ny = visible(6, index)[-1]
+        before = len(h.log())
+        h.shell('input', 'touchscreen', 'swipe', *point(nx, ny), *point(nx, ny + delta), '500')
+        h.wait_for(lambda: 'InputOverlay: event type=up' in h.log()[before:], 'shelf swipe released')
+        assert 'InputOverlay: owner=overlay' not in h.log()[before:], 'Overlay stole shelf scroll'
     def tap(area, index=0, hold=False):
         x, y = target(area, index)
         before = h.log()
@@ -247,6 +255,26 @@ def run(h, start, control, shot, record):
             h.wait_for(lambda: 'Search keystroke: query= results=' in h.log()[before:], 'IME deletes native prefill')
             timing('search-screen-touch-' + name)
             tap(7)
+            if name == 'tablet':
+                # Keep the original cold typing journey above unchanged. With the
+                # landscape IME open, vertical swipes must expose the lower shelf.
+                magnifier()
+                h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
+                           'isInputViewShown=true' in h.shell('dumpsys', 'input_method'), 'IME ready for shelf scroll')
+                h.wait_for(lambda: visible(6, 0) and not visible(6, 2),
+                           'constrained zero state applied above IME')
+                swipe_shelf(0, -.16)
+                h.wait_for(lambda: visible(6, 2), 'favorite shelf scrolls above IME')
+                shot(prefix + name + '-zero-favorites-scrolled')
+                swipe_shelf(2, .16)
+                h.wait_for(lambda: visible(6, 0) and not visible(5), 'scroll back to recent shelf')
+                swipe_shelf(0, .16)
+                h.wait_for(lambda: visible(5), 'scroll back to recent searches')
+                shot(prefix + name + '-zero-history-restored')
+                tap(0)
+                typed('fin')
+                timing('search-screen-touch-' + name + '-zero-scroll')
+                tap(7)
         # A real privacy-mode launch must not expose or write the previous query history.
         for mode, remember in [('kid', True), ('full', False)]:
             start(InputTouchOverlay=False, UIMode=mode, SearchHistory=remember,
