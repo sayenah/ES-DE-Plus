@@ -971,6 +971,10 @@ void Window::renderHelpPromptsEarly()
 
 void Window::setHelpPrompts(const std::vector<HelpPrompt>& prompts)
 {
+    // The opaque screen draws its own help. Avoid loading/rasterizing covered icons.
+    if (peekGui() && peekGui()->isOpaqueFullscreen())
+        return;
+
     std::vector<HelpPrompt> addPrompts;
 
     std::map<std::string, bool> inputSeenMap;

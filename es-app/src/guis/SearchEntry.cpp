@@ -17,6 +17,7 @@
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
 
+#include <chrono>
 #include <memory>
 #include <utility>
 
@@ -45,6 +46,7 @@ void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem)
 {
     if (!activeSearch.expired())
         return;
+    const auto started = std::chrono::steady_clock::now();
     auto session {std::make_shared<int>(0)};
     activeSearch = session;
     auto* window {Window::getInstance()};
@@ -54,4 +56,8 @@ void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem)
                   << (initialText.empty() || remember ? initialText : "<private>")
                   << " scope=" << (scopeSystem ? scopeSystem->getName() : "all");
     window->pushGui(new SearchGui<GuiSearch>(session, initialText, scopeSystem));
+    LOG(LogDebug) << "Search entry ready: ms="
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               started)
+                         .count();
 }

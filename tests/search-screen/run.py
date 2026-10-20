@@ -240,8 +240,10 @@ def run(binary, probe, destination, width, height, variant='dark'):
             assert 'query=fin ' not in log(), 'Private query leaked into search diagnostics'
         command('quit')
         assert process.wait(timeout=30) == 0
+        entry_work = re.findall(r'Search entry ready: ms=([0-9.]+)', log())
+        assert entry_work, 'Missing actual search-entry timing'
         summary = dict(resolution=[width, height], variant=variant, opening_ms=opening_ms,
-                       checks=['live strokes', 'scope filter', 'result focus', 'show game',
+                       entry_work_ms=float(entry_work[0]), checks=['live strokes', 'scope filter', 'result focus', 'show game',
                                'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
         (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps(summary), flush=True)

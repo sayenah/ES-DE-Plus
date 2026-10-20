@@ -114,7 +114,8 @@ public:
     //    renderChildren(trans);
     virtual void render(const glm::mat4& parentTrans);
 
-    // Opaque full-screen GUIs do not need a blurred copy of the covered game list.
+    // Opaque full-screen GUIs draw their own content/help, so the window can skip
+    // covered game-list blur and help preparation.
     virtual bool isOpaqueFullscreen() const { return false; }
 
     glm::vec3 getPosition() const { return mPosition; }
