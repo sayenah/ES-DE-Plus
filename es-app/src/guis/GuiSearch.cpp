@@ -137,7 +137,7 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
         artworkMaterial.setLinearInterpolation(true);
         artworkMaterial.setRawImage(pixels.data(), dimension, dimension);
         artworkMaterial.setResize(dimension, dimension);
-        artworkMaterial.setColorShift(0xFFFFFF00);
+        artworkMaterial.setColorShift(0x00000000);
         artworkMaterial.render(glm::mat4 {1});
     }
     LOG(LogDebug) << "Search artwork renderer prepared: ms="
