@@ -122,8 +122,8 @@ def run(h, start, control, shot, record):
         timed_prefix = complete
         record(name)
     def scheduler_control():
-        # A separate diagnostic after a failed ordinary journey, never replacement
-        # timing evidence. Keep the original samples and failure below unchanged.
+        # A separate traced control, never replacement timing evidence. Retain it
+        # even if a sporadic outlier does not recur in the ordinary journey.
         for name, width, height, density in [('phone', 1080, 2400, 420), ('tablet', 2560, 1600, 320)]:
             h.shell('am', 'force-stop', h.app)
             h.shell('wm', 'size', f'{width}x{height}')
@@ -333,13 +333,12 @@ def run(h, start, control, shot, record):
         ordered = sorted(measurements)
         summary = dict(samples=len(ordered), p95_ms=ordered[math.ceil(len(ordered) * .95) - 1], max_ms=max(ordered))
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
-        if summary['max_ms'] > 50:
-            try:
-                scheduler_control()
-            except Exception as error:
-                # A diagnostic failure cannot erase or turn the original budget
-                # failure into a passing result.
-                (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
+        try:
+            scheduler_control()
+        except Exception as error:
+            # A diagnostic failure cannot erase or turn the original budget
+            # failure into a passing result.
+            (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
         assert summary['max_ms'] <= 50, ('Search-attributable work exceeded 50ms', summary)
         (h.evidence / 'search-screen-result.txt').write_text(f'PASS: API {h.api} controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')
     finally:
