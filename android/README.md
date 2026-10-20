@@ -584,7 +584,14 @@ API 34 publication or its non-writing dry run requires every baseline and
 manager job to pass. Menu entry reads the focused label from a fresh screenshot
 before each Down or activation; manager rows are checked against a fresh native Debug
 focus capture before activation. Focus traces and screenshots accompany failures.
-The `touch` phase has its own fresh-emulator parallel job (60-minute step cap).
+The `touch` phase has its own parallel job with two fresh AVDs on the same runner
+(60-minute step cap each): search/entry journeys, then the complete overlay baseline.
+Both steps gate independently, including the unchanged 50ms search-frame limit;
+the overlay runs even when search fails. Search evidence uploads before the second
+AVD starts. Each session proves a distinct boot ID and clean app data. Both use
+the same built APK on the runner; no APK transfer or upload is involved. Local
+`smoke.py --phase touch` retains the combined journey; CI selects the two parts
+with `ESDE_TOUCH_SUITE=search` and `ESDE_TOUCH_SUITE=overlay`.
 It retains the complete overlay suite and adds setup reset persistence, live
 held-pointer resize and overlay-first manager ownership. The same renderer
 snapshot maps both overlay and direct manager touches. Every pointer keeps its

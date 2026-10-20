@@ -1425,8 +1425,9 @@ try:
     shared = '/sdcard/ESDEPlusSmoke'
     (evidence / 'image.txt').write_text(shell('getprop'))
     if phase == 'touch':
-        touch_smoke.run_fresh(globals())
-        (evidence / 'session-result.txt').write_text('PASS: touch\n')
+        touch_suite = os.environ.get('ESDE_TOUCH_SUITE', 'all')
+        touch_smoke.run_fresh(globals(), touch_suite)
+        (evidence / 'session-result.txt').write_text('PASS: touch ' + touch_suite + '\n')
         raise SystemExit(0)
     if phase not in ('core', 'app-data'):
         smoke_phases.run(phase, globals())

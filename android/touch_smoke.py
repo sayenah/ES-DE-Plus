@@ -239,8 +239,9 @@ def reset_failure_probe(h):
         'consumes the retained intent exactly once.\n')
 
 
-def run_fresh(namespace):
+def run_fresh(namespace, suite='all'):
     """Provision a separate emulator through the existing real configurator UI."""
+    assert suite in ('all', 'search', 'overlay'), suite
     h = types.SimpleNamespace(**namespace)
     namespace['api'] = int(h.shell('getprop', 'ro.build.version.sdk').strip())
     namespace['shared'] = '/sdcard/ESDEPlusSmoke'
@@ -252,6 +253,9 @@ def run_fresh(namespace):
         h.adb('push', str(dummy), shared + '/nes/' + name)
     import smoke_phases
     smoke_phases.prepare(namespace, 'direct')
+    if suite == 'search':
+        run(namespace, suite)
+        return
     h = types.SimpleNamespace(**namespace)
     assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
     original = h.shell('cat', h.settings)
@@ -346,7 +350,7 @@ def run_fresh(namespace):
     # Fail fast on the new persistence error path, with all regular touch
     # assertions still following it on the restored private configuration.
     reset_failure_probe(h)
-    run(namespace)
+    run(namespace, suite)
     # Recover by editing the existing native-owned file, as documented. Close
     # the app first and require adb to preserve its owner; do not recreate it.
     receipts = []
@@ -375,7 +379,8 @@ def run_fresh(namespace):
 
 
 
-def run(namespace):
+def run(namespace, suite='all'):
+    assert suite in ('all', 'search', 'overlay'), suite
     h = types.SimpleNamespace(**namespace)
     smoke_support.connected()
     (h.evidence / 'touch-assertion-positive-controls.txt').write_text(assertion_controls())
@@ -529,18 +534,22 @@ def run(namespace):
 
     search_timing_failure = None
     try:
-        # Exercise search input/timing first, then shared entry points. Each fixture
-        # restores its files before the existing overlay assertions continue.
-        start(InputTouchOverlay=True)
-        surface_bounds_cached = surface_bounds()
-        try:
-            search_screen_smoke.run(h, start, touch_control, shot, record)
-        except search_screen_smoke.TimingBudgetExceeded as failure:
-            # Collect independent overlay evidence, then re-raise this exact failure
-            # before writing an overall PASS summary. No functional failure is deferred.
-            search_timing_failure = failure
-            (h.evidence / 'search-screen-timing-failure-deferred.txt').write_text(str(failure) + '\n')
-        search_entry_smoke.run(h, start, touch_control, shot, record)
+        if suite != 'overlay':
+            # The combined local journey retains timing failures until its end.
+            # CI runs search and overlay in separate fresh AVDs; both steps gate.
+            start(InputTouchOverlay=True)
+            surface_bounds_cached = surface_bounds()
+            try:
+                search_screen_smoke.run(h, start, touch_control, shot, record)
+            except search_screen_smoke.TimingBudgetExceeded as failure:
+                search_timing_failure = failure
+                (h.evidence / 'search-screen-timing-failure-deferred.txt').write_text(str(failure) + '\n')
+            search_entry_smoke.run(h, start, touch_control, shot, record)
+            if suite == 'search':
+                if search_timing_failure is not None:
+                    raise search_timing_failure
+                (h.evidence / 'search-session-summary.txt').write_text('PASS: search screen and shared entry points\n')
+                return
         diameters = []
         for size in ('x-small', 'small', 'medium', 'large'):
             sized = start(InputTouchOverlay=True, InputTouchOverlaySize=size)

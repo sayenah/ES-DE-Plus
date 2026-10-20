@@ -20,9 +20,9 @@ IMAGES = {
     'api34': dict(image='api34', api=34, target='google_apis', profile='pixel_2'),
     'tv36': dict(image='tv36', api=36, target='android-tv', profile='tv_1080p'),
 }
-# D-012: the expanded search/overlay journey needs outer headroom; probe deadlines stay fixed.
+# Touch uses two fresh AVDs on one runner; each retains the original step cap.
 CAPS = {'core': 60, 'lifecycle': 40, 'clear-task': 40, 'integration': 60,
-        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60, 'manager-direct': 180, 'manager-scoped': 180, 'touch': 80}
+        'pdf-direct': 35, 'pdf-scoped': 60, 'assets': 20, 'app-data': 60, 'manager-direct': 180, 'manager-scoped': 180, 'touch': 60}
 
 
 def values(raw, allowed):
