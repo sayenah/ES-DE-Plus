@@ -6,6 +6,8 @@ import re
 import time
 import xml.etree.ElementTree as ET
 
+from importer_navigation import activate
+
 
 def run(h, start, control, shot, record):
     """Runs inside the fresh touch session, using its owned frontend and geometry."""
@@ -66,6 +68,39 @@ def run(h, start, control, shot, record):
             return any(g.findtext('path') == './' + name + '.nes' and
                        g.findtext('favorite', 'false') == str(expected).lower() for g in games)
         h.wait_for(saved, 'actual persisted favorite ' + name + '=' + str(expected))
+
+    def option_row(target):
+        # Observe native key release and focus, rather than assuming a fixed
+        # number of row movements while an animated menu is opening.
+        before = len(h.log())
+        def key(code, name, mapping):
+            marker = len(h.log())
+            h.key(code)
+            h.wait_for(lambda: f'Key {name}, isMappedTo={mapping}, value=0' in h.log()[marker:],
+                       'gamelist options key release ' + name, timeout=20)
+        def focused():
+            rows = re.findall(r'Gamelist options: focused=(.*)', h.log()[before:])
+            return rows[-1] if rows else None
+        order = {'JUMP TO...': 0, 'SORT GAMES BY': 1, 'ADD TO FAVORITES': 2,
+                 'REMOVE FROM FAVORITES': 2, 'FILTER GAMELIST': 3,
+                 'ADD/REMOVE GAMES TO THIS COLLECTION': 4, "EDIT THIS GAME'S METADATA": 5}
+        key('KEYCODE_F1', 'F1', 'back')
+        h.wait_for(lambda: focused() is not None, 'gamelist options initial focus', timeout=20)
+        for _ in range(12):
+            label = focused()
+            assert label in order, ('Unexpected game options focus', label, target)
+            with (h.evidence / 'search-entry-options-navigation.txt').open('a') as trace:
+                trace.write(f'focused={label}; target={target}\n')
+            if label == target:
+                shot('search-entry-options-' + target.lower().replace(' ', '-').replace('/', '-'))
+                activate(label, target, h.key)
+                return
+            assert order[label] != order[target], ('Unexpected favorite state', label, target)
+            up = order[label] > order[target]
+            key('KEYCODE_DPAD_UP' if up else 'KEYCODE_DPAD_DOWN',
+                'Up' if up else 'Down', 'up' if up else 'down')
+            h.wait_for(lambda: focused() != label, 'gamelist options focus changed', timeout=20)
+        raise AssertionError('Game options did not reach verified target: ' + target)
 
     prepare('prepare')
     try:
@@ -188,11 +223,7 @@ def run(h, start, control, shot, record):
               FavoritesAddButton=True, SaveGamelistsMode='always')
         h.key('KEYCODE_DPAD_DOWN')  # Beta; favorite sort should move it to the first row.
         for expected in [True, False]:
-            h.key('KEYCODE_F1')  # Select options.
-            h.key('KEYCODE_DPAD_DOWN')  # Sort.
-            h.key('KEYCODE_DPAD_DOWN')  # Add/remove favorite.
-            shot('search-entry-favorite-options-' + str(expected))
-            h.key('KEYCODE_ENTER')
+            option_row('ADD TO FAVORITES' if expected else 'REMOVE FROM FAVORITES')
             game_flag('Smoke Beta', expected)
             value = int(expected)
             h.wait_for(lambda: f'Favorites collection: game=Smoke Beta favorite={value} enabled=1 count={value}' in h.log(),
@@ -230,12 +261,7 @@ def run(h, start, control, shot, record):
               StartupView='gamelist', CollectionSystemsCustom='SearchEntrySmoke',
               CollectionCustomGrouping='never', GamelistYButton='search', FavoritesAddButton=False)
         assert 'ignoring entry' not in h.log(), 'Custom collection fixture did not load: ' + h.log()
-        h.key('KEYCODE_F1')
-        # Jump, sort, favorites, filter, edit collection.
-        for _ in range(4):
-            h.key('KEYCODE_DPAD_DOWN')
-        shot('search-entry-collection-edit-options')
-        h.key('KEYCODE_ENTER')
+        option_row('ADD/REMOVE GAMES TO THIS COLLECTION')
         count = opens()
         h.key('KEYCODE_INSERT')
         assert opens() == count, 'Y opened search while editing a custom collection'

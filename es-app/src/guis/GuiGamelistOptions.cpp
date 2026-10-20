@@ -286,6 +286,26 @@ GuiGamelistOptions::GuiGamelistOptions(SystemData* system)
     // Center the menu.
     setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
     mMenu.setPosition((mSize.x - mMenu.getSize().x) / 2.0f, (mSize.y - mMenu.getSize().y) / 2.0f);
+
+#if defined(__ANDROID__)
+    // Let input-driven smoke checks observe actual focus before activating a row.
+    auto* list {mMenu.getList().get()};
+    const auto observeFocus = [list] {
+        if (list->getTouchFocused() && list->size() > 0) {
+            const auto& row {list->getTouchRowData(list->getCursorId())};
+            if (!row.elements.empty())
+                LOG(LogDebug) << "Gamelist options: focused="
+                              << row.elements.front().component->getValue();
+        }
+    };
+    const auto previousCallback {list->getCursorChangedCallback()};
+    list->setCursorChangedCallback([previousCallback, observeFocus](CursorState state) {
+        if (previousCallback)
+            previousCallback(state);
+        observeFocus();
+    });
+    observeFocus();
+#endif
 }
 
 GuiGamelistOptions::~GuiGamelistOptions()
