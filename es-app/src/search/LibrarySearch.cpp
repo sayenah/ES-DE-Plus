@@ -43,17 +43,18 @@ namespace LibrarySearch
             std::map<std::string, FileData*> files;
             std::map<const void*, size_t> metadata;
             std::deque<FileData*> byIndex;
-            struct Cursor {
-                FileData* folder;
-                size_t next;
-            };
-            std::vector<Cursor> folders;
-            size_t system {0};
+            // Owned traversal order; live folders/system lists may be re-sorted while paused.
+            std::deque<FileData*> pending;
+            bool stopped {false};
         };
+        // Register storage destruction before main's onExit handler. A function-local
+        // static would be destroyed first and could wait on its future before shutdown().
+        std::unique_ptr<Snapshot> activeSnapshot;
         Snapshot& snapshot()
         {
-            static Snapshot value;
-            return value;
+            if (!activeSnapshot)
+                activeSnapshot = std::make_unique<Snapshot>();
+            return *activeSnapshot;
         }
         std::mutex dirtyMutex;
         std::unordered_set<const void*> dirty;
@@ -83,13 +84,35 @@ namespace LibrarySearch
                 std::launch::async,
                 [core = std::move(old), files = std::move(state.files),
                  metadata = std::move(state.metadata), byIndex = std::move(state.byIndex),
-                 corpus = std::move(state.corpus), registrations = std::move(oldRegistered),
+                 corpus = std::move(state.corpus), pending = std::move(state.pending),
+                 registrations = std::move(oldRegistered),
                  changes = std::move(oldDirty)]() mutable {
                     releasePayload(std::move(core), std::move(files), std::move(metadata),
-                                   std::move(byIndex), std::move(corpus), std::move(registrations),
-                                   std::move(changes));
+                                   std::move(byIndex), std::move(corpus), std::move(pending),
+                                   std::move(registrations), std::move(changes));
                     return Core {};
                 });
+        }
+        void captureGames(Snapshot& state)
+        {
+            // One UI-thread pass copies pointers only. No iterator/index into either
+            // live container survives this call; metadata copying remains time-sliced.
+            std::vector<FileData*> folders;
+            for (auto* system : SystemData::sSystemVector)
+                if (system && !system->isCollection() && system->isGameSystem())
+                    folders.push_back(system->getRootFolder());
+            while (!folders.empty()) {
+                auto* folder = folders.back();
+                folders.pop_back();
+                for (auto* file : folder->getChildren()) {
+                    if (!file)
+                        continue;
+                    if (file->getType() == FOLDER)
+                        folders.push_back(file);
+                    else if (file->getType() == GAME)
+                        state.pending.push_back(file);
+                }
+            }
         }
         std::string identity(FileData* game)
         {
@@ -127,12 +150,15 @@ namespace LibrarySearch
     bool ready()
     {
         const auto& state = snapshot();
-        return state.phase == Phase::Idle && state.textEpoch == textGeneration.load();
+        return !state.stopped && state.phase == Phase::Idle &&
+               state.textEpoch == textGeneration.load();
     }
     uint64_t buildCount() { return snapshot().builds; }
     const Core& engine()
     {
         auto& state = snapshot();
+        if (state.stopped)
+            return state.core;
         metadataObserver.store(metadataUpdate, std::memory_order_release);
         const auto epoch = textGeneration.load();
         static Filter lastFilter;
@@ -164,8 +190,7 @@ namespace LibrarySearch
                 }
                 state.phase = Phase::Snapshot;
                 state.textEpoch = epoch;
-                state.system = 0;
-                state.folders.clear();
+                captureGames(state);
                 state.corpus.clear();
                 state.files.clear();
                 state.metadata.clear();
@@ -186,50 +211,30 @@ namespace LibrarySearch
                 return state.core;
             }
             while (Clock::now() < deadline) {
-                if (state.folders.empty()) {
-                    if (state.system == SystemData::sSystemVector.size()) {
-                        state.phase = Phase::Building;
-                        state.worker = std::async(
-                            std::launch::async, [records = std::move(state.corpus)]() mutable {
-                                Core built;
-                                const auto start = Clock::now();
-                                std::vector<Game> corpus;
-                                corpus.reserve(records.size());
-                                while (!records.empty()) {
-                                    corpus.push_back(std::move(records.front()));
-                                    records.pop_front();
-                                }
-                                releasePayload(std::move(records));
-                                built.rebuild(std::move(corpus));
-                                LOG(LogDebug) << "Library search index: games=" << built.size()
-                                              << " build_ms="
-                                              << std::chrono::duration<double, std::milli>(
-                                                     Clock::now() - start)
-                                                     .count();
-                                return built;
-                            });
-                        break;
-                    }
-                    auto* system = SystemData::sSystemVector[state.system++];
-                    if (!system || system->isCollection() || !system->isGameSystem())
-                        continue;
-                    state.folders.push_back({system->getRootFolder(), 0});
+                if (state.pending.empty()) {
+                    state.phase = Phase::Building;
+                    state.worker = std::async(
+                        std::launch::async, [records = std::move(state.corpus)]() mutable {
+                            Core built;
+                            const auto start = Clock::now();
+                            std::vector<Game> corpus;
+                            corpus.reserve(records.size());
+                            while (!records.empty()) {
+                                corpus.push_back(std::move(records.front()));
+                                records.pop_front();
+                            }
+                            releasePayload(std::move(records));
+                            built.rebuild(std::move(corpus));
+                            LOG(LogDebug)
+                                << "Library search index: games=" << built.size() << " build_ms="
+                                << std::chrono::duration<double, std::milli>(Clock::now() - start)
+                                       .count();
+                            return built;
+                        });
+                    break;
                 }
-                auto& cursor = state.folders.back();
-                const auto& children = cursor.folder->getChildren();
-                if (cursor.next == children.size()) {
-                    state.folders.pop_back();
-                    continue;
-                }
-                auto* file = children[cursor.next++];
-                if (!file)
-                    continue;
-                if (file->getType() == FOLDER) {
-                    state.folders.push_back({file, 0});
-                    continue;
-                }
-                if (file->getType() != GAME)
-                    continue;
+                auto* file = state.pending.front();
+                state.pending.pop_front();
                 {
                     std::lock_guard<std::mutex> lock {dirtyMutex};
                     registered.insert(&file->metadata);
@@ -261,6 +266,30 @@ namespace LibrarySearch
             }
         }
         return state.core;
+    }
+    void shutdown()
+    {
+        if (!activeSnapshot || activeSnapshot->stopped)
+            return;
+        auto& state = *activeSnapshot;
+        state.stopped = true;
+        metadataObserver.store(nullptr, std::memory_order_release);
+        invalidate();
+        // Join explicitly while Log is open, including a build whose result was
+        // never published because the search screen closed. No new work can start.
+        if (state.worker.valid()) {
+            state.worker.wait();
+            state.worker = {};
+        }
+        state.core.clear();
+        state.pending.clear();
+        state.corpus.clear();
+        state.files.clear();
+        state.metadata.clear();
+        state.byIndex.clear();
+        std::lock_guard<std::mutex> lock {dirtyMutex};
+        registered.clear();
+        dirty.clear();
     }
     Handle handle(size_t index, uint64_t generation)
     {

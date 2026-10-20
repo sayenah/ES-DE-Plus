@@ -42,6 +42,22 @@ public:
     void addChild(FileData* file);
     void removeChild(FileData* file);
 };
+namespace LibrarySearch
+{
+    bool stopped {false};
+    void shutdown() { stopped = true; }
+} // namespace LibrarySearch
+class Log
+{
+public:
+    inline static unsigned closes {0};
+    static void close()
+    {
+        if (!LibrarySearch::stopped)
+            std::abort();
+        ++closes;
+    }
+};
 #include "search_hooks.inc"
 int main()
 {
@@ -80,5 +96,7 @@ int main()
     SystemData::sSystemVector.push_back(new SystemData);
     SystemData::deleteSystems();
     check(LibrarySearch::textGeneration.load() > epoch && SystemData::sSystemVector.empty());
-    std::cout << "PASS: " << checks << " production FileData/SystemData hook checks\n";
+    onExit();
+    check(LibrarySearch::stopped && Log::closes == 1);
+    std::cout << "PASS: " << checks << " production FileData/SystemData/exit hook checks\n";
 }

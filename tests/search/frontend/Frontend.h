@@ -10,9 +10,12 @@
 #define SEARCH_TEST_FRONTEND_H
 #include "MetaData.h"
 #include "search/SearchGeneration.h"
+#include <atomic>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 class FileData;
@@ -68,7 +71,12 @@ public:
     {
         return metadata.get("sortname").empty() ? getName() : metadata.get("sortname");
     }
-    std::string getDisplayName() { return "game"; }
+    inline static size_t snapshotReads {0};
+    std::string getDisplayName()
+    {
+        ++snapshotReads;
+        return "game";
+    }
     const std::string& getPath() { return path; }
     SystemData* getSystem() { return system; }
 };
@@ -123,5 +131,32 @@ namespace Utils
         }
     } // namespace FileSystem
 } // namespace Utils
-#define LOG(level) std::cout
+// A controllable log sink proves shutdown joins the emitting worker before close.
+class FrontendLog
+{
+public:
+    inline static std::atomic<bool> hold {false}, waiting {false}, closed {false};
+    inline static std::atomic<unsigned> lateWrites {0};
+    template <typename T> FrontendLog& operator<<(const T& value)
+    {
+        message << value;
+        return *this;
+    }
+    ~FrontendLog()
+    {
+        if (hold.load()) {
+            waiting.store(true);
+            while (hold.load())
+                std::this_thread::yield();
+        }
+        if (closed.load())
+            ++lateWrites;
+        std::cout << message.str() << '\n';
+    }
+
+private:
+    std::ostringstream message;
+};
+#define LOG(level)                                                                                 \
+    FrontendLog {}
 #endif

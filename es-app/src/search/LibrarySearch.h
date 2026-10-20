@@ -15,9 +15,11 @@
 class FileData;
 namespace LibrarySearch
 {
-    // Nonblocking UI-thread pump: call on each frame while !ready(). Snapshot
-    // collection is time-sliced; only the frontend-free Core is built off-thread.
+    // UI-thread pump: call each frame while search is active. Game pointers are
+    // captured once; record copies are time-sliced and the Core builds off-thread.
     const Core& engine();
+    // Idempotent frontend shutdown: join the worker before closing Log.
+    void shutdown();
     bool ready();
     uint64_t buildCount();
     Filter currentFilter();

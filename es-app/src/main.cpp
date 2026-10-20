@@ -35,6 +35,7 @@
 #include "SystemStatus.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
+#include "search/LibrarySearch.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
@@ -511,6 +512,7 @@ loadSystemsReturnCode loadSystemConfigFile()
 void onExit()
 {
     // Called on exit, assuming we get far enough to have the log initialized.
+    LibrarySearch::shutdown();
     Log::close();
 }
 

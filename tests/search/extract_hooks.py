@@ -10,6 +10,7 @@ for name, signatures in {
     'FileData.cpp': ['FileData::~FileData()', 'void FileData::addChild(FileData* file)',
                      'void FileData::removeChild(FileData* file)'],
     'SystemData.cpp': ['void SystemData::deleteSystems()'],
+    'main.cpp': ['void onExit()'],
 }.items():
     source = root / 'es-app/src' / name
     text = source.read_text()

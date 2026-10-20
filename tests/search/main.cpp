@@ -457,6 +457,40 @@ namespace
             }
         }
     }
+    void fileTags()
+    {
+        // Region regression adapted from ES-DE-Plus QA search-q2/probe/region.cpp (MIT).
+        std::vector<Game> games;
+        for (const auto* name : {"Europa Universalis", "Super Mario World", "Sonic the Hedgehog",
+                                 "Tetris", "Japan Pro Golf", "World Heroes"}) {
+            auto g = game(name, std::to_string(games.size()));
+            g.fileStem += " (USA, Europe) (Japan) (Rev 1) [!]";
+            games.push_back(std::move(g));
+        }
+        Core core;
+        core.rebuild(games);
+        for (const std::string query : {"europa", "europe", "japon"}) {
+            const auto results = core.search(query);
+            require(results.size() == 1, "filename tags do not create fuzzy matches: " + query);
+            require(core.game(results.front().index).id == (query == "japon" ? "4" : "0"),
+                    "actual title words still match: " + query);
+        }
+        for (const std::string query : {"usa", "rev", "usance s"})
+            require(core.search(query).empty(), "filename tag text omitted: " + query);
+        require(core.search("world").size() == 2, "ordinary title words remain searchable");
+        require(core.game(0).fileStem == games[0].fileStem,
+                "public game value preserves the original filename");
+        auto alias = game("Other Game");
+        alias.fileStem = "Rare (Europe [Rev 1]) Alias [!]";
+        core.rebuild({alias});
+        match(core, "rare alias", MatchClass::Exact);
+        require(core.search("europe").empty(), "nested filename tags removed");
+        alias.fileStem = "Knight (Legends";
+        core.rebuild({alias});
+        match(core, "knight legends", MatchClass::Exact);
+        core.rebuild({game("Europe Squadron")});
+        match(core, "europa", MatchClass::Typo);
+    }
     void roundTwo()
     {
         std::vector<Game> games;
@@ -885,6 +919,7 @@ int main(int argc, char** argv)
         runChecks("ranking and filters", rankingAndFilters);
         runChecks("suggestions", suggestions);
         runChecks("round two", roundTwo);
+        runChecks("filename tags", fileTags);
         runChecks("history", history);
         runChecks("lifecycle", lifecycle);
     }
