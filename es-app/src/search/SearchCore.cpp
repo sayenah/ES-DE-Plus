@@ -1595,16 +1595,10 @@ namespace LibrarySearch
         phase("identified");
         identities.clear();
         identities.rehash(0);
-        // Grow packed records as input strings are released. Reserving the full
-        // output array here would overlap all input and output allocations.
+        ix.games.reserve(games.size());
 
         // Intern raw fields once; views use arena offsets so arena growth is safe.
         std::unordered_map<std::string, Index::Ref> strings;
-        size_t rawBytes {0};
-        for (const auto& g : games)
-            rawBytes += g.id.size() + g.title.size() + g.fileStem.size();
-        ix.rawText.reserve(rawBytes);
-        phase("raw-reserved");
         auto intern = [&](const std::string& value) {
             auto found = strings.find(value);
             if (found != strings.end())
@@ -1613,6 +1607,22 @@ namespace LibrarySearch
             strings.emplace(value, ref);
             return ref;
         };
+        // Account for the shared fields before reserving the arena. A title-only
+        // estimate can miss by a few bytes and double the entire raw-text buffer
+        // while the input records are still alive.
+        size_t rawBytes {0};
+        for (const auto& g : games) {
+            rawBytes += g.id.size() + g.title.size();
+            if (g.fileStem != g.title && g.fileStem != g.sortName)
+                rawBytes += g.fileStem.size();
+            if (g.sortName != g.title)
+                intern(g.sortName);
+            for (const auto* field :
+                 {&g.developer, &g.publisher, &g.genre, &g.system, &g.systemName})
+                intern(*field);
+        }
+        ix.rawText.reserve(ix.rawText.size() + rawBytes);
+        phase("raw-reserved");
         for (auto& g : games) {
             const auto id = Index::append(ix.rawText, g.id);
             const auto display = Index::append(ix.rawText, g.title);
@@ -1628,10 +1638,17 @@ namespace LibrarySearch
                                    [](unsigned char c) { return (c & 0xc0) != 0x80; })),
                  g.favourite, g.hidden, g.kid, g.countAsGame, g.collection});
             g = {};
+#ifdef SEARCH_TEST_BUILD_TIMING
+            if (memory && ix.games.size() % 10000 == 0) {
+                phase("converting");
+                std::printf("RAW size=%zu capacity=%zu records=%zu input=%zu\n", ix.rawText.size(),
+                            ix.rawText.capacity(), ix.games.capacity(), games.capacity());
+            }
+#endif
         }
+        phase("converted");
         games.clear();
         games.shrink_to_fit();
-        ix.games.shrink_to_fit();
         strings.clear();
         strings.rehash(0);
         ix.rawText.shrink_to_fit();
