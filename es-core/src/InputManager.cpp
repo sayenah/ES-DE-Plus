@@ -1006,7 +1006,7 @@ void InputManager::prepareSearchTextInput()
 {
     if (!Settings::getInstance()->getBool("InputIgnoreKeyboard"))
         mSearchTextInput.prepare(mWindow->peekGui(), getInputConfigByDevice(DEVICE_KEYBOARD));
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
     else
         mSearchTextInput.prepare(nullptr, nullptr);
 #endif

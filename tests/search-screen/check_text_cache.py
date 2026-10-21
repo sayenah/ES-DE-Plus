@@ -81,6 +81,9 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                                       '-o', str(build / (name + '-release'))], check=True)
             subprocess.run([str(build / (name + '-release'))], check=True)
         if name == 'entry-input':
-            subprocess.run(command + ['-D__ANDROID__', str(root / 'tests/search-screen/entry-input.cpp'),
-                                      '-o', str(build / 'entry-input-android')], check=True)
-            subprocess.run([str(build / 'entry-input-android')], check=True)
+            for platform in ['ANDROID', 'IOS']:
+                executable = build / ('entry-input-' + platform.lower())
+                subprocess.run(command + ['-D__' + platform + '__',
+                                          str(root / 'tests/search-screen/entry-input.cpp'),
+                                          '-o', str(executable)], check=True)
+                subprocess.run([str(executable)], check=True)

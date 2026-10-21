@@ -30,7 +30,7 @@ public:
     void editing(GuiComponent* gui);
 
 private:
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
     static int watchKey(void* context, SDL_Event* event);
     void beginTemporaryText();
     void endTemporaryText();

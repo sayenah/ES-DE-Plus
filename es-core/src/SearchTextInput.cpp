@@ -27,13 +27,13 @@ namespace
 
 SearchTextInput::~SearchTextInput()
 {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
     if (mEventThread)
         SDL_DelEventWatch(watchKey, this);
 #endif
 }
 
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
 int SearchTextInput::watchKey(void* context, SDL_Event* event)
 {
     auto& self = *static_cast<SearchTextInput*>(context);
@@ -72,7 +72,7 @@ void SearchTextInput::endTemporaryText()
 void SearchTextInput::prepare(GuiComponent* gui, InputConfig* keyboard)
 {
     if (gui != mOwner) {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
         if (!gui || gui->acceptsSearchText())
             endTemporaryText();
         else
@@ -82,7 +82,7 @@ void SearchTextInput::prepare(GuiComponent* gui, InputConfig* keyboard)
         mKeyReady = false;
         mOwner = gui;
     }
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__IOS__)
     (void)keyboard;
     if (gui && gui->acceptsSearchText() && !SDL_IsTextInputActive()) {
         // Listen to physical keyboards without opening Android's screen keyboard.
@@ -112,7 +112,7 @@ void SearchTextInput::keyDown(
     const bool printable {input.id >= SDLK_SPACE && input.id != SDLK_DELETE &&
                           !(input.id & SDLK_SCANCODE_MASK)};
     if (browsing && before == after && searchKey(config, input)) {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
         if (input.id != SDLK_SPACE)
             beginTemporaryText();
 #endif
@@ -125,7 +125,7 @@ void SearchTextInput::keyDown(
         }
     }
     else {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
         endTemporaryText();
 #endif
         // A mapped key owns its text even when it only navigates. Drop its
@@ -137,7 +137,7 @@ void SearchTextInput::keyDown(
 
 void SearchTextInput::keyUp()
 {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
     endTemporaryText();
 #endif
     mText.clear();
@@ -171,7 +171,7 @@ bool SearchTextInput::text(const std::string& value, GuiComponent* gui)
     }
     mKeyReady = false;
     if (gui == mOwner && !value.empty() && value != " " && value != "\b") {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
         // The new field owns text input from here, including queued commits.
         mTemporaryText = false;
 #endif
@@ -182,7 +182,7 @@ bool SearchTextInput::text(const std::string& value, GuiComponent* gui)
 
 void SearchTextInput::editing(GuiComponent* gui)
 {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__IOS__)
     if (mTemporaryText && mKeyReady && gui == mOwner && gui && gui->acceptsSearchText()) {
         // A composing IME has no committed character yet. Move it into the field
         // before forwarding this editing event; releasing the key must not cancel it.

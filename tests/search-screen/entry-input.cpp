@@ -111,7 +111,7 @@ int main()
     {
         SearchTextInput input;
         input.prepare(&view, &keyboard);
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__IOS__)
         require(active && starts == 1 && watches == 0 && hint.empty());
         // Android commits before key-down; retain layout spelling and queued text.
         require(input.text("É", &view));
