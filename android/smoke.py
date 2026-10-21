@@ -1225,7 +1225,8 @@ def retroarch_stacks(recipient_pid, recipient_log):
 
 def record_retroarch_receipt(outcome, detail=''):
     policy = 'GATING' if retroarch_receipt_gating else 'NON-GATING DIAGNOSTIC'
-    text = f'D-010 real-RetroArch receipt: {policy}; API {device_api}; TV={television}; {outcome}\n'
+    decision = 'D-030' if device_api == 35 else 'D-010'
+    text = f'{decision} real-RetroArch receipt: {policy}; API {device_api}; TV={television}; {outcome}\n'
     if detail:
         text += detail + '\n'
     stacks = evidence / 'real-retroarch-stall-stacks.txt'

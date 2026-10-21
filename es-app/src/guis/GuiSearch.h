@@ -27,7 +27,7 @@ public:
     GuiSearch(const std::string& initialText = "", SystemData* scopeSystem = nullptr);
     ~GuiSearch();
     static void releaseFonts();
-    static void prepareRenderer();
+    static void prepareRenderer(bool opening = false);
     bool input(InputConfig* config, Input input) override;
     void textInput(const std::string& text, bool pasting = false) override;
     void textEditing(const std::string& text, int start, int length) override;
@@ -193,6 +193,7 @@ private:
     double mQueryWorkMs {0};
     bool mMeasureFrame {false};
     bool mKeystrokeFrame {false};
+    bool mFirstKeystroke {true};
     bool mPresentedKeystroke {false};
     bool mMeasurePresentation {false};
     std::string mPresentedQuery;

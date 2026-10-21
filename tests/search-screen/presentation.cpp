@@ -31,7 +31,12 @@ public:
 class GuiSearch
 {
 public:
-    static void prepareRenderer() { events.push_back("prepare"); }
+    inline static int preparations {0};
+    static void prepareRenderer()
+    {
+        if (++preparations <= 3)
+            events.push_back("prepare");
+    }
     void beginKeystroke();
     bool mMeasureFrame {false}, mKeystrokeFrame {false};
     double mQueryWorkMs {0};
@@ -51,14 +56,14 @@ int main()
     });
     SearchPresentation::afterFrame([] { events.push_back("disabled cursor"); });
     SearchPresentation::swap(renderer);
-    if (events != std::vector<std::string> {"swap", "observe"})
+    if (events != std::vector<std::string> {"swap", "observe", "prepare"})
         return 1;
     events.clear();
     Log::level = LogDebug;
     SearchPresentation::afterFrame([] { events.push_back("cursor"); });
     assert(events.empty());
     SearchPresentation::swap(renderer);
-    if (events != std::vector<std::string> {"swap", "observe", "cursor"})
+    if (events != std::vector<std::string> {"swap", "observe", "cursor", "prepare"})
         return 1;
     events.clear();
     SearchPresentation::swap(renderer);
@@ -79,6 +84,7 @@ int main()
     search.beginKeystroke(); // Several text commits in one frame preserve their work.
     if (search.mQueryWorkMs != 7)
         return 1;
-    std::cout << "PASS: production presentation ordering, once-only preparation, cursor ownership "
-                 "and keystroke cause\n";
+    std::cout
+        << "PASS: production presentation ordering, incremental preparation, cursor ownership "
+           "and keystroke cause\n";
 }

@@ -50,11 +50,7 @@ void SearchPresentation::swap(Renderer& renderer)
         pending = {};
         callback();
     }
-    // The normal frontend has presented its first frame and startup is complete.
-    // Preparation cannot add work to preload or delay that initial presentation.
-    static bool prepared {false};
-    if (!prepared) {
-        prepared = true;
-        GuiSearch::prepareRenderer();
-    }
+    // Each idle frame advances a small preparation slice after normal presentation.
+    // Opening or typing never waits for an app-start bulk preparation call.
+    GuiSearch::prepareRenderer();
 }

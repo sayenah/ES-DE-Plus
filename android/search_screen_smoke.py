@@ -27,6 +27,8 @@ def run(h, start, control, shot, record):
     refresh_presentations = []
     presentations = []
     entries = []
+    first_measurements = []
+    preparation_chunks = []
     timed_prefix = ''
     prefix = f'search-screen-api{h.api}-'
     def prepare(operation, **arguments):
@@ -136,6 +138,10 @@ def run(h, start, control, shot, record):
         presented = samples(swaps, 'interval_ms', 'keystroke')
         assert len(times) == len(presented), 'Every keystroke frame must reach swap'
         measurements.extend(times)
+        first_measurements.extend(float(re.search(r'work_ms=([0-9.]+)', line)[1])
+                                  for line in frames if 'cause=keystroke' in line and 'first=1' in line)
+        preparation_chunks.extend(float(value) for value in re.findall(
+            r'Search preparation chunk: phase=idle work_ms=([0-9.]+)', added))
         presentations.extend(presented)
         refresh_measurements.extend(samples(frames, 'work_ms', 'refresh'))
         refresh_presentations.extend(samples(swaps, 'interval_ms', 'refresh'))
@@ -390,11 +396,15 @@ def run(h, start, control, shot, record):
         summary['entry'] = distribution(entries)
         summary['refresh'] = distribution(refresh_measurements) if refresh_measurements else dict(samples=0)
         summary['refresh_presented'] = distribution(refresh_presentations) if refresh_presentations else dict(samples=0)
+        summary['first_keystroke'] = distribution(first_measurements)
+        summary['preparation_chunks'] = distribution(preparation_chunks) if preparation_chunks else dict(samples=0)
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
         # D-028 am. 7: shared-runner software rendering is not a device pacing signal.
         print('GATING keystroke-only search work: p95 <= 50ms / max <= 100ms; measured',
               json.dumps({key: summary[key] for key in ['samples', 'p50_ms', 'p95_ms', 'max_ms']}), flush=True)
         print('GATING search entry: p95 <= 150ms; measured', json.dumps(summary['entry']), flush=True)
+        print('INFORMATIONAL first keystroke after opening:', json.dumps(summary['first_keystroke']), flush=True)
+        print('INFORMATIONAL idle preparation chunks (2ms cooperative budget):', json.dumps(summary['preparation_chunks']), flush=True)
         print('INFORMATIONAL non-keystroke refresh work:', json.dumps(summary['refresh']), flush=True)
         print('INFORMATIONAL non-keystroke refresh presented:', json.dumps(summary['refresh_presented']), flush=True)
         print('INFORMATIONAL presented intervals (no CI limit):', json.dumps(summary['presented']), flush=True)

@@ -42,15 +42,21 @@
 
 namespace
 {
+    using PreparationClock = std::chrono::steady_clock;
+    constexpr std::array<float, 3> searchRoles {40, 32, 26};
     constexpr char searchAlphabet[] {
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
         "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ fi fl ff ffi ffl "
         "áàâäãåæçéèêëíìîïñóòôöõøœúùûüßÁÀÂÄÃÅÆÇÉÈÊËÍÌÎÏÑÓÒÔÖÕØŒÚÙÛÜẞ ★ · › … ‘ ’"};
 
-    void prepareSearchGlyphs(const std::shared_ptr<Font>& font)
+    void prepareSearchGlyphs(const std::shared_ptr<Font>& font,
+                             const std::string& text,
+                             TextCache& samples)
     {
-        // Build once without changing the font's line height or publishing the atlas.
-        TextComponent glyphs {searchAlphabet, font, 0xFFFFFFFF};
+        // Use the real title shaping path without changing the font's line height.
+        TextComponent glyphs {text, font, 0xFFFFFFFF};
+        if (const auto* cache = glyphs.getTextCache())
+            SearchDrawing::atlasSamples(samples, *cache);
     }
 
     // ResourceManager unloads this owner before the GL context is destroyed. Keep
@@ -60,13 +66,20 @@ namespace
         std::shared_ptr<Font> atlas;
         glm::vec2 screen {};
         bool rolesPrepared {false};
+        size_t role {0};
+        size_t glyph {0};
+        TextCache samples {};
         void unload(ResourceManager&) override
         {
+            samples = {};
             fonts.clear();
             atlas.reset();
             rolesPrepared = false;
+            role = 0;
+            glyph = 0;
         }
         void reload(ResourceManager&) override {}
+        void step();
     };
     std::shared_ptr<SearchFonts> searchFonts()
     {
@@ -142,6 +155,32 @@ namespace
             ++cursor;
         return cursor;
     }
+    void SearchFonts::step()
+    {
+        const float unit = std::min(screen.x, screen.y) / 1080;
+        const float key = std::max(2.0f, std::round(searchRoles[role] * unit / 2) * 2);
+        auto& font = fonts[key];
+        if (!font) {
+            if (!atlas)
+                atlas = Font::get(key, Font::getDefaultPath(), 1024);
+            const float atlasKey = std::max(2.0f, std::round(40 * unit / 2) * 2);
+            font = key == atlasKey ? atlas : Font::get(key, Font::getDefaultPath(), 1024, atlas);
+            return;
+        }
+        const std::string alphabet {searchAlphabet};
+        if (glyph < alphabet.size()) {
+            const auto end = nextCharacter(alphabet, glyph);
+            prepareSearchGlyphs(font, alphabet.substr(glyph, end - glyph), samples);
+            glyph = end;
+        }
+        else {
+            // Individual UTF-8 codepoints keep each idle task small; also shape the
+            // contextual Latin ligatures that occur in result titles.
+            prepareSearchGlyphs(font, "fi fl ff ffi ffl", samples);
+            glyph = 0;
+            rolesPrepared = ++role == searchRoles.size();
+        }
+    }
     std::string kindLabel(LibrarySearch::SuggestionKind kind)
     {
         using Kind = LibrarySearch::SuggestionKind;
@@ -165,34 +204,55 @@ namespace
     }
 } // namespace
 
-void GuiSearch::prepareRenderer()
+void GuiSearch::prepareRenderer(bool opening)
 {
-    static bool prepared {false};
-    if (prepared)
+    // Idle preparation pauses while a modal/search/viewer owns the surface or
+    // new input is waiting. All GL work stays on the existing rendering thread.
+    if (!opening && (Window::getInstance()->peekGui() != ViewController::getInstance() ||
+                     Window::getInstance()->isScreensaverActive() ||
+                     Window::getInstance()->isMediaViewerActive() ||
+                     Window::getInstance()->isPDFViewerActive() ||
+                     SDL_HasEvents(SDL_FIRSTEVENT, SDL_LASTEVENT)))
         return;
-    prepared = true;
-    const auto start = std::chrono::steady_clock::now();
     const glm::vec2 screen {Renderer::getScreenWidth(), Renderer::getScreenHeight()};
-    const float unit = std::min(screen.x, screen.y) / 1080;
-    const float size = std::max(2.0f, std::round(40 * unit / 2) * 2);
     auto owner = searchFonts();
-    owner->screen = screen;
-    if (!owner->atlas)
-        owner->atlas = Font::get(size, Font::getDefaultPath(), 1024);
-    for (const float role : {26.0f, 32.0f, 40.0f}) {
-        const float key = std::max(2.0f, std::round(role * unit / 2) * 2);
-        auto& font = owner->fonts[key];
-        if (!font) {
-            font = key == size ? owner->atlas :
-                                 Font::get(key, Font::getDefaultPath(), 1024, owner->atlas);
-            prepareSearchGlyphs(font);
-        }
+    if (owner->screen != screen) {
+        owner->unload(ResourceManager::getInstance());
+        owner->screen = screen;
     }
-    owner->rolesPrepared = true;
-    LOG(LogDebug) << "Search renderer prepared once: ms="
-                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                               start)
-                         .count();
+    if (owner->rolesPrepared && !opening)
+        return;
+    const auto start = PreparationClock::now();
+    const auto cpuStart = threadCpuMilliseconds();
+    size_t tasks {0};
+    do {
+        if (owner->rolesPrepared)
+            break;
+        owner->step();
+        ++tasks;
+    } while (opening || PreparationClock::now() - start < std::chrono::milliseconds {2});
+    if (owner->atlas && owner->samples.getBatchCount()) {
+        auto* renderer = Renderer::getInstance();
+        renderer->setMatrix(glm::mat4 {1});
+        // Actually sample every prepared atlas so deferred driver/upload work is
+        // paid before typing. No synthetic textures, fences or app-wide GL changes.
+        owner->atlas->renderTextCache(&owner->samples);
+        // swapBuffers() has just cleared the back buffer. Restore its one pixel;
+        // opening also runs before the screen's first normal full-surface render.
+        renderer->drawRect(0, 0, 1, 1, 0x000000FF, 0x000000FF, false, 1, 1,
+                           Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
+    }
+    const double milliseconds =
+        std::chrono::duration<double, std::milli>(PreparationClock::now() - start).count();
+    LOG(LogDebug) << "Search preparation chunk: phase=" << (opening ? "opening" : "idle")
+                  << " work_ms=" << milliseconds << " cpu_ms=" << elapsedThreadCpu(cpuStart)
+                  << " tasks=" << tasks << " ready=" << owner->rolesPrepared
+                  << " atlases=" << owner->samples.getBatchCount();
+    static bool reported {false};
+    if (owner->rolesPrepared && !reported) {
+        reported = true;
+        LOG(LogDebug) << "Search renderer prepared once: chunked=1";
+    }
 }
 
 GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
@@ -238,6 +298,10 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     SDL_StartTextInput();
     refresh();
     layout();
+    // Even an empty/private zero state prepares the best-card and row-title
+    // glyphs and samples their atlases before SDL can deliver the first edit.
+    SearchDrawing::atlasSamples(searchFonts()->samples, mTextBatch);
+    prepareRenderer(true);
     const SDL_Rect rect {static_cast<int>(mFieldRect.x), static_cast<int>(mFieldRect.y),
                          static_cast<int>(mFieldRect.z), static_cast<int>(mFieldRect.w)};
     // Updating the IME rectangle must not stop text input and flush pending commits.
@@ -431,20 +495,6 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
     if (!owner->atlas)
         owner->atlas = Font::get(atlasKey, Font::getDefaultPath(), 1024);
     mFontAtlas = owner->atlas;
-    if (!owner->rolesPrepared) {
-        // Empty/private zero states must also prepare sizes first used by results.
-        for (float role : {26.0f, 32.0f, 40.0f}) {
-            const float roleKey = std::max(2.0f, std::round(role * mUnit / 2) * 2);
-            auto& prepared = owner->fonts[roleKey];
-            if (!prepared) {
-                prepared = roleKey == atlasKey ?
-                               mFontAtlas :
-                               Font::get(roleKey, Font::getDefaultPath(), 1024, mFontAtlas);
-                prepareSearchGlyphs(prepared);
-            }
-        }
-        owner->rolesPrepared = true;
-    }
     auto& font = owner->fonts[key];
     if (!font) {
         font =
@@ -1828,7 +1878,10 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                       << " voluntary_switches=" << schedule[0]
                       << " involuntary_switches=" << schedule[1] << " minor_faults=" << schedule[2]
                       << " major_faults=" << schedule[3]
-                      << " cause=" << (mKeystrokeFrame ? "keystroke" : "refresh");
+                      << " cause=" << (mKeystrokeFrame ? "keystroke" : "refresh")
+                      << " first=" << (mKeystrokeFrame && mFirstKeystroke);
+        if (mKeystrokeFrame)
+            mFirstKeystroke = false;
         mPresentedKeystroke = mKeystrokeFrame;
         mKeystrokeFrame = false;
         mMeasureFrame = false;

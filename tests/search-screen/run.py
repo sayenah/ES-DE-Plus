@@ -322,10 +322,14 @@ def run(binary, probe, destination, width, height, variant='dark'):
         refresh_work = distribution(r'Search frame: .*? work_ms=([0-9.]+)', refreshes) if refreshes else dict(samples=0)
         refresh_presented = distribution(r'Search presented: .*? interval_ms=([0-9.]+)', refreshes) if refreshes else dict(samples=0)
         entry = distribution(r'Search entry ready: ms=([0-9.]+)')
+        first_keystroke = distribution(r'Search frame: .*? work_ms=([0-9.]+).*?cause=keystroke first=1')
+        preparation_chunks = distribution(r'Search preparation chunk: phase=idle work_ms=([0-9.]+)') if 'Search preparation chunk: phase=idle ' in log() else dict(samples=0)
         assert work['samples'] == presented['samples'], 'Every query frame must reach swap'
         # D-028 am. 7: keep raw intervals; an offscreen swap has no display cadence.
         print('GATING keystroke-only search work: p95 <= 50ms / max <= 100ms; measured', json.dumps(work), flush=True)
         print('GATING search entry: p95 <= 150ms; measured', json.dumps(entry), flush=True)
+        print('INFORMATIONAL first keystroke after opening:', json.dumps(first_keystroke), flush=True)
+        print('INFORMATIONAL idle preparation chunks (2ms cooperative budget):', json.dumps(preparation_chunks), flush=True)
         print('INFORMATIONAL non-keystroke refresh work:', json.dumps(refresh_work), flush=True)
         print('INFORMATIONAL non-keystroke refresh presented:', json.dumps(refresh_presented), flush=True)
         print('INFORMATIONAL presented intervals (no CI limit):', json.dumps(presented), flush=True)
@@ -336,6 +340,7 @@ def run(binary, probe, destination, width, height, variant='dark'):
         summary = dict(resolution=[width, height], variant=variant, opening_ms=opening_ms,
                        entry_work_ms=float(entry_work[0]), max_entry_work_ms=max(map(float, entry_work)),
                        work=work, presented=presented, entry=entry, refresh=refresh_work, refresh_presented=refresh_presented,
+                       first_keystroke=first_keystroke, preparation_chunks=preparation_chunks,
                        checks=['live strokes', 'scope filter', 'result focus', 'show game',
                                'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
         (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')

@@ -90,6 +90,7 @@ for p95, maximum, entry, presented, failure in [
         exec(linux_gate, dict(work=dict(samples=64, p95_ms=p95, max_ms=maximum),
              entry=dict(p95_ms=entry), presented=dict(samples=64, max_ms=presented),
              refresh_work=dict(samples=0), refresh_presented=dict(samples=0),
+             first_keystroke=dict(samples=1, max_ms=maximum), preparation_chunks=dict(samples=0),
              json=subject.json, print=lambda *args, **kwargs: lines.append(' '.join(map(str, args)))))
     except AssertionError as error:
         assert failure and error.args[0][0] == failure
@@ -182,16 +183,17 @@ checks += 1
 # and every frame/entry sample remains in the reported distributions.
 collector = next(node for node in run_body(path).body if isinstance(node, ast.FunctionDef) and
                  node.name == 'timing')
-setup = ast.parse("timed_prefix = ''; measurements = []; presentations = []; entries = []; refresh_measurements = []; refresh_presentations = []").body
+setup = ast.parse("timed_prefix = ''; measurements = []; presentations = []; entries = []; refresh_measurements = []; refresh_presentations = []; first_measurements = []; preparation_chunks = []").body
 wrapper = ast.FunctionDef(name='collect', args=ast.arguments(posonlyargs=[], args=[],
     kwonlyargs=[], kw_defaults=[], defaults=[]), body=setup + [collector] +
-    ast.parse("timing('checkpoint'); return measurements, presentations, entries, refresh_measurements, refresh_presentations").body,
+    ast.parse("timing('checkpoint'); return measurements, presentations, entries, refresh_measurements, refresh_presentations, first_measurements, preparation_chunks").body,
     decorator_list=[])
 collect_code = compile_nodes([wrapper])
 for preparations in [0, 1, 2]:
     log = 'Search renderer prepared once: ms=250\n' * preparations + (
         'Search entry ready: ms=12\nSearch keystroke: query=f results=2\n'
-        'Search frame: query=f work_ms=7 cause=keystroke\nSearch presented: query=f interval_ms=16 cause=keystroke\n'
+        'Search preparation chunk: phase=idle work_ms=2.4 tasks=4 ready=0 atlases=1\n'
+        'Search frame: query=f work_ms=7 cause=keystroke first=1\nSearch presented: query=f interval_ms=16 cause=keystroke\n'
         'Search frame: query=f work_ms=104.5 cause=refresh\nSearch presented: query=f interval_ms=999 cause=refresh\n')
     environment = dict(re=re, h=SimpleNamespace(log=lambda: log,
         wait_for=lambda predicate, message: (_ for _ in ()).throw(AssertionError(message))
@@ -202,7 +204,7 @@ for preparations in [0, 1, 2]:
     except AssertionError as error:
         assert preparations != 1 and str(error) == 'Renderer preparation must run once per process'
     else:
-        assert preparations == 1 and collected == ([7.0], [16.0], [12.0], [104.5], [999.0])
+        assert preparations == 1 and collected == ([7.0], [16.0], [12.0], [104.5], [999.0], [7.0], [2.4])
     checks += 1
 
 # Execute the shared entry journey's actual distribution/writer/gate, including
@@ -276,6 +278,19 @@ launch_spec = importlib.util.spec_from_file_location('receipt_policy', root / 'a
 launch = importlib.util.module_from_spec(launch_spec)
 launch_spec.loader.exec_module(launch)
 smoke_tree = ast.parse((root / 'android/smoke.py').read_text())
+label = next(node for node in smoke_tree.body if isinstance(node, ast.FunctionDef) and
+             node.name == 'record_retroarch_receipt')
+for api in [33, 35]:
+    with tempfile.TemporaryDirectory(prefix='esde-receipt-label-') as temporary:
+        messages = []
+        environment = dict(device_api=api, television=False, evidence=Path(temporary),
+            retroarch_receipt_gating=launch.retroarch_receipt_gates(False, api),
+            os=SimpleNamespace(environ={}), print=lambda text, **kwargs: messages.append(text))
+        exec(compile_nodes([label]), environment)
+        environment['record_retroarch_receipt']('RECEIPT PASSED')
+        assert messages[0].startswith(('D-030' if api == 35 else 'D-010') + ' real-RetroArch receipt:')
+        assert ('NON-GATING DIAGNOSTIC' in messages[0]) == (api == 35)
+        checks += 1
 receipt = next(node for node in ast.walk(smoke_tree) if isinstance(node, ast.Try) and
                any(isinstance(child, ast.Expr) and 'wait_for(receipt_ready,' in ast.unparse(child)
                    for child in node.body))
