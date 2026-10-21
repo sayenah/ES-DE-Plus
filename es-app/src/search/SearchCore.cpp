@@ -717,7 +717,7 @@ namespace LibrarySearch
             Id begin {0}, size {0};
         };
         struct Document {
-            Ref text, compact;
+            Ref text, compact, typo;
             Id game;
         };
         struct Vocabulary {
@@ -901,7 +901,7 @@ namespace LibrarySearch
         }
         std::string text, compactText, wordText;
         std::vector<Document> documents;
-        std::vector<std::array<Id, 3>> gameDocuments;
+        std::vector<std::array<Id, 4>> gameDocuments;
         std::vector<std::array<Id, 4>> gameEntities;
         std::vector<Vocabulary> vocabulary;
         std::vector<Id> wordOrder, documentOrder, wordDocuments, rankingOrder, rankingPosition;
@@ -915,9 +915,9 @@ namespace LibrarySearch
         std::map<std::string, std::vector<Id>> articles;
         std::set<std::pair<uint64_t, Id>> played;
         std::vector<uint8_t> recent, letterX;
-        Text textFor(Id d) const
+        Text textFor(Id d, bool typo = false) const
         {
-            auto value = makeText(std::string(doc(d)));
+            auto value = makeText(std::string(typo ? view(documents[d].typo, text) : doc(d)));
             value.literalX = letterX[documents[d].game];
             return value;
         }
@@ -1040,11 +1040,17 @@ namespace LibrarySearch
         {
             return 1 + (games[game].favourite ? 4 : 0) + (recent[game] ? 2 : 0);
         }
-        void appendWord(Id id, std::vector<Id>& out) const
+        // A posting's high bit marks a word found only inside this game's tags.
+        // Keep it for literal lookup, never for typo candidate expansion.
+        static constexpr Id tagOnly {Id {1} << 31};
+        void appendWord(Id id, std::vector<Id>& out, bool typo = false) const
         {
             const auto r = vocabulary[id].documents;
-            out.insert(out.end(), wordDocuments.begin() + r.begin,
-                       wordDocuments.begin() + r.begin + r.count);
+            for (size_t at {r.begin}; at < r.begin + r.count; ++at) {
+                const Id document = wordDocuments[at];
+                if (!typo || !(document & tagOnly))
+                    out.push_back(document & ~tagOnly);
+            }
         }
         std::vector<Id> expand(const std::vector<Id>& games) const
         {
@@ -1057,6 +1063,8 @@ namespace LibrarySearch
                     result.push_back(docs[1]);
                 if (docs[2] != docs[0] && docs[2] != docs[1])
                     result.push_back(docs[2]);
+                if (docs[3] != docs[0] && docs[3] != docs[1] && docs[3] != docs[2])
+                    result.push_back(docs[3]);
             }
             return result;
         }
@@ -1125,14 +1133,28 @@ namespace LibrarySearch
                         wordGrams.append(gram(q, 0, 3), grams);
                         for (Id w : grams) {
                             const auto value = word(w);
-                            bool possible = value.find(q) != std::string_view::npos;
-                            // A compact substring may continue into the following title word.
-                            for (size_t at = value.find(q.substr(0, 3));
-                                 !possible && at != std::string_view::npos;
-                                 at = value.find(q.substr(0, 3), at + 1))
-                                possible = starts(q, value.substr(at));
-                            if (possible)
+                            if (value.find(q) != std::string_view::npos) {
                                 wordsFound.push_back(w);
+                                continue;
+                            }
+                            // For a substring continuing into the next word, require
+                            // its actual boundary gram. Otherwise a common short tag
+                            // (USA) expands every game for an unrelated query (usance).
+                            for (size_t at = value.find(q.substr(0, 3));
+                                 at != std::string_view::npos;
+                                 at = value.find(q.substr(0, 3), at + 1)) {
+                                const auto suffix = value.substr(at);
+                                if (!starts(q, suffix))
+                                    continue;
+                                std::vector<Id> boundaryDocs, wordDocs;
+                                boundaries.append(gram(q, suffix.size() - 2, 3), boundaryDocs);
+                                if (boundaryDocs.empty())
+                                    continue;
+                                appendWord(w, wordDocs);
+                                std::set_intersection(wordDocs.begin(), wordDocs.end(),
+                                                      boundaryDocs.begin(), boundaryDocs.end(),
+                                                      std::back_inserter(ids));
+                            }
                         }
                         boundaries.append(gram(q, 0, 3), ids);
                     }
@@ -1175,7 +1197,7 @@ namespace LibrarySearch
                             bitCount(bits & ~v.bits) > distance)
                             continue;
                         if (nearWords(q, std::string(word(w))))
-                            wordsFound.push_back(w);
+                            appendWord(w, ids, true);
                     }
                 }
                 const auto numberKey = number(q);
@@ -1463,7 +1485,7 @@ namespace LibrarySearch
                     const auto& fields = gameDocuments[g];
                     for (size_t n {0}; n < fields.size(); ++n) {
                         const Id d = fields[n];
-                        if ((n && d == fields[0]) || (n == 2 && d == fields[1]))
+                        if (std::find(fields.begin(), fields.begin() + n, d) != fields.begin() + n)
                             continue;
                         if (substringMembership && containsCompact(doc(d), compactQuery)) {
                             best = 6;
@@ -1495,9 +1517,12 @@ namespace LibrarySearch
                         if (shortMembership)
                             continue;
                         const auto t = textFor(d);
+                        const auto& doc = documents[d];
                         const int r = rank(q, qw, t, nullptr, 6) == 6 ? 6 :
-                                      fuzzy                           ? rank(q, qw, t, nullptr, 7) :
-                                                                        -1;
+                                      !fuzzy                          ? -1 :
+                                      doc.typo.begin == doc.text.begin ?
+                                               rank(q, qw, t, nullptr, 7) :
+                                               rank(q, qw, textFor(d, true), nullptr, 7);
                         if (r >= 0 && r < best) {
                             best = r;
                             bestDoc = d;
@@ -1791,9 +1816,7 @@ namespace LibrarySearch
         ix.vocabulary.reserve(ix.games.size() * 2);
         ix.wordText.reserve(ix.games.size() * 12);
         std::vector<uint64_t> wordPairs, gramPairs, boundaryPairs, initialPairs;
-        // Tag-stripped filenames usually share the title's postings. Reserve for
-        // title words rather than a second full set of region/revision words;
-        // longer titles and genuinely different filenames can still grow normally.
+        // Title words share postings across aliases; tags add literal-only words.
         wordPairs.reserve(ix.games.size() * 4);
         initialPairs.reserve(ix.games.size() * 8);
         boundaryPairs.reserve(ix.games.size() * 6);
@@ -1816,7 +1839,7 @@ namespace LibrarySearch
         ix.compactText.reserve(textBytes);
         ix.documents.reserve(ix.games.size() * 2);
         Id displayDocument {0}, postingDocument {0};
-        std::vector<Id> lastWordGame, emittedBoundary, emittedInitial;
+        std::vector<Id> lastWordPair, emittedBoundary, emittedInitial;
         auto emit = [&](std::vector<Id>& keys, std::vector<Id>& emitted,
                         std::vector<uint64_t>& pairs) {
             Index::unique(keys);
@@ -1826,7 +1849,7 @@ namespace LibrarySearch
             emitted.insert(emitted.end(), keys.begin(), keys.end());
             Index::unique(emitted);
         };
-        auto document = [&](std::string_view raw, Id g, bool display) {
+        auto document = [&](std::string_view raw, Id g, bool display, bool literalOnly = false) {
             const Id d = ix.documents.size();
             const auto original = ix.get(g).title;
             std::string text;
@@ -1854,8 +1877,18 @@ namespace LibrarySearch
                 text = std::move(normalized.text);
             }
             const auto joined = compact(text);
-            ix.documents.push_back(
-                {Index::append(ix.text, text), Index::append(ix.compactText, joined), g});
+            const auto textRef = Index::append(ix.text, text);
+            auto typoRef = textRef;
+            if (raw.find_first_of("([") != std::string_view::npos) {
+                const auto stripped = withoutFileTags(raw);
+                if (stripped != raw) {
+                    typoRef = !display && stripped == original ?
+                                  ix.documents[displayDocument].typo :
+                                  Index::append(ix.text, title(stripped).text);
+                }
+            }
+            ix.documents.push_back({textRef, Index::append(ix.compactText, joined), typoRef, g});
+            const auto safeWords = wordViews(ix.view(typoRef, ix.text));
             const auto tokens = wordViews(text);
             std::vector<Id> uniqueWords;
             for (const auto& w : tokens) {
@@ -1875,12 +1908,20 @@ namespace LibrarySearch
                                              {},
                                              static_cast<Id>(ascii ? w.text.size() : points.size()),
                                              UINT32_MAX});
-                    lastWordGame.push_back(UINT32_MAX);
+                    lastWordPair.push_back(UINT32_MAX);
                 }
-                if (lastWordGame[id] != g) {
-                    wordPairs.push_back(uint64_t {id} << 32 | postingDocument);
-                    lastWordGame[id] = g;
+                const bool safe =
+                    std::any_of(safeWords.begin(), safeWords.end(),
+                                [&](const WordView& word) { return word.text == w.text; });
+                auto& previous = lastWordPair[id];
+                if (previous == UINT32_MAX ||
+                    (static_cast<Id>(wordPairs[previous]) & ~Index::tagOnly) != postingDocument) {
+                    previous = wordPairs.size();
+                    wordPairs.push_back(uint64_t {id} << 32 | postingDocument |
+                                        (safe ? 0 : Index::tagOnly));
                 }
+                else if (safe)
+                    wordPairs[previous] &= ~uint64_t {Index::tagOnly};
                 if (display) {
                     if (ix.vocabulary[id].completion == UINT32_MAX) {
                         ix.vocabulary[id].completion = displayWords.size();
@@ -1904,6 +1945,8 @@ namespace LibrarySearch
                     ++count;
             }
             emit(boundaryKeys, emittedBoundary, boundaryPairs);
+            if (literalOnly)
+                return d; // File tags support literal lookup, not acronym expansion.
             std::vector<uint32_t> initialKeys;
             const bool ordinary = std::all_of(tokens.begin(), tokens.end(), [](const WordView& w) {
                 return !small(w.text) && !numeric(w.text) &&
@@ -1991,7 +2034,11 @@ namespace LibrarySearch
             const Id file = stem.empty() || stem == game.title || stem == game.sortName ?
                                 (stem == game.sortName ? sort : display) :
                                 document(stem, g, false);
-            ix.gameDocuments.push_back({display, sort, file});
+            const Id literalFile = game.fileStem.empty() || game.fileStem == game.title ? display :
+                                   game.fileStem == game.sortName                       ? sort :
+                                   game.fileStem == stem                                ? file :
+                                                           document(game.fileStem, g, false, true);
+            ix.gameDocuments.push_back({display, sort, file, literalFile});
             titles.push_back(g);
             for (const auto& field : {std::make_pair(SuggestionKind::Developer, &game.developer),
                                       {SuggestionKind::Publisher, &game.publisher},
@@ -2031,16 +2078,16 @@ namespace LibrarySearch
         for (Id w {0}; w < ix.vocabulary.size(); ++w) {
             auto& range = ix.vocabulary[w].documents;
             range.begin = wordOffset;
-            lastWordGame[w] = wordOffset;
+            lastWordPair[w] = wordOffset;
             wordOffset += range.count;
         }
         ix.wordDocuments.resize(wordPairs.size());
         for (auto pair : wordPairs)
-            ix.wordDocuments[lastWordGame[pair >> 32]++] = static_cast<Id>(pair);
+            ix.wordDocuments[lastWordPair[pair >> 32]++] = static_cast<Id>(pair);
         wordPairs.clear();
         wordPairs.shrink_to_fit();
-        lastWordGame.clear();
-        lastWordGame.shrink_to_fit();
+        lastWordPair.clear();
+        lastWordPair.shrink_to_fit();
         wordIds.clear();
         wordIds.rehash(0);
         // Finish and release the large document-pair buffers before building the

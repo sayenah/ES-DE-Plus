@@ -152,6 +152,11 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
     if (!value.empty() && value.front() == ' ')
         value.erase(0, 1);
     SDL_zero(*event);
+    if (action == "text-state") {
+        std::ofstream(directory() + "/text-state") << SDL_IsTextInputActive() << '\n';
+        acknowledge();
+        return 0;
+    }
     if (action == "capture") {
         capture = value;
         return 0;
@@ -201,6 +206,14 @@ extern "C" int SDLCALL SDL_PollEvent(SDL_Event* event)
         event->key.keysym.mod = modifier;
         release = *event;
         release.type = SDL_KEYUP;
+        if (action == "key-text") {
+            // Let the real desktop SDL watch see key-down before the platform's
+            // layout text is committed. A stopped browsing IME must activate here.
+            if (SDL_PushEvent(event) != 1 ||
+                SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_KEYDOWN, SDL_KEYDOWN) != 1 ||
+                !SDL_IsTextInputActive())
+                std::abort();
+        }
         if (action != "key") {
             std::string text;
             std::getline(key, text);

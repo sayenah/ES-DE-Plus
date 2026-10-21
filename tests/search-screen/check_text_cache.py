@@ -43,7 +43,6 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                          ('label', 'void GuiSearch::label('),
                          ('size', 'glm::vec2 GuiSearch::textSize(')]:
         (build / ('search-' + name + '.inc')).write_text(method(marker, search))
-    (build / 'search-glyph-prepare.inc').write_text(method('void prepareSearchGlyphs(', search))
     (build / 'search-alphabet.inc').write_text(method('constexpr char searchAlphabet', search) + ';\n')
     (build / 'search-roles.inc').write_text(method('constexpr std::array<float, 3> searchRoles', search) + ';\n')
     (build / 'search-atlas-size.inc').write_text(method('constexpr unsigned int searchAtlasSize', search) + ';\n')
@@ -60,6 +59,11 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     (build / 'begin-keystroke.inc').write_text(method('void GuiSearch::beginKeystroke(', search))
     entry = (root / 'es-app/src/guis/SearchEntry.cpp').read_text()
     (build / 'cursor-observer.inc').write_text(method('void SearchEntry::observeGamelistCursor(', entry))
+    for part, path in [('declaration', 'es-core/src/SearchTextInput.h'),
+                       ('implementation', 'es-core/src/SearchTextInput.cpp')]:
+        (build / ('search-entry-' + part + '.inc')).write_text('\n'.join(
+            line for line in (root / path).read_text().splitlines()
+            if not line.startswith('#include')))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -68,11 +72,15 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'geometry-cache', 'presentation', 'cursor-observer']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'geometry-cache', 'presentation', 'cursor-observer', 'entry-input']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)
-        if name in ['presentation', 'cursor-observer']:
+        if name in ['presentation', 'cursor-observer', 'entry-input']:
             subprocess.run(command + ['-DNDEBUG', str(root / ('tests/search-screen/' + name + '.cpp')),
                                       '-o', str(build / (name + '-release'))], check=True)
             subprocess.run([str(build / (name + '-release'))], check=True)
+        if name == 'entry-input':
+            subprocess.run(command + ['-D__ANDROID__', str(root / 'tests/search-screen/entry-input.cpp'),
+                                      '-o', str(build / 'entry-input-android')], check=True)
+            subprocess.run([str(build / 'entry-input-android')], check=True)

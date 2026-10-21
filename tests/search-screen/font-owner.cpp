@@ -78,14 +78,6 @@ struct Output {
     Output {}
 double threadCpuMilliseconds() { return -1; }
 double elapsedThreadCpu(double) { return -1; }
-std::string localized(const char* text)
-{
-    return std::string {text} == "No games match ‘%s’." ?
-               "Keine Spiele entsprechen dem Suchbegriff „%s“." :
-               text;
-}
-#define _(text) localized(text)
-
 struct ResourceManager;
 struct IReloadable {
     virtual void unload(ResourceManager&) = 0;
@@ -104,11 +96,6 @@ struct TextCache {
     size_t batches {0};
     size_t getBatchCount() const { return batches; }
 };
-namespace SearchDrawing
-{
-    void atlasSamples(TextCache& samples, const TextCache&) { samples.batches = 1; }
-} // namespace SearchDrawing
-
 struct Font {
     inline static int warmups {0};
     inline static int draws {0};
@@ -137,7 +124,7 @@ struct Font {
                                      int atlasSize,
                                      std::shared_ptr<Font> = {})
     {
-        if (atlasSize != 256)
+        if (atlasSize != 1024)
             std::abort();
         PreparationClock::work();
         auto font = std::make_shared<Font>();
@@ -203,7 +190,6 @@ struct TextComponent {
 #include "search-roles.inc"
 #include "search-atlas-size.inc"
 #include "search-font-owner.inc"
-#include "search-glyph-prepare.inc"
 #include "search-next-character.inc"
 #include "search-font-step.inc"
 // clang-format on
@@ -274,7 +260,7 @@ int main()
         while (!searchFonts()->rolesPrepared && chunks++ < 1000) {
             const auto start = PreparationClock::now();
             GuiSearch::prepareRenderer();
-            // Only two 1ms atomic tasks; sampling waits until opening, after uploads.
+            // Only two 1ms atomic tasks; preparation never draws.
             require(PreparationClock::now() - start <= std::chrono::milliseconds {2});
         }
         require(chunks > 3 && chunks < 1000);
@@ -282,8 +268,6 @@ int main()
         for (const auto& entry : searchFonts()->fonts) {
             require(entry.second->prepared.find("ABCDEFGHIJKLMNOPQRSTUVWXYZ") == 0);
             require(entry.second->prepared.find("á") != std::string::npos);
-            require(entry.second->prepared.find("„") != std::string::npos);
-            require(entry.second->prepared.find("“") != std::string::npos);
             require(entry.second->prepared.find("fi fl ff ffi ffl") != std::string::npos);
         }
         preparedWarmups = Font::warmups;
@@ -292,7 +276,7 @@ int main()
         GuiSearch::prepareRenderer();
         require(Font::draws == draws);
         GuiSearch::prepareRenderer(true);
-        require(Font::draws == draws + 1 && Font::warmups == preparedWarmups);
+        require(Font::draws == draws && Font::warmups == preparedWarmups);
     }
     require(!retained.expired());
     {
@@ -315,9 +299,9 @@ int main()
     }
     GuiSearch::releaseFonts();
     require(retained.expired());
-    // Immediate opening completes unfinished title roles and samples before edit.
+    // Immediate opening completes unfinished title roles without a sampling draw.
     GuiSearch::prepareRenderer(true);
-    require(searchFonts()->rolesPrepared && searchFonts()->fonts.size() == 3);
+    require(searchFonts()->rolesPrepared && searchFonts()->fonts.size() == 3 && Font::draws == 0);
     GuiSearch::releaseFonts();
     {
         GuiSearch first;

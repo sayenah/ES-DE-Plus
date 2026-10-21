@@ -11,6 +11,8 @@
 
 #include "InputConfig.h"
 
+#include <SDL2/SDL_events.h>
+#include <SDL2/SDL_thread.h>
 #include <string>
 
 class GuiComponent;
@@ -18,14 +20,24 @@ class GuiComponent;
 class SearchTextInput
 {
 public:
-    void prepare(GuiComponent* gui);
+    ~SearchTextInput();
+    void prepare(GuiComponent* gui, InputConfig* keyboard);
     void keyDown(
         InputConfig* config, Input input, bool browsing, GuiComponent* before, GuiComponent* after);
     void keyUp();
     void keyRepeat();
     bool text(const std::string& value, GuiComponent* gui);
+    void editing(GuiComponent* gui);
 
 private:
+#if !defined(__ANDROID__)
+    static int watchKey(void* context, SDL_Event* event);
+    void beginTemporaryText();
+    void endTemporaryText();
+    InputConfig* mKeyboard {nullptr};
+    SDL_threadID mEventThread {0};
+    bool mTemporaryText {false};
+#endif
     GuiComponent* mOwner {nullptr};
     std::string mText;
     bool mKeyReady {false};
