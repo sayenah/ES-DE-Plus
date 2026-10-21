@@ -18,6 +18,7 @@
 #include "SystemData.h"
 #include "Window.h"
 #include "guis/GuiMsgBox.h"
+#include "renderers/RenderErrorBatch.h"
 #include "search/SearchDrawing.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
@@ -1682,6 +1683,7 @@ void GuiSearch::update(int deltaTime)
         if (!cover.image && !uploaded) {
             const auto pixels = mArtwork.get(cover.handle.id);
             if (pixels && !pixels->rgba.empty()) {
+                RenderErrorBatch errors {*mRenderer, "Search artwork upload"};
                 cover.image = std::make_unique<ImageComponent>(false, true);
                 cover.image->setLinearInterpolation(true);
                 cover.image->setRawImage(pixels->rgba.data(), pixels->width, pixels->height);
@@ -1770,6 +1772,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         mMeasureFrame ? threadSchedule() : std::array<long, 4> {-1, -1, -1, -1};
     if (mDirty)
         layout();
+    RenderErrorBatch errors {*mRenderer, "Search drawing"};
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
     if (transform == glm::mat4 {1})
@@ -1800,24 +1803,32 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     mRenderer->setMatrix(transform);
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mBorderBatch);
+    const auto submitted = std::chrono::steady_clock::now();
+    errors.finish();
     if (mMeasureFrame) {
         const auto schedule = scheduleDelta(scheduleStart);
         const auto renderCpu = elapsedThreadCpu(cpuStart);
         const auto renderEnd = std::chrono::steady_clock::now();
         const double renderMs =
             std::chrono::duration<double, std::milli>(renderEnd - renderStart).count();
-        LOG(LogDebug)
-            << "Search frame: query=" << queryForLog() << " work_ms=" << mQueryWorkMs + renderMs
-            << " render_ms=" << renderMs << " batch_ms="
-            << std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
-            << " covers_ms="
-            << renderMs - std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
-            << " batches=" << mTextBatch.getBatchCount() << " panel_vertices=" << mPanelBatch.size()
-            << " render_cpu_ms=" << renderCpu << " batch_cpu_ms=" << batchCpu
-            << " start_ns=" << traceNanoseconds(renderStart)
-            << " end_ns=" << traceNanoseconds(renderEnd) << " voluntary_switches=" << schedule[0]
-            << " involuntary_switches=" << schedule[1] << " minor_faults=" << schedule[2]
-            << " major_faults=" << schedule[3];
+        LOG(LogDebug) << "Search frame: query=" << queryForLog()
+                      << " work_ms=" << mQueryWorkMs + renderMs << " render_ms=" << renderMs
+                      << " batch_ms="
+                      << std::chrono::duration<double, std::milli>(textDrawn - renderStart).count()
+                      << " covers_ms="
+                      << std::chrono::duration<double, std::milli>(submitted - textDrawn).count()
+                      << " diagnostics_ms="
+                      << std::chrono::duration<double, std::milli>(renderEnd - submitted).count()
+                      << " deferred_gl_checks=" << errors.deferredChecks()
+                      << " gl_error_reads=" << errors.errorReads()
+                      << " batches=" << mTextBatch.getBatchCount()
+                      << " panel_vertices=" << mPanelBatch.size() << " render_cpu_ms=" << renderCpu
+                      << " batch_cpu_ms=" << batchCpu
+                      << " start_ns=" << traceNanoseconds(renderStart)
+                      << " end_ns=" << traceNanoseconds(renderEnd)
+                      << " voluntary_switches=" << schedule[0]
+                      << " involuntary_switches=" << schedule[1] << " minor_faults=" << schedule[2]
+                      << " major_faults=" << schedule[3];
         mMeasureFrame = false;
         mPresentedQuery = queryForLog();
         mMeasurePresentation = true;

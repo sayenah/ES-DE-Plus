@@ -75,6 +75,13 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
         'setReflectionsFalloff', 'setBlurStrength', 'setFlags']]
     (build / 'shader-methods.inc').write_text(constructor + '\n' +
         '\n'.join(method(marker, shader) for marker in shader_methods))
+    batch = (root / 'es-core/src/renderers/RenderErrorBatch.h').read_text()
+    (build / 'error-batch.inc').write_text(method('class RenderErrorBatch\n', batch) + ';\n')
+    (build / 'error-backend.inc').write_text(
+        method('void RendererOpenGL::beginErrorBatch(', renderer) +
+        method('void RendererOpenGL::endErrorBatch(', renderer))
+    start = shader_header.index('#if !defined(NDEBUG)\n#define GL_CHECK_ERROR')
+    (build / 'error-check.inc').write_text(shader_header[start:shader_header.index('\nclass ShaderOpenGL', start)])
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -83,7 +90,12 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)
+        if name == 'error-batch':
+            for variant in ['USE_OPENGLES', 'NDEBUG']:
+                subprocess.run(command + ['-D' + variant, '-pthread',
+                    str(root / 'tests/search-screen/error-batch.cpp'), '-o', str(build / variant)], check=True)
+                subprocess.run([str(build / variant)], check=True)

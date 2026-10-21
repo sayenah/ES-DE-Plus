@@ -11,6 +11,7 @@
 
 #define GL_GLEXT_PROTOTYPES
 
+#include "renderers/RenderErrorBatch.h"
 #include "renderers/Renderer.h"
 #include "utils/MathUtil.h"
 
@@ -40,11 +41,16 @@
 
 #if !defined(NDEBUG)
 #define GL_CHECK_ERROR(Function) (Function, _GLCheckError(#Function))
-static inline void _GLCheckError(const std::string& funcName)
+static inline void _GLCheckError(const char* funcName)
 {
-    const GLenum errorCode = glGetError();
-
-    if (errorCode != GL_NO_ERROR) {
+    if (RenderErrorBatch::deferred())
+        return;
+    // A batch may have more than one recorded error flag. Drain them all.
+    while (true) {
+        const GLenum errorCode = glGetError();
+        RenderErrorBatch::recordRead();
+        if (errorCode == GL_NO_ERROR)
+            break;
 #if defined(USE_OPENGLES)
         LOG(LogError) << "OpenGL ES error: " << funcName << " failed with error code: 0x"
                       << std::hex << errorCode;

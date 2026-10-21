@@ -69,6 +69,8 @@ struct Renderer {
     glm::mat4 matrix {1};
     std::vector<Event> events;
     unsigned int texture {99};
+    void beginErrorBatch() {}
+    void endErrorBatch(const char*) {}
     void setMatrix(const glm::mat4& value) { matrix = value; }
     void clearBackground(unsigned int color)
     {
@@ -107,6 +109,8 @@ struct Renderer {
         events.push_back({"panels", matrix});
     }
 };
+#include "error-batch.inc"
+
 struct Font {
     Renderer* renderer;
     void renderTextCache(TextCache* cache)

@@ -244,6 +244,9 @@ public:
     // For an opaque screen that owns the complete framebuffer, without a transform.
     virtual void clearBackground(unsigned int color) = 0;
     virtual void finishRendering() = 0;
+    // Retain debug error reports at the boundary of an explicit drawing batch.
+    virtual void beginErrorBatch() = 0;
+    virtual void endErrorBatch(const char* label) = 0;
     // Optional diagnostic observer; includes rendering, the swap wait and frame pacing.
     void setFramePresentedCallback(std::function<void(double, double)> callback)
     {

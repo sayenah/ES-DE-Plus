@@ -432,6 +432,23 @@ void RendererOpenGL::swapBuffers()
 
 void RendererOpenGL::finishRendering() { GL_CHECK_ERROR(glFinish()); }
 
+void RendererOpenGL::beginErrorBatch()
+{
+#if !defined(NDEBUG)
+    RenderErrorBatch::begin();
+#endif
+}
+
+void RendererOpenGL::endErrorBatch(const char* label)
+{
+#if !defined(NDEBUG)
+    if (RenderErrorBatch::end())
+        _GLCheckError(label);
+#else
+    (void)label;
+#endif
+}
+
 void RendererOpenGL::clearBackground(unsigned int color)
 {
     GL_CHECK_ERROR(glClearColor(((color >> 24) & 0xFF) / 255.0f, ((color >> 16) & 0xFF) / 255.0f,

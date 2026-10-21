@@ -48,6 +48,8 @@ public:
     void swapBuffers() override;
     void clearBackground(unsigned int color) override;
     void finishRendering() override;
+    void beginErrorBatch() override;
+    void endErrorBatch(const char* label) override;
 
     unsigned int createTexture(const unsigned int texUnit,
                                const TextureType type,
