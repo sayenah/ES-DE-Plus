@@ -599,6 +599,12 @@ void Window::render()
     if (!mGuiStack.empty()) {
         auto& bottom = mGuiStack.front();
         auto& top = mGuiStack.back();
+        const auto opaque =
+            std::find_if(mGuiStack.rbegin(), mGuiStack.rend(),
+                         [](GuiComponent* gui) { return gui->isOpaqueFullscreen(); });
+        GuiComponent* backdrop =
+            opaque != mGuiStack.rend() && !mRenderLaunchScreen ? *opaque : nullptr;
+        const bool opaqueFullscreen {bottom != top && backdrop};
 
         if (mRenderMediaViewer || mRenderPDFViewer || mRenderScreensaver) {
             bottom->cancelAllAnimations();
@@ -623,7 +629,13 @@ void Window::render()
         // Don't render the bottom if the menu is open and the opening animation has finished
         // playing. If the background is invalidated rendering will be enabled briefly until
         // a new cached background has been generated.
-        if (mGuiStack.size() > 1 && mCachedBackground) {
+        if (opaqueFullscreen) {
+            // Keep the live view behind the scale-up animation, then stop drawing it.
+            renderBottom = backdrop == top &&
+                           Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
+                           mTopScale < 1.0f;
+        }
+        else if (mGuiStack.size() > 1 && mCachedBackground) {
             if ((Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
                  mBackgroundOverlayOpacity == 1.0f) ||
                 Settings::getInstance()->getString("MenuOpeningEffect") != "scale-up")
@@ -636,7 +648,7 @@ void Window::render()
         if (bottom != top || mRenderLaunchScreen) {
             if (!mRenderLaunchScreen)
                 menuIsOpen = true;
-            if (!mCachedBackground && mInvalidateCacheTimer == 0) {
+            if (!opaqueFullscreen && !mCachedBackground && mInvalidateCacheTimer == 0) {
                 // Generate a cache texture of the shaded background when opening the menu, which
                 // will remain valid until the menu is closed. This is way faster than having to
                 // render the shaders for every frame.
@@ -716,14 +728,16 @@ void Window::render()
 #endif
             }
             // Fade in the cached background if the menu opening effect has been set to scale-up.
-            if (Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up") {
+            if (!opaqueFullscreen &&
+                Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up") {
                 mBackgroundOverlay->setOpacity(mBackgroundOverlayOpacity);
                 if (mBackgroundOverlayOpacity < 1.0f)
                     mBackgroundOverlayOpacity =
                         glm::clamp(mBackgroundOverlayOpacity + 0.118f, 0.0f, 1.0f);
             }
 
-            mBackgroundOverlay->render(trans);
+            if (!opaqueFullscreen)
+                mBackgroundOverlay->render(trans);
 
             // Scale-up menu opening effect.
             if (Settings::getInstance()->getString("MenuOpeningEffect") == "scale-up" &&
@@ -739,7 +753,7 @@ void Window::render()
                     mScaleAccumulator = 0;
             }
 
-            if (!mRenderedHelpPrompts) {
+            if (!mRenderedHelpPrompts && (!opaqueFullscreen || renderBottom)) {
                 if (mHelpComponents != nullptr) {
                     for (auto& helpComponent : *mHelpComponents) {
                         if (helpComponent->getComponentScope() == ComponentScope::NONE)
@@ -758,12 +772,18 @@ void Window::render()
 #if defined(__ANDROID__)
             // Modal text and confirmation controls take visual priority. Keep
             // the exposed controller buttons usable around the dialog.
-            if (!mRenderLaunchScreen && dynamic_cast<GuiMsgBox*>(top) &&
+            if (!opaqueFullscreen && !mRenderLaunchScreen && dynamic_cast<GuiMsgBox*>(top) &&
                 Settings::getInstance()->getBool("InputTouchOverlay")) {
                 InputOverlay::getInstance().render(mRenderer->getIdentity());
                 overlayBelowDialog = true;
             }
 #endif
+            if (backdrop && backdrop != top) {
+                backdrop->render(trans);
+                mRenderer->setMatrix(trans);
+                mRenderer->drawRect(0, 0, mRenderer->getScreenWidth(), mRenderer->getScreenHeight(),
+                                    0x00000060, 0x00000060);
+            }
             if (!mRenderLaunchScreen)
                 top->render(trans);
         }
@@ -846,7 +866,7 @@ void Window::render()
 #if defined(__ANDROID__) || defined(__IOS__)
     if (Settings::getInstance()->getBool("InputTouchOverlay")
 #if defined(__ANDROID__)
-        && !overlayBelowDialog
+        && !overlayBelowDialog && !(peekGui() && peekGui()->ownsTouch(0.5f, 0.5f))
 #endif
     )
         InputOverlay::getInstance().render(mRenderer->getIdentity());
@@ -962,6 +982,10 @@ void Window::renderHelpPromptsEarly()
 
 void Window::setHelpPrompts(const std::vector<HelpPrompt>& prompts)
 {
+    // The opaque screen draws its own help. Avoid loading/rasterizing covered icons.
+    if (peekGui() && peekGui()->isOpaqueFullscreen())
+        return;
+
     std::vector<HelpPrompt> addPrompts;
 
     std::map<std::string, bool> inputSeenMap;

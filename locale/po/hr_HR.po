@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: 2026-09-04 12:33+0200\n"
 "Last-Translator: SecularSteve <info@es-de.org>\n"
 "Language-Team: Croatian (Croatia) <info@es-de.org>\n"
@@ -1198,24 +1198,6 @@ msgstr "zatvori (primijeni)"
 msgid "close (cancel)"
 msgstr "zatvori (otkazati)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "NISU PRONAĐENE IGRE"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "odabrati"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "POKRETANJE IGRE"
 
@@ -1503,6 +1485,18 @@ msgstr "OMOGUĆI BRZO POMICAJANJE PREKRIVAČA POPISA TEKSTA"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "OMOGUĆI VIRTUALNU TIPKOVNICU"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
+
+msgid "Clear all search history?"
+msgstr ""
+
+msgid "Search history cleared."
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1855,6 +1849,9 @@ msgstr "POSTAVKE ČUVARA ZASLON"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "OMOGUĆI POKRETANJE NA DRUGOM ZASLONU"
+
+msgid "choose"
+msgstr "odabrati"
 
 msgid "close menu"
 msgstr "zatvori izbornik"
@@ -2552,6 +2549,9 @@ msgstr "ŽANR:"
 msgid "PLAYERS:"
 msgstr "IGRAČI:"
 
+msgid "NO GAMES FOUND"
+msgstr "NISU PRONAĐENE IGRE"
+
 msgid "API CALLS:"
 msgstr "API POZIVI:"
 
@@ -2639,6 +2639,170 @@ msgstr "ZAMIJENI VIDEOZAPISE NAKON (SEKUNDI)"
 
 msgid "RENDER BLUR"
 msgstr "RENDER ZAMUĆENJE"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "sustav"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "today"
+msgstr ""
+
+msgid "yesterday"
+msgstr ""
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "space"
+msgstr "prostor"
+
+msgid "delete"
+msgstr "obriši"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+msgid "Searching for games..."
+msgstr "Traženje igara..."
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "In:"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "INDIKATOR STATUSA BLUETOOTH-A NA ZASLON"
@@ -2844,9 +3008,6 @@ msgstr "pogledajte snimke zaslona"
 msgid "fetch updates"
 msgstr "dohvati ažuriranja"
 
-msgid "delete"
-msgstr "obriši"
-
 msgid "download"
 msgstr "preuzmi"
 
@@ -2880,12 +3041,6 @@ msgstr ""
 "PODATAKA."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3210,9 +3365,6 @@ msgid "CAN'T ADD ENTRIES THAT ARE NOT COUNTED AS GAMES TO CUSTOM COLLECTIONS"
 msgstr ""
 "NE MOGU SE DODATI UNOSI KOJI SE NE RAČUNAJU KAO IGRE U PRILAGOĐENE KOLEKCIJE"
 
-msgid "system"
-msgstr "sustav"
-
 msgid "view media"
 msgstr "prikaz medija"
 
@@ -3409,9 +3561,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "POKRETANJE IGRE '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "izbornik"
@@ -3658,9 +3807,6 @@ msgstr "novi redak"
 msgid "backspace"
 msgstr "brisanje"
 
-msgid "space"
-msgstr "prostor"
-
 msgid "LOAD DEFAULT"
 msgstr "UČITAJ ZADANO"
 
@@ -3732,9 +3878,6 @@ msgstr "21:9 okomito"
 
 msgid "32:9 vertical"
 msgstr "32:9 okomito"
-
-msgid "Searching for games..."
-msgstr "Traženje igara..."
 
 msgid "Loading systems..."
 msgstr "Učitavanje sustava..."

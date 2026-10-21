@@ -980,6 +980,8 @@ jobs:
         id: smoke-session
         timeout-minutes: ${{ matrix.cap }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ESDE_TOUCH_SUITE: ${{ matrix.session == 'touch' && 'search' || 'all' }}
         with:
           api-level: ${{ matrix.api }}
           arch: x86_64
@@ -995,10 +997,48 @@ jobs:
           script: |
             python3 android/smoke_support.py boot
             adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
-            python3 android/smoke_session.py "${{ matrix.session }}" -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase "${{ matrix.session }}"
+            python3 android/smoke_session.py "${{ matrix.session == 'touch' && 'touch-search' || matrix.session }}" -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase "${{ matrix.session }}"
       - name: Record emulator result without hiding a failed child
         if: ${{ always() }}
-        run: python3 android/smoke_session.py emulator-result "${{ matrix.session }}" "${{ steps.smoke-session.outcome }}"
+        run: python3 android/smoke_session.py emulator-result "${{ matrix.session == 'touch' && 'touch-search' || matrix.session }}" "${{ steps.smoke-session.outcome }}"
+      - name: Upload search evidence before the overlay baseline (no APK)
+        if: ${{ always() && matrix.session == 'touch' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-${{ matrix.image }}-search-attempt${{ github.run_attempt }}
+          path: |
+            android/evidence/touch-search-*.txt
+            android/evidence/touch-search/**/*.txt
+            android/evidence/touch-search/**/*.png
+            android/evidence/touch-search/**/search-screen-timing.json
+            android/evidence/touch-search/**/search-screen-scheduler-*.atrace
+          retention-days: 7
+      - name: Fresh-emulator overlay baseline
+        id: overlay-session
+        if: ${{ !cancelled() && matrix.session == 'touch' && (steps.smoke-session.outcome == 'success' || steps.smoke-session.outcome == 'failure') }}
+        timeout-minutes: ${{ matrix.cap }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ESDE_TOUCH_SUITE: overlay
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          avd-name: esde-touch-overlay
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          sdcard-path-or-size: 512M
+          disable-animations: true
+          cores: 4
+          ram-size: 4096M
+          script: |
+            python3 android/smoke_support.py boot
+            adb push android/evidence/pdf-fixtures/. /data/local/tmp/esde-pdf-fixtures/
+            python3 android/smoke_session.py touch-overlay -- python3 android/smoke.py android/app/build/outputs/apk/debug/app-debug.apk --phase touch
+      - name: Record overlay emulator result without hiding either failure
+        if: ${{ always() && matrix.session == 'touch' && steps.overlay-session.outcome != 'skipped' }}
+        run: python3 android/smoke_session.py emulator-result touch-overlay "${{ steps.overlay-session.outcome }}"
       - name: Check tracked subtree integrity after the session
         if: ${{ !cancelled() && (steps.assemble.outcome == 'success' || needs.selection.outputs.publish == 'true') }}
         run: git diff --exit-code -- external/
@@ -1013,6 +1053,8 @@ jobs:
             android/evidence/**/*.png
             android/evidence/**/audio-*-progress.json
             android/evidence/**/audio-startup-relaunches.jsonl
+            android/evidence/**/search-screen-timing.json
+            android/evidence/**/search-screen-scheduler-*.atrace
           retention-days: 7
 
   publish-apk:

@@ -213,10 +213,10 @@ def screenshot(name):
     (evidence / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p', binary=True))
 
 
-def launch(audio_relaunch=None):
+def launch(audio_relaunch=None, expected_games=2):
     global startup_number
     if audio_relaunch:
-        launch_attempt(lambda: None, audio_relaunch)
+        launch_attempt(lambda: None, audio_relaunch, expected_games)
         return
     startup_number += 1
     name = f'startup-{startup_number}'
@@ -227,7 +227,7 @@ def launch(audio_relaunch=None):
             output.write(json.dumps(result) + '\n')
         print('STARTUP_OUTCOME ' + json.dumps(result), flush=True)
     fresh_session_checks.startup(
-        launch_attempt, lambda: onboarding_dismissals,
+        lambda reached: launch_attempt(reached, expected_games=expected_games), lambda: onboarding_dismissals,
         lambda number: capture_startup_failure(f'{name}-attempt-{number + 1}-failure', marker),
         lambda: shell('am', 'force-stop', app), record, app, current_startup_ready)
     return startup_surface_nodes
@@ -304,7 +304,7 @@ def current_startup_ready():
     return True
 
 
-def launch_attempt(reached_readiness, audio_relaunch=None):
+def launch_attempt(reached_readiness, audio_relaunch=None, expected_games=2):
     # Each stopped-process restart must produce new startup evidence.
     global startup_baseline, startup_monitoring, startup_surface_nodes
     startup_surface_nodes = None
@@ -316,7 +316,8 @@ def launch_attempt(reached_readiness, audio_relaunch=None):
         wait_for(current_startup_ready, 'fresh frontend startup/system loading')
     reached_readiness()
     assert 'Error:' not in log(), log()
-    assert re.search(r'Total game count: 2\s', log()), 'The two adb-provisioned ROMs were not loaded: ' + log()
+    assert re.search(r'Total game count: ' + str(expected_games) + r'\s', log()), \
+        f'Unexpected visible fixture game count (expected {expected_games}): ' + log()
     # Startup logging precedes the render loop's first frame/texture uploads.
     time.sleep(10)
     # Dismiss the real Android immersive-mode tutorial through its actual UI.
@@ -1004,10 +1005,11 @@ def search_launch(term, name):
     key('KEYCODE_ENTER')
     screenshot(name + '-text-entry')
     shell('input', 'text', term.replace(' ', '%s'))
-    key('KEYCODE_ENTER')
+    key('KEYCODE_ENTER')  # Focus the live screen's first result.
     screenshot(name + '-results')
-    key('KEYCODE_DPAD_DOWN')
-    key('KEYCODE_ENTER')
+    # Android 13's input command supplies the physical keyboard play shortcut.
+    shell('input', 'keycombination', '113', '66')  # Ctrl+Enter, normal launch path.
+    time.sleep(0.4)
 
 
 def user_file(relative, contents=None):
@@ -1223,7 +1225,8 @@ def retroarch_stacks(recipient_pid, recipient_log):
 
 def record_retroarch_receipt(outcome, detail=''):
     policy = 'GATING' if retroarch_receipt_gating else 'NON-GATING DIAGNOSTIC'
-    text = f'D-010 real-RetroArch receipt: {policy}; API {device_api}; TV={television}; {outcome}\n'
+    decision = 'D-030' if device_api == 35 else 'D-010'
+    text = f'{decision} real-RetroArch receipt: {policy}; API {device_api}; TV={television}; {outcome}\n'
     if detail:
         text += detail + '\n'
     stacks = evidence / 'real-retroarch-stall-stacks.txt'
@@ -1339,7 +1342,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 33 and API 34 still fail without a product launch retry.
+                raise  # API 33 remains gating; D-030 makes API 35 receipt diagnostic.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')
@@ -1379,7 +1382,7 @@ try:
     (evidence / 'device-features.txt').write_text(features)
     television = 'feature:android.software.leanback' in features.splitlines()
     device_api = int(shell('getprop', 'ro.build.version.sdk').strip())
-    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(television)
+    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(television, device_api)
     if television:
         # Google's TV image launches this dialog asynchronously over other
         # apps. Disable only that external onboarding component before testing.
@@ -1423,8 +1426,9 @@ try:
     shared = '/sdcard/ESDEPlusSmoke'
     (evidence / 'image.txt').write_text(shell('getprop'))
     if phase == 'touch':
-        touch_smoke.run_fresh(globals())
-        (evidence / 'session-result.txt').write_text('PASS: touch\n')
+        touch_suite = os.environ.get('ESDE_TOUCH_SUITE', 'all')
+        touch_smoke.run_fresh(globals(), touch_suite)
+        (evidence / 'session-result.txt').write_text('PASS: touch ' + touch_suite + '\n')
         raise SystemExit(0)
     if phase not in ('core', 'app-data'):
         smoke_phases.run(phase, globals())
@@ -1920,10 +1924,10 @@ try:
     shell('input', 'text', 'Smkoe%sAlpha')
     key('KEYCODE_ENTER')
     screenshot('search-results')
-    # Move past the search header to the first result, then use the real launch path.
     previous_launches = len(search_smoke.launches(globals()))
-    key('KEYCODE_DPAD_DOWN')
-    key('KEYCODE_ENTER')
+    # Results are already focused. Ctrl+Enter uses the screen's direct-play action.
+    shell('input', 'keycombination', '113', '66')
+    time.sleep(0.4)
     wait_for(lambda: "Couldn't launch game, emulator not found" in log(), 'existing missing-emulator error')
     search_smoke.assert_launched(globals(), 'Smoke Alpha', previous_launches)
     assert search_smoke.committed(globals(), data_root, 'Smkoe Alpha')

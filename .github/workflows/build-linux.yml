@@ -55,6 +55,12 @@ jobs:
           cmake --build build-search-sanitized --parallel 2
           ctest --test-dir build-search-sanitized -R 'search_logic|search_adapter|search_hooks|search_fuzz' --output-on-failure
 
+      - name: Check production glyph caching, batching and artwork contention
+        run: |
+          python3 tests/search-screen/check_text_cache.py
+          python3 tests/search-screen/timing-budget.py
+          python3 tests/search-screen/shader-check.py
+
       - name: Build and run pure overlay model checks
         run: |
           cmake -S tests/input_overlay -B build-input-overlay -DCMAKE_BUILD_TYPE=Release
@@ -66,6 +72,8 @@ jobs:
           /tmp/emulator-manager-probe /tmp/emulator-manager-fixtures
 
       - name: Configure
+        id: native-configure
+        if: ${{ !cancelled() }}
         run: cmake -S . -B build -DAPPLICATION_UPDATER=off -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Theme repository policy and operation controls (framework free)
@@ -75,7 +83,37 @@ jobs:
           ctest --test-dir build/theme-trust --output-on-failure
 
       - name: Build
+        id: native-build
+        if: ${{ !cancelled() && steps.native-configure.outcome == 'success' }}
         run: cmake --build build --parallel 2
+
+      - name: Live search keyboard/controller smoke and actual framebuffer evidence
+        if: ${{ !cancelled() && steps.native-build.outcome == 'success' }}
+        run: |
+          mkdir -p build/search-screen
+          read -r -a sdl_flags <<< "$(sdl2-config --cflags --libs)"
+          c++ -std=c++17 -shared -fPIC -Wall -Wextra -Werror tests/search-screen/input.cpp "${sdl_flags[@]}" -ldl -o build/search-screen/input.so
+          for size in '1920 1080' '1280 720' '1080 2400' '2560 1600' '2560 1440'; do
+            read -r width height <<< "$size"
+            python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen "$width" "$height"
+          done
+          for variant in light german kid history-off large; do
+            python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen 1280 720 $variant
+          done
+          # Diagnostic control for unpaced offscreen GPU backlog; ordinary checks above are unchanged.
+          ESDE_SEARCH_SYNC_GPU=1 python3 tests/search-screen/run.py ./es-de build/search-screen/input.so build/search-screen/synchronized 1920 1080
+      - name: Retain search screen evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: search-screen-linux-${{ github.run_id }}
+          path: |
+            build/search-screen/**/*.png
+            build/search-screen/**/*.json
+            build/search-screen/**/frontend.txt
+            build/search-screen/**/es_log.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Verify unchanged desktop theme downloader preprocessor output
         run: python3 tests/theme-repository-trust/desktop.py

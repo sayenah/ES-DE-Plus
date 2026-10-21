@@ -426,6 +426,13 @@ namespace LibrarySearch
             text.erase(std::remove(text.begin(), text.end(), ' '), text.end());
             return text;
         }
+        Filter normalizedFilter(Filter filter)
+        {
+            filter.genre = compact(normalize(filter.genre));
+            filter.developer = compact(normalize(filter.developer));
+            filter.publisher = compact(normalize(filter.publisher));
+            return filter;
+        }
         bool validDate(const std::string& date)
         {
             return date.size() == 15 && date[8] == 'T' &&
@@ -882,9 +889,15 @@ namespace LibrarySearch
         bool allowed(Id id, const Filter& filter) const
         {
             const auto& g = games[id];
+            const auto entityMatches = [&](size_t slot, const std::string& value) {
+                const Id entity = gameEntities[id][slot];
+                return value.empty() || (entity != UINT32_MAX && entities[entity].key == value);
+            };
             return (filter.showHidden || !g.hidden) && (!filter.kidMode || g.kid) &&
                    (!filter.favouritesOnly || g.favourite) &&
-                   (filter.system.empty() || view(g.system, rawText) == filter.system);
+                   (filter.system.empty() || view(g.system, rawText) == filter.system) &&
+                   entityMatches(0, filter.developer) && entityMatches(1, filter.publisher) &&
+                   entityMatches(2, filter.genre);
         }
         std::string text, compactText, wordText;
         std::vector<Document> documents;
@@ -1251,14 +1264,38 @@ namespace LibrarySearch
             Id game, document;
             int kind, priority;
         };
+        static bool containsCompact(std::string_view text, std::string_view query)
+        {
+            for (size_t begin {0}; begin < text.size(); ++begin) {
+                size_t at = begin, matched {0};
+                while (at < text.size() && matched < query.size()) {
+                    if (text[at] == ' ') {
+                        ++at;
+                        continue;
+                    }
+                    if (text[at] != query[matched])
+                        break;
+                    ++at;
+                    ++matched;
+                }
+                if (matched == query.size())
+                    return true;
+            }
+            return false;
+        }
         std::vector<Result> collect(const std::string& query,
                                     size_t limit,
                                     const Filter& filter,
                                     bool metadata,
-                                    const std::set<std::string>* restricted = nullptr) const
+                                    const std::set<std::string>* restricted = nullptr,
+                                    bool complete = false) const
         {
             const auto q = title(query).text;
             const auto qw = words(q);
+            const bool substringMembership =
+                complete && std::all_of(qw.begin(), qw.end(), [](const Word& w) {
+                    return !digits(w.text) && number(w.text) == w.text;
+                });
             if (q.empty() || !limit)
                 return {};
             auto allowed = [&](Id g) {
@@ -1269,7 +1306,7 @@ namespace LibrarySearch
             // Per-thread scratch is reused across queries, including the restricted/full
             // passes. No library-sized allocation or initialization on a keystroke.
             struct Scratch {
-                std::vector<uint32_t> stamp, position;
+                std::vector<uint32_t> stamp, position, metadataStamp;
                 std::vector<Result> rows;
                 uint32_t epoch {0};
             };
@@ -1280,6 +1317,7 @@ namespace LibrarySearch
             }
             if (++scratch.epoch == 0) {
                 std::fill(scratch.stamp.begin(), scratch.stamp.end(), 0);
+                std::fill(scratch.metadataStamp.begin(), scratch.metadataStamp.end(), 0);
                 ++scratch.epoch;
             }
             auto& matches = scratch.rows;
@@ -1319,7 +1357,7 @@ namespace LibrarySearch
                 if (!arabic)
                     put(*it, exact ? 0 : 1, exact ? 0 : 1);
             }
-            if (matches.size() < limit || arabic) {
+            if (matches.size() < limit || arabic || complete) {
                 for (Id d : prefixCandidates(qw)) {
                     if (!allowed(documents[d].game))
                         continue;
@@ -1369,7 +1407,7 @@ namespace LibrarySearch
                         put(d, 5, 3);
                 }
             }
-            if (matches.size() < limit) {
+            if (matches.size() < limit || complete) {
                 std::vector<Id> abbreviated;
                 for (const auto& w : qw)
                     if (w.text.size() >= 2 && !numeric(w.text))
@@ -1384,8 +1422,15 @@ namespace LibrarySearch
                         put(d, 4, 4);
                 }
             }
-            if (matches.size() < limit) {
-                auto docs = candidates(qw);
+            if (matches.size() < limit || complete) {
+                std::vector<Id> docs;
+                const bool shortMembership = substringMembership && qw.size() == 1 && q.size() < 3;
+                if (shortMembership) {
+                    docs.resize(documents.size());
+                    std::iota(docs.begin(), docs.end(), 0);
+                }
+                else
+                    docs = candidates(qw);
                 std::vector<Id> ranked;
                 Id last {UINT32_MAX};
                 for (Id d : docs) {
@@ -1398,21 +1443,56 @@ namespace LibrarySearch
                         ranked.push_back(g);
                 }
                 auto laterGame = [&](Id a, Id b) { return better(b, a); };
-                std::make_heap(ranked.begin(), ranked.end(), laterGame);
+                if (!complete)
+                    std::make_heap(ranked.begin(), ranked.end(), laterGame);
                 const bool fuzzy = std::any_of(qw.begin(), qw.end(), [](const Word& w) {
                     return !digits(w.text) && codepoints(w.text).size() >= 5;
                 });
-                size_t strong = matches.size();
-                while (!ranked.empty() && strong < limit) {
-                    std::pop_heap(ranked.begin(), ranked.end(), laterGame);
-                    const Id g = ranked.back();
-                    ranked.pop_back();
+                size_t strong = matches.size(), next {0};
+                while (complete ? next < ranked.size() : (!ranked.empty() && strong < limit)) {
+                    Id g;
+                    if (complete)
+                        g = ranked[next++];
+                    else {
+                        std::pop_heap(ranked.begin(), ranked.end(), laterGame);
+                        g = ranked.back();
+                        ranked.pop_back();
+                    }
                     int best {9};
                     Id bestDoc {0};
                     const auto& fields = gameDocuments[g];
                     for (size_t n {0}; n < fields.size(); ++n) {
                         const Id d = fields[n];
                         if ((n && d == fields[0]) || (n == 2 && d == fields[1]))
+                            continue;
+                        if (substringMembership && containsCompact(doc(d), compactQuery)) {
+                            best = 6;
+                            bestDoc = d;
+                            break;
+                        }
+                        if (complete && qw.size() == 1 && !fuzzy &&
+                            LibrarySearch::numeric(qw[0].text)) {
+                            const auto value = doc(d);
+                            bool compatible {false};
+                            if (joined(d).find(compactQuery) != std::string_view::npos) {
+                                const auto wanted = number(qw[0].text);
+                                for (size_t at {0}; at < value.size() && !compatible;) {
+                                    const size_t end = std::min(value.find(' ', at), value.size());
+                                    const auto token = value.substr(at, end - at);
+                                    compatible = (token.size() <= 5 &&
+                                                  number(std::string(token)) == wanted) ||
+                                                 (digits(qw[0].text) && starts(token, qw[0].text));
+                                    at = end + 1;
+                                }
+                            }
+                            if (compatible) {
+                                best = 6;
+                                bestDoc = d;
+                                break;
+                            }
+                            continue;
+                        }
+                        if (shortMembership)
                             continue;
                         const auto t = textFor(d);
                         const int r = rank(q, qw, t, nullptr, 6) == 6 ? 6 :
@@ -1431,7 +1511,7 @@ namespace LibrarySearch
                             ++strong;
                     }
                 }
-                if (metadata && matches.size() < limit) {
+                if (metadata && (matches.size() < limit || complete)) {
                     std::vector<Id> groups;
                     size_t smallest = SIZE_MAX;
                     for (const auto& w : qw) {
@@ -1453,28 +1533,8 @@ namespace LibrarySearch
                             groups = std::move(found);
                         }
                     }
-                    struct Cursor {
-                        Id at, end;
-                    };
-                    auto later = [&](const Cursor& a, const Cursor& b) {
-                        return rankingPosition[support[a.at]] > rankingPosition[support[b.at]];
-                    };
-                    std::priority_queue<Cursor, std::vector<Cursor>, decltype(later)> heap {later};
-                    for (Id c : groups) {
-                        const auto range = completions[c].games;
-                        if (range.count)
-                            heap.push({range.begin, range.begin + range.count});
-                    }
-                    std::unordered_set<Id> checked;
-                    while (!heap.empty() && matches.size() < limit) {
-                        auto cursor = heap.top();
-                        heap.pop();
-                        const Id g = support[cursor.at++];
-                        if (cursor.at < cursor.end)
-                            heap.push(cursor);
-                        if (!checked.insert(g).second || !allowed(g) || find(g))
-                            continue;
-                        const bool match = std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
+                    auto matchesMetadata = [&](Id g) {
+                        return std::all_of(qw.begin(), qw.end(), [&](const Word& w) {
                             return std::any_of(
                                 gameEntities[g].begin(), gameEntities[g].end(), [&](Id entity) {
                                     if (entity == UINT32_MAX)
@@ -1487,8 +1547,50 @@ namespace LibrarySearch
                                                    .find(w.text) != std::string::npos;
                                 });
                         });
-                        if (match)
-                            put(gameDocuments[g][0], 8, 8);
+                    };
+                    if (complete) {
+                        // Counts need every member, without the ranked heap used by
+                        // the top-results API. Reuse stamps to visit a candidate once.
+                        if (scratch.metadataStamp.size() < games.size())
+                            scratch.metadataStamp.resize(games.size());
+                        for (Id c : groups) {
+                            const auto range = completions[c].games;
+                            for (Id at = range.begin; at < range.begin + range.count; ++at) {
+                                const Id g = support[at];
+                                if (scratch.metadataStamp[g] == scratch.epoch)
+                                    continue;
+                                scratch.metadataStamp[g] = scratch.epoch;
+                                if (allowed(g) && !find(g) && matchesMetadata(g))
+                                    put(gameDocuments[g][0], 8, 8);
+                            }
+                        }
+                    }
+                    else {
+                        struct Cursor {
+                            Id at, end;
+                        };
+                        auto later = [&](const Cursor& a, const Cursor& b) {
+                            return rankingPosition[support[a.at]] > rankingPosition[support[b.at]];
+                        };
+                        std::priority_queue<Cursor, std::vector<Cursor>, decltype(later)> heap {
+                            later};
+                        for (Id c : groups) {
+                            const auto range = completions[c].games;
+                            if (range.count)
+                                heap.push({range.begin, range.begin + range.count});
+                        }
+                        std::unordered_set<Id> checked;
+                        while (!heap.empty() && matches.size() < limit) {
+                            auto cursor = heap.top();
+                            heap.pop();
+                            const Id g = support[cursor.at++];
+                            if (cursor.at < cursor.end)
+                                heap.push(cursor);
+                            if (!checked.insert(g).second || !allowed(g) || find(g))
+                                continue;
+                            if (matchesMetadata(g))
+                                put(gameDocuments[g][0], 8, 8);
+                        }
                     }
                 }
             }
@@ -1497,8 +1599,9 @@ namespace LibrarySearch
                 return a.priority != b.priority ? a.priority < b.priority : better(a.game, b.game);
             };
             const size_t count = std::min(limit, result.size());
-            std::partial_sort(result.begin(), result.begin() + count, result.end(), less);
-            return {result.begin(), result.begin() + count};
+            if (!complete)
+                std::partial_sort(result.begin(), result.begin() + count, result.end(), less);
+            return {result.begin(), complete ? result.end() : result.begin() + count};
         }
     };
 
@@ -2103,9 +2206,20 @@ namespace LibrarySearch
                                     size_t limit,
                                     const Filter& filter) const
     {
+        return find(query, limit, filter, nullptr);
+    }
+
+    std::vector<Match> Core::find(const std::string& query,
+                                  size_t limit,
+                                  const Filter& inputFilter,
+                                  Results* counts,
+                                  size_t offset,
+                                  const std::string& focusedGame) const
+    {
+        const auto filter = normalizedFilter(inputFilter);
         const auto& ix = *mIndex;
         const auto q = title(query).text;
-        if (q.empty() || !limit)
+        if (q.empty() || (!limit && !counts))
             return {};
         const auto qw = words(q);
         auto remaining = qw;
@@ -2141,24 +2255,65 @@ namespace LibrarySearch
                     rest += ' ';
                 rest += w.text;
             }
-            selected = ix.collect(rest, limit, filter, true, &systems);
+            selected = ix.collect(rest, std::max(size_t {1}, limit), filter, true, &systems,
+                                  counts != nullptr);
         }
-        auto full = ix.collect(q, limit, filter, selected.empty());
-        std::unordered_map<uint32_t, Index::Result> merged;
-        for (const auto& group : {&selected, &full})
-            for (const auto& r : *group) {
-                auto it = merged.find(r.game);
-                if (it == merged.end() || r.priority < it->second.priority)
-                    merged[r.game] = r;
-            }
+        auto full = ix.collect(q, std::max(size_t {1}, limit), filter, selected.empty(), nullptr,
+                               counts != nullptr);
         std::vector<Index::Result> rows;
-        for (const auto& item : merged)
-            rows.push_back(item.second);
+        if (selected.empty())
+            rows = std::move(full);
+        else {
+            std::unordered_map<uint32_t, Index::Result> merged;
+            for (const auto& group : {&selected, &full})
+                for (const auto& r : *group) {
+                    auto it = merged.find(r.game);
+                    if (it == merged.end() || r.priority < it->second.priority)
+                        merged[r.game] = r;
+                }
+            for (const auto& item : merged)
+                rows.push_back(item.second);
+        }
+        if (counts) {
+            counts->total = rows.size();
+            std::map<std::string_view, SystemCount> systems;
+            for (const auto& row : rows) {
+                const auto& game = ix.games[row.game];
+                const auto system = ix.view(game.system, ix.rawText);
+                auto& count = systems[system];
+                if (!count.count) {
+                    count.system = system;
+                    count.name = ix.view(game.systemName, ix.rawText);
+                }
+                ++count.count;
+            }
+            for (auto& system : systems)
+                counts->systems.push_back(std::move(system.second));
+        }
         auto less = [&](const auto& a, const auto& b) {
             return a.priority != b.priority ? a.priority < b.priority : ix.better(a.game, b.game);
         };
-        const size_t count = std::min(limit, rows.size());
-        std::partial_sort(rows.begin(), rows.begin() + count, rows.end(), less);
+        if (counts && !focusedGame.empty()) {
+            const auto focused = std::find_if(rows.begin(), rows.end(), [&](const auto& row) {
+                return ix.view(ix.games[row.game].id, ix.rawText) == focusedGame;
+            });
+            if (focused == rows.end())
+                offset = 0;
+            else {
+                const size_t rank = std::count_if(
+                    rows.begin(), rows.end(), [&](const auto& row) { return less(row, *focused); });
+                if (rank < offset || rank >= offset + limit)
+                    offset = limit ? rank / limit * limit : 0;
+            }
+        }
+        offset = std::min(offset, rows.size());
+        if (counts)
+            counts->offset = offset;
+        const size_t count = std::min(limit, rows.size() - offset);
+        if (offset && offset < rows.size())
+            std::nth_element(rows.begin(), rows.begin() + offset, rows.end(), less);
+        std::partial_sort(rows.begin() + offset, rows.begin() + offset + count, rows.end(), less);
+        rows.erase(rows.begin(), rows.begin() + offset);
         rows.resize(count);
         std::vector<Match> result;
         for (const auto& r : rows) {
@@ -2192,14 +2347,261 @@ namespace LibrarySearch
         return result;
     }
 
+    Results Core::query(const std::string& query,
+                        size_t limit,
+                        const Filter& inputFilter,
+                        size_t offset,
+                        const std::string& focusedGame) const
+    {
+        Results result;
+        if (!title(query).text.empty()) {
+            result.matches = find(query, limit, inputFilter, &result, offset, focusedGame);
+            return result;
+        }
+        const auto filter = normalizedFilter(inputFilter);
+        const auto& ix = *mIndex;
+        std::map<std::string_view, SystemCount> systems;
+        size_t focusedRank {SIZE_MAX};
+        for (auto id : ix.rankingOrder) {
+            if (!ix.allowed(id, filter))
+                continue;
+            const auto& game = ix.games[id];
+            if (!focusedGame.empty() && ix.view(game.id, ix.rawText) == focusedGame)
+                focusedRank = result.total;
+            ++result.total;
+            const auto system = ix.view(game.system, ix.rawText);
+            auto& count = systems[system];
+            if (!count.count) {
+                count.system = system;
+                count.name = ix.view(game.systemName, ix.rawText);
+            }
+            ++count.count;
+            if (result.matches.size() < limit)
+                result.matches.push_back({id, MatchClass::Exact, {}});
+        }
+        if (!focusedGame.empty()) {
+            if (focusedRank == SIZE_MAX)
+                offset = 0;
+            else if (focusedRank < offset || focusedRank >= offset + limit)
+                offset = limit ? focusedRank / limit * limit : 0;
+        }
+        result.offset = std::min(offset, result.total);
+        if (result.offset) {
+            result.matches.clear();
+            size_t rank {0};
+            for (auto id : ix.rankingOrder) {
+                if (!ix.allowed(id, filter))
+                    continue;
+                if (rank++ < result.offset)
+                    continue;
+                if (result.matches.size() == limit)
+                    break;
+                result.matches.push_back({id, MatchClass::Exact, {}});
+            }
+        }
+        for (auto& system : systems)
+            result.systems.push_back(std::move(system.second));
+        return result;
+    }
+
+    std::vector<size_t> Core::browse(size_t limit, const Filter& inputFilter) const
+    {
+        const auto filter = normalizedFilter(inputFilter);
+        std::vector<size_t> result;
+        for (auto id : mIndex->rankingOrder) {
+            if (result.size() == limit)
+                break;
+            if (mIndex->allowed(id, filter))
+                result.push_back(id);
+        }
+        return result;
+    }
+
+    std::vector<Match> Core::closest(const std::string& query,
+                                     size_t limit,
+                                     const Filter& inputFilter) const
+    {
+        const auto normalized = normalize(query);
+        const auto q = codepoints(normalized);
+        if (q.empty() || q.size() > 128 || !limit)
+            return {};
+        const auto filter = normalizedFilter(inputFilter);
+        const auto& ix = *mIndex;
+        // Recommendations are separate from real typo matches. Reuse interned title
+        // views and cache word distances without allocating owning game records.
+        std::unordered_map<std::string_view, size_t> distances, titles;
+        distances.reserve(ix.vocabulary.size());
+        std::array<uint64_t, 128> asciiPattern {};
+        std::unordered_map<char32_t, uint64_t> pattern;
+        if (q.size() <= 64)
+            for (size_t i {0}; i < q.size(); ++i) {
+                if (q[i] < asciiPattern.size())
+                    asciiPattern[q[i]] |= uint64_t {1} << i;
+                else
+                    pattern[q[i]] |= uint64_t {1} << i;
+            }
+        auto distance = [&](std::string_view text, size_t threshold) {
+            const auto cached = distances.find(text);
+            if (cached != distances.end())
+                return cached->second;
+            const size_t length =
+                std::min<size_t>(256, std::count_if(text.begin(), text.end(), [](unsigned char c) {
+                                     return (c & 0xc0) != 0x80;
+                                 }));
+            // A length difference alone can rule out a better recommendation.
+            // Do not cache this bound as an exact edit distance.
+            if (length >= q.size() ? length - q.size() >= threshold :
+                                     q.size() - length >= threshold)
+                return threshold;
+            if (q.size() <= 64) {
+                // Bit-parallel Levenshtein keeps closest recommendations bounded for
+                // varied libraries, including Unicode code points rather than UTF-8 bytes.
+                uint64_t positive = UINT64_MAX, negative {0};
+                size_t score = q.size();
+                const uint64_t high = uint64_t {1} << (q.size() - 1);
+                for (int32_t at {0}, count {0};
+                     at < static_cast<int32_t>(text.size()) && count < 256; ++count) {
+                    // Decode directly from the interned view. Most library text is
+                    // ASCII; neither allocate a UTF-32 copy nor hash each such letter.
+                    UChar32 point;
+                    U8_NEXT(text.data(), at, static_cast<int32_t>(text.size()), point);
+                    uint64_t equal {0};
+                    if (point >= 0 && point < static_cast<int32_t>(asciiPattern.size()))
+                        equal = asciiPattern[point];
+                    else if (const auto mask = pattern.find(point); mask != pattern.end())
+                        equal = mask->second;
+                    const uint64_t vertical = equal | negative;
+                    const uint64_t horizontal =
+                        (((equal & positive) + positive) ^ positive) | equal;
+                    uint64_t plus = negative | ~(horizontal | positive);
+                    uint64_t minus = positive & horizontal;
+                    score += (plus & high) != 0;
+                    score -= (minus & high) != 0;
+                    plus = (plus << 1) | 1;
+                    minus <<= 1;
+                    positive = minus | ~(vertical | plus);
+                    negative = plus & vertical;
+                }
+                distances.emplace(text, score);
+                return score;
+            }
+            const auto points = codepoints(text);
+            std::vector<size_t> previous(q.size() + 1), current(q.size() + 1);
+            std::iota(previous.begin(), previous.end(), 0);
+            for (size_t i {0}; i < points.size() && i < 256; ++i) {
+                current[0] = i + 1;
+                for (size_t j {0}; j < q.size(); ++j)
+                    current[j + 1] = std::min(
+                        {current[j] + 1, previous[j + 1] + 1, previous[j] + (points[i] != q[j])});
+                previous.swap(current);
+            }
+            distances.emplace(text, previous.back());
+            return previous.back();
+        };
+        const bool phrase = normalized.find(' ') != std::string::npos;
+        std::priority_queue<std::pair<size_t, uint32_t>> nearest;
+        for (uint32_t id {0}; id < ix.games.size(); ++id) {
+            if (!ix.allowed(id, filter))
+                continue;
+            const size_t threshold = nearest.size() == limit ? nearest.top().first : q.size() + 256;
+            // IDs increase, so an equal score cannot displace an earlier game.
+            if (!threshold)
+                break;
+            const auto text = ix.doc(ix.gameDocuments[id][0]);
+            auto found = titles.find(text);
+            size_t score;
+            if (found == titles.end()) {
+                score = phrase ? distance(text, threshold) : threshold;
+                // Word views point into the immutable title arena, not temporary tokens.
+                for (size_t begin {0}; begin < text.size();) {
+                    auto end = text.find(' ', begin);
+                    if (end == std::string_view::npos)
+                        end = text.size();
+                    if (end > begin)
+                        score = std::min(score, distance(text.substr(begin, end - begin), score));
+                    begin = end + 1;
+                }
+                if (score < threshold)
+                    titles.emplace(text, score);
+            }
+            else
+                score = found->second;
+            const std::pair<size_t, uint32_t> candidate {score, id};
+            if (nearest.size() < limit || candidate < nearest.top()) {
+                nearest.push(candidate);
+                if (nearest.size() > limit)
+                    nearest.pop();
+            }
+        }
+        std::vector<Match> result;
+        while (!nearest.empty()) {
+            result.push_back({nearest.top().second, MatchClass::Typo, {}});
+            nearest.pop();
+        }
+        std::reverse(result.begin(), result.end());
+        return result;
+    }
+
     std::vector<Suggestion> Core::suggest(const std::string& query,
                                           size_t limit,
-                                          const Filter& filter) const
+                                          const Filter& inputFilter) const
     {
+        const auto filter = normalizedFilter(inputFilter);
         const auto& ix = *mIndex;
         const auto q = normalize(query);
-        if (q.empty() || !limit)
+        if (!limit)
             return {};
+        if (q.empty()) {
+            std::vector<uint32_t> candidates;
+            for (uint32_t id {0}; id < ix.completions.size(); ++id) {
+                const auto kind = ix.completions[id].kind;
+                if (kind != SuggestionKind::Title && kind != SuggestionKind::Word)
+                    candidates.push_back(id);
+            }
+            std::sort(candidates.begin(), candidates.end(), [&](uint32_t a, uint32_t b) {
+                const auto& x = ix.completions[a];
+                const auto& y = ix.completions[b];
+                return x.weight != y.weight ? x.weight > y.weight : a < b;
+            });
+            std::vector<Suggestion> result;
+            std::set<std::string> seen;
+            for (auto id : candidates) {
+                const auto& c = ix.completions[id];
+                std::string display;
+                if (ix.key(id) == "unknown")
+                    continue;
+                for (uint32_t n {0}; n < c.games.count; ++n) {
+                    const auto g = ix.support[c.games.begin + n];
+                    if (!ix.allowed(g, filter))
+                        continue;
+                    const auto game = ix.get(g);
+                    if (c.kind == SuggestionKind::Developer)
+                        display = game.developer;
+                    else if (c.kind == SuggestionKind::Publisher)
+                        display = game.publisher;
+                    else if (c.kind == SuggestionKind::Genre)
+                        display = game.genre;
+                    else if (c.kind == SuggestionKind::System)
+                        display = game.systemName;
+                    else {
+                        const auto mapped = title(game.title, true);
+                        const size_t length = ix.entities[c.key].key.size();
+                        if (!length || length > mapped.source.size())
+                            continue;
+                        display = game.title.substr(mapped.source.front().begin,
+                                                    mapped.source[length - 1].end -
+                                                        mapped.source.front().begin);
+                    }
+                    break;
+                }
+                if (display.empty() || !seen.insert(normalize(display)).second)
+                    continue;
+                result.push_back({c.kind, std::move(display)});
+                if (result.size() == limit)
+                    break;
+            }
+            return result;
+        }
         const auto split = q.rfind(' ');
         const bool trailing = query.back() == ' ';
         const std::string before = trailing                   ? q + " " :
@@ -2362,8 +2764,9 @@ namespace LibrarySearch
         return result;
     }
 
-    std::vector<size_t> Core::recentlyPlayed(size_t limit, const Filter& filter) const
+    std::vector<size_t> Core::recentlyPlayed(size_t limit, const Filter& inputFilter) const
     {
+        const auto filter = normalizedFilter(inputFilter);
         std::vector<size_t> result;
         for (auto it = mIndex->played.rbegin();
              it != mIndex->played.rend() && result.size() < limit; ++it)

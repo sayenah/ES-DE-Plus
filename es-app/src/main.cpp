@@ -36,6 +36,7 @@
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiLaunchScreen.h"
 #include "search/LibrarySearch.h"
+#include "search/SearchPresentation.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/PlatformUtil.h"
@@ -591,7 +592,7 @@ void applicationLoop()
         window->update(deltaTime);
         window->render();
 
-        renderer->swapBuffers();
+        SearchPresentation::swap(*renderer);
         Log::flush();
 #if !defined(__EMSCRIPTEN__)
     }

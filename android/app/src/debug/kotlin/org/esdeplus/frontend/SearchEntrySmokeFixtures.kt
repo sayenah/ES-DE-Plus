@@ -11,7 +11,8 @@ import org.json.JSONObject
 
 internal object SearchEntrySmokeFixtures {
     private val paths = listOf("gamelists/nes/gamelist.xml", "settings/es_input.xml",
-        "collections/custom-SearchEntrySmoke.cfg", "downloaded_media/nes/screenshots/Smoke Alpha.png")
+        "collections/custom-SearchEntrySmoke.cfg", "downloaded_media/nes/screenshots/Smoke Alpha.png",
+        "settings/search_history.xml", "custom_systems/es_systems.xml", "custom_systems/es_find_rules.xml")
 
     fun run(context: Context, request: String): String {
         val data = JSONObject(request)
@@ -47,7 +48,7 @@ internal object SearchEntrySmokeFixtures {
             when (operation) {
                 "write" -> {
                     val index = paths.indexOf(data.getString("relative"))
-                    check(index in 0..2) { "Only the three named text fixtures may be written" }
+                    check(index in listOf(0, 1, 2, 4, 5, 6)) { "Only the named text fixtures may be written" }
                     check(file(index).parentFile!!.mkdirs() || file(index).parentFile!!.isDirectory)
                     val contents = data.getString("contents")
                     file(index).writeText(contents)

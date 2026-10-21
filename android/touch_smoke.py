@@ -17,6 +17,7 @@ import pdf_smoke
 import smoke_support
 import touch_startup
 import search_entry_smoke
+import search_screen_smoke
 
 IDS = [11, 12, 13, 14, 0, 1, 2, 3, 4, 6, 9, 10, 100, 101, 102]
 MAPPINGS = dict(zip(IDS, ['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'back', 'start',
@@ -238,8 +239,9 @@ def reset_failure_probe(h):
         'consumes the retained intent exactly once.\n')
 
 
-def run_fresh(namespace):
+def run_fresh(namespace, suite='all'):
     """Provision a separate emulator through the existing real configurator UI."""
+    assert suite in ('all', 'search', 'overlay'), suite
     h = types.SimpleNamespace(**namespace)
     namespace['api'] = int(h.shell('getprop', 'ro.build.version.sdk').strip())
     namespace['shared'] = '/sdcard/ESDEPlusSmoke'
@@ -251,6 +253,9 @@ def run_fresh(namespace):
         h.adb('push', str(dummy), shared + '/nes/' + name)
     import smoke_phases
     smoke_phases.prepare(namespace, 'direct')
+    if suite == 'search':
+        run(namespace, suite)
+        return
     h = types.SimpleNamespace(**namespace)
     assert 'InputOverlay: setup reset saved and consumed' in h.log(), h.log()
     original = h.shell('cat', h.settings)
@@ -345,7 +350,7 @@ def run_fresh(namespace):
     # Fail fast on the new persistence error path, with all regular touch
     # assertions still following it on the restored private configuration.
     reset_failure_probe(h)
-    run(namespace)
+    run(namespace, suite)
     # Recover by editing the existing native-owned file, as documented. Close
     # the app first and require adb to preserve its owner; do not recreate it.
     receipts = []
@@ -374,7 +379,8 @@ def run_fresh(namespace):
 
 
 
-def run(namespace):
+def run(namespace, suite='all'):
+    assert suite in ('all', 'search', 'overlay'), suite
     h = types.SimpleNamespace(**namespace)
     smoke_support.connected()
     (h.evidence / 'touch-assertion-positive-controls.txt').write_text(assertion_controls())
@@ -392,11 +398,11 @@ def run(namespace):
         balanced(output)
         return output
 
-    def start(**changes):
+    def start(*, expected_games=2, **changes):
         nonlocal ready_surface_nodes
         selected = dict(common, **changes)
         h.user_file('settings/es_settings.xml', configure(original, **selected))
-        ready_surface_nodes = h.launch()
+        ready_surface_nodes = h.launch(expected_games=expected_games)
         return h.log()
 
     def shot(name):
@@ -439,6 +445,26 @@ def run(namespace):
                        'native touch UP processed and frame log flushed', timeout=20)
 
     def neutral():
+        current = h.log()
+        if current.rfind('Search screen opened:') > current.rfind('Search screen closed'):
+            # Overlay A can select Search in the main menu. Backspace edits its
+            # field. Hide the system IME before Search's Escape action so the IME
+            # cannot consume it. This setup is independent of rotated/offset
+            # touch coordinates; direct Close is covered by the search journey.
+            def ime_shown():
+                state = h.shell('dumpsys', 'input_method')
+                return 'mInputShown=true' in state or 'isInputViewShown=true' in state
+            if ime_shown():
+                h.key('KEYCODE_BACK')
+                h.wait_for(lambda: not ime_shown() or
+                           'Search screen closed' in h.log()[len(current):],
+                           'system IME hidden before closing search')
+            current = h.log()
+            if current.rfind('Search screen opened:') > current.rfind('Search screen closed'):
+                before = len(current)
+                h.key('KEYCODE_ESCAPE')
+                h.wait_for(lambda: 'Search screen closed' in h.log()[before:],
+                           'search closed before ordinary overlay setup')
         # Return to the system view using the ordinary configured keyboard Back;
         # this is setup for ID probes, not the touch-only user journey.
         for _ in range(4):
@@ -506,12 +532,24 @@ def run(namespace):
             tap((s[0] + nx * s[2], s[1] + ny * s[3]), wait=wait)
             time.sleep(0.2)
 
+    search_timing_failure = None
     try:
-        # Exercise the new entry points first; restoration leaves the existing
-        # overlay suite's fixtures and assertions intact.
-        start(InputTouchOverlay=True)
-        surface_bounds_cached = surface_bounds()
-        search_entry_smoke.run(h, start, touch_control, shot, record)
+        if suite != 'overlay':
+            # The combined local journey retains timing failures until its end.
+            # CI runs search and overlay in separate fresh AVDs; both steps gate.
+            start(InputTouchOverlay=True)
+            surface_bounds_cached = surface_bounds()
+            try:
+                search_screen_smoke.run(h, start, touch_control, shot, record)
+            except search_screen_smoke.TimingBudgetExceeded as failure:
+                search_timing_failure = failure
+                (h.evidence / 'search-screen-timing-failure-deferred.txt').write_text(str(failure) + '\n')
+            search_entry_smoke.run(h, start, touch_control, shot, record)
+            if suite == 'search':
+                if search_timing_failure is not None:
+                    raise search_timing_failure
+                (h.evidence / 'search-session-summary.txt').write_text('PASS: search screen and shared entry points\n')
+                return
         diameters = []
         for size in ('x-small', 'small', 'medium', 'large'):
             sized = start(InputTouchOverlay=True, InputTouchOverlaySize=size)
@@ -592,13 +630,31 @@ def run(namespace):
         touch_control(1)
         touch_control(6)
         touch_control(0)  # Search.
+        h.wait_for(lambda: 'Search screen opened:' in h.log(), 'touch-only full-screen search')
+        h.wait_for(lambda: 'mInputShown=true' in h.shell('dumpsys', 'input_method') or
+                   'isInputViewShown=true' in h.shell('dumpsys', 'input_method'),
+                   'touch search uses IME with VirtualKeyboard enabled')
         shot('touch-only-text-empty')
-        touch_control(12)  # On-screen keyboard, first key.
-        touch_control(0)  # Enter a character using the overlay.
+        before = len(h.log())
+        result = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SearchInput',
+                         '--es', 'ime', 'commit', '--es', 'text', 'f')
+        assert 'PASS: active SDL input connection' in result, result
+        h.wait_for(lambda: 'Search keystroke: query=f results=' in h.log()[before:],
+                   'touch-only active IME enters one character')
         shot('touch-only-text-entered')
-        touch_control(1)  # Changed text opens its confirmation.
-        shot('touch-only-text-confirmation')
-        touch_control(0)
+        current = h.log().rsplit('Search layout:', 1)[-1]
+        close = re.findall(r'Search touch target: area=7 index=0 norm=([0-9.]+),([0-9.]+)', current)
+        assert close, 'Search Close must remain reachable above the IME'
+        geometry = h.shell('am', 'broadcast', '-n', h.app + '/org.esdeplus.frontend.TouchSmoke$SurfaceGeometry')
+        assert 'PASS: owned surface geometry recorded' in geometry
+        view = json.loads(h.adb('exec-out', 'run-as', h.app, 'cat', 'cache/touch-surface-geometry.json'))
+        nx, ny = map(float, close[-1])
+        before = len(h.log())
+        h.shell('input', 'touchscreen', 'tap', str(round(view['x'] + nx * view['bufferWidth'])),
+                str(round(view['y'] + ny * view['bufferHeight'])))
+        h.wait_for(lambda: 'Search screen closed' in h.log()[before:], 'direct touch closes search')
+        assert 'GuiMsgBox:' not in h.log()[before:], 'Search close requested confirmation'
+        shot('touch-only-text-closed')
         record('touch-only-menu-device-settings-text')
         start(InputTouchOverlay=True, InputTouchOverlayFadeTime=10)
         # Refresh visibility after the normal startup wait before this render
@@ -690,10 +746,11 @@ def run(namespace):
             h.key('KEYCODE_DPAD_DOWN')
         h.key('KEYCODE_ENTER')
         h.key('KEYCODE_DEL')
-        assert re.search(r'name="InputTouchOverlay" value="true"', h.shell('cat', h.settings))
         h.wait_for(lambda: 'InputOverlay: restored (menu)' in h.log()[len(enable_before):] and
                    'InputOverlay: textures built' in h.log()[len(enable_before):],
                    'fresh menu enable rebuild and render')
+        # The save callback rebuilds the overlay; observe its frame before reading XML.
+        assert re.search(r'name="InputTouchOverlay" value="true"', h.shell('cat', h.settings))
         shot('touch-reenabled-through-menu')
         record('touch-disable-reenable')
         start(InputTouchOverlay=True)
@@ -812,8 +869,10 @@ def run(namespace):
         # The corrupt override is the first resource lookup and parses as invalid;
         # APK asset fallback cannot hide this fixture, unlike deleting an internal copy.
         try:
+            # Keep A inside Sound settings. The main menu's first row now opens
+            # Search, whose full-screen touch ownership hides the overlay.
             invalid = inject('touch-invalid-art', [step('down', [pointer(0)]),
-                step('up', [pointer(0)])], [(0, 1), (0, 0)], asset='invalid', menu='true')
+                step('up', [pointer(0)])], [(0, 1), (0, 0)], asset='invalid', menu='sound')
             assert 'InputOverlay: unavailable art id=0; primitive fallback' in invalid
             assert 'emergencyShutdown' not in invalid
             button = buttons(invalid)[0]
@@ -937,6 +996,10 @@ def run(namespace):
                 touch_control(control)
                 check_delta(resumed, [(control, 1), (control, 0)],
                             'fresh control after reload ' + str(control))
+                if control == 6:
+                    # Keep subsequent overlay probes in Sound; Search owns its controls.
+                    for _ in range(3):
+                        h.key('KEYCODE_DPAD_DOWN')
         finally:
             before_reset = h.log()
             h.shell('wm', 'size', 'reset')
@@ -997,7 +1060,7 @@ def run(namespace):
             assert h.shell('cat', h.settings) == before
             record('touch-tv-key-input')
 
-        # Select must open Search, and Back must restore the same menu under
+        # Select must open Sound settings, and Back must restore the same menu under
         # either button-swap setting. Compare settled UI content above the deck.
         def menu_error(first, second):
             w, height, channels, rows = pdf_smoke.pixels(first)
@@ -1104,6 +1167,7 @@ def run(namespace):
             start(InputTouchOverlay=True, UIMode='full', InputSwapButtons=swapped)
             surface_bounds_cached = surface_bounds()
             touch_control(6)
+            touch_control(12, 3)  # Sound submenu retains the overlay for A/B checks.
             time.sleep(0.5)
             menu = shot(f'touch-swap-{swapped}-menu')
             touch_control(1 if swapped else 0)
@@ -1154,6 +1218,9 @@ def run(namespace):
         completion = h.adb('logcat', '-d', '-v', 'threadtime', '--pid', exit_pid)
         assert not re.search(r'Fatal signal|FATAL EXCEPTION|JNI DETECTED ERROR', completion), completion
         (h.evidence / 'touch-orderly-exit-logcat.txt').write_text(completion)
+
+        if search_timing_failure is not None:
+            raise search_timing_failure
 
         # Logical DPI, live resizing, focus loss and touch-only journeys remain in
         # the evidence matrix; do not infer hardware inset safety from these taps.

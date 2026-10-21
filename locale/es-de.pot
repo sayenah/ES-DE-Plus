@@ -8,13 +8,13 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <info@es-de.org>\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
@@ -1164,24 +1164,6 @@ msgstr ""
 msgid "close (cancel)"
 msgstr ""
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr ""
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr ""
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr ""
 
@@ -1453,6 +1435,18 @@ msgid "ENABLE TEXTLIST QUICK SCROLLING OVERLAY"
 msgstr ""
 
 msgid "ENABLE VIRTUAL KEYBOARD"
+msgstr ""
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
+
+msgid "Clear all search history?"
+msgstr ""
+
+msgid "Search history cleared."
 msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
@@ -1788,6 +1782,9 @@ msgid "SCREENSAVER SETTINGS"
 msgstr ""
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
+msgstr ""
+
+msgid "choose"
 msgstr ""
 
 msgid "close menu"
@@ -2443,6 +2440,9 @@ msgstr ""
 msgid "PLAYERS:"
 msgstr ""
 
+msgid "NO GAMES FOUND"
+msgstr ""
+
 msgid "API CALLS:"
 msgstr ""
 
@@ -2528,6 +2528,166 @@ msgid "SWAP VIDEOS AFTER (SECONDS)"
 msgstr ""
 
 msgid "RENDER BLUR"
+msgstr ""
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr ""
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "today"
+msgstr ""
+
+msgid "yesterday"
+msgstr ""
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "space"
+msgstr ""
+
+msgid "delete"
+msgstr ""
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+msgid "Searching for games..."
+msgstr ""
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "In:"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
 msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
@@ -2707,9 +2867,6 @@ msgstr ""
 msgid "fetch updates"
 msgstr ""
 
-msgid "delete"
-msgstr ""
-
 msgid "download"
 msgstr ""
 
@@ -2733,12 +2890,6 @@ msgid ""
 msgstr ""
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3058,9 +3209,6 @@ msgstr ""
 msgid "CAN'T ADD ENTRIES THAT ARE NOT COUNTED AS GAMES TO CUSTOM COLLECTIONS"
 msgstr ""
 
-msgid "system"
-msgstr ""
-
 msgid "view media"
 msgstr ""
 
@@ -3206,9 +3354,6 @@ msgstr ""
 
 #, c-format
 msgid "LAUNCHING GAME '%s'"
-msgstr ""
-
-msgid "search"
 msgstr ""
 
 msgid "menu"
@@ -3447,9 +3592,6 @@ msgstr ""
 msgid "backspace"
 msgstr ""
 
-msgid "space"
-msgstr ""
-
 msgid "LOAD DEFAULT"
 msgstr ""
 
@@ -3520,9 +3662,6 @@ msgid "21:9 vertical"
 msgstr ""
 
 msgid "32:9 vertical"
-msgstr ""
-
-msgid "Searching for games..."
 msgstr ""
 
 msgid "Loading systems..."

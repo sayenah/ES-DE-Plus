@@ -15,13 +15,13 @@
 #include "UIModeController.h"
 #include "Window.h"
 #include "components/ComponentList.h"
-#include "guis/GuiGlobalSearch.h"
-#include "guis/GuiTextEditKeyboardPopup.h"
-#include "guis/GuiTextEditPopup.h"
+#include "guis/GuiSearch.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
 #include "views/GamelistView.h"
+#include "views/ViewController.h"
 
+#include <chrono>
 #include <memory>
 #include <utility>
 
@@ -29,8 +29,8 @@ namespace
 {
     std::weak_ptr<int> activeSearch;
 
-    // Both the popup and the results own the session. Cancel, Back and closing
-    // all GUIs release it naturally, without a cached pointer into the GUI stack.
+    // The screen owns the session. Closing it releases duplicate-entry protection
+    // without a cached pointer into the GUI stack.
     template <typename Base> class SearchGui final : public Base
     {
     public:
@@ -46,32 +46,24 @@ namespace
     };
 } // namespace
 
-void SearchEntry::open(const std::string& initialText,
-                       SystemData* scopeSystem,
-                       float verticalPosition)
+void SearchEntry::open(const std::string& initialText, SystemData* scopeSystem, float)
 {
     if (!activeSearch.expired())
         return;
+    const auto started = std::chrono::steady_clock::now();
     auto session {std::make_shared<int>(0)};
     activeSearch = session;
     auto* window {Window::getInstance()};
-    const auto searchCallback = [window, session, scopeSystem](const std::string& value) {
-        const std::string query {Utils::String::trim(value)};
-        LOG(LogDebug) << "SearchEntry: submit query=" << query
-                      << " scope=" << (scopeSystem ? scopeSystem->getName() : "all");
-        if (!query.empty())
-            window->pushGui(new SearchGui<GuiGlobalSearch>(session, query));
-    };
-    LOG(LogDebug) << "SearchEntry: open initial=" << initialText
+    const bool remember {Settings::getInstance()->getBool("SearchHistory") &&
+                         !UIModeController::getInstance()->isUIModeKid()};
+    LOG(LogDebug) << "SearchEntry: open initial="
+                  << (initialText.empty() || remember ? initialText : "<private>")
                   << " scope=" << (scopeSystem ? scopeSystem->getName() : "all");
-    if (Settings::getInstance()->getBool("VirtualKeyboard"))
-        window->pushGui(new SearchGui<GuiTextEditKeyboardPopup>(
-            session, verticalPosition, _("SEARCH ALL GAMES"), initialText, searchCallback, false,
-            _("SEARCH"), _("START SEARCH?")));
-    else
-        window->pushGui(new SearchGui<GuiTextEditPopup>(session, _("SEARCH ALL GAMES"), initialText,
-                                                        searchCallback, false, _("SEARCH"),
-                                                        _("START SEARCH?")));
+    window->pushGui(new SearchGui<GuiSearch>(session, initialText, scopeSystem));
+    LOG(LogDebug) << "Search entry ready: ms="
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               started)
+                         .count();
 }
 
 void SearchEntry::observeOptionsFocus(ComponentList* list)
@@ -97,6 +89,20 @@ void SearchEntry::observeOptionsFocus(ComponentList* list)
 #else
     (void)list;
 #endif
+}
+
+void SearchEntry::observeGamelistCursor()
+{
+    if (Log::getReportingLevel() < LogDebug)
+        return;
+    auto* controller = ViewController::getInstance();
+    const auto& state = controller->getState();
+    if (state.viewing != ViewController::ViewMode::GAMELIST ||
+        Window::getInstance()->peekGui() != controller)
+        return;
+    const auto cursor = controller->getGamelistView(state.getSystem())->getCursor();
+    LOG(LogDebug) << "Gamelist actual cursor: system=" << cursor->getSystem()->getName()
+                  << " game=" << cursor->getName() << " path=" << cursor->getPath();
 }
 
 void SearchEntry::logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites)

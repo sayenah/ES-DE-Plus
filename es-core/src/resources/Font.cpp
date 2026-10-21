@@ -17,8 +17,13 @@
 #define DEBUG_SHAPING false
 #define DISABLE_SHAPING false
 
-Font::Font(float size, const std::string& path)
+Font::Font(float size,
+           const std::string& path,
+           unsigned int atlasSize,
+           const std::shared_ptr<Font>& atlasOwner)
     : mRenderer {Renderer::getInstance()}
+    , mAtlasSize {atlasSize}
+    , mAtlasOwner {atlasOwner}
     , mPath(path)
     , mFontHB {nullptr}
     , mBufHB {nullptr}
@@ -77,7 +82,8 @@ Font::~Font()
 
     unload(ResourceManager::getInstance());
 
-    auto fontEntry = sFontMap.find(std::tuple<float, std::string>(mFontSize, mPath));
+    auto fontEntry =
+        sFontMap.find(std::make_tuple(mFontSize, mPath, mAtlasSize, mAtlasOwner.get()));
 
     if (fontEntry != sFontMap.cend())
         sFontMap.erase(fontEntry);
@@ -91,7 +97,10 @@ Font::~Font()
     }
 }
 
-std::shared_ptr<Font> Font::get(float size, const std::string& path)
+std::shared_ptr<Font> Font::get(float size,
+                                const std::string& path,
+                                unsigned int atlasSize,
+                                const std::shared_ptr<Font>& atlasOwner)
 {
     float fontSize {size};
 
@@ -105,8 +114,9 @@ std::shared_ptr<Font> Font::get(float size, const std::string& path)
     }
 
     const std::string canonicalPath {Utils::FileSystem::getCanonicalPath(path)};
-    const std::tuple<float, std::string> def {fontSize, canonicalPath.empty() ? getDefaultPath() :
-                                                                                canonicalPath};
+    const auto def =
+        std::make_tuple(fontSize, canonicalPath.empty() ? getDefaultPath() : canonicalPath,
+                        atlasSize, atlasOwner.get());
 
     auto foundFont = sFontMap.find(def);
     if (foundFont != sFontMap.cend()) {
@@ -114,7 +124,8 @@ std::shared_ptr<Font> Font::get(float size, const std::string& path)
             return foundFont->second.lock();
     }
 
-    std::shared_ptr<Font> font {new Font(std::get<0>(def), std::get<1>(def))};
+    std::shared_ptr<Font> font {
+        new Font(std::get<0>(def), std::get<1>(def), atlasSize, atlasOwner)};
     sFontMap[def] = std::weak_ptr<Font>(font);
     ResourceManager::getInstance().addReloadable(font);
     return font;
@@ -516,6 +527,48 @@ void Font::renderTextCache(TextCache* cache)
     }
 }
 
+void Font::uploadSolidPixel()
+{
+    if (!mSolidTexture)
+        return;
+    unsigned char white {255};
+    mRenderer->updateTexture(mSolidTexture->textureId, 0, Renderer::TextureType::RED,
+                             mSolidCursor.x, mSolidCursor.y, 1, 1, &white);
+}
+
+void Font::appendSolid(TextCache* cache, const std::vector<Renderer::Vertex>& vertices)
+{
+    if (vertices.empty())
+        return;
+    if (!mSolidTexture) {
+        getTextureForNewGlyph({1, 1}, mSolidTexture, mSolidCursor);
+        if (!mSolidTexture)
+            return;
+        uploadSolidPixel();
+    }
+    auto output =
+        std::find_if(cache->vertexLists.begin(), cache->vertexLists.end(), [&](const auto& list) {
+            return list.textureIdPtr == &mSolidTexture->textureId;
+        });
+    if (output == cache->vertexLists.end()) {
+        cache->vertexLists.push_back({{}, &mSolidTexture->textureId});
+        output = cache->vertexLists.end() - 1;
+    }
+    const glm::vec2 uv = (glm::vec2 {mSolidCursor} + 0.5f) / glm::vec2 {mSolidTexture->textureSize};
+    if (!output->verts.empty())
+        output->verts.push_back(output->verts.back());
+    auto first = vertices.front();
+    first.texcoord = uv;
+    output->verts.push_back(first);
+    for (auto vertex : vertices) {
+        vertex.texcoord = uv;
+        output->verts.push_back(vertex);
+    }
+    // Glyph quads start/end with repeated vertices too, so joining either type
+    // never creates a triangle across unrelated controls.
+    output->verts.push_back(output->verts.back());
+}
+
 float Font::getSizeReference()
 {
     if (mSizeReference != 0.0f)
@@ -548,7 +601,7 @@ float Font::getSizeReference()
     return mSizeReference;
 }
 
-Font::FontTexture::FontTexture(const int mFontSize)
+Font::FontTexture::FontTexture(const int mFontSize, unsigned int atlasSize)
 {
     textureId = 0;
     rowHeight = 0;
@@ -556,7 +609,8 @@ Font::FontTexture::FontTexture(const int mFontSize)
 
     // Set the glyph atlas to a reasonable size, if we run out of space for adding glyphs then
     // more textures will be created dynamically.
-    textureSize = glm::ivec2 {mFontSize * 6, mFontSize * 6};
+    const auto side = std::max(mFontSize * 6, static_cast<int>(atlasSize));
+    textureSize = glm::ivec2 {side, side};
 }
 
 Font::FontTexture::~FontTexture()
@@ -1189,6 +1243,7 @@ void Font::rebuildTextures()
                                      glyphSlot->bitmap.buffer);
         }
     }
+    uploadSolidPixel();
 }
 
 void Font::unloadTextures()
@@ -1201,6 +1256,11 @@ void Font::getTextureForNewGlyph(const glm::ivec2& glyphSize,
                                  FontTexture*& texOut,
                                  glm::ivec2& cursorOut)
 {
+    if (mAtlasOwner) {
+        mAtlasOwner->getTextureForNewGlyph(glyphSize, texOut, cursorOut);
+        return;
+    }
+
     if (mTextures.size()) {
         // Check if the most recent texture has space available for the glyph.
         texOut = mTextures.back().get();
@@ -1210,7 +1270,8 @@ void Font::getTextureForNewGlyph(const glm::ivec2& glyphSize,
             return; // Yes.
     }
 
-    mTextures.emplace_back(std::make_unique<FontTexture>(static_cast<int>(std::round(mFontSize))));
+    mTextures.emplace_back(
+        std::make_unique<FontTexture>(static_cast<int>(std::round(mFontSize)), mAtlasSize));
     texOut = mTextures.back().get();
     texOut->initTexture();
 
@@ -1401,7 +1462,8 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
     // Check if there is already a texture entry for the glyph, otherwise create it.
     // This makes sure we don't create multiple identical glyph atlas entries and waste VRAM.
     auto it2 = mGlyphTextureMap.find(std::make_pair(id, fontArg));
-    if (it2 != mGlyphTextureMap.end()) {
+    const bool textureCached {it2 != mGlyphTextureMap.end()};
+    if (textureCached) {
         tex = (*it2).second.texture;
         cursor = (*it2).second.cursor;
     }
@@ -1432,8 +1494,9 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
     glyph.bearing = {glyphSlot->metrics.horiBearingX >> 6, glyphSlot->metrics.horiBearingY >> 6};
     glyph.rows = glyphSize.y;
 
-    // Upload glyph bitmap to glyph atlas texture.
-    if (glyphSize.x > 0 && glyphSize.y > 0) {
+    // Kerning changes the advance, not the bitmap. Avoid synchronizing the GPU
+    // to upload pixels which are already present in this font's atlas.
+    if (!textureCached && glyphSize.x > 0 && glyphSize.y > 0) {
         mRenderer->updateTexture(tex->textureId, 0, Renderer::TextureType::RED, cursor.x, cursor.y,
                                  glyphSize.x, glyphSize.y, glyphSlot->bitmap.buffer);
     }

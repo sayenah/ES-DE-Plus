@@ -11,6 +11,7 @@
 #include "MetaData.h"
 #include "search/SearchGeneration.h"
 #include <atomic>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -62,7 +63,13 @@ public:
     {
     }
     ~FileData() { LibrarySearch::invalidate(); }
-    bool getCountAsGame() { return metadata.get("nogamecount") != "true"; }
+    // Observe actual snapshot progress without calling the stat-performing display getter.
+    inline static size_t snapshotReads {0};
+    bool getCountAsGame()
+    {
+        ++snapshotReads;
+        return metadata.get("nogamecount") != "true";
+    }
     bool getFavorite() { return metadata.get("favorite") == "true"; }
     bool getHidden() { return metadata.get("hidden") == "true"; }
     bool getKidgame() { return metadata.get("kidgame") == "true"; }
@@ -71,10 +78,10 @@ public:
     {
         return metadata.get("sortname").empty() ? getName() : metadata.get("sortname");
     }
-    inline static size_t snapshotReads {0};
+    inline static std::atomic<unsigned> displayNameReads {0};
     std::string getDisplayName()
     {
-        ++snapshotReads;
+        ++displayNameReads;
         return "game";
     }
     const std::string& getPath() { return path; }
@@ -116,6 +123,22 @@ namespace Utils
     namespace FileSystem
     {
         inline std::string appData;
+        inline const auto uiThread = std::this_thread::get_id();
+        inline std::atomic<unsigned> stemReads {0}, uiStemReads {0};
+        inline std::string getStem(const std::string& path)
+        {
+            ++stemReads;
+            if (std::this_thread::get_id() == uiThread)
+                ++uiStemReads;
+            auto file = std::filesystem::path(path).filename().string();
+            std::error_code error;
+            if (!std::filesystem::is_directory(path, error)) {
+                const auto dot = file.find_last_of('.');
+                if (dot != std::string::npos)
+                    file.erase(dot);
+            }
+            return file;
+        }
         inline std::string getAppDataDirectory() { return appData; }
         inline std::string createRelativePath(const std::string& path,
                                               const std::string& root,

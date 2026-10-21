@@ -259,7 +259,7 @@ def emulator_result(outcome, session):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=('core', 'touch', 'lifecycle', 'integration',
+    parser.add_argument('phase', choices=('core', 'touch', 'touch-search', 'touch-overlay', 'lifecycle', 'integration',
                                          'pdf-direct', 'pdf-scoped', 'assets', 'app-data', 'clear-task',
                                          'manager-direct', 'manager-scoped', 'self-test', 'emulator-result'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
@@ -267,7 +267,8 @@ def main():
     if args.phase == 'emulator-result':
         phase, outcome = args.command
         assert phase in ('core', 'lifecycle', 'integration', 'pdf-direct', 'pdf-scoped', 'assets',
-                         'app-data', 'clear-task', 'manager-direct', 'manager-scoped', 'touch')
+                         'app-data', 'clear-task', 'manager-direct', 'manager-scoped', 'touch',
+                         'touch-search', 'touch-overlay')
         root = Path('android/evidence')
         path = root / (phase + '-session-summary.txt')
         result = emulator_result(outcome, json.loads(path.read_text()) if path.exists() else None)

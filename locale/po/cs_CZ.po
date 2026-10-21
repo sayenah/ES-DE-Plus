@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: 2026-09-12 19:35+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Čeština <info@es-de.org>\n"
@@ -1180,24 +1180,6 @@ msgstr "zavřít (použít)"
 msgid "close (cancel)"
 msgstr "zavřít (zrušit)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "ŽÁDNÉ HRY NENALEZENY"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "vybrat"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "SPOUŠTĚNÍ HRY"
 
@@ -1485,6 +1467,18 @@ msgstr "POVOLIT PŘEKRYTÍ RYCHLÉHO POSOUVÁNÍ TEXTOVÉHO SEZNAMU"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "POVOLIT VIRTUÁLNÍ KLÁVESNICI"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
+
+msgid "Clear all search history?"
+msgstr ""
+
+msgid "Search history cleared."
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1837,6 +1831,9 @@ msgstr "NASTAVENÍ SPOŘIČE OBRAZOVKY"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "POVOLIT SPUŠTĚNÍ NA JINÉ OBRAZOVCE"
+
+msgid "choose"
+msgstr "vybrat"
 
 msgid "close menu"
 msgstr "zavřít nabídku"
@@ -2519,6 +2516,9 @@ msgstr "ŽÁNR:"
 msgid "PLAYERS:"
 msgstr "HRÁČI:"
 
+msgid "NO GAMES FOUND"
+msgstr "ŽÁDNÉ HRY NENALEZENY"
+
 msgid "API CALLS:"
 msgstr "VOLÁNÍ API:"
 
@@ -2606,6 +2606,170 @@ msgstr "MĚNIT VIDEA PO (SEKUNDY)"
 
 msgid "RENDER BLUR"
 msgstr "VYKRESLOVAT ROZMAZÁNÍ"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "systém"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "today"
+msgstr ""
+
+msgid "yesterday"
+msgstr ""
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "space"
+msgstr "mezerník"
+
+msgid "delete"
+msgstr "smazat"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+msgid "Searching for games..."
+msgstr "Hledání her..."
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+msgstr[2] ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "In:"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "ZOBRAZIT INDIKÁTOR STAVU BLUETOOTH"
@@ -2809,9 +2973,6 @@ msgstr "zobrazit snímky obrazovky"
 msgid "fetch updates"
 msgstr "stáhnout aktualizace"
 
-msgid "delete"
-msgstr "smazat"
-
 msgid "download"
 msgstr "stáhnout"
 
@@ -2844,12 +3005,6 @@ msgstr ""
 "PROBÍHAJÍCÍ STAHOVÁNÍ, PROTOŽE BY TO MOHLO VÉST K POŠKOZENÍ DAT."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3172,9 +3327,6 @@ msgid "CAN'T ADD ENTRIES THAT ARE NOT COUNTED AS GAMES TO CUSTOM COLLECTIONS"
 msgstr ""
 "NELZE PŘIDAT POLOŽKY, KTERÉ NEJSOU POČÍTÁNY JAKO HRY, DO VLASTNÍCH KOLEKCÍ"
 
-msgid "system"
-msgstr "systém"
-
 msgid "view media"
 msgstr "zobrazit média"
 
@@ -3369,9 +3521,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "SPOUŠTĚNÍ HRY '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "nabídka"
@@ -3616,9 +3765,6 @@ msgstr "nový řádek"
 msgid "backspace"
 msgstr "backspace"
 
-msgid "space"
-msgstr "mezerník"
-
 msgid "LOAD DEFAULT"
 msgstr "NAČÍST VÝCHOZÍ"
 
@@ -3690,9 +3836,6 @@ msgstr "21:9 svisle"
 
 msgid "32:9 vertical"
 msgstr "32:9 svisle"
-
-msgid "Searching for games..."
-msgstr "Hledání her..."
 
 msgid "Loading systems..."
 msgstr "Načítání systémů..."

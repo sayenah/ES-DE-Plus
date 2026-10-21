@@ -43,6 +43,9 @@ namespace LibrarySearch
         bool favouritesOnly {false};
         bool showHidden {true};
         bool kidMode {false};
+        std::string genre;
+        std::string developer;
+        std::string publisher;
     };
     enum class MatchClass {
         Exact,
@@ -74,6 +77,18 @@ namespace LibrarySearch
         std::string text;
     };
 
+    struct SystemCount {
+        std::string system;
+        std::string name;
+        size_t count {0};
+    };
+    struct Results {
+        std::vector<Match> matches;
+        std::vector<SystemCount> systems;
+        size_t total {0};
+        size_t offset {0};
+    };
+
     // Case/accent folding for history as well as search. Articles are title semantics only.
     std::string normalize(const std::string& text);
 
@@ -95,12 +110,28 @@ namespace LibrarySearch
         std::vector<Match> search(const std::string& query,
                                   size_t limit = 200,
                                   const Filter& filter = {}) const;
+        // Complete counts are independent of the displayed result window.
+        Results query(const std::string& query,
+                      size_t limit = 200,
+                      const Filter& filter = {},
+                      size_t offset = 0,
+                      const std::string& focusedGame = {}) const;
+        std::vector<Match> closest(const std::string& query,
+                                   size_t limit = 3,
+                                   const Filter& filter = {}) const;
+        std::vector<size_t> browse(size_t limit = 30, const Filter& filter = {}) const;
         std::vector<Suggestion> suggest(const std::string& query,
                                         size_t limit = 8,
                                         const Filter& filter = {}) const;
         std::vector<size_t> recentlyPlayed(size_t limit = 30, const Filter& filter = {}) const;
 
     private:
+        std::vector<Match> find(const std::string& query,
+                                size_t limit,
+                                const Filter& filter,
+                                Results* counts,
+                                size_t offset = 0,
+                                const std::string& focusedGame = {}) const;
         struct Index;
         std::unique_ptr<Index> mIndex;
         uint64_t mVersion {0};

@@ -16,9 +16,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <numeric>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unicode/unistr.h>
 #if !defined(_WIN64)
 #include <sys/stat.h>
 #endif
@@ -770,6 +772,177 @@ namespace
             core.rebuild({});
         }
     }
+    void screenData()
+    {
+        Core core;
+        std::vector<Game> corpus;
+        for (int i {0}; i < 250; ++i) {
+            auto value = game("Final Fantasy " + std::to_string(i), std::to_string(i));
+            value.system = i < 210 ? "snes" : "psx";
+            value.systemName = value.system == "snes" ? "Super Nintendo" : "PlayStation";
+            value.favourite = i % 2 == 0;
+            corpus.push_back(value);
+        }
+        auto hidden = game("Final Secret", "hidden");
+        hidden.hidden = true;
+        hidden.kid = false;
+        corpus.push_back(hidden);
+        core.rebuild(corpus);
+        Filter filter;
+        filter.showHidden = false;
+        auto result = core.query("fin", 2, filter);
+        require(result.matches.size() == 2 && result.total == 250,
+                "system counts include matches beyond the displayed window");
+        require(result.systems.size() == 2 && result.systems[0].system == "psx" &&
+                    result.systems[0].count == 40 && result.systems[1].count == 210,
+                "per-system counts remain exact for prefix matches");
+        require(core.query("", 1, filter).total == 250, "empty-query library count");
+        const auto full = core.search("fin", core.size(), filter);
+        const auto page = core.query("fin", 20, filter, 200);
+        require(page.offset == 200 && page.total == 250 && page.matches.size() == 20,
+                "bounded pages retain full counts");
+        for (size_t i {0}; i < page.matches.size(); ++i)
+            require(page.matches[i].index == full[i + 200].index,
+                    "page uses the engine's complete ranking");
+        const auto pinnedId = core.game(full.back().index).id;
+        const auto pinned = core.query("fin", 20, filter, 0, pinnedId);
+        require(pinned.offset == 240 && core.game(pinned.matches.back().index).id == pinnedId,
+                "focus selects a bounded window containing the requested game");
+        const auto emptyPage = core.query("", 20, filter, 200);
+        const auto emptyPinned =
+            core.query("", 20, filter, 0, core.game(emptyPage.matches.front().index).id);
+        require(emptyPinned.offset == 200 && emptyPinned.total == 250,
+                "empty query preserves focus across a page boundary");
+        const auto removed = core.query("fin", 20, filter, 240, "removed-id");
+        require(removed.offset == 0 && removed.matches.front().index == full.front().index,
+                "missing focus returns to the first page");
+        filter.system = "psx";
+        filter.favouritesOnly = true;
+        require(core.query("fin", 2, filter).total == 20, "combined system and favorite counts");
+        filter.genre = "Missing";
+        require(core.query("fin", 2, filter).total == 0 && core.closest("fin", 3, filter).empty(),
+                "closest games respect metadata filters");
+        filter.genre = "Action Adventure";
+        filter.developer = "Nintendo";
+        filter.publisher = "Acme Publishing";
+        require(core.query("fin", 1, filter).total == 20 && core.browse(100, filter).size() == 20,
+                "zero-state browsing uses the same filters");
+        filter = {};
+        filter.kidMode = true;
+        const auto nearest = core.closest("secretttt", 300, filter);
+        require(nearest.size() == 250 &&
+                    std::none_of(nearest.begin(), nearest.end(),
+                                 [&](const Match& m) { return core.game(m.index).id == "hidden"; }),
+                "did-you-mean never exposes non-kid games");
+        const auto suggestions = core.suggest("", 6, filter);
+        require(!suggestions.empty() && suggestions.size() <= 6, "zero-state library suggestions");
+        std::vector<Game> mixed;
+        const std::vector<std::string> names {"Mario",         "Mario Galaxy",
+                                              "Super Mario",   "Omario",
+                                              "Metroid Prime", "Final Fantasy VII",
+                                              "Final Fight",   "The Legend of Zelda",
+                                              "Pokémon",       "Other",
+                                              "Doom 64",       "Doom64",
+                                              "Red 64foo"};
+        for (size_t i {0}; i < 100; ++i) {
+            auto value = game(names[i % names.size()], std::to_string(i));
+            value.fileStem = "rom_" + std::to_string(i);
+            value.system = i % 2 ? "snes" : "psx";
+            value.favourite = i % 3 == 0;
+            value.hidden = i % 5 == 0;
+            value.kid = i % 7 != 0;
+            mixed.push_back(value);
+        }
+        core.rebuild(mixed);
+        filter = {};
+        filter.showHidden = false;
+        filter.kidMode = true;
+        for (const auto& query :
+             {"m", "ma", "mar", "fin", "ff7", "pokemon", "zeldda", "nintendo", "rom 20", "i", "ii",
+              "x", "1", "10", "6", "64", "doom64", "snes"}) {
+            const auto reference = core.search(query, core.size(), filter);
+            for (const size_t limit : {1, 2, 200}) {
+                const auto counted = core.query(query, limit, filter);
+                require(counted.total == reference.size(),
+                        "complete count equals unlimited search");
+                require(counted.matches.size() == std::min(limit, reference.size()),
+                        "display limit never changes membership count");
+                for (size_t i {0}; i < counted.matches.size(); ++i)
+                    require(counted.matches[i].index == reference[i].index &&
+                                counted.matches[i].kind == reference[i].kind,
+                            "counting shortcut preserves displayed ranking and match class");
+            }
+        }
+        Core recommendations;
+        const std::vector<std::string> recommendationNames {"Mario",
+                                                            "Metroid",
+                                                            "Pokémon",
+                                                            "Final Fantasy VII",
+                                                            "学生",
+                                                            "学生",
+                                                            "学園",
+                                                            "東京 物語",
+                                                            "𐐀𐐁𐐂",
+                                                            std::string(64, 'a'),
+                                                            std::string(65, 'b')};
+        std::vector<Game> recommendationGames;
+        for (size_t i {0}; i < recommendationNames.size(); ++i)
+            recommendationGames.push_back(game(recommendationNames[i], std::to_string(i)));
+        recommendations.rebuild(recommendationGames);
+        auto distance = [](const std::string& first, const std::string& second) {
+            // Decode through ICU's UTF-16 API independently of the production UTF-8
+            // loop, then use ordinary DP as the oracle for bit-parallel distance.
+            auto points = [](const std::string& value) {
+                const auto text = icu::UnicodeString::fromUTF8(normalize(value));
+                std::vector<UChar32> result;
+                for (int32_t at {0}; at < text.length();) {
+                    result.push_back(text.char32At(at));
+                    at = text.moveIndex32(at, 1);
+                }
+                return result;
+            };
+            const auto a = points(first), b = points(second);
+            std::vector<size_t> row(b.size() + 1);
+            std::iota(row.begin(), row.end(), 0);
+            for (size_t i {0}; i < a.size(); ++i) {
+                auto diagonal = row[0];
+                row[0] = i + 1;
+                for (size_t j {0}; j < b.size(); ++j) {
+                    auto previous = row[j + 1];
+                    row[j + 1] = std::min({row[j] + 1, row[j + 1] + 1, diagonal + (a[i] != b[j])});
+                    diagonal = previous;
+                }
+            }
+            return row.back();
+        };
+        for (const auto& query : std::vector<std::string> {
+                 "maroi", "metriod", "pokemno", "final fantazy", "学性", "学生", "東京 物語", "𐐀𐐁𐐃",
+                 std::string(64, 'a'), std::string(65, 'b')}) {
+            std::vector<std::pair<size_t, size_t>> reference;
+            for (size_t i {0}; i < recommendationNames.size(); ++i) {
+                std::istringstream words(normalize(recommendationNames[i]));
+                std::string word;
+                size_t best = query.find(' ') != std::string::npos ?
+                                  distance(query, recommendationNames[i]) :
+                                  SIZE_MAX;
+                while (words >> word)
+                    best = std::min(best, distance(query, word));
+                reference.push_back({best, i});
+            }
+            std::sort(reference.begin(), reference.end());
+            for (const size_t limit : {size_t {1}, size_t {3}, recommendationNames.size()}) {
+                const auto found = recommendations.closest(query, limit);
+                require(found.size() == limit, "closest retains the requested candidate count");
+                for (size_t i {0}; i < found.size(); ++i)
+                    require(found[i].index == reference[i].second,
+                            "closest distance agrees with independent DP oracle");
+            }
+        }
+        core.rebuild({game("Zelda"), game("Metroid", "2")});
+        require(core.search("zeld").front().kind != MatchClass::Typo && core.search("zelx").empty(),
+                "four-character queries never use typo tolerance");
+    }
+
     void performance(bool diverse = false)
     {
         std::vector<Game> corpus;
@@ -881,6 +1054,35 @@ namespace
                                             .count())});
             }
         }
+        std::vector<double> screenTimes;
+        for (const auto& partial : {"f", "fi", "fin", "final", "zelda", "m", "zzzzzz"}) {
+            double slowest {0}, queryMax {0}, suggestMax {0};
+            for (int repeat {0}; repeat < 10; ++repeat) {
+                const auto before = std::chrono::steady_clock::now();
+                const auto result = core.query(partial, 200);
+                const auto queried = std::chrono::steady_clock::now();
+                checksum += result.total + core.suggest(partial, 6).size();
+                const auto suggested = std::chrono::steady_clock::now();
+                queryMax = std::max(
+                    queryMax, std::chrono::duration<double, std::milli>(queried - before).count());
+                suggestMax = std::max(
+                    suggestMax,
+                    std::chrono::duration<double, std::milli>(suggested - queried).count());
+                if (result.matches.empty())
+                    checksum += core.closest(partial).size();
+                screenTimes.push_back(std::chrono::duration<double, std::milli>(
+                                          std::chrono::steady_clock::now() - before)
+                                          .count());
+                slowest = std::max(slowest, screenTimes.back());
+            }
+            std::printf("SCREEN prefix=%s max_ms=%.3f query_max_ms=%.3f suggest_max_ms=%.3f\n",
+                        partial, slowest, queryMax, suggestMax);
+        }
+        std::sort(screenTimes.begin(), screenTimes.end());
+        std::printf("SCREEN 50k counts/suggestions/fallback p95_ms=%.3f max_ms=%.3f\n",
+                    screenTimes[static_cast<size_t>(screenTimes.size() * 0.95)],
+                    screenTimes.back());
+        require(screenTimes.back() < 50, "screen data incl. exact counts and closest games <50ms");
         std::sort(times.begin(), times.end());
         std::sort(measurements.rbegin(), measurements.rend());
         for (size_t i {0}; i < 5; ++i)
@@ -917,6 +1119,7 @@ int main(int argc, char** argv)
         runChecks("matching", matching);
         runChecks("UTF-8 spans", spans);
         runChecks("ranking and filters", rankingAndFilters);
+        runChecks("screen data", screenData);
         runChecks("suggestions", suggestions);
         runChecks("round two", roundTwo);
         runChecks("filename tags", fileTags);

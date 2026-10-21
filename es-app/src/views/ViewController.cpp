@@ -34,6 +34,7 @@
 #include "guis/GuiEmulatorManager.h"
 #endif
 #include "guis/GuiMenu.h"
+#include "guis/GuiSearch.h"
 #include "guis/GuiTextEditKeyboardPopup.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/SearchEntry.h"
@@ -1579,6 +1580,7 @@ void ViewController::reloadGamelistView(GamelistView* view, bool reloadTheme)
 
 void ViewController::reloadAll()
 {
+    GuiSearch::releaseFonts();
     if (mRenderer->getSDLWindow() == nullptr)
         return;
 

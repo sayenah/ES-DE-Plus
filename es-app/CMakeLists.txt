@@ -32,7 +32,7 @@ set(ES_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiCollectionSystemsOptions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGameImporter.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/SearchEntry.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGlobalSearch.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiSearch.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGamelistFilter.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGamelistOptions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiLaunchScreen.h
@@ -92,7 +92,9 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiCollectionSystemsOptions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGameImporter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/SearchEntry.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGlobalSearch.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiSearch.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/search/SearchArtwork.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/search/SearchPresentation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGamelistFilter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGamelistOptions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiLaunchScreen.cpp
@@ -168,6 +170,9 @@ elseif(ANDROID)
          src/guis/ThemeRepositoryTrustDebug.h)
     include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_library(main MODULE ${ES_SOURCES} ${ES_HEADERS})
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_sources(main PRIVATE src/search/SearchInputProbe.cpp)
+    endif()
     target_link_libraries(main PRIVATE ${COMMON_LIBRARIES} ${CMAKE_DL_LIBS}
                           es-core es-pdf-convert lunasvg::lunasvg)
 else()

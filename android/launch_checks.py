@@ -81,9 +81,9 @@ def retroarch_receipt_ready(log, rom):
     return True
 
 
-def retroarch_receipt_gates(television):
-    # D-010 am. 1: only the TV image treats the external receipt as diagnostic.
-    return not television
+def retroarch_receipt_gates(television, api):
+    # D-030: API 35 external RetroArch startup/receipt is diagnostic; API 33 gates.
+    return not television and api != 35
 
 
 def recipient(observation, frontend_uid, contents):
@@ -166,8 +166,10 @@ def positive_controls():
                            ('different warning reason', [{**n, 'text': n['text'].replace('older version of Android', 'harmful app')} for n in warning])]:
         reject(label, lambda changed=changed: equal(retroarch_install_warning(changed), True, label))
     receipt = '[ENV] Checking arguments passed from intent ...\n[ENV] Auto-start game "/rom.nes".'
-    equal(retroarch_receipt_gates(False), True, 'Non-TV receipt stays gating')
-    equal(retroarch_receipt_gates(True), False, 'Only TV receipt is diagnostic')
+    equal(retroarch_receipt_gates(False, 33), True, 'API 33 receipt stays gating')
+    equal(retroarch_receipt_gates(True, 36), False, 'TV receipt stays diagnostic')
+    equal(retroarch_receipt_gates(False, 35), False, 'D-030 API 35 receipt diagnostic')
+    equal(retroarch_receipt_gates(False, 36), True, 'Other phone API policy unchanged')
     retroarch_receipt(receipt, '/rom.nes')
     reject('missing RetroArch Intent processing', lambda: retroarch_receipt(receipt.split('\n')[1], '/rom.nes'))
     reject('wrong RetroArch ROM argument', lambda: retroarch_receipt(receipt, '/other.nes'))

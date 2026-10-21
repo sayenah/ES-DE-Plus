@@ -80,6 +80,9 @@ public:
 
     virtual void textInput(const std::string& text, const bool pasting = false);
 
+    // Composition is provisional; only textInput commits text to an editor.
+    virtual void textEditing(const std::string&, int, int) {}
+
     // Called when input is received.
     // Return true if the input is consumed, false if it should continue to be passed
     // to other children.
@@ -89,6 +92,7 @@ public:
     virtual void openSearch(const std::string& = "") {}
     virtual bool acceptsSearchText() const { return false; }
 #if defined(__ANDROID__)
+    virtual bool ownsTouch(float, float) { return false; }
     virtual bool nativeTouch(int, int64_t, float, float) { return false; }
     virtual void cancelNativeTouch() {}
 #endif
@@ -110,6 +114,10 @@ public:
     // 4. Tell your children to render, based on your component's transform
     //    renderChildren(trans);
     virtual void render(const glm::mat4& parentTrans);
+
+    // Opaque full-screen GUIs draw their own content/help, so the window can skip
+    // covered game-list blur and help preparation.
+    virtual bool isOpaqueFullscreen() const { return false; }
 
     glm::vec3 getPosition() const { return mPosition; }
     void setPosition(const glm::vec3& offset) { setPosition(offset.x, offset.y, offset.z); }

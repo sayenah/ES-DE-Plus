@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: 2026-08-22 15:30+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Svenska <info@es-de.org>\n"
@@ -1181,24 +1181,6 @@ msgstr "stäng (tillämpa)"
 msgid "close (cancel)"
 msgstr "stäng (avbryt)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "INGA SPEL HITTADES"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "navigera"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "STARTAR SPEL"
 
@@ -1488,6 +1470,18 @@ msgstr "AKTIVERA SNABBSRULLNINGSÖVERLÄGG FÖR TEXTLISTOR"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "AKTIVERA VIRTUELLT TANGENTBORD"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
+
+msgid "Clear all search history?"
+msgstr ""
+
+msgid "Search history cleared."
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1841,6 +1835,9 @@ msgstr "INSTÄLLNINGAR SKÄRMSLÄCKARE"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "AKTIVERA START PÅ ANDRA SKÄRMEN"
+
+msgid "choose"
+msgstr "navigera"
 
 msgid "close menu"
 msgstr "stäng menyn"
@@ -2521,6 +2518,9 @@ msgstr "GENRE:"
 msgid "PLAYERS:"
 msgstr "SPELARE:"
 
+msgid "NO GAMES FOUND"
+msgstr "INGA SPEL HITTADES"
+
 msgid "API CALLS:"
 msgstr "API-ANROP:"
 
@@ -2607,6 +2607,166 @@ msgstr "BYT VIDEOR EFTER (SEKUNDER)"
 
 msgid "RENDER BLUR"
 msgstr "RENDERA OSKÄRPA"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "system"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "today"
+msgstr ""
+
+msgid "yesterday"
+msgstr ""
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "space"
+msgstr "blanksteg"
+
+msgid "delete"
+msgstr "ta bort"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+msgid "Searching for games..."
+msgstr "Söker efter spel..."
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "In:"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "VISA STATUSINDIKATOR FÖR BLUETOOTH"
@@ -2814,9 +2974,6 @@ msgstr "visa skärmdumpar"
 msgid "fetch updates"
 msgstr "hämta uppdateringar"
 
-msgid "delete"
-msgstr "ta bort"
-
 msgid "download"
 msgstr "hämta ner"
 
@@ -2849,12 +3006,6 @@ msgstr ""
 "KAN AVBRYTA EN PÅGÅENDE HÄMTNING DÅ DETTA SKULLE KUNNA LEDA TILL SKADAT DATA."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3177,9 +3328,6 @@ msgid "CAN'T ADD ENTRIES THAT ARE NOT COUNTED AS GAMES TO CUSTOM COLLECTIONS"
 msgstr ""
 "KAN INTE LÄGGA TILL POSTER SOM INTE RÄKNAS SOM SPEL TILL ANPASSADE SAMLINGAR"
 
-msgid "system"
-msgstr "system"
-
 msgid "view media"
 msgstr "visa media"
 
@@ -3373,9 +3521,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "STARTAR SPELET '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "meny"
@@ -3615,9 +3760,6 @@ msgstr "radbrytning"
 msgid "backspace"
 msgstr "backsteg"
 
-msgid "space"
-msgstr "blanksteg"
-
 msgid "LOAD DEFAULT"
 msgstr "LÄS IN STANDARDVÄRDEN"
 
@@ -3689,9 +3831,6 @@ msgstr "21:9 vertikal"
 
 msgid "32:9 vertical"
 msgstr "32:9 vertikal"
-
-msgid "Searching for games..."
-msgstr "Söker efter spel..."
 
 msgid "Loading systems..."
 msgstr "Läser in system..."

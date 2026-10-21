@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ES-DE Frontend\n"
 "Report-Msgid-Bugs-To: info@es-de.org\n"
-"POT-Creation-Date: 2026-10-19 15:21-0500\n"
+"POT-Creation-Date: 2026-10-20 15:05-0500\n"
 "PO-Revision-Date: 2026-09-06 11:41+0200\n"
 "Last-Translator: Northwestern Software <info@es-de.org>\n"
 "Language-Team: Español (España) <info@es-de.org>\n"
@@ -1195,24 +1195,6 @@ msgstr "cerrar(aplicar)"
 msgid "close (cancel)"
 msgstr "cerrar(cancelar)"
 
-msgid "SEARCH RESULTS"
-msgstr ""
-
-msgid "SEARCH:"
-msgstr ""
-
-msgid "NO GAMES FOUND"
-msgstr "JUEGO NO ENCONTRADO"
-
-msgid "MORE RESULTS AVAILABLE - REFINE YOUR SEARCH"
-msgstr ""
-
-msgid "choose"
-msgstr "elegir"
-
-msgid "launch"
-msgstr ""
-
 msgid "LAUNCHING GAME"
 msgstr "LANZANDO JUEGO"
 
@@ -1502,6 +1484,18 @@ msgstr "ACTIVAR LA SUPERPOSICIÓN DE LA LISTA DE TEXTO"
 
 msgid "ENABLE VIRTUAL KEYBOARD"
 msgstr "ACTIVAR TECLADO VIRTUAL"
+
+msgid "REMEMBER SEARCHES"
+msgstr ""
+
+msgid "CLEAR SEARCH HISTORY"
+msgstr ""
+
+msgid "Clear all search history?"
+msgstr ""
+
+msgid "Search history cleared."
+msgstr ""
 
 msgid "Y BUTTON IN GAME LISTS"
 msgstr ""
@@ -1854,6 +1848,9 @@ msgstr "CONFIG. DEL SALVAPANTALLAS"
 
 msgid "ENABLE LAUNCH ON OTHER SCREEN"
 msgstr "ACTIVAR LANZAR EN OTRA PANTALLA"
+
+msgid "choose"
+msgstr "elegir"
 
 msgid "close menu"
 msgstr "cerrar menu"
@@ -2558,6 +2555,9 @@ msgstr "GENERO:"
 msgid "PLAYERS:"
 msgstr "JUGADORES:"
 
+msgid "NO GAMES FOUND"
+msgstr "JUEGO NO ENCONTRADO"
+
 msgid "API CALLS:"
 msgstr "LLAMADAS A LA API:"
 
@@ -2644,6 +2644,166 @@ msgstr "CAMBIAR VIDEOS DESPUES DE (SEGUNDOS)"
 
 msgid "RENDER BLUR"
 msgstr "RENDERIZAR DIFUMINADO"
+
+msgid "word"
+msgstr ""
+
+msgid "title"
+msgstr ""
+
+msgid "series"
+msgstr ""
+
+msgid "developer"
+msgstr ""
+
+msgid "publisher"
+msgstr ""
+
+msgid "genre"
+msgstr ""
+
+msgid "system"
+msgstr "sistema"
+
+msgid "Best match"
+msgstr ""
+
+msgid "favorite"
+msgstr ""
+
+msgid "today"
+msgstr ""
+
+msgid "yesterday"
+msgstr ""
+
+#, c-format
+msgid "%d day ago"
+msgid_plural "%d days ago"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Last played"
+msgstr ""
+
+#, c-format
+msgid "%d hour"
+msgid_plural "%d hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c-format
+msgid "%d minute"
+msgid_plural "%d minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "space"
+msgstr "espacio"
+
+msgid "delete"
+msgstr "borrar"
+
+msgid "clear"
+msgstr ""
+
+msgid "results ›"
+msgstr ""
+
+msgid "Shift"
+msgstr ""
+
+msgid "ABC"
+msgstr ""
+
+msgid "Symbols / accents"
+msgstr ""
+
+msgid "Searching for games..."
+msgstr "Buscando juegos..."
+
+#, c-format
+msgid "Search %s game"
+msgid_plural "Search %s games"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "All systems"
+msgstr ""
+
+msgid "In:"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Recent searches"
+msgstr ""
+
+msgid "Clear history"
+msgstr ""
+
+msgid "Jump back in"
+msgstr ""
+
+msgid "Start typing to search your library."
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Try another system or remove a filter."
+msgstr ""
+
+#, c-format
+msgid "No games match ‘%s’."
+msgstr ""
+
+msgid "Did you mean"
+msgstr ""
+
+msgid "More results below"
+msgstr ""
+
+msgid "Game list filters cleared to show the selected game."
+msgstr ""
+
+msgid "show in game list"
+msgstr ""
+
+msgid "play now"
+msgstr ""
+
+msgid "keyboard"
+msgstr ""
+
+msgid "search"
+msgstr ""
+
+msgid "remove"
+msgstr ""
+
+msgid "type"
+msgstr ""
+
+msgid "filter system"
+msgstr ""
+
+msgid "results"
+msgstr ""
+
+msgid "Game options"
+msgstr ""
+
+msgid "Play now"
+msgstr ""
+
+msgid "Favorite"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
 
 msgid "DISPLAY BLUETOOTH STATUS INDICATOR"
 msgstr "MOSTRAR INDICADOR ESTADO BLUETOOTH"
@@ -2852,9 +3012,6 @@ msgstr "ver capturas de pantalla"
 msgid "fetch updates"
 msgstr "obtener actualizaciones"
 
-msgid "delete"
-msgstr "borrar"
-
 msgid "download"
 msgstr "descargar"
 
@@ -2889,12 +3046,6 @@ msgstr ""
 "EN CURSO, YA QUE PODRÍA DAÑAR LOS DATOS."
 
 msgid "THEME REPOSITORY ADMISSION OR STORAGE ACCESS FAILED"
-msgstr ""
-
-msgid "SEARCH ALL GAMES"
-msgstr ""
-
-msgid "START SEARCH?"
 msgstr ""
 
 msgid ""
@@ -3226,9 +3377,6 @@ msgstr ""
 "NO SE PUEDEN AÑADIR ENTRADAS QUE NO SE CUENTAN COMO JUEGOS A LAS COLECCIONES "
 "PERSONALIZADAS"
 
-msgid "system"
-msgstr "sistema"
-
 msgid "view media"
 msgstr "ver media"
 
@@ -3427,9 +3575,6 @@ msgstr ""
 #, c-format
 msgid "LAUNCHING GAME '%s'"
 msgstr "LANZANDO JUEGO '%s'"
-
-msgid "search"
-msgstr ""
 
 msgid "menu"
 msgstr "menu"
@@ -3668,9 +3813,6 @@ msgstr "tabulador"
 msgid "backspace"
 msgstr "borrar"
 
-msgid "space"
-msgstr "espacio"
-
 msgid "LOAD DEFAULT"
 msgstr "CARGAR VALOR POR DEFECTO"
 
@@ -3742,9 +3884,6 @@ msgstr "21:9 vertical"
 
 msgid "32:9 vertical"
 msgstr "32:9 vertical"
-
-msgid "Searching for games..."
-msgstr "Buscando juegos..."
 
 msgid "Loading systems..."
 msgstr "Cargando sistemas..."

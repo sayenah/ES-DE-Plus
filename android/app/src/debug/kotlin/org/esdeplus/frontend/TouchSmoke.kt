@@ -66,6 +66,20 @@ class TouchSmoke : Instrumentation() {
             resultData = "PASS: owned surface geometry recorded"
         }
     }
+    // Debug-only input observation seam: the production SDL event path still handles every key.
+    class SearchInput : BroadcastReceiver() {
+        private external fun nativeButton(button: Int): Boolean
+        override fun onReceive(context: Context, intent: Intent) {
+            val activity = SDLActivity.getContext() as? MainActivity
+            val focused = activity != null && activity.hasWindowFocus()
+            resultData = if (intent.hasExtra("ime")) {
+                if (focused && org.libsdl.app.SearchImeProbe.edit(intent.getStringExtra("ime").orEmpty(),
+                    intent.getStringExtra("text").orEmpty())) "PASS: active SDL input connection" else
+                    "FAIL: no focused SDL input connection"
+            } else if (focused && nativeButton(intent.getIntExtra("button", -1)))
+                "PASS: SDL controller event" else "FAIL: no focused frontend or controller event rejected"
+        }
+    }
     private val resumed = AtomicBoolean(false)
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityResumed(activity: Activity) {
