@@ -234,10 +234,9 @@ def run(binary, probe, destination, width, height, variant='dark'):
         command('key', '1073741897')
         wait(lambda: 'Favorites collection: game=Final Fantasy VII favorite=1 ' in log()[before:],
              'keyboard Y restores the same focused favorite')
+        before = len(log())
         command('key', '13')  # Enter shows the actual game list.
         wait(lambda: 'Search show game:' in log(), 'search closes to game list')
-        before = len(log())
-        command('key', '1073742049')  # A harmless Shift key observes the actual view after closing.
         wait(lambda: 'Gamelist actual cursor:' in log()[before:] and
              'game=Final Fantasy VII ' in log()[before:], 'actual game-list cursor navigation')
         history = (appdata / 'settings/search_history.xml').read_text()

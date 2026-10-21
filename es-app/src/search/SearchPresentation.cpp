@@ -8,6 +8,7 @@
 //
 #include "search/SearchPresentation.h"
 
+#include "Log.h"
 #include "guis/GuiSearch.h"
 #include "renderers/Renderer.h"
 
@@ -29,11 +30,9 @@ void SearchPresentation::observe(std::function<void(double, double)> callback)
 
 void SearchPresentation::afterFrame(std::function<void()> callback)
 {
-#if !defined(NDEBUG)
-    pending = std::move(callback);
-#else
-    (void)callback;
-#endif
+    // DebugMode is a runtime setting in both Release desktop and Android builds.
+    if (Log::getReportingLevel() >= LogDebug)
+        pending = std::move(callback);
 }
 
 void SearchPresentation::swap(Renderer& renderer)

@@ -16,6 +16,13 @@
 #include <vector>
 
 std::vector<std::string> events;
+constexpr int LogDebug {1};
+class Log
+{
+public:
+    inline static int level {0};
+    static int getReportingLevel() { return level; }
+};
 class Renderer
 {
 public:
@@ -42,16 +49,17 @@ int main()
         assert(frame >= swap && swap >= 0);
         events.push_back("observe");
     });
+    SearchPresentation::afterFrame([] { events.push_back("disabled cursor"); });
+    SearchPresentation::swap(renderer);
+    if (events != std::vector<std::string> {"swap", "observe"})
+        return 1;
+    events.clear();
+    Log::level = LogDebug;
     SearchPresentation::afterFrame([] { events.push_back("cursor"); });
     assert(events.empty());
     SearchPresentation::swap(renderer);
-#if !defined(NDEBUG)
-    assert((events == std::vector<std::string> {"swap", "observe", "cursor"}));
-#else
-    // Keep the verification assertions active in this release-shaped fixture.
-    if (events != std::vector<std::string> {"swap", "observe"})
+    if (events != std::vector<std::string> {"swap", "observe", "cursor"})
         return 1;
-#endif
     events.clear();
     SearchPresentation::swap(renderer);
     if (events != std::vector<std::string> {"swap", "observe"})

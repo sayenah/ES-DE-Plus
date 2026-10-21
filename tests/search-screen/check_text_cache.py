@@ -53,6 +53,8 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     presentation = '\n'.join(line for line in presentation.splitlines() if not line.startswith('#include'))
     (build / 'presentation.inc').write_text(presentation)
     (build / 'begin-keystroke.inc').write_text(method('void GuiSearch::beginKeystroke(', search))
+    entry = (root / 'es-app/src/guis/SearchEntry.cpp').read_text()
+    (build / 'cursor-observer.inc').write_text(method('void SearchEntry::observeGamelistCursor(', entry))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -61,11 +63,11 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'geometry-cache', 'presentation']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'geometry-cache', 'presentation', 'cursor-observer']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)
-        if name == 'presentation':
-            subprocess.run(command + ['-DNDEBUG', str(root / 'tests/search-screen/presentation.cpp'),
-                                      '-o', str(build / 'presentation-release')], check=True)
-            subprocess.run([str(build / 'presentation-release')], check=True)
+        if name in ['presentation', 'cursor-observer']:
+            subprocess.run(command + ['-DNDEBUG', str(root / ('tests/search-screen/' + name + '.cpp')),
+                                      '-o', str(build / (name + '-release'))], check=True)
+            subprocess.run([str(build / (name + '-release'))], check=True)

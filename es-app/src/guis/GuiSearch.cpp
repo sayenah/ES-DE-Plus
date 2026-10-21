@@ -1467,9 +1467,7 @@ void GuiSearch::openGame(bool play)
         view->setCursor(game);
         view->stopListScrolling();
         controller->cancelViewTransitions();
-#if !defined(NDEBUG)
-        SearchPresentation::afterFrame([view] { SearchEntry::observeGamelistCursor(view.get()); });
-#endif
+        SearchPresentation::afterFrame([] { SearchEntry::observeGamelistCursor(); });
         LOG(LogDebug) << "Search show game: " << game->getSystem()->getName() << "/"
                       << game->getName();
     }

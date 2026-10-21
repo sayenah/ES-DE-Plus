@@ -299,4 +299,26 @@ for api in [33, 35]:
     assert events == (['stack', 'record'] if api == 33 else ['stack', 'record', 'capture'])
     checks += 1
 
+# An immediate post-A frame is valid evidence; the probe must snapshot before A,
+# rather than wait for an unrelated Shift key to produce another cursor record.
+for nodes, label, activation in [(body, 'A closes search into game list', 'pad(0)'),
+                                 (linux_body, 'search closes to game list', "command('key', '13')")]:
+    shown = next(i for i, node in enumerate(nodes) if isinstance(node, ast.Expr) and
+                 label in ast.unparse(node))
+    assert ast.unparse(nodes[shown - 1]) == activation
+    before = nodes[shown - 2]
+    assert isinstance(before, ast.Assign) and ast.unparse(before.targets[0]) == 'before'
+    actual = next(node for node in nodes[shown + 1:] if isinstance(node, ast.Expr) and
+                  'actual game-list cursor' in ast.unparse(node))
+    state = dict(log='before')
+    def log(): return state['log']
+    def act(*args):
+        state['log'] += ('Search show game: nes/Final Fantasy VII\n'
+                         'Gamelist actual cursor: system=nes game=Final Fantasy VII path=/roms/Smoke Alpha.nes')
+    def wait(predicate, message): assert predicate(), message
+    env = dict(re=re, log=log, command=act, pad=act, wait=wait,
+               h=SimpleNamespace(log=log, wait_for=wait))
+    exec(compile_nodes([before, nodes[shown - 1], nodes[shown], actual]), env)
+    checks += 1
+
 print(f'PASS: {checks} actual timing/phase controls; exact failures stay hard; fresh overlay runs after failed search')

@@ -240,10 +240,9 @@ def run(h, start, control, shot, record):
         pad(3)
         h.wait_for(lambda: 'game=Final Fantasy VII favorite=1' in h.log()[before:],
                    'Y keeps the same focused game after ranking changes')
+        before = len(h.log())
         pad(0)
         h.wait_for(lambda: 'Search show game: nes/Final Fantasy VII' in h.log(), 'A closes search into game list')
-        before = len(h.log())
-        h.key('KEYCODE_SHIFT_LEFT')
         h.wait_for(lambda: re.search(r'Gamelist actual cursor: system=nes game=Final Fantasy VII path=.*Smoke Alpha\.nes',
                                     h.log()[before:]), 'actual game-list cursor after A')
         history = ET.fromstring(h.shell('cat', root + '/settings/search_history.xml'))
@@ -286,10 +285,9 @@ def run(h, start, control, shot, record):
             shot(prefix + name + '-results-focused')
             pad(1)
             tap(0)  # Return to the touch IME before the direct result tap.
+            before = len(h.log())
             tap(6)
             h.wait_for(lambda: 'Search show game: nes/Final' in h.log(), 'tap shows game list')
-            before = len(h.log())
-            h.key('KEYCODE_SHIFT_LEFT')
             h.wait_for(lambda: 'Gamelist actual cursor: system=nes game=Final Fantasy VII ' in h.log()[before:],
                        'actual game-list cursor after direct tap')
             magnifier()

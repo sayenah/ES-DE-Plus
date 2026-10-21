@@ -19,6 +19,7 @@
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
 #include "views/GamelistView.h"
+#include "views/ViewController.h"
 
 #include <chrono>
 #include <memory>
@@ -90,16 +91,19 @@ void SearchEntry::observeOptionsFocus(ComponentList* list)
 #endif
 }
 
-#if !defined(NDEBUG)
-void SearchEntry::observeGamelistCursor(GamelistView* view)
+void SearchEntry::observeGamelistCursor()
 {
     if (Log::getReportingLevel() < LogDebug)
         return;
-    const auto cursor = view->getCursor();
+    auto* controller = ViewController::getInstance();
+    const auto& state = controller->getState();
+    if (state.viewing != ViewController::ViewMode::GAMELIST ||
+        Window::getInstance()->peekGui() != controller)
+        return;
+    const auto cursor = controller->getGamelistView(state.getSystem())->getCursor();
     LOG(LogDebug) << "Gamelist actual cursor: system=" << cursor->getSystem()->getName()
                   << " game=" << cursor->getName() << " path=" << cursor->getPath();
 }
-#endif
 
 void SearchEntry::logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites)
 {
