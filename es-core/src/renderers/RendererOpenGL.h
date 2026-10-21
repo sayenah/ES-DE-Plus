@@ -101,6 +101,7 @@ private:
     std::shared_ptr<ShaderOpenGL> mBlurHorizontalShader;
     std::shared_ptr<ShaderOpenGL> mBlurVerticalShader;
     std::shared_ptr<ShaderOpenGL> mScanlinelShader;
+    std::shared_ptr<ShaderOpenGL> mSearchShader;
     std::shared_ptr<ShaderOpenGL> mLastShader;
     unsigned int mLastVertexStride {0};
 

@@ -25,10 +25,7 @@ std::ostringstream messages;
 class Renderer
 {
 public:
-    enum class BlendFactor {
-        ONE,
-        ZERO
-    };
+#include "render-types.inc"
     inline static float width {1920}, height {1080};
     int panels {0}, finishes {0}, clears {0}, swaps {0};
     glm::mat4 matrix {0};
@@ -40,19 +37,19 @@ public:
     static float getScreenWidth() { return width; }
     static float getScreenHeight() { return height; }
     void setMatrix(glm::mat4 value) { matrix = value; }
-    void drawRect(float,
-                  float,
-                  float,
-                  float,
-                  unsigned int,
-                  unsigned int,
-                  bool,
-                  float,
-                  float,
-                  BlendFactor source,
-                  BlendFactor destination)
+    void bindTexture(unsigned int value, unsigned int unit)
     {
-        if (source != BlendFactor::ONE || destination != BlendFactor::ZERO)
+        if (value || unit)
+            std::abort();
+    }
+    void drawTriangleStrips(const Vertex* vertices,
+                            unsigned int count,
+                            BlendFactor source,
+                            BlendFactor destination,
+                            const VertexAttributes* attributes)
+    {
+        if (count != 4 || !attributes || vertices[0].shaders != Shader::SEARCH ||
+            source != BlendFactor::ONE || destination != BlendFactor::ZERO)
             std::abort();
         ++panels;
     }
@@ -66,6 +63,12 @@ public:
     void swapBuffers() { ++swaps; }
 };
 struct TextCache {
+    struct VertexList {
+        std::vector<Renderer::Vertex> verts;
+        std::vector<Renderer::VertexAttributes> attributes;
+    };
+    std::vector<VertexList> lists;
+    auto& getVertexLists() { return lists; }
     glm::vec4 clip {1};
     void setClipRegion(glm::vec4 value) { clip = value; }
 };
@@ -105,7 +108,9 @@ struct Font {
     }
     void renderTextCache(TextCache* cache)
     {
-        if (cache->clip != glm::vec4 {0})
+        if (cache->clip != glm::vec4 {0} || cache->lists.size() != 1 ||
+            cache->lists[0].attributes.size() != 4 ||
+            cache->lists[0].verts[0].shaders != Renderer::Shader::SEARCH)
             std::abort();
         ++draws;
     }
@@ -117,6 +122,7 @@ struct TextComponent {
         if (text == "A") {
             if (color != 0xFFFFFF80)
                 std::abort();
+            cache.lists.push_back({std::vector<Renderer::Vertex>(4), {}});
         }
         else {
             if (color != 0xFFFFFFFF)
@@ -163,6 +169,8 @@ struct ImageComponent {
         Renderer::getInstance()->matrix = glm::mat4 {0};
     }
 };
+#include "prepare-drawing.inc"
+
 #include "search-alphabet.inc"
 #include "search-glyph-prepare.inc"
 

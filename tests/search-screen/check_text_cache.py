@@ -93,6 +93,12 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     (build / 'attribute-layout.inc').write_text(method('void ShaderOpenGL::setAttribPointers(', shader))
     (build / 'font-render.inc').write_text(method('void Font::renderTextCache('))
     (build / 'font-cache-color.inc').write_text(method('void TextCache::setColor('))
+    drawing = (root / 'es-app/src/search/SearchDrawing.h').read_text()
+    drawing_methods = ['inline std::vector<Renderer::VertexAttributes> attributes(',
+                       'inline void pack(', 'inline void polygon(', 'inline void rectangle(']
+    (build / 'prepare-drawing.inc').write_text('namespace SearchDrawing {\n' +
+        '\n'.join(method(marker, drawing) for marker in drawing_methods) + '\n}\n')
+    (build / 'shader-loader.inc').write_text(method('bool RendererOpenGL::loadShaders(', renderer))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -101,7 +107,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch', 'geometry-cache', 'packed-draw']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch', 'geometry-cache', 'packed-draw', 'shader-loader']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

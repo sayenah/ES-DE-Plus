@@ -58,6 +58,7 @@ int main()
     SearchDrawing::pack(first);
     require(sizeof(Renderer::VertexAttributes) < sizeof(Renderer::Vertex));
     require(first.getVertexLists()[0].attributes.size() == 6);
+    require(first.getVertexLists()[0].verts[0].shaders == Renderer::Shader::SEARCH);
     for (size_t i {0}; i < 6; ++i) {
         const auto& vertex = first.getVertexLists()[0].verts[i];
         const auto& attribute = first.getVertexLists()[0].attributes[i];

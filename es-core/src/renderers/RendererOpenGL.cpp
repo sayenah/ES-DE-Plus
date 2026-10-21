@@ -9,6 +9,7 @@
 #include "renderers/RendererOpenGL.h"
 
 #include "Settings.h"
+#include "resources/ResourceManager.h"
 
 #if defined(__APPLE__)
 #include <chrono>
@@ -35,6 +36,7 @@ RendererOpenGL::RendererOpenGL() noexcept
     , mBlurHorizontalShader {nullptr}
     , mBlurVerticalShader {nullptr}
     , mScanlinelShader {nullptr}
+    , mSearchShader {nullptr}
     , mLastShader {nullptr}
     , mMajorGLVersion {0}
     , mMinorGLVersion {0}
@@ -68,23 +70,38 @@ bool RendererOpenGL::loadShaders()
 {
     LOG(LogInfo) << "Loading shaders...";
 
+    const std::string searchShaderPath {":/shaders/glsl/search.glsl"};
     std::vector<std::string> shaderFiles;
     shaderFiles.emplace_back(":/shaders/glsl/core.glsl");
     shaderFiles.emplace_back(":/shaders/glsl/blur_horizontal.glsl");
     shaderFiles.emplace_back(":/shaders/glsl/blur_vertical.glsl");
     shaderFiles.emplace_back(":/shaders/glsl/scanlines.glsl");
+    shaderFiles.emplace_back(searchShaderPath);
 
     for (auto it = shaderFiles.cbegin(); it != shaderFiles.cend(); ++it) {
+        if (*it == searchShaderPath && !ResourceManager::getInstance().fileExists(*it)) {
+            LOG(LogWarning) << "Search shader not found; using the core shader";
+            mShaderProgramVector.push_back(mShaderProgramVector.front());
+            continue;
+        }
         auto loadShader = std::make_shared<ShaderOpenGL>();
 
         loadShader->loadShaderFile(*it, GL_VERTEX_SHADER);
         loadShader->loadShaderFile(*it, GL_FRAGMENT_SHADER);
 
         if (!loadShader->createProgram()) {
+            if (*it == searchShaderPath) {
+                LOG(LogWarning) << "Search shader unavailable; using the core shader";
+                mShaderProgramVector.push_back(mShaderProgramVector.front());
+                continue;
+            }
             LOG(LogError) << "Could not create shader program.";
             return false;
         }
 
+        if (*it == searchShaderPath) {
+            LOG(LogDebug) << "Search shader active";
+        }
         mShaderProgramVector.emplace_back(std::move(loadShader));
     }
 
@@ -356,6 +373,7 @@ void RendererOpenGL::destroyContext()
     mBlurHorizontalShader.reset();
     mBlurVerticalShader.reset();
     mScanlinelShader.reset();
+    mSearchShader.reset();
     mLastShader.reset();
 
     SDL_GL_DeleteContext(mSDLContext);
@@ -582,35 +600,38 @@ void RendererOpenGL::drawTriangleStrips(const Vertex* vertices,
     GL_CHECK_ERROR(
         glBlendFunc(convertBlendFactor(srcBlendFactor), convertBlendFactor(dstBlendFactor)));
 
-    if (vertices->shaders == 0 || vertices->shaders & Shader::CORE) {
-        if (mCoreShader == nullptr)
-            mCoreShader = getShaderProgram(Shader::CORE);
-        if (mCoreShader) {
-            if (mLastShader != mCoreShader)
-                mCoreShader->activateShaders();
-            mCoreShader->setModelViewProjectionMatrix(mTrans);
-            if (mLastShader != mCoreShader || mLastVertexStride != stride) {
-                mCoreShader->setAttribPointers(stride);
+    if (vertices->shaders == 0 || vertices->shaders & Shader::CORE ||
+        vertices->shaders & Shader::SEARCH) {
+        const bool search = vertices->shaders & Shader::SEARCH;
+        auto& shader = search ? mSearchShader : mCoreShader;
+        if (shader == nullptr)
+            shader = getShaderProgram(search ? Shader::SEARCH : Shader::CORE);
+        if (shader) {
+            if (mLastShader != shader)
+                shader->activateShaders();
+            shader->setModelViewProjectionMatrix(mTrans);
+            if (mLastShader != shader || mLastVertexStride != stride) {
+                shader->setAttribPointers(stride);
                 mLastVertexStride = stride;
             }
             GL_CHECK_ERROR(
                 glBufferData(GL_ARRAY_BUFFER, stride * numVertices, data, GL_DYNAMIC_DRAW));
-            mCoreShader->setTextureSamplers();
-            mCoreShader->setTextureSize({width, height});
-            mCoreShader->setClipRegion(vertices->clipRegion);
-            mCoreShader->setBrightness(vertices->brightness);
-            mCoreShader->setOpacity(vertices->opacity);
-            mCoreShader->setSaturation(vertices->saturation);
-            mCoreShader->setDimming(vertices->dimming);
+            shader->setTextureSamplers();
+            shader->setTextureSize({width, height});
+            shader->setClipRegion(vertices->clipRegion);
+            shader->setBrightness(vertices->brightness);
+            shader->setOpacity(vertices->opacity);
+            shader->setSaturation(vertices->saturation);
+            shader->setDimming(vertices->dimming);
             if (vertices->shaderFlags & ShaderFlags::ROUNDED_CORNERS ||
                 vertices->shaderFlags & ShaderFlags::ROUNDED_CORNERS_NO_AA) {
-                mCoreShader->setTextureSize({width, height});
-                mCoreShader->setCornerRadius(vertices->cornerRadius);
+                shader->setTextureSize({width, height});
+                shader->setCornerRadius(vertices->cornerRadius);
             }
-            mCoreShader->setReflectionsFalloff(vertices->reflectionsFalloff);
-            mCoreShader->setFlags(vertices->shaderFlags);
+            shader->setReflectionsFalloff(vertices->reflectionsFalloff);
+            shader->setFlags(vertices->shaderFlags);
             GL_CHECK_ERROR(glDrawArrays(GL_TRIANGLE_STRIP, 0, numVertices));
-            mLastShader = mCoreShader;
+            mLastShader = shader;
         }
     }
     else if (vertices->shaders & Shader::BLUR_HORIZONTAL) {

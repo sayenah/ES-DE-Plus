@@ -84,7 +84,7 @@ class RendererOpenGL : public Renderer
 {
 public:
     std::shared_ptr<ShaderOpenGL> mCoreShader, mBlurHorizontalShader, mBlurVerticalShader,
-        mScanlinelShader, mLastShader;
+        mScanlinelShader, mSearchShader, mLastShader;
     unsigned int mLastVertexStride {0};
     glm::mat4 mTrans {1};
     unsigned int boundTexture {0};
@@ -140,7 +140,7 @@ int main()
         compact.push_back({vertex.position, vertex.texcoord, vertex.color});
     require(sizeof(Renderer::VertexAttributes) < sizeof(Renderer::Vertex));
     for (auto shader : {Renderer::CORE, Renderer::BLUR_HORIZONTAL, Renderer::BLUR_VERTICAL,
-                        Renderer::SCANLINES}) {
+                        Renderer::SCANLINES, Renderer::SEARCH}) {
         vertices[0].shaders = shader;
         renderer.mLastShader.reset();
         strides.clear();
@@ -178,5 +178,12 @@ int main()
     cache.getVertexLists()[0].attributes.clear();
     font.renderTextCache(&cache);
     require(font.flushes == 3 && uploaded.size() == vertices.size() * sizeof(Renderer::Vertex));
+    renderer.mSearchShader = renderer.mCoreShader;
+    vertices[0].shaders = Renderer::SEARCH;
+    renderer.drawTriangleStrips(vertices.data(), 4, Renderer::BlendFactor::ONE,
+                                Renderer::BlendFactor::ZERO, compact.data());
+    require(renderer.mLastShader == renderer.mCoreShader);
+    require(renderer.mCoreShader->opacity == .37f);
+    require(uploaded.size() == compact.size() * sizeof(Renderer::VertexAttributes));
     std::cout << "PASS: " << checks << " production packed/legacy draw checks\n";
 }

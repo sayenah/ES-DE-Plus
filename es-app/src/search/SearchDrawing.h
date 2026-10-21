@@ -33,8 +33,11 @@ namespace SearchDrawing
     }
     inline void pack(TextCache& cache)
     {
-        for (auto& list : cache.getVertexLists())
+        for (auto& list : cache.getVertexLists()) {
+            if (!list.verts.empty())
+                list.verts[0].shaders = Renderer::Shader::SEARCH;
             list.attributes = attributes(list.verts);
+        }
     }
 
     inline void polygon(std::vector<Renderer::Vertex>& batch,

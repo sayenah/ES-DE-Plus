@@ -183,12 +183,19 @@ void GuiSearch::prepareRenderer()
     // Run missing material variants once during startup, before input is enabled.
     // Neither opening search nor typing waits for first-use driver compilation.
     renderer->setMatrix(glm::mat4 {1});
-    renderer->drawRect(0, 0, 16, 16, 0x000000FF, 0x000000FF, false, 1, 1,
-                       Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
+    std::vector<Renderer::Vertex> panel;
+    SearchDrawing::rectangle(panel, {0, 0, 16, 16}, 0x000000FF);
+    panel[0].shaders = Renderer::Shader::SEARCH;
+    const auto attributes = SearchDrawing::attributes(panel);
+    renderer->bindTexture(0, 0);
+    renderer->drawTriangleStrips(panel.data(), static_cast<unsigned int>(panel.size()),
+                                 Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO,
+                                 attributes.data());
     TextComponent text {"A", owner->atlas, 0xFFFFFF80};
     if (const auto* cache = text.getTextCache()) {
         TextCache batch {*cache};
         batch.setClipRegion({0, 0, 0, 0});
+        SearchDrawing::pack(batch);
         owner->atlas->renderTextCache(&batch);
     }
     size_t powerOfTwo {1};
@@ -1774,6 +1781,8 @@ void GuiSearch::prepareDraw()
                         label.text->getHorizontalAlignment(), offset, label.rect,
                         label.textColor.value_or(mForeground));
     }
+    if (!mPanelBatch.empty())
+        mPanelBatch[0].shaders = Renderer::Shader::SEARCH;
     mPanelAttributes = SearchDrawing::attributes(mPanelBatch);
     if (mBlink < 550) {
         std::vector<Renderer::Vertex> caret;
