@@ -99,6 +99,15 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     (build / 'prepare-drawing.inc').write_text('namespace SearchDrawing {\n' +
         '\n'.join(method(marker, drawing) for marker in drawing_methods) + '\n}\n')
     (build / 'shader-loader.inc').write_text(method('bool RendererOpenGL::loadShaders(', renderer))
+    frame_source = (root / 'es-core/src/renderers/SearchFrame.cpp').read_text()
+    frame_header = (root / 'es-app/src/search/SearchFrameCache.h').read_text()
+    (build / 'frame-cache-methods.inc').write_text('\n'.join(method(marker, frame_source) for marker in [
+        'bool RendererOpenGL::captureFrame(', 'bool RendererOpenGL::drawFrameCache(',
+        'void RendererOpenGL::releaseFrameCache(']))
+    (build / 'frame-cache-owner.inc').write_text(method('class SearchFrameCache final', frame_header) + ';\n')
+    update = search[search.index('void GuiSearch::update('):]
+    (build / 'frame-artwork.inc').write_text(method('for (auto& cover : mCovers)', update))
+
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -107,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch', 'geometry-cache', 'packed-draw', 'shader-loader']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch', 'geometry-cache', 'packed-draw', 'shader-loader', 'frame-cache']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

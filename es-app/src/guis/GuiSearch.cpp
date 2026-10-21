@@ -1667,6 +1667,7 @@ void GuiSearch::update(int deltaTime)
     GuiComponent::update(deltaTime);
     const glm::vec2 screen {Renderer::getScreenWidth(), Renderer::getScreenHeight()};
     if (mSize != screen) {
+        mFrameCache->reset();
         mLabels.clear();
         mControls.clear();
         mLabelCache.clear();
@@ -1717,7 +1718,8 @@ void GuiSearch::update(int deltaTime)
     mArtwork.pump();
     bool uploaded {false};
     for (auto& cover : mCovers) {
-        if (!cover.image && !uploaded) {
+        // Publish decoded artwork on an idle frame so text edits never wait on an upload.
+        if (!cover.image && !uploaded && !mMeasureFrame) {
             const auto pixels = mArtwork.get(cover.handle.id);
             if (pixels && !pixels->rgba.empty()) {
                 RenderErrorBatch errors {*mRenderer, "Search artwork upload"};
@@ -1725,10 +1727,14 @@ void GuiSearch::update(int deltaTime)
                 cover.image->setLinearInterpolation(true);
                 cover.image->setRawImage(pixels->rgba.data(), pixels->width, pixels->height);
                 uploaded = true;
+                mFrameCache->invalidate();
             }
         }
         if (cover.image) {
+            const float previous = cover.opacity;
             cover.opacity = std::min(1.0f, cover.opacity + deltaTime / 180.0f);
+            if (previous != cover.opacity)
+                mFrameCache->invalidate();
             cover.image->setOpacity(cover.opacity);
         }
     }
@@ -1740,6 +1746,7 @@ void GuiSearch::update(int deltaTime)
 
 void GuiSearch::prepareDraw()
 {
+    mFrameCache->invalidate();
     mTextBatch = TextCache {};
     mBorderBatch = TextCache {};
     mBorderBatch.setClipRegion({0, 0, 0, 0});
@@ -1807,6 +1814,9 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     RenderErrorBatch errors {*mRenderer, "Search drawing"};
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
+    const bool cacheable = transform == glm::mat4 {1} && mRenderer->getScreenRotation() == 0;
+    if (cacheable && !mMeasureFrame && mFrameCache->draw(mBackground))
+        return;
     if (transform == glm::mat4 {1})
         mRenderer->clearBackground(mBackground);
     else {
@@ -1835,6 +1845,12 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     mRenderer->setMatrix(transform);
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mBorderBatch);
+    // Save a settled frame on a subsequent idle frame, never in the keystroke's
+    // drawing pass. Artwork fades and caret/content changes invalidate the cache.
+    if (cacheable && !mMeasureFrame &&
+        std::none_of(mCovers.begin(), mCovers.end(),
+                     [](const Cover& cover) { return cover.image && cover.opacity < 1; }))
+        mFrameCache->capture();
     const auto submitted = std::chrono::steady_clock::now();
     errors.finish();
     if (mMeasureFrame) {
@@ -1853,6 +1869,9 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                       << std::chrono::duration<double, std::milli>(renderEnd - submitted).count()
                       << " deferred_gl_checks=" << errors.deferredChecks()
                       << " gl_error_reads=" << errors.errorReads()
+                      << " cached_frames=" << mFrameCache->reusedFrames()
+                      << " saved_frames=" << mFrameCache->savedFrames()
+                      << " cache_unavailable=" << mFrameCache->unavailable()
                       << " batches=" << mTextBatch.getBatchCount()
                       << " panel_vertices=" << mPanelBatch.size() << " render_cpu_ms=" << renderCpu
                       << " batch_cpu_ms=" << batchCpu

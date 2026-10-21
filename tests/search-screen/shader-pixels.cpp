@@ -116,6 +116,83 @@ std::vector<uint8_t> render(
         throw std::runtime_error("GL error in actual pixel comparison");
     return pixels;
 }
+// Compile the production framebuffer operations against an actual GL context.
+class RendererOpenGL
+{
+public:
+    enum class TextureType {
+        RGBA
+    };
+    struct FrameCache {
+        unsigned texture {0}, framebuffer {0};
+        int width {0}, height {0};
+    };
+    struct Rect {
+        int x {0}, y {0}, w {width}, h {height};
+    };
+    Rect mViewport;
+    int mWindowWidth {width}, mWindowHeight {height};
+    int getScreenRotation() { return 0; }
+    bool hasClipRect() { return false; }
+    void clearBackground(unsigned int color)
+    {
+        glClearColor(((color >> 24) & 255) / 255.f, ((color >> 16) & 255) / 255.f,
+                     ((color >> 8) & 255) / 255.f, (color & 255) / 255.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glClearColor(0, 0, 0, 1);
+    }
+    unsigned createTexture(
+        unsigned, TextureType, bool, bool, bool, bool, unsigned w, unsigned h, void*)
+    {
+        unsigned texture {0};
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        return texture;
+    }
+    void destroyTexture(unsigned texture) { glDeleteTextures(1, &texture); }
+    bool captureFrame(FrameCache&);
+    bool drawFrameCache(const FrameCache&, unsigned int = 0);
+    void releaseFrameCache(FrameCache&);
+};
+#define GL_CHECK_ERROR(call) call
+#include "frame-cache-gpu.inc"
+#undef GL_CHECK_ERROR
+std::vector<uint8_t> framebufferPixels()
+{
+    std::vector<uint8_t> data(width * height * 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
+    return data;
+}
+size_t checkFrameCache(RendererOpenGL& renderer,
+                       RendererOpenGL::FrameCache& cache,
+                       const std::vector<uint8_t>& expected,
+                       GLuint framebuffer)
+{
+    // Different read/draw targets must survive both operations.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    if (!renderer.captureFrame(cache))
+        throw std::runtime_error("frame capture failed");
+    GLint read {0}, draw {0};
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw);
+    if (read != 0 || draw != static_cast<GLint>(framebuffer))
+        throw std::runtime_error("frame capture changed framebuffer bindings");
+    glClearColor(.8, .2, .4, .7);
+    glClear(GL_COLOR_BUFFER_BIT);
+    if (!renderer.drawFrameCache(cache))
+        throw std::runtime_error("frame reuse failed");
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw);
+    if (read != 0 || draw != static_cast<GLint>(framebuffer))
+        throw std::runtime_error("frame reuse changed framebuffer bindings");
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    if (framebufferPixels() != expected || glGetError() != GL_NO_ERROR)
+        throw std::runtime_error("cached frame pixel mismatch");
+    return expected.size();
+}
 int main(int argc, char** argv)
 {
     try {
@@ -185,6 +262,9 @@ int main(int argc, char** argv)
             glTexImage2D(GL_TEXTURE_2D, 0, mode ? GL_R8 : GL_RGBA8, mode ? 16 : 1, mode ? 16 : 1, 0,
                          mode ? GL_RED : GL_RGBA, GL_UNSIGNED_BYTE, data.data());
         }
+        RendererOpenGL backend;
+        RendererOpenGL::FrameCache frameCache;
+        size_t retainedSamples {0};
         size_t cases {0}, samples {0};
         for (unsigned int mode : {0U, 2U})
             for (float opacity : {1.f, .63f})
@@ -196,11 +276,34 @@ int main(int argc, char** argv)
                             throw std::runtime_error("search shader pixel mismatch");
                         ++samples;
                     }
+                    retainedSamples += checkFrameCache(backend, frameCache, after, framebuffer);
                     ++cases;
                 }
         std::cout << "PASS: " << cases << " actual shader modes; " << samples
                   << " framebuffer channel comparisons; " << (gles ? "GLES" : "desktop")
                   << " renderer=" << glGetString(GL_RENDERER) << "\n";
+        const auto previousPixels = framebufferPixels();
+        backend.mViewport = {7, 5, 64, 40};
+        if (!backend.captureFrame(frameCache))
+            throw std::runtime_error("cropped capture failed");
+        glClearColor(.2, .8, .1, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+        auto cropped = framebufferPixels();
+        for (int y = 19; y < 59; ++y)
+            for (int x = 7; x < 71; ++x)
+                for (int channel = 0; channel < 4; ++channel)
+                    cropped[(y * width + x) * 4 + channel] =
+                        previousPixels[(y * width + x) * 4 + channel];
+        if (!backend.drawFrameCache(frameCache, 0x33CC1AFF) || framebufferPixels() != cropped)
+            throw std::runtime_error("cached viewport pixel mismatch");
+        retainedSamples += cropped.size();
+        const auto releasedTexture = frameCache.texture, releasedBuffer = frameCache.framebuffer;
+        backend.releaseFrameCache(frameCache);
+        if (glIsTexture(releasedTexture) || glIsFramebuffer(releasedBuffer) || frameCache.texture ||
+            frameCache.framebuffer || glGetError() != GL_NO_ERROR)
+            throw std::runtime_error("cached GPU resources not released");
+        std::cout << "PASS: production framebuffer capture/reuse/crop; " << retainedSamples
+                  << " exact retained channel comparisons; read/draw bindings and release\n";
         glDeleteProgram(core);
         glDeleteProgram(search);
         glDeleteBuffers(1, &buffer);

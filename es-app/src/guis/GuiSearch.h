@@ -15,6 +15,7 @@
 #include "search/LibrarySearch.h"
 #include "search/SearchArtwork.h"
 #include "search/SearchDrawing.h"
+#include "search/SearchFrameCache.h"
 
 #include <map>
 #include <optional>
@@ -130,6 +131,7 @@ private:
     unsigned int mAccent {0xF0A63AFF};
     unsigned int mFocusInk {0x1A1206FF};
     Renderer* mRenderer;
+    std::shared_ptr<SearchFrameCache> mFrameCache {SearchFrameCache::create()};
     SearchArtwork mArtwork;
     std::map<float, std::shared_ptr<Font>> mFonts;
     std::shared_ptr<Font> mFontAtlas;

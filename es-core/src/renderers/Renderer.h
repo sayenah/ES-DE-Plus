@@ -180,6 +180,7 @@ public:
 
     void pushClipRect(const glm::ivec2& pos, const glm::ivec2& size);
     void popClipRect();
+    bool hasClipRect() const { return !mClipStack.empty(); }
 
     void drawRect(const float x,
                   const float y,
@@ -252,6 +253,14 @@ public:
     virtual void swapBuffers() = 0;
     // For an opaque screen that owns the complete framebuffer, without a transform.
     virtual void clearBackground(unsigned int color) = 0;
+    // Optional retained frame; unsupported targets keep drawing normally.
+    struct FrameCache {
+        unsigned int texture {0}, framebuffer {0};
+        int width {0}, height {0};
+    };
+    virtual bool captureFrame(FrameCache&) { return false; }
+    virtual bool drawFrameCache(const FrameCache&, unsigned int = 0) { return false; }
+    virtual void releaseFrameCache(FrameCache& cache) { cache = {}; }
     virtual void finishRendering() = 0;
     // Retain debug error reports at the boundary of an explicit drawing batch.
     virtual void beginErrorBatch() = 0;

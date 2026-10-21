@@ -47,6 +47,9 @@ public:
     void setSwapInterval() override;
     void swapBuffers() override;
     void clearBackground(unsigned int color) override;
+    bool captureFrame(FrameCache& cache) override;
+    bool drawFrameCache(const FrameCache& cache, unsigned int background = 0) override;
+    void releaseFrameCache(FrameCache& cache) override;
     void finishRendering() override;
     void beginErrorBatch() override;
     void endErrorBatch(const char* label) override;

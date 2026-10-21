@@ -7,6 +7,7 @@
 //  with counted rendering seams; verifies transform, animation and GL-state ownership.
 //
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -71,6 +72,8 @@ struct Renderer {
     glm::mat4 matrix {1};
     std::vector<Event> events;
     unsigned int texture {99};
+    int rotation {0};
+    int getScreenRotation() { return rotation; }
     void beginErrorBatch() {}
     void endErrorBatch(const char*) {}
     void setMatrix(const glm::mat4& value) { matrix = value; }
@@ -134,14 +137,38 @@ struct ImageComponent {
         renderer->events.push_back({"cover", renderer->matrix});
     }
 };
+struct FakeFrameCache {
+    Renderer* renderer {nullptr};
+    bool ready {false}, drawAllowed {true};
+    int captures {0};
+    unsigned int savedFrames() const { return captures; }
+    unsigned int reusedFrames() const { return 0; }
+    bool unavailable() const { return false; }
+    bool valid() const { return ready; }
+    void invalidate() { ready = false; }
+    bool draw(unsigned int)
+    {
+        if (!ready || !drawAllowed)
+            return false;
+        renderer->events.push_back({"cached", renderer->matrix});
+        return true;
+    }
+    void capture()
+    {
+        ++captures;
+        ready = true;
+    }
+};
 class GuiSearch
 {
 public:
     struct Cover {
         glm::vec4 rect;
         std::unique_ptr<ImageComponent> image;
+        float opacity {1};
     };
     Renderer* mRenderer;
+    std::shared_ptr<FakeFrameCache> mFrameCache {std::make_shared<FakeFrameCache>()};
     bool mDirty {false}, mMeasureFrame {false}, mMeasurePresentation {false};
     glm::mat4 transform {1};
     glm::vec2 mSize {1920, 1080};
@@ -154,7 +181,11 @@ public:
     double mQueryWorkMs {0};
     std::string mPresentedQuery;
     glm::mat4 getTransform() { return transform; }
-    void layout() { mDirty = false; }
+    void layout()
+    {
+        mDirty = false;
+        mFrameCache->invalidate();
+    }
     std::string queryForLog() { return "test"; }
     void render(const glm::mat4& parent);
 };
@@ -180,6 +211,7 @@ int main()
         Renderer renderer;
         GuiSearch search;
         search.mRenderer = &renderer;
+        search.mFrameCache->renderer = &renderer;
         search.mFonts[26] = std::make_shared<Font>(Font {&renderer});
         search.mCovers.push_back({{20, 30, 120, 180}, std::make_unique<ImageComponent>()});
         search.mCovers.back().image->renderer = &renderer;
@@ -196,5 +228,44 @@ int main()
         require(renderer.events[0].matrix == search.transform &&
                 renderer.events[1].matrix == search.transform);
     }
+    Renderer renderer;
+    GuiSearch search;
+    search.mRenderer = &renderer;
+    search.mFrameCache->renderer = &renderer;
+    search.mFonts[26] = std::make_shared<Font>(Font {&renderer});
+    search.render(glm::mat4 {1});
+    require(search.mFrameCache->captures == 1);
+    renderer.events.clear();
+    search.render(glm::mat4 {1});
+    require(renderer.events.size() == 1 && renderer.events.back().kind == "cached");
+    require(search.mFrameCache->captures == 1);
+    renderer.events.clear();
+    search.mMeasureFrame = true;
+    search.render(glm::mat4 {1});
+    require(renderer.events.size() == 4 && renderer.events.back().kind == "border");
+    require(search.mFrameCache->captures == 1 && search.mMeasurePresentation);
+    renderer.events.clear();
+    search.mDirty = true;
+    search.render(glm::mat4 {1});
+    require(renderer.events.size() == 4 && renderer.events.back().kind == "border");
+    require(search.mFrameCache->captures == 2);
+    renderer.events.clear();
+    renderer.rotation = 90;
+    search.render(glm::mat4 {1});
+    require(renderer.events.size() == 4 && search.mFrameCache->captures == 2);
+    renderer.rotation = 0;
+    search.mFrameCache->invalidate();
+    search.mCovers.push_back({{20, 30, 120, 180}, std::make_unique<ImageComponent>(), .5f});
+    search.mCovers.back().image->renderer = &renderer;
+    renderer.events.clear();
+    search.render(glm::mat4 {1});
+    require(renderer.events.size() == 5 && search.mFrameCache->captures == 2);
+    search.mCovers.back().opacity = 1;
+    search.render(glm::mat4 {1});
+    require(search.mFrameCache->captures == 3);
+    renderer.events.clear();
+    search.mFrameCache->drawAllowed = false;
+    search.render(glm::mat4 {1});
+    require(renderer.events.size() == 5 && renderer.events.back().kind == "border");
     std::cout << "PASS: " << checks << " production render/clear-state checks\n";
 }
