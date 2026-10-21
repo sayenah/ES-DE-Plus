@@ -53,12 +53,6 @@ public:
     struct FontTexture {
         unsigned int textureId {1};
         glm::ivec2 textureSize {128, 128};
-        Renderer* renderer {nullptr};
-        void update(const glm::ivec2& cursor, const glm::ivec2& size, unsigned char* pixels)
-        {
-            renderer->updateTexture(textureId, 0, Renderer::TextureType::RED, cursor.x, cursor.y,
-                                    size.x, size.y, pixels);
-        }
     } texture;
     struct Glyph {
         FontTexture* texture;
@@ -74,7 +68,6 @@ public:
     Font(Renderer* renderer)
         : mRenderer {renderer}
     {
-        texture.renderer = renderer;
     }
     Glyph* getGlyphByIndex(unsigned int id, hb_font_t* fontArg, int xAdvance);
     FT_Face* getFaceForGlyphIndex(unsigned int, hb_font_t* fontArg, hb_font_t** returned)

@@ -1245,8 +1245,6 @@ std::shared_ptr<SystemView> ViewController::getSystemListView()
 
 bool ViewController::input(InputConfig* config, Input input)
 {
-    if (input.value && mState.viewing == ViewMode::GAMELIST)
-        SearchEntry::observeGamelistCursor(getGamelistView(mState.getSystem()).get());
     // If using the %RUNINBACKGROUND% variable in a launch command or if enabling the
     // RunInBackground setting, ES-DE will run in the background while a game is launched.
     // If we're in this state and then register some input, it means that the user is back in ES-DE.
@@ -1447,7 +1445,6 @@ void ViewController::render(const glm::mat4& parentTrans)
 
 void ViewController::preload()
 {
-    GuiSearch::prepareRenderer();
     const unsigned int systemCount {static_cast<unsigned int>(SystemData::sSystemVector.size())};
     // This reduces the amount of texture pop-in when loading theme extras.
     if (!SystemData::sSystemVector.empty())

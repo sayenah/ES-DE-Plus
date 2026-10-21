@@ -69,7 +69,6 @@ bool ShaderOpenGL::createProgram()
     GLint programSuccess;
 
     mProgramID = glCreateProgram();
-    mUniformCache = {};
 
     // Compile and attach all shaders that have been loaded.
     for (auto it = mShaderVector.cbegin(); it != mShaderVector.cend(); ++it) {
@@ -143,121 +142,95 @@ void ShaderOpenGL::getVariableLocations(GLuint programID)
 
 void ShaderOpenGL::setModelViewProjectionMatrix(glm::mat4 mvpMatrix)
 {
-    if (mShaderMVPMatrix != GL_INVALID_VALUE && mShaderMVPMatrix != GL_INVALID_OPERATION &&
-        mUniformCache.matrix != mvpMatrix) {
+    if (mShaderMVPMatrix != GL_INVALID_VALUE && mShaderMVPMatrix != GL_INVALID_OPERATION)
         GL_CHECK_ERROR(glUniformMatrix4fv(mShaderMVPMatrix, 1, GL_FALSE,
                                           reinterpret_cast<GLfloat*>(&mvpMatrix)));
-        mUniformCache.matrix = mvpMatrix;
-    }
 }
 
-void ShaderOpenGL::setAttribPointers(unsigned int stride)
+void ShaderOpenGL::setAttribPointers()
 {
     if (mShaderPosition != -1)
         GL_CHECK_ERROR(glVertexAttribPointer(
-            mShaderPosition, 2, GL_FLOAT, GL_FALSE, stride,
+            mShaderPosition, 2, GL_FLOAT, GL_FALSE, sizeof(Renderer::Vertex),
             reinterpret_cast<const void*>(offsetof(Renderer::Vertex, position))));
     if (mShaderTextureCoord != -1)
         GL_CHECK_ERROR(glVertexAttribPointer(
-            mShaderTextureCoord, 2, GL_FLOAT, GL_FALSE, stride,
+            mShaderTextureCoord, 2, GL_FLOAT, GL_FALSE, sizeof(Renderer::Vertex),
             reinterpret_cast<const void*>(offsetof(Renderer::Vertex, texcoord))));
 
     if (mShaderColor != -1)
         GL_CHECK_ERROR(glVertexAttribPointer(
-            mShaderColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
+            mShaderColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(Renderer::Vertex),
             reinterpret_cast<const void*>(offsetof(Renderer::Vertex, color))));
 }
 
 void ShaderOpenGL::setTextureSamplers()
 {
-    if (mUniformCache.samplers)
-        return;
     if (mTextureSampler0 != -1)
         GL_CHECK_ERROR(glUniform1i(mTextureSampler0, 0));
     if (mTextureSampler1 != -1)
         GL_CHECK_ERROR(glUniform1i(mTextureSampler1, 1));
-    mUniformCache.samplers = true;
 }
 
 void ShaderOpenGL::setTextureSize(std::array<GLfloat, 2> shaderVec2)
 {
-    if (mShaderTextureSize != -1 && mUniformCache.textureSize != shaderVec2) {
+    if (mShaderTextureSize != -1)
         GL_CHECK_ERROR(glUniform2f(mShaderTextureSize, shaderVec2[0], shaderVec2[1]));
-        mUniformCache.textureSize = shaderVec2;
-    }
 }
 
 void ShaderOpenGL::setClipRegion(glm::vec4 clipRegion)
 {
-    if (mShaderClipRegion != -1 && mUniformCache.clipRegion != clipRegion) {
+    if (mShaderClipRegion != -1)
         GL_CHECK_ERROR(glUniform4f(mShaderClipRegion, clipRegion[0], clipRegion[1], clipRegion[2],
                                    clipRegion[3]));
-        mUniformCache.clipRegion = clipRegion;
-    }
 }
 
 void ShaderOpenGL::setBrightness(GLfloat brightness)
 {
-    if (mShaderBrightness != -1 && mUniformCache.brightness != brightness) {
+    if (mShaderBrightness != -1)
         GL_CHECK_ERROR(glUniform1f(mShaderBrightness, brightness));
-        mUniformCache.brightness = brightness;
-    }
 }
 
 void ShaderOpenGL::setOpacity(GLfloat opacity)
 {
-    if (mShaderOpacity != -1 && mUniformCache.opacity != opacity) {
+    if (mShaderOpacity != -1)
         GL_CHECK_ERROR(glUniform1f(mShaderOpacity, opacity));
-        mUniformCache.opacity = opacity;
-    }
 }
 
 void ShaderOpenGL::setSaturation(GLfloat saturation)
 {
-    if (mShaderSaturation != -1 && mUniformCache.saturation != saturation) {
+    if (mShaderSaturation != -1)
         GL_CHECK_ERROR(glUniform1f(mShaderSaturation, saturation));
-        mUniformCache.saturation = saturation;
-    }
 }
 
 void ShaderOpenGL::setDimming(GLfloat dimming)
 {
-    if (mShaderDimming != -1 && mUniformCache.dimming != dimming) {
+    if (mShaderDimming != -1)
         GL_CHECK_ERROR(glUniform1f(mShaderDimming, dimming));
-        mUniformCache.dimming = dimming;
-    }
 }
 
 void ShaderOpenGL::setCornerRadius(GLfloat cornerRadius)
 {
-    if (mCornerRadius != -1 && mUniformCache.cornerRadius != cornerRadius) {
+    if (mCornerRadius != -1)
         GL_CHECK_ERROR(glUniform1f(mCornerRadius, cornerRadius));
-        mUniformCache.cornerRadius = cornerRadius;
-    }
 }
 
 void ShaderOpenGL::setReflectionsFalloff(GLfloat falloff)
 {
-    if (mShaderReflectionsFalloff != -1 && mUniformCache.reflectionsFalloff != falloff) {
+    if (mShaderReflectionsFalloff != -1)
         GL_CHECK_ERROR(glUniform1f(mShaderReflectionsFalloff, falloff));
-        mUniformCache.reflectionsFalloff = falloff;
-    }
 }
 
 void ShaderOpenGL::setBlurStrength(GLfloat blurStrength)
 {
-    if (mBlurStrength != -1 && mUniformCache.blurStrength != blurStrength) {
+    if (mBlurStrength != -1)
         GL_CHECK_ERROR(glUniform1f(mBlurStrength, blurStrength));
-        mUniformCache.blurStrength = blurStrength;
-    }
 }
 
 void ShaderOpenGL::setFlags(GLuint flags)
 {
-    if (mShaderFlags != -1 && mUniformCache.flags != flags) {
+    if (mShaderFlags != -1)
         GL_CHECK_ERROR(glUniform1ui(mShaderFlags, flags));
-        mUniformCache.flags = flags;
-    }
 }
 
 void ShaderOpenGL::activateShaders()

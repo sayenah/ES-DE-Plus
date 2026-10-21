@@ -24,7 +24,9 @@ namespace SearchEntry
               float verticalPosition = 0.0f);
     bool preservesPasskeyY();
     void observeOptionsFocus(ComponentList* list);
+#if !defined(NDEBUG)
     void observeGamelistCursor(GamelistView* view);
+#endif
     void logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites);
     void logFavoriteAction(FileData* source, bool editing, GamelistView* view);
 } // namespace SearchEntry

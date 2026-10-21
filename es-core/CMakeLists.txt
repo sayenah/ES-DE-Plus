@@ -157,7 +157,6 @@ set(CORE_SOURCES
     # Renderer
     ${CMAKE_CURRENT_SOURCE_DIR}/src/renderers/Renderer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/renderers/RendererOpenGL.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/renderers/SearchFrame.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/renderers/ShaderOpenGL.cpp
 
     # Resources

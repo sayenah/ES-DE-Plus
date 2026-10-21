@@ -11,7 +11,6 @@
 
 #define GL_GLEXT_PROTOTYPES
 
-#include "renderers/RenderErrorBatch.h"
 #include "renderers/Renderer.h"
 #include "utils/MathUtil.h"
 
@@ -35,22 +34,16 @@
 #include <SDL2/SDL_opengl.h>
 #endif
 #include <array>
-#include <optional>
 #include <string>
 #include <vector>
 
 #if !defined(NDEBUG)
 #define GL_CHECK_ERROR(Function) (Function, _GLCheckError(#Function))
-static inline void _GLCheckError(const char* funcName)
+static inline void _GLCheckError(const std::string& funcName)
 {
-    if (RenderErrorBatch::deferred())
-        return;
-    // A batch may have more than one recorded error flag. Drain them all.
-    while (true) {
-        const GLenum errorCode = glGetError();
-        RenderErrorBatch::recordRead();
-        if (errorCode == GL_NO_ERROR)
-            break;
+    const GLenum errorCode = glGetError();
+
+    if (errorCode != GL_NO_ERROR) {
 #if defined(USE_OPENGLES)
         LOG(LogError) << "OpenGL ES error: " << funcName << " failed with error code: 0x"
                       << std::hex << errorCode;
@@ -81,7 +74,7 @@ public:
     // One-way communication with the compiled shaders.
     void setModelViewProjectionMatrix(glm::mat4 mvpMatrix);
 
-    void setAttribPointers(unsigned int stride = sizeof(Renderer::Vertex));
+    void setAttribPointers();
     void setTextureSamplers();
     void setTextureSize(std::array<GLfloat, 2> shaderVec2);
     void setClipRegion(glm::vec4 clipRegion);
@@ -104,17 +97,6 @@ public:
     void printShaderInfoLog(GLuint shaderID, GLenum shaderType, bool error);
 
 private:
-    // Uniform values belong to the linked program and survive program switches.
-    // Avoid repeating driver calls for unchanged search panels/text/artwork.
-    struct UniformCache {
-        std::optional<glm::mat4> matrix;
-        std::optional<std::array<GLfloat, 2>> textureSize;
-        std::optional<glm::vec4> clipRegion;
-        std::optional<GLfloat> brightness, opacity, saturation, dimming, cornerRadius;
-        std::optional<GLfloat> reflectionsFalloff, blurStrength;
-        std::optional<GLuint> flags;
-        bool samplers {false};
-    } mUniformCache;
     GLuint mProgramID;
     std::vector<std::tuple<std::string, std::string, GLenum>> mShaderVector;
 

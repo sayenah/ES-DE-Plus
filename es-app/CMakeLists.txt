@@ -94,6 +94,7 @@ set(ES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/SearchEntry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiSearch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/search/SearchArtwork.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/search/SearchPresentation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGamelistFilter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiGamelistOptions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/guis/GuiLaunchScreen.cpp

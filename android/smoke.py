@@ -1341,7 +1341,7 @@ def real_retroarch_flow():
             retroarch_stacks(recipient_pid, recipient_log)
             record_retroarch_receipt('RECEIPT FAILED', str(error))
             if retroarch_receipt_gating:
-                raise  # API 33 and API 34 still fail without a product launch retry.
+                raise  # API 33 remains gating; D-030 makes API 35 receipt diagnostic.
             capture_retroarch_failure()
         else:
             record_retroarch_receipt('RECEIPT PASSED')
@@ -1381,7 +1381,7 @@ try:
     (evidence / 'device-features.txt').write_text(features)
     television = 'feature:android.software.leanback' in features.splitlines()
     device_api = int(shell('getprop', 'ro.build.version.sdk').strip())
-    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(television)
+    retroarch_receipt_gating = launch_checks.retroarch_receipt_gates(television, device_api)
     if television:
         # Google's TV image launches this dialog asynchronously over other
         # apps. Disable only that external onboarding component before testing.

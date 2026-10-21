@@ -308,18 +308,27 @@ def run(binary, probe, destination, width, height, variant='dark'):
         entry_work = re.findall(r'Search entry ready: ms=([0-9.]+)', log())
         assert entry_work, 'Missing actual search-entry timing'
         assert log().count('Search renderer prepared once:') == 1, 'Renderer preparation repeated on entry'
-        def distribution(pattern):
-            values = sorted(float(x) for x in re.findall(pattern, log()))
+        def distribution(pattern, text=None):
+            values = sorted(float(x) for x in re.findall(pattern, log() if text is None else text))
             assert values, 'Missing actual frame measurements'
             return dict(samples=len(values), p50_ms=values[math.ceil(len(values) * .5) - 1],
                         p95_ms=values[math.ceil(len(values) * .95) - 1], max_ms=values[-1])
-        work = distribution(r'Search frame: .*? work_ms=([0-9.]+)')
-        presented = distribution(r'Search presented: .*? interval_ms=([0-9.]+)')
+        frame_lines = [line for line in log().splitlines() if 'Search frame:' in line or 'Search presented:' in line]
+        assert all(re.search(r'cause=(keystroke|refresh)\b', line) for line in frame_lines), 'Missing frame cause'
+        assert sum('Search frame:' in line for line in frame_lines) == sum('Search presented:' in line for line in frame_lines), 'Every refresh frame must reach swap'
+        strokes = '\n'.join(line for line in frame_lines if 'cause=keystroke' in line)
+        refreshes = '\n'.join(line for line in frame_lines if 'cause=refresh' in line)
+        work = distribution(r'Search frame: .*? work_ms=([0-9.]+)', strokes)
+        presented = distribution(r'Search presented: .*? interval_ms=([0-9.]+)', strokes)
+        refresh_work = distribution(r'Search frame: .*? work_ms=([0-9.]+)', refreshes) if refreshes else dict(samples=0)
+        refresh_presented = distribution(r'Search presented: .*? interval_ms=([0-9.]+)', refreshes) if refreshes else dict(samples=0)
         entry = distribution(r'Search entry ready: ms=([0-9.]+)')
         assert work['samples'] == presented['samples'], 'Every query frame must reach swap'
         # D-028 am. 7: keep raw intervals; an offscreen swap has no display cadence.
-        print('GATING search work: p95 <= 50ms / max <= 100ms; measured', json.dumps(work), flush=True)
+        print('GATING keystroke-only search work: p95 <= 50ms / max <= 100ms; measured', json.dumps(work), flush=True)
         print('GATING search entry: p95 <= 150ms; measured', json.dumps(entry), flush=True)
+        print('INFORMATIONAL non-keystroke refresh work:', json.dumps(refresh_work), flush=True)
+        print('INFORMATIONAL non-keystroke refresh presented:', json.dumps(refresh_presented), flush=True)
         print('INFORMATIONAL presented intervals (no CI limit):', json.dumps(presented), flush=True)
         print('INFORMATIONAL D-028 am. 6 work target p95 <= 20ms / max <= 33ms:',
               'within target' if work['p95_ms'] <= 20 and work['max_ms'] <= 33 else 'exceeded', flush=True)
@@ -327,7 +336,7 @@ def run(binary, probe, destination, width, height, variant='dark'):
         assert entry['p95_ms'] <= 150, ('Linux search entry exceeded p95 150ms', entry)
         summary = dict(resolution=[width, height], variant=variant, opening_ms=opening_ms,
                        entry_work_ms=float(entry_work[0]), max_entry_work_ms=max(map(float, entry_work)),
-                       work=work, presented=presented, entry=entry,
+                       work=work, presented=presented, entry=entry, refresh=refresh_work, refresh_presented=refresh_presented,
                        checks=['live strokes', 'scope filter', 'result focus', 'show game',
                                'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
         (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')

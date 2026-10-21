@@ -16,8 +16,6 @@
 #include "Log.h"
 #include "utils/MathUtil.h"
 
-#include <chrono>
-#include <functional>
 #include <stack>
 #include <string>
 #include <vector>
@@ -51,8 +49,7 @@ public:
         CORE            = 0x00000001,
         BLUR_HORIZONTAL = 0x00000002,
         BLUR_VERTICAL   = 0x00000004,
-        SCANLINES       = 0x00000008,
-        SEARCH          = 0x00000010
+        SCANLINES       = 0x00000008
     };
 
     enum ShaderFlags {
@@ -66,13 +63,6 @@ public:
         CONVERT_PIXEL_FORMAT  = 0x00000080
     };
     // clang-format on
-
-    // Per-vertex shader inputs; the remaining Vertex fields are draw uniforms.
-    struct VertexAttributes {
-        glm::vec2 position;
-        glm::vec2 texcoord;
-        unsigned int color;
-    };
 
     struct Vertex {
         glm::vec2 position;
@@ -180,7 +170,6 @@ public:
 
     void pushClipRect(const glm::ivec2& pos, const glm::ivec2& size);
     void popClipRect();
-    bool hasClipRect() const { return !mClipStack.empty(); }
 
     void drawRect(const float x,
                   const float y,
@@ -240,8 +229,7 @@ public:
         const Vertex* vertices,
         const unsigned int numVertices,
         const BlendFactor srcBlendFactor = BlendFactor::ONE,
-        const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA,
-        const VertexAttributes* attributes = nullptr) = 0;
+        const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA) = 0;
     virtual void shaderPostprocessing(
         const unsigned int shaders,
         const Renderer::postProcessingParams& parameters = postProcessingParams(),
@@ -251,39 +239,8 @@ public:
     virtual void setScissor(const Rect& scissor) = 0;
     virtual void setSwapInterval() = 0;
     virtual void swapBuffers() = 0;
-    // For an opaque screen that owns the complete framebuffer, without a transform.
-    virtual void clearBackground(unsigned int color) = 0;
-    // Optional retained frame; unsupported targets keep drawing normally.
-    struct FrameCache {
-        unsigned int texture {0}, framebuffer {0};
-        int width {0}, height {0};
-    };
-    virtual bool captureFrame(FrameCache&) { return false; }
-    virtual bool drawFrameCache(const FrameCache&, unsigned int = 0) { return false; }
-    virtual void releaseFrameCache(FrameCache& cache) { cache = {}; }
-    virtual void finishRendering() = 0;
-    // Retain debug error reports at the boundary of an explicit drawing batch.
-    virtual void beginErrorBatch() = 0;
-    virtual void endErrorBatch(const char* label) = 0;
-    // Optional diagnostic observer; includes rendering, the swap wait and frame pacing.
-    void setFramePresentedCallback(std::function<void(double, double)> callback)
-    {
-        mFramePresented = std::move(callback);
-        mPreviousPresentation = std::chrono::steady_clock::now();
-    }
 
 protected:
-    void framePresented(std::chrono::steady_clock::time_point swapStarted)
-    {
-        if (!mFramePresented)
-            return;
-        const auto now = std::chrono::steady_clock::now();
-        const double interval =
-            std::chrono::duration<double, std::milli>(now - mPreviousPresentation).count();
-        mPreviousPresentation = now;
-        mFramePresented(interval,
-                        std::chrono::duration<double, std::milli>(now - swapStarted).count());
-    }
     Rect mViewport;
     int mWindowWidth {0};
     int mWindowHeight {0};
@@ -293,8 +250,6 @@ protected:
     int mScreenOffsetY {0};
 
 private:
-    std::function<void(double, double)> mFramePresented;
-    std::chrono::steady_clock::time_point mPreviousPresentation {};
     std::stack<Rect> mClipStack;
     SDL_Window* mSDLWindow {nullptr};
     glm::mat4 mProjectionMatrix {};

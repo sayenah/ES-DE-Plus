@@ -22,24 +22,6 @@
 
 namespace SearchDrawing
 {
-    inline std::vector<Renderer::VertexAttributes> attributes(
-        const std::vector<Renderer::Vertex>& vertices)
-    {
-        std::vector<Renderer::VertexAttributes> result;
-        result.reserve(vertices.size());
-        for (const auto& vertex : vertices)
-            result.push_back({vertex.position, vertex.texcoord, vertex.color});
-        return result;
-    }
-    inline void pack(TextCache& cache)
-    {
-        for (auto& list : cache.getVertexLists()) {
-            if (!list.verts.empty())
-                list.verts[0].shaders = Renderer::Shader::SEARCH;
-            list.attributes = attributes(list.verts);
-        }
-    }
-
     inline void polygon(std::vector<Renderer::Vertex>& batch,
                         const std::vector<glm::vec2>& outline,
                         unsigned int color)

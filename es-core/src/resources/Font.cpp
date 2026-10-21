@@ -10,7 +10,6 @@
 
 #include "Log.h"
 #include "renderers/Renderer.h"
-#include "resources/SearchFontAtlas.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/PlatformUtil.h"
 #include "utils/StringUtil.h"
@@ -509,7 +508,6 @@ void Font::renderTextCache(TextCache* cache)
         return;
     }
 
-    flushAtlas();
     const bool clipRegion {cache->clipRegion != glm::vec4 {0.0f, 0.0f, 0.0f, 0.0f}};
 
     for (auto it = cache->vertexLists.begin(); it != cache->vertexLists.end(); ++it) {
@@ -525,20 +523,8 @@ void Font::renderTextCache(TextCache* cache)
         mRenderer->bindTexture(*it->textureIdPtr, 0);
         mRenderer->drawTriangleStrips(
             &it->verts[0], static_cast<const unsigned int>(it->verts.size()),
-            Renderer::BlendFactor::SRC_ALPHA, Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            it->attributes.size() == it->verts.size() ? it->attributes.data() : nullptr);
+            Renderer::BlendFactor::SRC_ALPHA, Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA);
     }
-}
-
-void Font::flushAtlas()
-{
-    if (mAtlasOwner) {
-        mAtlasOwner->flushAtlas();
-        return;
-    }
-    for (auto& texture : mTextures)
-        if (texture->searchAtlas)
-            texture->searchAtlas->flush(texture->textureId);
 }
 
 void Font::uploadSolidPixel()
@@ -546,7 +532,8 @@ void Font::uploadSolidPixel()
     if (!mSolidTexture)
         return;
     unsigned char white {255};
-    mSolidTexture->update(mSolidCursor, {1, 1}, &white);
+    mRenderer->updateTexture(mSolidTexture->textureId, 0, Renderer::TextureType::RED,
+                             mSolidCursor.x, mSolidCursor.y, 1, 1, &white);
 }
 
 void Font::appendSolid(TextCache* cache, const std::vector<Renderer::Vertex>& vertices)
@@ -624,8 +611,6 @@ Font::FontTexture::FontTexture(const int mFontSize, unsigned int atlasSize)
     // more textures will be created dynamically.
     const auto side = std::max(mFontSize * 6, static_cast<int>(atlasSize));
     textureSize = glm::ivec2 {side, side};
-    if (atlasSize)
-        searchAtlas = std::make_unique<SearchFontAtlas>(textureSize);
 }
 
 Font::FontTexture::~FontTexture()
@@ -664,8 +649,6 @@ bool Font::FontTexture::findEmpty(const glm::ivec2& size, glm::ivec2& cursorOut)
 void Font::FontTexture::initTexture()
 {
     assert(textureId == 0);
-    if (searchAtlas)
-        return;
     // Create a black texture with a zero alpha value so that single-pixel spaces between the
     // glyphs will not be visible. That would otherwise lead to edge artifacts as these pixels
     // would get sampled during scaling.
@@ -673,17 +656,6 @@ void Font::FontTexture::initTexture()
     textureId =
         Renderer::getInstance()->createTexture(0, Renderer::TextureType::RED, true, true, false,
                                                false, textureSize.x, textureSize.y, &texture[0]);
-}
-
-void Font::FontTexture::update(const glm::ivec2& cursor,
-                               const glm::ivec2& size,
-                               unsigned char* pixels)
-{
-    if (searchAtlas)
-        searchAtlas->update(cursor, size, pixels);
-    else
-        Renderer::getInstance()->updateTexture(textureId, 0, Renderer::TextureType::RED, cursor.x,
-                                               cursor.y, size.x, size.y, pixels);
 }
 
 void Font::FontTexture::deinitTexture()
@@ -1247,7 +1219,9 @@ void Font::rebuildTextures()
 
         // Upload glyph bitmap to texture.
         if (glyphSize.x > 0 && glyphSize.y > 0) {
-            it->second.texture->update(cursor, glyphSize, glyphSlot->bitmap.buffer);
+            mRenderer->updateTexture(it->second.texture->textureId, 0, Renderer::TextureType::RED,
+                                     cursor.x, cursor.y, glyphSize.x, glyphSize.y,
+                                     glyphSlot->bitmap.buffer);
         }
     }
 
@@ -1264,7 +1238,9 @@ void Font::rebuildTextures()
             static_cast<int>(it->second.texPos.y * it->second.texture->textureSize.y)};
 
         if (glyphSize.x > 0 && glyphSize.y > 0) {
-            it->second.texture->update(cursor, glyphSize, glyphSlot->bitmap.buffer);
+            mRenderer->updateTexture(it->second.texture->textureId, 0, Renderer::TextureType::RED,
+                                     cursor.x, cursor.y, glyphSize.x, glyphSize.y,
+                                     glyphSlot->bitmap.buffer);
         }
     }
     uploadSolidPixel();
@@ -1447,7 +1423,8 @@ Font::Glyph* Font::getGlyph(const unsigned int id)
 
     // Upload glyph bitmap to glyph atlas texture.
     if (glyphSize.x > 0 && glyphSize.y > 0) {
-        tex->update(cursor, glyphSize, glyphSlot->bitmap.buffer);
+        mRenderer->updateTexture(tex->textureId, 0, Renderer::TextureType::RED, cursor.x, cursor.y,
+                                 glyphSize.x, glyphSize.y, glyphSlot->bitmap.buffer);
     }
 
     return &glyph;
@@ -1520,7 +1497,8 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
     // Kerning changes the advance, not the bitmap. Avoid synchronizing the GPU
     // to upload pixels which are already present in this font's atlas.
     if (!textureCached && glyphSize.x > 0 && glyphSize.y > 0) {
-        tex->update(cursor, glyphSize, glyphSlot->bitmap.buffer);
+        mRenderer->updateTexture(tex->textureId, 0, Renderer::TextureType::RED, cursor.x, cursor.y,
+                                 glyphSize.x, glyphSize.y, glyphSlot->bitmap.buffer);
     }
 
     return &glyph;
@@ -1528,12 +1506,9 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
 
 void TextCache::setColor(unsigned int color)
 {
-    for (auto it = vertexLists.begin(); it != vertexLists.end(); ++it) {
+    for (auto it = vertexLists.begin(); it != vertexLists.end(); ++it)
         for (auto it2 = it->verts.begin(); it2 != it->verts.end(); ++it2)
             it2->color = color;
-        for (auto& attribute : it->attributes)
-            attribute.color = color;
-    }
 }
 
 void TextCache::setOpacity(float opacity)

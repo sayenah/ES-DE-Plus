@@ -746,10 +746,11 @@ def run(namespace, suite='all'):
             h.key('KEYCODE_DPAD_DOWN')
         h.key('KEYCODE_ENTER')
         h.key('KEYCODE_DEL')
-        assert re.search(r'name="InputTouchOverlay" value="true"', h.shell('cat', h.settings))
         h.wait_for(lambda: 'InputOverlay: restored (menu)' in h.log()[len(enable_before):] and
                    'InputOverlay: textures built' in h.log()[len(enable_before):],
                    'fresh menu enable rebuild and render')
+        # The save callback rebuilds the overlay; observe its frame before reading XML.
+        assert re.search(r'name="InputTouchOverlay" value="true"', h.shell('cat', h.settings))
         shot('touch-reenabled-through-menu')
         record('touch-disable-reenable')
         start(InputTouchOverlay=True)

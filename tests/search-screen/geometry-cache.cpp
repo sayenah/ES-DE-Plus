@@ -4,7 +4,7 @@
 //  geometry-cache.cpp
 //
 //  Written for ES-DE-Plus. Verify cached clipping/panels, bounded invalidation,
-//  compact attribute data and public cache color updates against production methods.
+//  public cache color updates against production methods.
 //
 #include "search/SearchDrawing.h"
 #include <cstdlib>
@@ -55,20 +55,9 @@ int main()
     const auto colored = append("test", font, size, 0, offset, clip, 0xFFFFFFFF);
     require(cache.textEntries() == 8);
     require(colored.getVertexLists()[0].verts[1].color == 0xFFFFFFFF);
-    SearchDrawing::pack(first);
-    require(sizeof(Renderer::VertexAttributes) < sizeof(Renderer::Vertex));
-    require(first.getVertexLists()[0].attributes.size() == 6);
-    require(first.getVertexLists()[0].verts[0].shaders == Renderer::Shader::SEARCH);
-    for (size_t i {0}; i < 6; ++i) {
-        const auto& vertex = first.getVertexLists()[0].verts[i];
-        const auto& attribute = first.getVertexLists()[0].attributes[i];
-        require(vertex.position == attribute.position && vertex.texcoord == attribute.texcoord &&
-                vertex.color == attribute.color);
-    }
     first.setColor(0xABCDEF80);
-    for (size_t i {0}; i < 6; ++i)
-        require(first.getVertexLists()[0].verts[i].color == 0xABCDEF80 &&
-                first.getVertexLists()[0].attributes[i].color == 0xABCDEF80);
+    for (const auto& vertex : first.getVertexLists()[0].verts)
+        require(vertex.color == 0xABCDEF80);
     std::vector<Renderer::Vertex> panel, again;
     cache.panel(panel, {10, 20, 30, 40}, 3, 0x112233FF);
     cache.panel(again, {10, 20, 30, 40}, 3, 0x112233FF);
@@ -92,5 +81,5 @@ int main()
     require(maxText <= 512 && maxPanels <= 512 && cache.textEntries() && cache.panelEntries());
     cache.clear();
     require(!cache.textEntries() && !cache.panelEntries());
-    std::cout << "PASS: " << checks << " production geometry cache/attribute checks\n";
+    std::cout << "PASS: " << checks << " production geometry cache checks\n";
 }

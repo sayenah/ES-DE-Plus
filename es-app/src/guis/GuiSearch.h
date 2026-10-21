@@ -15,7 +15,6 @@
 #include "search/LibrarySearch.h"
 #include "search/SearchArtwork.h"
 #include "search/SearchDrawing.h"
-#include "search/SearchFrameCache.h"
 
 #include <map>
 #include <optional>
@@ -82,6 +81,7 @@ private:
     };
     bool zeroState() const;
     void refresh(bool preserveFocus = true);
+    void beginKeystroke();
     void layout();
     void prepareDraw();
     void focus(Area area, int index = 0);
@@ -131,12 +131,10 @@ private:
     unsigned int mAccent {0xF0A63AFF};
     unsigned int mFocusInk {0x1A1206FF};
     Renderer* mRenderer;
-    std::shared_ptr<SearchFrameCache> mFrameCache {SearchFrameCache::create()};
     SearchArtwork mArtwork;
     std::map<float, std::shared_ptr<Font>> mFonts;
     std::shared_ptr<Font> mFontAtlas;
     std::vector<Label> mLabels;
-    std::vector<Renderer::VertexAttributes> mPanelAttributes;
     SearchDrawing::Cache mDrawing;
     TextCache mTextBatch;
     TextCache mBorderBatch;
@@ -194,6 +192,8 @@ private:
     int mBlink {0};
     double mQueryWorkMs {0};
     bool mMeasureFrame {false};
+    bool mKeystrokeFrame {false};
+    bool mPresentedKeystroke {false};
     bool mMeasurePresentation {false};
     std::string mPresentedQuery;
     bool mKeyboardShown {false};

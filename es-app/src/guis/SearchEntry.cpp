@@ -90,6 +90,7 @@ void SearchEntry::observeOptionsFocus(ComponentList* list)
 #endif
 }
 
+#if !defined(NDEBUG)
 void SearchEntry::observeGamelistCursor(GamelistView* view)
 {
     if (Log::getReportingLevel() < LogDebug)
@@ -98,6 +99,7 @@ void SearchEntry::observeGamelistCursor(GamelistView* view)
     LOG(LogDebug) << "Gamelist actual cursor: system=" << cursor->getSystem()->getName()
                   << " game=" << cursor->getName() << " path=" << cursor->getPath();
 }
+#endif
 
 void SearchEntry::logFavoritesCollection(FileData* source, bool enabled, SystemData* favorites)
 {

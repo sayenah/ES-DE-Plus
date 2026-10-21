@@ -46,13 +46,6 @@ public:
     void setScissor(const Rect& scissor) override;
     void setSwapInterval() override;
     void swapBuffers() override;
-    void clearBackground(unsigned int color) override;
-    bool captureFrame(FrameCache& cache) override;
-    bool drawFrameCache(const FrameCache& cache, unsigned int background = 0) override;
-    void releaseFrameCache(FrameCache& cache) override;
-    void finishRendering() override;
-    void beginErrorBatch() override;
-    void endErrorBatch(const char* label) override;
 
     unsigned int createTexture(const unsigned int texUnit,
                                const TextureType type,
@@ -73,11 +66,11 @@ public:
                        const unsigned int height,
                        void* data) override;
     void bindTexture(const unsigned int texture, const unsigned int texUnit) override;
-    void drawTriangleStrips(const Vertex* vertices,
-                            const unsigned int numVertices,
-                            const BlendFactor srcBlendFactor = BlendFactor::ONE,
-                            const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA,
-                            const VertexAttributes* attributes = nullptr) override;
+    void drawTriangleStrips(
+        const Vertex* vertices,
+        const unsigned int numVertices,
+        const BlendFactor srcBlendFactor = BlendFactor::ONE,
+        const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA) override;
     void shaderPostprocessing(
         const unsigned int shaders,
         const Renderer::postProcessingParams& parameters = postProcessingParams(),
@@ -104,9 +97,7 @@ private:
     std::shared_ptr<ShaderOpenGL> mBlurHorizontalShader;
     std::shared_ptr<ShaderOpenGL> mBlurVerticalShader;
     std::shared_ptr<ShaderOpenGL> mScanlinelShader;
-    std::shared_ptr<ShaderOpenGL> mSearchShader;
     std::shared_ptr<ShaderOpenGL> mLastShader;
-    unsigned int mLastVertexStride {0};
 
     int mMajorGLVersion;
     int mMinorGLVersion;

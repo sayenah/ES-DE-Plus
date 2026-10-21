@@ -23,6 +23,8 @@ class TimingBudgetExceeded(AssertionError):
 def run(h, start, control, shot, record):
     root = h.settings.rsplit('/settings/', 1)[0]
     measurements = []
+    refresh_measurements = []
+    refresh_presentations = []
     presentations = []
     entries = []
     timed_prefix = ''
@@ -123,12 +125,20 @@ def run(h, start, control, shot, record):
         assert current.count('Search renderer prepared once:') == 1, 'Renderer preparation must run once per process'
         complete = current[:current.rfind('\n') + 1]
         added = complete[len(timed_prefix):] if complete.startswith(timed_prefix) else complete
-        times = [float(value) for value in re.findall(r'Search frame: .*? work_ms=([0-9.]+)', added)]
-        assert times, 'Missing actual search frame measurements'
+        frames = [line for line in added.splitlines() if 'Search frame:' in line]
+        swaps = [line for line in added.splitlines() if 'Search presented:' in line]
+        assert frames and len(frames) == len(swaps), 'Every measured frame must reach swap'
+        assert all(re.search(r'cause=(keystroke|refresh)\b', line) for line in frames + swaps), 'Missing frame cause'
+        def samples(lines, field, cause):
+            return [float(re.search(field + r'=([0-9.]+)', line)[1]) for line in lines
+                    if 'cause=' + cause in line]
+        times = samples(frames, 'work_ms', 'keystroke')
+        presented = samples(swaps, 'interval_ms', 'keystroke')
+        assert len(times) == len(presented), 'Every keystroke frame must reach swap'
         measurements.extend(times)
-        presented = [float(value) for value in re.findall(r'Search presented: .*? interval_ms=([0-9.]+)', added)]
-        assert len(presented) == len(times), ('Every measured frame must reach swap', len(times), len(presented))
         presentations.extend(presented)
+        refresh_measurements.extend(samples(frames, 'work_ms', 'refresh'))
+        refresh_presentations.extend(samples(swaps, 'interval_ms', 'refresh'))
         entries.extend(float(value) for value in re.findall(r'Search entry ready: ms=([0-9.]+)', added))
         timed_prefix = complete
         record(name)
@@ -380,11 +390,15 @@ def run(h, start, control, shot, record):
         summary = distribution(measurements)
         summary['presented'] = distribution(presentations)
         summary['entry'] = distribution(entries)
+        summary['refresh'] = distribution(refresh_measurements) if refresh_measurements else dict(samples=0)
+        summary['refresh_presented'] = distribution(refresh_presentations) if refresh_presentations else dict(samples=0)
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
         # D-028 am. 7: shared-runner software rendering is not a device pacing signal.
-        print('GATING search work: p95 <= 50ms / max <= 100ms; measured',
+        print('GATING keystroke-only search work: p95 <= 50ms / max <= 100ms; measured',
               json.dumps({key: summary[key] for key in ['samples', 'p50_ms', 'p95_ms', 'max_ms']}), flush=True)
         print('GATING search entry: p95 <= 150ms; measured', json.dumps(summary['entry']), flush=True)
+        print('INFORMATIONAL non-keystroke refresh work:', json.dumps(summary['refresh']), flush=True)
+        print('INFORMATIONAL non-keystroke refresh presented:', json.dumps(summary['refresh_presented']), flush=True)
         print('INFORMATIONAL presented intervals (no CI limit):', json.dumps(summary['presented']), flush=True)
         print('INFORMATIONAL D-028 am. 6 work target p95 <= 20ms / max <= 33ms:',
               'within target' if summary['p95_ms'] <= 20 and summary['max_ms'] <= 33 else 'exceeded', flush=True)

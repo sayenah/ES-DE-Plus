@@ -18,8 +18,9 @@
 #include "SystemData.h"
 #include "Window.h"
 #include "guis/GuiMsgBox.h"
-#include "renderers/RenderErrorBatch.h"
+#include "guis/SearchEntry.h"
 #include "search/SearchDrawing.h"
+#include "search/SearchPresentation.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/LocalizationUtil.h"
 #include "utils/StringUtil.h"
@@ -171,55 +172,23 @@ void GuiSearch::prepareRenderer()
         return;
     prepared = true;
     const auto start = std::chrono::steady_clock::now();
-    auto* renderer = Renderer::getInstance();
     const glm::vec2 screen {Renderer::getScreenWidth(), Renderer::getScreenHeight()};
     const float unit = std::min(screen.x, screen.y) / 1080;
     const float size = std::max(2.0f, std::round(40 * unit / 2) * 2);
     auto owner = searchFonts();
     owner->screen = screen;
-    owner->atlas = Font::get(size, Font::getDefaultPath(), 1024);
-    owner->fonts[size] = owner->atlas;
-    prepareSearchGlyphs(owner->atlas);
-    // Run missing material variants once during startup, before input is enabled.
-    // Neither opening search nor typing waits for first-use driver compilation.
-    renderer->setMatrix(glm::mat4 {1});
-    std::vector<Renderer::Vertex> panel;
-    SearchDrawing::rectangle(panel, {0, 0, 16, 16}, 0x000000FF);
-    panel[0].shaders = Renderer::Shader::SEARCH;
-    const auto attributes = SearchDrawing::attributes(panel);
-    renderer->bindTexture(0, 0);
-    renderer->drawTriangleStrips(panel.data(), static_cast<unsigned int>(panel.size()),
-                                 Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO,
-                                 attributes.data());
-    TextComponent text {"A", owner->atlas, 0xFFFFFF80};
-    if (const auto* cache = text.getTextCache()) {
-        TextCache batch {*cache};
-        batch.setClipRegion({0, 0, 0, 0});
-        SearchDrawing::pack(batch);
-        owner->atlas->renderTextCache(&batch);
+    if (!owner->atlas)
+        owner->atlas = Font::get(size, Font::getDefaultPath(), 1024);
+    for (const float role : {26.0f, 32.0f, 40.0f}) {
+        const float key = std::max(2.0f, std::round(role * unit / 2) * 2);
+        auto& font = owner->fonts[key];
+        if (!font) {
+            font = key == size ? owner->atlas :
+                                 Font::get(key, Font::getDefaultPath(), 1024, owner->atlas);
+            prepareSearchGlyphs(font);
+        }
     }
-    size_t powerOfTwo {1};
-    while (powerOfTwo <= SearchArtwork::MAX_DIMENSION / 2)
-        powerOfTwo *= 2;
-    for (const size_t dimension : {powerOfTwo, SearchArtwork::MAX_DIMENSION}) {
-        std::vector<unsigned char> pixels(dimension * dimension * 4, 255);
-        for (size_t y {0}; y < dimension; ++y)
-            for (size_t x {0}; x < dimension; ++x) {
-                const size_t offset {(y * dimension + x) * 4};
-                pixels[offset] = static_cast<unsigned char>(x % 256);
-                pixels[offset + 1] = static_cast<unsigned char>(y % 256);
-                pixels[offset + 2] = static_cast<unsigned char>((x + y) % 256);
-            }
-        ImageComponent material {false, true};
-        material.setLinearInterpolation(true);
-        material.setRawImage(pixels.data(), dimension, dimension);
-        material.setResize(dimension, dimension);
-        material.setOpacity(0.5f);
-        material.render(glm::mat4 {1});
-    }
-    renderer->finishRendering();
-    renderer->setMatrix(glm::mat4 {1});
-    renderer->clearBackground(0x000000FF);
+    owner->rolesPrepared = true;
     LOG(LogDebug) << "Search renderer prepared once: ms="
                   << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                start)
@@ -277,10 +246,11 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     SDL_StartTextInput();
     LOG(LogDebug) << "Search screen opened: query=" << queryForLog() << " scope=" << mScopeName;
     if (Log::getReportingLevel() >= LogDebug)
-        mRenderer->setFramePresentedCallback([this](double interval, double swap) {
+        SearchPresentation::observe([this](double interval, double swap) {
             if (mMeasurePresentation) {
                 LOG(LogDebug) << "Search presented: query=" << mPresentedQuery
-                              << " interval_ms=" << interval << " swap_ms=" << swap;
+                              << " interval_ms=" << interval << " swap_ms=" << swap
+                              << " cause=" << (mPresentedKeystroke ? "keystroke" : "refresh");
                 mMeasurePresentation = false;
             }
         });
@@ -288,7 +258,7 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
 
 GuiSearch::~GuiSearch()
 {
-    mRenderer->setFramePresentedCallback({});
+    SearchPresentation::observe({});
     SDL_StopTextInput();
     if (mPreviousImeHint.empty())
         SDL_ResetHint(SDL_HINT_IME_SHOW_UI);
@@ -1255,11 +1225,17 @@ void GuiSearch::move(int x, int y)
     }
 }
 
+void GuiSearch::beginKeystroke()
+{
+    if (!mKeystrokeFrame)
+        mQueryWorkMs = 0;
+    mKeystrokeFrame = true;
+    mMeasureFrame = true;
+}
+
 void GuiSearch::edit(const std::string& text)
 {
-    if (!mMeasureFrame)
-        mQueryWorkMs = 0;
-    mMeasureFrame = true;
+    beginKeystroke();
     if (text == "\b") {
         const size_t previous = previousCharacter(mQuery, mCursor);
         mQuery.erase(previous, mCursor - previous);
@@ -1316,6 +1292,7 @@ void GuiSearch::typeKey()
     else if (mIndex == 41)
         edit("\b");
     else if (mIndex == 42) {
+        beginKeystroke();
         mQuery.clear();
         mCursor = 0;
         refresh();
@@ -1490,6 +1467,9 @@ void GuiSearch::openGame(bool play)
         view->setCursor(game);
         view->stopListScrolling();
         controller->cancelViewTransitions();
+#if !defined(NDEBUG)
+        SearchPresentation::afterFrame([view] { SearchEntry::observeGamelistCursor(view.get()); });
+#endif
         LOG(LogDebug) << "Search show game: " << game->getSystem()->getName() << "/"
                       << game->getName();
     }
@@ -1576,6 +1556,7 @@ bool GuiSearch::input(InputConfig* config, Input input)
             return true;
         }
         if (input.id == SDLK_DELETE) {
+            beginKeystroke();
             mQuery.erase(mCursor, nextCharacter(mQuery, mCursor) - mCursor);
             refresh();
             return true;
@@ -1667,7 +1648,6 @@ void GuiSearch::update(int deltaTime)
     GuiComponent::update(deltaTime);
     const glm::vec2 screen {Renderer::getScreenWidth(), Renderer::getScreenHeight()};
     if (mSize != screen) {
-        mFrameCache->reset();
         mLabels.clear();
         mControls.clear();
         mLabelCache.clear();
@@ -1722,20 +1702,17 @@ void GuiSearch::update(int deltaTime)
         if (!cover.image && !uploaded && !mMeasureFrame) {
             const auto pixels = mArtwork.get(cover.handle.id);
             if (pixels && !pixels->rgba.empty()) {
-                RenderErrorBatch errors {*mRenderer, "Search artwork upload"};
                 cover.image = std::make_unique<ImageComponent>(false, true);
                 cover.image->setLinearInterpolation(true);
                 cover.image->setRawImage(pixels->rgba.data(), pixels->width, pixels->height);
                 uploaded = true;
-                mFrameCache->invalidate();
             }
         }
         if (cover.image) {
             const float previous = cover.opacity;
             cover.opacity = std::min(1.0f, cover.opacity + deltaTime / 180.0f);
             if (previous != cover.opacity)
-                mFrameCache->invalidate();
-            cover.image->setOpacity(cover.opacity);
+                cover.image->setOpacity(cover.opacity);
         }
     }
     if (mMeasureFrame)
@@ -1746,7 +1723,6 @@ void GuiSearch::update(int deltaTime)
 
 void GuiSearch::prepareDraw()
 {
-    mFrameCache->invalidate();
     mTextBatch = TextCache {};
     mBorderBatch = TextCache {};
     mBorderBatch.setClipRegion({0, 0, 0, 0});
@@ -1788,9 +1764,6 @@ void GuiSearch::prepareDraw()
                         label.text->getHorizontalAlignment(), offset, label.rect,
                         label.textColor.value_or(mForeground));
     }
-    if (!mPanelBatch.empty())
-        mPanelBatch[0].shaders = Renderer::Shader::SEARCH;
-    mPanelAttributes = SearchDrawing::attributes(mPanelBatch);
     if (mBlink < 550) {
         std::vector<Renderer::Vertex> caret;
         SearchDrawing::rectangle(caret,
@@ -1799,8 +1772,6 @@ void GuiSearch::prepareDraw()
                                  mAccent);
         panelFont->appendSolid(&mTextBatch, caret);
     }
-    SearchDrawing::pack(mTextBatch);
-    SearchDrawing::pack(mBorderBatch);
 }
 
 void GuiSearch::render(const glm::mat4& parentTrans)
@@ -1811,24 +1782,15 @@ void GuiSearch::render(const glm::mat4& parentTrans)
         mMeasureFrame ? threadSchedule() : std::array<long, 4> {-1, -1, -1, -1};
     if (mDirty)
         layout();
-    RenderErrorBatch errors {*mRenderer, "Search drawing"};
     const glm::mat4 transform = parentTrans * getTransform();
     mRenderer->setMatrix(transform);
-    const bool cacheable = transform == glm::mat4 {1} && mRenderer->getScreenRotation() == 0;
-    if (cacheable && !mMeasureFrame && mFrameCache->draw(mBackground))
-        return;
-    if (transform == glm::mat4 {1})
-        mRenderer->clearBackground(mBackground);
-    else {
-        // Preserve the underlying view during the menu's scale-up animation.
-        mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground, false, 1, 1,
-                            Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
-    }
+    mRenderer->drawRect(0, 0, mSize.x, mSize.y, mBackground, mBackground, false, 1, 1,
+                        Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
     if (!mPanelBatch.empty()) {
         mRenderer->bindTexture(0, 0);
-        mRenderer->drawTriangleStrips(
-            mPanelBatch.data(), static_cast<unsigned int>(mPanelBatch.size()),
-            Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO, mPanelAttributes.data());
+        mRenderer->drawTriangleStrips(mPanelBatch.data(),
+                                      static_cast<unsigned int>(mPanelBatch.size()),
+                                      Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
     }
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mTextBatch);
@@ -1845,14 +1807,7 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     mRenderer->setMatrix(transform);
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mBorderBatch);
-    // Save a settled frame on a subsequent idle frame, never in the keystroke's
-    // drawing pass. Artwork fades and caret/content changes invalidate the cache.
-    if (cacheable && !mMeasureFrame &&
-        std::none_of(mCovers.begin(), mCovers.end(),
-                     [](const Cover& cover) { return cover.image && cover.opacity < 1; }))
-        mFrameCache->capture();
     const auto submitted = std::chrono::steady_clock::now();
-    errors.finish();
     if (mMeasureFrame) {
         const auto schedule = scheduleDelta(scheduleStart);
         const auto renderCpu = elapsedThreadCpu(cpuStart);
@@ -1867,11 +1822,6 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                       << std::chrono::duration<double, std::milli>(submitted - textDrawn).count()
                       << " diagnostics_ms="
                       << std::chrono::duration<double, std::milli>(renderEnd - submitted).count()
-                      << " deferred_gl_checks=" << errors.deferredChecks()
-                      << " gl_error_reads=" << errors.errorReads()
-                      << " cached_frames=" << mFrameCache->reusedFrames()
-                      << " saved_frames=" << mFrameCache->savedFrames()
-                      << " cache_unavailable=" << mFrameCache->unavailable()
                       << " batches=" << mTextBatch.getBatchCount()
                       << " panel_vertices=" << mPanelBatch.size() << " render_cpu_ms=" << renderCpu
                       << " batch_cpu_ms=" << batchCpu
@@ -1879,7 +1829,10 @@ void GuiSearch::render(const glm::mat4& parentTrans)
                       << " end_ns=" << traceNanoseconds(renderEnd)
                       << " voluntary_switches=" << schedule[0]
                       << " involuntary_switches=" << schedule[1] << " minor_faults=" << schedule[2]
-                      << " major_faults=" << schedule[3];
+                      << " major_faults=" << schedule[3]
+                      << " cause=" << (mKeystrokeFrame ? "keystroke" : "refresh");
+        mPresentedKeystroke = mKeystrokeFrame;
+        mKeystrokeFrame = false;
         mMeasureFrame = false;
         mPresentedQuery = queryForLog();
         mMeasurePresentation = true;

@@ -20,7 +20,6 @@
 #include <vector>
 
 class TextComponent;
-class SearchFontAtlas;
 
 #define FONT_SIZE_MINI Font::getMiniFont()
 #define FONT_SIZE_SMALL Font::getSmallFont()
@@ -171,15 +170,13 @@ private:
         glm::ivec2 textureSize;
         glm::ivec2 writePos;
         int rowHeight;
-        std::unique_ptr<SearchFontAtlas> searchAtlas;
 
         FontTexture(const int mFontSize, unsigned int atlasSize = 0);
         ~FontTexture();
         bool findEmpty(const glm::ivec2& size, glm::ivec2& cursorOut);
 
-        // Search atlases defer uploading until renderTextCache; ordinary fonts upload here.
+        // You must call initTexture() after creating a FontTexture to get a textureId.
         void initTexture();
-        void update(const glm::ivec2& cursor, const glm::ivec2& size, unsigned char* pixels);
 
         // Deinitializes all glyph atlas textures.
         void deinitTexture();
@@ -258,7 +255,6 @@ private:
     void rebuildTextures();
     void unloadTextures();
     void uploadSolidPixel();
-    void flushAtlas();
 
     void getTextureForNewGlyph(const glm::ivec2& glyphSize,
                                FontTexture*& texOut,
@@ -332,7 +328,6 @@ protected:
     struct VertexList {
         std::vector<Renderer::Vertex> verts;
         unsigned int* textureIdPtr;
-        std::vector<Renderer::VertexAttributes> attributes {};
     };
 
     std::vector<VertexList> vertexLists;

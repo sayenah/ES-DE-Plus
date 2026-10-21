@@ -239,12 +239,14 @@ release APK declares Android `versionName` `1.22.2_GIT`, verified exactly in CI.
 When the emulator presents Play Protect's older-Android-target warning, CI uses
 the visible installation confirmation for this pinned APK. Package verification
 stays enabled and the APK is not modified.
-Under D-010 am. 1, the pinned stable RetroArch exact-ROM receipt gates on the
-API 33 and API 34 phone images. It still runs on TV as a clearly labelled
-non-gating diagnostic, with outcome, live logs and backtrace capability gaps
-in the evidence and CI summary. Frontend launch, stub-recipient, provider,
-core-query and host lifecycle checks stay gating on every image; no product
-assertion is retried.
+Under D-030, the pinned stable RetroArch exact-ROM receipt gates on API 33.
+On API 35 it still runs and captures recipient logs/stacks, but its external-app
+startup or receipt failure is a clearly labelled non-gating diagnostic in the
+job log, evidence and CI summary. The known emulator stall is inside RetroArch's
+`system()`/`wait4` during `NativeActivity.onStart`; revisit on real-device evidence
+or a RetroArch update. The explicitly selected TV image also keeps its diagnostic
+receipt policy. Frontend launch, stub-recipient, provider, core-query and host
+lifecycle checks remain gating; no product assertion is retried.
 
 The `handler-stub` module reuses the MIT recipient implementation with only file-handler aliases, no launcher or Leanback entry and no package-specific query declaration; it proves generic file-handler visibility. Both fixture APKs stay on the CI runner and never enter the frontend APK or publication.
 The network smoke opens the real theme downloader, clones the canonical HTTPS
@@ -300,7 +302,8 @@ The scraper uses the same retry policy; the independent scraper probe still runs
 after an exhausted non-gating theme failure.
 
 CI uses API 33 and API 35 phones, with one fresh-emulator job per session.
-API 33 gates PR integration; API 35 PR sessions are informational (D-027).
+API 33 and the selected API 35 core/touch sessions gate PR integration. D-030 makes
+only the external real-RetroArch receipt diagnostic on API 35.
 On main/publication, `API35_GATING` in `ci_selection.py` was promoted after all pre-touch API 35 sessions passed in run 39161875992. Main and default
 manual dispatch run every checked-in session; PRs run API 33 core plus the
 additive paths in `ci-sessions.toml`. Rules marked `android15` add API 35 core; overlay rules also add API 35 touch.
