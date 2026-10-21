@@ -70,11 +70,11 @@ public:
                        const unsigned int height,
                        void* data) override;
     void bindTexture(const unsigned int texture, const unsigned int texUnit) override;
-    void drawTriangleStrips(
-        const Vertex* vertices,
-        const unsigned int numVertices,
-        const BlendFactor srcBlendFactor = BlendFactor::ONE,
-        const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA) override;
+    void drawTriangleStrips(const Vertex* vertices,
+                            const unsigned int numVertices,
+                            const BlendFactor srcBlendFactor = BlendFactor::ONE,
+                            const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA,
+                            const VertexAttributes* attributes = nullptr) override;
     void shaderPostprocessing(
         const unsigned int shaders,
         const Renderer::postProcessingParams& parameters = postProcessingParams(),
@@ -102,6 +102,7 @@ private:
     std::shared_ptr<ShaderOpenGL> mBlurVerticalShader;
     std::shared_ptr<ShaderOpenGL> mScanlinelShader;
     std::shared_ptr<ShaderOpenGL> mLastShader;
+    unsigned int mLastVertexStride {0};
 
     int mMajorGLVersion;
     int mMinorGLVersion;

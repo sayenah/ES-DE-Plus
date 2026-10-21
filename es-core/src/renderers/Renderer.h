@@ -66,6 +66,13 @@ public:
     };
     // clang-format on
 
+    // Per-vertex shader inputs; the remaining Vertex fields are draw uniforms.
+    struct VertexAttributes {
+        glm::vec2 position;
+        glm::vec2 texcoord;
+        unsigned int color;
+    };
+
     struct Vertex {
         glm::vec2 position;
         glm::vec2 texcoord;
@@ -231,7 +238,8 @@ public:
         const Vertex* vertices,
         const unsigned int numVertices,
         const BlendFactor srcBlendFactor = BlendFactor::ONE,
-        const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA) = 0;
+        const BlendFactor dstBlendFactor = BlendFactor::ONE_MINUS_SRC_ALPHA,
+        const VertexAttributes* attributes = nullptr) = 0;
     virtual void shaderPostprocessing(
         const unsigned int shaders,
         const Renderer::postProcessingParams& parameters = postProcessingParams(),

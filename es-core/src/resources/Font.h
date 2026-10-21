@@ -332,6 +332,7 @@ protected:
     struct VertexList {
         std::vector<Renderer::Vertex> verts;
         unsigned int* textureIdPtr;
+        std::vector<Renderer::VertexAttributes> attributes {};
     };
 
     std::vector<VertexList> vertexLists;

@@ -151,20 +151,20 @@ void ShaderOpenGL::setModelViewProjectionMatrix(glm::mat4 mvpMatrix)
     }
 }
 
-void ShaderOpenGL::setAttribPointers()
+void ShaderOpenGL::setAttribPointers(unsigned int stride)
 {
     if (mShaderPosition != -1)
         GL_CHECK_ERROR(glVertexAttribPointer(
-            mShaderPosition, 2, GL_FLOAT, GL_FALSE, sizeof(Renderer::Vertex),
+            mShaderPosition, 2, GL_FLOAT, GL_FALSE, stride,
             reinterpret_cast<const void*>(offsetof(Renderer::Vertex, position))));
     if (mShaderTextureCoord != -1)
         GL_CHECK_ERROR(glVertexAttribPointer(
-            mShaderTextureCoord, 2, GL_FLOAT, GL_FALSE, sizeof(Renderer::Vertex),
+            mShaderTextureCoord, 2, GL_FLOAT, GL_FALSE, stride,
             reinterpret_cast<const void*>(offsetof(Renderer::Vertex, texcoord))));
 
     if (mShaderColor != -1)
         GL_CHECK_ERROR(glVertexAttribPointer(
-            mShaderColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(Renderer::Vertex),
+            mShaderColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
             reinterpret_cast<const void*>(offsetof(Renderer::Vertex, color))));
 }
 

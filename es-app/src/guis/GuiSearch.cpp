@@ -41,16 +41,29 @@
 
 namespace
 {
+    constexpr char searchAlphabet[] {
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
+        "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ fi fl ff ffi ffl "
+        "áàâäãåæçéèêëíìîïñóòôöõøœúùûüßÁÀÂÄÃÅÆÇÉÈÊËÍÌÎÏÑÓÒÔÖÕØŒÚÙÛÜẞ ★ · › … ‘ ’"};
+
+    void prepareSearchGlyphs(const std::shared_ptr<Font>& font)
+    {
+        // Build once without changing the font's line height or publishing the atlas.
+        TextComponent glyphs {searchAlphabet, font, 0xFFFFFFFF};
+    }
+
     // ResourceManager unloads this owner before the GL context is destroyed. Keep
     // fonts (and their shared atlas) alive between screens, never across a reload.
     struct SearchFonts final : IReloadable {
         std::map<float, std::shared_ptr<Font>> fonts;
         std::shared_ptr<Font> atlas;
         glm::vec2 screen {};
+        bool rolesPrepared {false};
         void unload(ResourceManager&) override
         {
             fonts.clear();
             atlas.reset();
+            rolesPrepared = false;
         }
         void reload(ResourceManager&) override {}
     };
@@ -166,6 +179,7 @@ void GuiSearch::prepareRenderer()
     owner->screen = screen;
     owner->atlas = Font::get(size, Font::getDefaultPath(), 1024);
     owner->fonts[size] = owner->atlas;
+    prepareSearchGlyphs(owner->atlas);
     // Run missing material variants once during startup, before input is enabled.
     // Neither opening search nor typing waits for first-use driver compilation.
     renderer->setMatrix(glm::mat4 {1});
@@ -440,10 +454,25 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
     if (!owner->atlas)
         owner->atlas = Font::get(atlasKey, Font::getDefaultPath(), 1024);
     mFontAtlas = owner->atlas;
+    if (!owner->rolesPrepared) {
+        // Empty/private zero states must also prepare sizes first used by results.
+        for (float role : {26.0f, 32.0f, 40.0f}) {
+            const float roleKey = std::max(2.0f, std::round(role * mUnit / 2) * 2);
+            auto& prepared = owner->fonts[roleKey];
+            if (!prepared) {
+                prepared = roleKey == atlasKey ?
+                               mFontAtlas :
+                               Font::get(roleKey, Font::getDefaultPath(), 1024, mFontAtlas);
+                prepareSearchGlyphs(prepared);
+            }
+        }
+        owner->rolesPrepared = true;
+    }
     auto& font = owner->fonts[key];
-    if (!font)
+    if (!font) {
         font =
             key == atlasKey ? mFontAtlas : Font::get(key, Font::getDefaultPath(), 1024, mFontAtlas);
+    }
     mFonts[key] = font;
     return font;
 }
@@ -1636,6 +1665,7 @@ void GuiSearch::update(int deltaTime)
         mLabelCache.clear();
         mSizeCache.clear();
         mKeyboardLabels.clear();
+        mDrawing.clear();
         mFonts.clear();
         mFontAtlas.reset();
         releaseFonts();
@@ -1713,19 +1743,7 @@ void GuiSearch::prepareDraw()
         if (label.background) {
             const auto& r = label.rect;
             const float radius = std::min({10 * mUnit, r.z / 2, r.w / 2});
-            std::vector<glm::vec2> outline;
-            for (int corner {0}; corner < 4; ++corner) {
-                const glm::vec2 origin {corner == 0 || corner == 3 ? r.x + radius :
-                                                                     r.x + r.z - radius,
-                                        corner < 2 ? r.y + radius : r.y + r.w - radius};
-                for (int step {0}; step <= 6; ++step) {
-                    const float angle = (180 + corner * 90 + step * 15) * 3.14159265f / 180;
-                    outline.push_back(origin +
-                                      radius * glm::vec2 {std::cos(angle), std::sin(angle)});
-                }
-            }
-            SearchDrawing::polygon(label.overlay ? borders : mPanelBatch, outline,
-                                   label.background);
+            mDrawing.panel(label.overlay ? borders : mPanelBatch, r, radius, label.background);
         }
         if (label.border) {
             const auto& r = label.rect;
@@ -1751,9 +1769,12 @@ void GuiSearch::prepareDraw()
             label.position.x,
             label.position.y +
                 std::round(std::max(0.0f, (label.text->getSize().y - cache->metrics.size.y) / 2))};
-        SearchDrawing::appendClipped(label.overlay ? mBorderBatch : mTextBatch, *cache, offset,
-                                     label.rect, label.textColor);
+        mDrawing.append(label.overlay ? mBorderBatch : mTextBatch, *cache, label.text->getValue(),
+                        label.text->getFont().get(), label.text->getSize(),
+                        label.text->getHorizontalAlignment(), offset, label.rect,
+                        label.textColor.value_or(mForeground));
     }
+    mPanelAttributes = SearchDrawing::attributes(mPanelBatch);
     if (mBlink < 550) {
         std::vector<Renderer::Vertex> caret;
         SearchDrawing::rectangle(caret,
@@ -1762,6 +1783,8 @@ void GuiSearch::prepareDraw()
                                  mAccent);
         panelFont->appendSolid(&mTextBatch, caret);
     }
+    SearchDrawing::pack(mTextBatch);
+    SearchDrawing::pack(mBorderBatch);
 }
 
 void GuiSearch::render(const glm::mat4& parentTrans)
@@ -1784,9 +1807,9 @@ void GuiSearch::render(const glm::mat4& parentTrans)
     }
     if (!mPanelBatch.empty()) {
         mRenderer->bindTexture(0, 0);
-        mRenderer->drawTriangleStrips(mPanelBatch.data(),
-                                      static_cast<unsigned int>(mPanelBatch.size()),
-                                      Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
+        mRenderer->drawTriangleStrips(
+            mPanelBatch.data(), static_cast<unsigned int>(mPanelBatch.size()),
+            Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO, mPanelAttributes.data());
     }
     if (!mFonts.empty())
         mFonts.begin()->second->renderTextCache(&mTextBatch);

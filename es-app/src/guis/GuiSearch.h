@@ -14,6 +14,7 @@
 #include "components/TextComponent.h"
 #include "search/LibrarySearch.h"
 #include "search/SearchArtwork.h"
+#include "search/SearchDrawing.h"
 
 #include <map>
 #include <optional>
@@ -133,6 +134,8 @@ private:
     std::map<float, std::shared_ptr<Font>> mFonts;
     std::shared_ptr<Font> mFontAtlas;
     std::vector<Label> mLabels;
+    std::vector<Renderer::VertexAttributes> mPanelAttributes;
+    SearchDrawing::Cache mDrawing;
     TextCache mTextBatch;
     TextCache mBorderBatch;
     std::vector<Renderer::Vertex> mPanelBatch;

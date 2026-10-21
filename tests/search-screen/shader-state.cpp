@@ -74,6 +74,9 @@ void glUniformMatrix4fv(GLint location, int count, bool transpose, const GLfloat
         std::abort();
     write(location, std::vector<double>(values, values + 16));
 }
+struct Renderer {
+#include "render-types.inc"
+};
 #include "shader-class.inc"
 #include "shader-methods.inc"
 void ShaderOpenGL::printProgramInfoLog(GLuint) {}

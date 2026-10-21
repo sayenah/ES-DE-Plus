@@ -306,6 +306,7 @@ bool RendererOpenGL::createContext()
     GL_CHECK_ERROR(glBindBuffer(GL_ARRAY_BUFFER, mVertexBuffer1));
     GL_CHECK_ERROR(glGenVertexArrays(1, &mVertexBuffer2));
     GL_CHECK_ERROR(glBindVertexArray(mVertexBuffer2));
+    mLastVertexStride = 0;
 
     uint8_t data[4] {255, 255, 255, 255};
     mWhiteTexture = createTexture(0, TextureType::BGRA, false, false, false, true, 1, 1, data);
@@ -567,8 +568,14 @@ void RendererOpenGL::bindTexture(const unsigned int texture, const unsigned int 
 void RendererOpenGL::drawTriangleStrips(const Vertex* vertices,
                                         const unsigned int numVertices,
                                         const BlendFactor srcBlendFactor,
-                                        const BlendFactor dstBlendFactor)
+                                        const BlendFactor dstBlendFactor,
+                                        const VertexAttributes* attributes)
 {
+    static_assert(offsetof(VertexAttributes, position) == offsetof(Vertex, position));
+    static_assert(offsetof(VertexAttributes, texcoord) == offsetof(Vertex, texcoord));
+    static_assert(offsetof(VertexAttributes, color) == offsetof(Vertex, color));
+    const unsigned int stride = attributes ? sizeof(VertexAttributes) : sizeof(Vertex);
+    const void* data = attributes ? static_cast<const void*>(attributes) : vertices;
     const float width {vertices[3].position[0] - vertices[1].position[0]};
     const float height {vertices[3].position[1] - vertices[2].position[1]};
 
@@ -582,10 +589,12 @@ void RendererOpenGL::drawTriangleStrips(const Vertex* vertices,
             if (mLastShader != mCoreShader)
                 mCoreShader->activateShaders();
             mCoreShader->setModelViewProjectionMatrix(mTrans);
-            if (mLastShader != mCoreShader)
-                mCoreShader->setAttribPointers();
-            GL_CHECK_ERROR(glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * numVertices, vertices,
-                                        GL_DYNAMIC_DRAW));
+            if (mLastShader != mCoreShader || mLastVertexStride != stride) {
+                mCoreShader->setAttribPointers(stride);
+                mLastVertexStride = stride;
+            }
+            GL_CHECK_ERROR(
+                glBufferData(GL_ARRAY_BUFFER, stride * numVertices, data, GL_DYNAMIC_DRAW));
             mCoreShader->setTextureSamplers();
             mCoreShader->setTextureSize({width, height});
             mCoreShader->setClipRegion(vertices->clipRegion);
@@ -611,10 +620,12 @@ void RendererOpenGL::drawTriangleStrips(const Vertex* vertices,
             if (mLastShader != mBlurHorizontalShader)
                 mBlurHorizontalShader->activateShaders();
             mBlurHorizontalShader->setModelViewProjectionMatrix(mTrans);
-            if (mLastShader != mBlurHorizontalShader)
-                mBlurHorizontalShader->setAttribPointers();
-            GL_CHECK_ERROR(glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * numVertices, vertices,
-                                        GL_DYNAMIC_DRAW));
+            if (mLastShader != mBlurHorizontalShader || mLastVertexStride != stride) {
+                mBlurHorizontalShader->setAttribPointers(stride);
+                mLastVertexStride = stride;
+            }
+            GL_CHECK_ERROR(
+                glBufferData(GL_ARRAY_BUFFER, stride * numVertices, data, GL_DYNAMIC_DRAW));
             mBlurHorizontalShader->setBlurStrength((vertices->blurStrength / getScreenWidth()) *
                                                    getScreenResolutionModifier());
             mBlurHorizontalShader->setFlags(vertices->shaderFlags);
@@ -630,10 +641,12 @@ void RendererOpenGL::drawTriangleStrips(const Vertex* vertices,
             if (mLastShader != mBlurVerticalShader)
                 mBlurVerticalShader->activateShaders();
             mBlurVerticalShader->setModelViewProjectionMatrix(mTrans);
-            if (mLastShader != mBlurVerticalShader)
-                mBlurVerticalShader->setAttribPointers();
-            GL_CHECK_ERROR(glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * numVertices, vertices,
-                                        GL_DYNAMIC_DRAW));
+            if (mLastShader != mBlurVerticalShader || mLastVertexStride != stride) {
+                mBlurVerticalShader->setAttribPointers(stride);
+                mLastVertexStride = stride;
+            }
+            GL_CHECK_ERROR(
+                glBufferData(GL_ARRAY_BUFFER, stride * numVertices, data, GL_DYNAMIC_DRAW));
             mBlurVerticalShader->setBlurStrength((vertices->blurStrength / getScreenHeight()) *
                                                  getScreenResolutionModifier());
             mBlurVerticalShader->setFlags(vertices->shaderFlags);
@@ -668,10 +681,12 @@ void RendererOpenGL::drawTriangleStrips(const Vertex* vertices,
             if (mLastShader != mScanlinelShader)
                 mScanlinelShader->activateShaders();
             mScanlinelShader->setModelViewProjectionMatrix(mTrans);
-            if (mLastShader != mScanlinelShader)
-                mScanlinelShader->setAttribPointers();
-            GL_CHECK_ERROR(glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * numVertices, vertices,
-                                        GL_DYNAMIC_DRAW));
+            if (mLastShader != mScanlinelShader || mLastVertexStride != stride) {
+                mScanlinelShader->setAttribPointers(stride);
+                mLastVertexStride = stride;
+            }
+            GL_CHECK_ERROR(
+                glBufferData(GL_ARRAY_BUFFER, stride * numVertices, data, GL_DYNAMIC_DRAW));
             mScanlinelShader->setOpacity(vertices->opacity);
             mScanlinelShader->setBrightness(vertices->brightness);
             mScanlinelShader->setSaturation(vertices->saturation);

@@ -81,7 +81,7 @@ public:
     // One-way communication with the compiled shaders.
     void setModelViewProjectionMatrix(glm::mat4 mvpMatrix);
 
-    void setAttribPointers();
+    void setAttribPointers(unsigned int stride = sizeof(Renderer::Vertex));
     void setTextureSamplers();
     void setTextureSize(std::array<GLfloat, 2> shaderVec2);
     void setClipRegion(glm::vec4 clipRegion);

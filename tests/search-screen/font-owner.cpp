@@ -31,7 +31,30 @@ struct ResourceManager {
     }
     void addReloadable(std::weak_ptr<IReloadable> value) { owner = value; }
 };
+struct TextCache {
+};
+
 struct Font {
+    inline static int warmups {0};
+    TextCache* buildTextCache(const std::string& text,
+                              float,
+                              float,
+                              float,
+                              float,
+                              float,
+                              int,
+                              unsigned int,
+                              bool,
+                              bool,
+                              bool)
+    {
+        ++warmups;
+        if (text.find("ABC") != 0 || text.find("xyz") == std::string::npos ||
+            text.find("fi fl ff ffi ffl") == std::string::npos ||
+            text.find("á") == std::string::npos)
+            std::abort();
+        return new TextCache {};
+    }
     float size;
     static std::string getDefaultPath() { return "menu.ttf"; }
     static std::shared_ptr<Font> get(float size,
@@ -53,6 +76,13 @@ struct TextComponent {
     std::shared_ptr<Font> font;
     glm::vec3 position;
     glm::vec2 size;
+    TextComponent(const std::string& text, std::shared_ptr<Font> f, unsigned int color)
+        : font {f}
+        , position {}
+        , size {}
+    {
+        delete font->buildTextCache(text, 0, 0, 0, 0, 1.15f, 0, color, false, false, false);
+    }
     TextComponent(const std::string& text,
                   std::shared_ptr<Font> f,
                   unsigned int,
@@ -78,7 +108,9 @@ struct TextComponent {
     void setText(const std::string& text) { value = text; }
     glm::vec3 getPosition() { return position; }
 };
+#include "search-alphabet.inc"
 #include "search-font-owner.inc"
+#include "search-glyph-prepare.inc"
 class GuiSearch
 {
 public:
@@ -130,11 +162,14 @@ int main()
         retained = first.searchFont(32);
         require(first.searchFont(32) == retained.lock());
         require(searchFonts()->atlas == first.mFontAtlas);
+        require(searchFonts()->fonts.size() == 3 && searchFonts()->rolesPrepared);
+        require(Font::warmups == 3);
     }
     require(!retained.expired());
     {
         GuiSearch second;
         require(second.searchFont(32) == retained.lock());
+        require(Font::warmups == 3);
         second.label("Final Fantasy VII", {0, 0, 600, 60}, 32, 0xFFFFFFFF);
         const int shaped = TextComponent::shaped;
         second.label("Final Fantasy VII", {300, 100, 600, 60}, 32, 0xFF0000FF);
@@ -145,6 +180,7 @@ int main()
         require(second.mLabels[1].textColor == 0xFF0000FF);
         second.label("Final Fantasy VII", {0, 0, 600, 60}, 40, 0xFFFFFFFF);
         require(TextComponent::shaped == shaped + 1);
+        require(Font::warmups == 3);
         second.label("Final Fight", {0, 0, 600, 60}, 32, 0xFFFFFFFF);
         require(TextComponent::shaped == shaped + 2);
     }
@@ -165,5 +201,6 @@ int main()
     auto& manager = ResourceManager::getInstance();
     manager.owner.lock()->unload(manager);
     require(retained.expired() && searchFonts()->fonts.empty() && !searchFonts()->atlas);
+    require(!searchFonts()->rolesPrepared);
     std::cout << "PASS: " << checks << " production font lifetime / shaped-label checks\n";
 }

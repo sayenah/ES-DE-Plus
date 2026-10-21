@@ -53,6 +53,8 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                          ('label', 'void GuiSearch::label('),
                          ('size', 'glm::vec2 GuiSearch::textSize(')]:
         (build / ('search-' + name + '.inc')).write_text(method(marker, search))
+    (build / 'search-glyph-prepare.inc').write_text(method('void prepareSearchGlyphs(', search))
+    (build / 'search-alphabet.inc').write_text(method('constexpr char searchAlphabet', search) + ';\n')
     (build / 'renderer-prepare.inc').write_text(method('void GuiSearch::prepareRenderer(', search))
     (build / 'search-render.inc').write_text(method('void GuiSearch::render(', search))
     renderer = (root / 'es-core/src/renderers/RendererOpenGL.cpp').read_text()
@@ -82,6 +84,15 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
         method('void RendererOpenGL::endErrorBatch(', renderer))
     start = shader_header.index('#if !defined(NDEBUG)\n#define GL_CHECK_ERROR')
     (build / 'error-check.inc').write_text(shader_header[start:shader_header.index('\nclass ShaderOpenGL', start)])
+    renderer_header = (root / 'es-core/src/renderers/Renderer.h').read_text()
+    types = ['enum class BlendFactor', 'enum Shader {', 'enum ShaderFlags {',
+             'struct VertexAttributes {', 'struct Vertex {']
+    (build / 'render-types.inc').write_text('\n'.join(method(marker, renderer_header) + ';' for marker in types))
+    (build / 'text-cache-class.inc').write_text(method('class TextCache\n', header) + ';\n')
+    (build / 'packed-draw.inc').write_text(method('void RendererOpenGL::drawTriangleStrips(', renderer))
+    (build / 'attribute-layout.inc').write_text(method('void ShaderOpenGL::setAttribPointers(', shader))
+    (build / 'font-render.inc').write_text(method('void Font::renderTextCache('))
+    (build / 'font-cache-color.inc').write_text(method('void TextCache::setColor('))
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -90,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'render-state', 'atlas-upload', 'renderer-prepare', 'shader-state', 'error-batch', 'geometry-cache', 'packed-draw']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)

@@ -525,7 +525,8 @@ void Font::renderTextCache(TextCache* cache)
         mRenderer->bindTexture(*it->textureIdPtr, 0);
         mRenderer->drawTriangleStrips(
             &it->verts[0], static_cast<const unsigned int>(it->verts.size()),
-            Renderer::BlendFactor::SRC_ALPHA, Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA);
+            Renderer::BlendFactor::SRC_ALPHA, Renderer::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            it->attributes.size() == it->verts.size() ? it->attributes.data() : nullptr);
     }
 }
 
@@ -1527,9 +1528,12 @@ Font::Glyph* Font::getGlyphByIndex(const unsigned int id, hb_font_t* fontArg, in
 
 void TextCache::setColor(unsigned int color)
 {
-    for (auto it = vertexLists.begin(); it != vertexLists.end(); ++it)
+    for (auto it = vertexLists.begin(); it != vertexLists.end(); ++it) {
         for (auto it2 = it->verts.begin(); it2 != it->verts.end(); ++it2)
             it2->color = color;
+        for (auto& attribute : it->attributes)
+            attribute.color = color;
+    }
 }
 
 void TextCache::setOpacity(float opacity)

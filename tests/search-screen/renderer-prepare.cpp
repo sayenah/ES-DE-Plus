@@ -69,7 +69,31 @@ struct TextCache {
     glm::vec4 clip {1};
     void setClipRegion(glm::vec4 value) { clip = value; }
 };
+enum Alignment {
+    ALIGN_LEFT
+};
+
 struct Font {
+    inline static int warmups {0};
+    TextCache* buildTextCache(const std::string& text,
+                              float,
+                              float,
+                              float,
+                              float,
+                              float,
+                              int,
+                              unsigned int,
+                              bool,
+                              bool,
+                              bool)
+    {
+        ++warmups;
+        if (text.find("ABC") != 0 || text.find("xyz") == std::string::npos ||
+            text.find("fi fl ff ffi ffl") == std::string::npos ||
+            text.find("á") == std::string::npos)
+            std::abort();
+        return new TextCache {};
+    }
     inline static int allocations {0}, draws {0};
     static std::string getDefaultPath() { return "menu.ttf"; }
     static std::shared_ptr<Font> get(float size, const std::string& path, int atlas)
@@ -88,10 +112,17 @@ struct Font {
 };
 struct TextComponent {
     TextCache cache;
-    TextComponent(const std::string& text, std::shared_ptr<Font>, unsigned int color)
+    TextComponent(const std::string& text, std::shared_ptr<Font> font, unsigned int color)
     {
-        if (text != "A" || color != 0xFFFFFF80)
-            std::abort();
+        if (text == "A") {
+            if (color != 0xFFFFFF80)
+                std::abort();
+        }
+        else {
+            if (color != 0xFFFFFFFF)
+                std::abort();
+            delete font->buildTextCache(text, 0, 0, 0, 0, 1.15f, 0, color, false, false, false);
+        }
     }
     const TextCache* getTextCache() { return &cache; }
 };
@@ -132,6 +163,9 @@ struct ImageComponent {
         Renderer::getInstance()->matrix = glm::mat4 {0};
     }
 };
+#include "search-alphabet.inc"
+#include "search-glyph-prepare.inc"
+
 struct SearchFonts {
     glm::vec2 screen;
     std::shared_ptr<Font> atlas;
@@ -161,6 +195,7 @@ int main()
     GuiSearch::prepareRenderer();
     auto* renderer = Renderer::getInstance();
     require(Font::allocations == 1 && Font::draws == 1);
+    require(Font::warmups == 1);
     require(searchFonts()->atlas == searchFonts()->fonts.at(40));
     require(searchFonts()->screen == glm::vec2(1920, 1080));
     require(renderer->panels == 1 && ImageComponent::draws == 2);
@@ -173,6 +208,7 @@ int main()
     require(renderer->finishes == 1 && renderer->clears == 1 && renderer->panels == 1);
     require(Font::allocations == 1 && Font::draws == 1 && ImageComponent::draws == 2);
     require(messages.str() == log);
+    require(Font::warmups == 1);
     searchFonts()->fonts.clear();
     searchFonts()->atlas.reset();
     Renderer::width = 2560;
@@ -181,5 +217,6 @@ int main()
     require(!searchFonts()->atlas && Font::allocations == 1);
     require(renderer->finishes == 1 && renderer->clears == 1 && ImageComponent::draws == 2);
     require(renderer->swaps == 0 && messages.str() == log);
+    require(Font::warmups == 1);
     std::printf("PASS: %d production once-per-process material preparation checks\n", checks);
 }

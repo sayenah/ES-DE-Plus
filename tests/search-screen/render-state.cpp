@@ -59,6 +59,8 @@ struct Renderer {
         ONE,
         ZERO
     };
+    struct VertexAttributes {
+    };
     struct Vertex {
         glm::vec2 position;
     };
@@ -102,7 +104,8 @@ struct Renderer {
     void drawTriangleStrips(const Vertex*,
                             unsigned int count,
                             BlendFactor source,
-                            BlendFactor destination)
+                            BlendFactor destination,
+                            const VertexAttributes*)
     {
         require(count == 4 && texture == 0);
         require(source == BlendFactor::ONE && destination == BlendFactor::ZERO);
@@ -146,6 +149,7 @@ public:
     TextCache mTextBatch {1}, mBorderBatch {2};
     std::map<float, std::shared_ptr<Font>> mFonts;
     std::vector<Renderer::Vertex> mPanelBatch {4};
+    std::vector<Renderer::VertexAttributes> mPanelAttributes {4};
     std::vector<Cover> mCovers;
     double mQueryWorkMs {0};
     std::string mPresentedQuery;
