@@ -90,6 +90,15 @@ public:
         SDL_StartTextInput();
     }
 };
+struct Window {
+    GuiComponent* gui {nullptr};
+    static Window* getInstance()
+    {
+        static Window window;
+        return &window;
+    }
+    GuiComponent* peekGui() { return gui; }
+};
 #include "search-entry-declaration.inc"
 #include "search-entry-implementation.inc"
 
@@ -98,6 +107,7 @@ int main()
     InputConfig keyboard;
     GuiComponent view, modal;
     modal.browsing = false;
+    Window::getInstance()->gui = &view;
     {
         SearchTextInput input;
         input.prepare(&view, &keyboard);
@@ -179,10 +189,28 @@ int main()
         input.keyUp();
         require(active); // The field owns CJK composition across key release.
         // An actual modal field keeps its own text session.
+        Window::getInstance()->gui = &modal;
         input.prepare(&modal, &keyboard);
         require(active);
         watch(watchContext, &event);
         require(active && view.opened.size() == 3);
+        // A GUI may be popped while the same event pump is still running, before
+        // the next prepare(). The watch must compare live ownership before access.
+        auto* closed = new GuiComponent;
+        closed->browsing = false;
+        Window::getInstance()->gui = closed;
+        input.prepare(closed, &keyboard);
+        delete closed;
+        Window::getInstance()->gui = &view;
+        SDL_StopTextInput();
+        view.browsing = true;
+        watch(watchContext, &event);
+        require(!active);
+        input.prepare(&view, &keyboard);
+        watch(watchContext, &event);
+        require(active);
+        input.keyUp();
+        require(!active);
 #endif
     }
     require(watches == 0);

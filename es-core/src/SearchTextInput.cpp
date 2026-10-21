@@ -9,6 +9,7 @@
 #include "SearchTextInput.h"
 
 #include "GuiComponent.h"
+#include "Window.h"
 
 #include <SDL2/SDL.h>
 
@@ -39,7 +40,8 @@ int SearchTextInput::watchKey(void* context, SDL_Event* event)
     // SDL watches may run on other threads. Only the normal desktop event pump
     // may touch input state or activate the platform IME.
     if (SDL_ThreadID() != self.mEventThread || event->type != SDL_KEYDOWN || event->key.repeat ||
-        !self.mOwner || !self.mOwner->acceptsSearchText() || !self.mKeyboard)
+        !self.mOwner || Window::getInstance()->peekGui() != self.mOwner ||
+        !self.mOwner->acceptsSearchText() || !self.mKeyboard)
         return 1;
     Input input {DEVICE_KEYBOARD, TYPE_KEY, event->key.keysym.sym, 1, false};
     input.modifiers = static_cast<SDL_Keymod>(event->key.keysym.mod);
