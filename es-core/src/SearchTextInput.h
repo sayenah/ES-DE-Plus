@@ -21,6 +21,9 @@ class SearchTextInput
 {
 public:
     ~SearchTextInput();
+#if !defined(__ANDROID__) && !defined(__IOS__)
+    void reset();
+#endif
     void prepare(GuiComponent* gui, InputConfig* keyboard);
     void keyDown(
         InputConfig* config, Input input, bool browsing, GuiComponent* before, GuiComponent* after);

@@ -129,6 +129,9 @@ void InputManager::init()
 
 void InputManager::deinit()
 {
+#if !defined(__ANDROID__) && !defined(__IOS__)
+    mSearchTextInput.reset();
+#endif
 #if defined(__ANDROID__)
     mWindow->setTouchInputActive(false);
 #endif

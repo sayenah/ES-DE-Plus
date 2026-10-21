@@ -28,12 +28,26 @@ namespace
 SearchTextInput::~SearchTextInput()
 {
 #if !defined(__ANDROID__) && !defined(__IOS__)
-    if (mEventThread)
-        SDL_DelEventWatch(watchKey, this);
+    reset();
 #endif
 }
 
 #if !defined(__ANDROID__) && !defined(__IOS__)
+void SearchTextInput::reset()
+{
+    // Renderer teardown calls SDL_Quit, which clears event watches. Retire this
+    // registration while SDL is alive so prepare() can arm the next lifetime.
+    if (mEventThread)
+        SDL_DelEventWatch(watchKey, this);
+    mEventThread = 0;
+    endTemporaryText();
+    mKeyboard = nullptr;
+    mOwner = nullptr;
+    mText.clear();
+    mKeyReady = false;
+    mSuppressText = false;
+}
+
 int SearchTextInput::watchKey(void* context, SDL_Event* event)
 {
     auto& self = *static_cast<SearchTextInput*>(context);

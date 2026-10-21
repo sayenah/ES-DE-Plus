@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Compile production rendering/artwork methods in isolation.
 import pathlib
+import os
 import shlex
 import subprocess
 import tempfile
@@ -64,6 +65,10 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
         (build / ('search-entry-' + part + '.inc')).write_text('\n'.join(
             line for line in (root / path).read_text().splitlines()
             if not line.startswith('#include')))
+    input_manager = (root / 'es-core/src/InputManager.cpp').read_text()
+    teardown = method('void InputManager::deinit()', input_manager)
+    (build / 'entry-deinit.inc').write_text(
+        'input.reset();\n' if 'mSearchTextInput.reset();' in teardown else '')
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -87,3 +92,9 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                                           str(root / 'tests/search-screen/entry-input.cpp'),
                                           '-o', str(executable)], check=True)
                 subprocess.run([str(executable)], check=True)
+    sdl_libraries = shlex.split(subprocess.check_output(['pkg-config', '--libs', 'sdl2'], text=True))
+    lifecycle = build / 'entry-lifecycle'
+    subprocess.run(command + [str(root / 'tests/search-screen/entry-lifecycle.cpp'),
+                              *sdl_libraries, '-o', str(lifecycle)], check=True)
+    subprocess.run([str(lifecycle)], check=True, timeout=15,
+                   env={**os.environ, 'SDL_VIDEODRIVER': 'dummy', 'SDL_VIDEO_DRIVER': 'dummy'})
