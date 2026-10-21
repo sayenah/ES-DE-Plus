@@ -160,6 +160,10 @@ int main()
             "ordinary texture dimensions are unchanged");
     require(Font::FontTexture(26, 1024).textureSize == glm::ivec2 {1024, 1024},
             "requested search atlas size");
+    require(Font::FontTexture(40, 256).textureSize == glm::ivec2 {256, 256},
+            "search starts with a bounded page allocation");
+    require(Font::FontTexture(60, 256).textureSize == glm::ivec2 {360, 360},
+            "search page still scales with large font glyphs");
     require(Font::FontTexture(300, 1024).textureSize == glm::ivec2 {1800, 1800},
             "an atlas request never reduces space for large glyphs");
     require(Font::get(26, "missing.ttf") == ordinary, "default font path fallback is unchanged");

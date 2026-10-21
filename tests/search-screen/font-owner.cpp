@@ -78,6 +78,13 @@ struct Output {
     Output {}
 double threadCpuMilliseconds() { return -1; }
 double elapsedThreadCpu(double) { return -1; }
+std::string localized(const char* text)
+{
+    return std::string {text} == "No games match ‘%s’." ?
+               "Keine Spiele entsprechen dem Suchbegriff „%s“." :
+               text;
+}
+#define _(text) localized(text)
 
 struct ResourceManager;
 struct IReloadable {
@@ -127,9 +134,11 @@ struct Font {
     static std::string getDefaultPath() { return "menu.ttf"; }
     static std::shared_ptr<Font> get(float size,
                                      const std::string&,
-                                     int,
+                                     int atlasSize,
                                      std::shared_ptr<Font> = {})
     {
+        if (atlasSize != 256)
+            std::abort();
         PreparationClock::work();
         auto font = std::make_shared<Font>();
         font->size = size;
@@ -192,6 +201,7 @@ struct TextComponent {
 // clang-format off
 #include "search-alphabet.inc"
 #include "search-roles.inc"
+#include "search-atlas-size.inc"
 #include "search-font-owner.inc"
 #include "search-glyph-prepare.inc"
 #include "search-next-character.inc"
@@ -264,18 +274,21 @@ int main()
         while (!searchFonts()->rolesPrepared && chunks++ < 1000) {
             const auto start = PreparationClock::now();
             GuiSearch::prepareRenderer();
-            // Two 1ms atomic tasks, then one real atlas sampling draw (also 1ms).
-            require(PreparationClock::now() - start <= std::chrono::milliseconds {3});
+            // Only two 1ms atomic tasks; sampling waits until opening, after uploads.
+            require(PreparationClock::now() - start <= std::chrono::milliseconds {2});
         }
         require(chunks > 3 && chunks < 1000);
         require(searchFonts()->fonts.size() == 3 && searchFonts()->rolesPrepared);
         for (const auto& entry : searchFonts()->fonts) {
             require(entry.second->prepared.find("ABCDEFGHIJKLMNOPQRSTUVWXYZ") == 0);
             require(entry.second->prepared.find("á") != std::string::npos);
+            require(entry.second->prepared.find("„") != std::string::npos);
+            require(entry.second->prepared.find("“") != std::string::npos);
             require(entry.second->prepared.find("fi fl ff ffi ffl") != std::string::npos);
         }
         preparedWarmups = Font::warmups;
         const auto draws = Font::draws;
+        require(draws == 0);
         GuiSearch::prepareRenderer();
         require(Font::draws == draws);
         GuiSearch::prepareRenderer(true);

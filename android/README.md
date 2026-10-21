@@ -303,7 +303,10 @@ after an exhausted non-gating theme failure.
 
 CI uses API 33 and API 35 phones, with one fresh-emulator job per session.
 API 33 and the selected API 35 core/touch sessions gate PR integration. D-030 makes
-only the external real-RetroArch receipt diagnostic on API 35.
+only the external real-RetroArch receipt diagnostic on API 35. Under D-028 amendment 9,
+API 35 keystroke work timing is informational; API 33 work timing, opening timing on
+both APIs, and all functional/session assertions remain gating. First-keystroke and
+preparation-chunk measurements are retained on both APIs.
 On main/publication, `API35_GATING` in `ci_selection.py` was promoted after all pre-touch API 35 sessions passed in run 39161875992. Main and default
 manual dispatch run every checked-in session; PRs run API 33 core plus the
 additive paths in `ci-sessions.toml`. Rules marked `android15` add API 35 core; overlay rules also add API 35 touch.

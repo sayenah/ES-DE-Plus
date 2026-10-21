@@ -44,6 +44,9 @@ namespace
 {
     using PreparationClock = std::chrono::steady_clock;
     constexpr std::array<float, 3> searchRoles {40, 32, 26};
+    // The inherited allocator grows to at least six times the font size and
+    // adds pages as needed. Avoid one large, indivisible GL allocation at startup.
+    constexpr unsigned int searchAtlasSize {256};
     constexpr char searchAlphabet[] {
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
         "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ fi fl ff ffi ffl "
@@ -68,6 +71,7 @@ namespace
         bool rolesPrepared {false};
         size_t role {0};
         size_t glyph {0};
+        std::string alphabet;
         TextCache samples {};
         void unload(ResourceManager&) override
         {
@@ -77,6 +81,7 @@ namespace
             rolesPrepared = false;
             role = 0;
             glyph = 0;
+            alphabet.clear();
         }
         void reload(ResourceManager&) override {}
         void step();
@@ -162,12 +167,20 @@ namespace
         auto& font = fonts[key];
         if (!font) {
             if (!atlas)
-                atlas = Font::get(key, Font::getDefaultPath(), 1024);
+                atlas = Font::get(key, Font::getDefaultPath(), searchAtlasSize);
             const float atlasKey = std::max(2.0f, std::round(40 * unit / 2) * 2);
-            font = key == atlasKey ? atlas : Font::get(key, Font::getDefaultPath(), 1024, atlas);
+            font = key == atlasKey ? atlas :
+                                     Font::get(key, Font::getDefaultPath(), searchAtlasSize, atlas);
             return;
         }
-        const std::string alphabet {searchAlphabet};
+        // Result-only translations may contain glyphs absent from the keyboard
+        // alphabet (for example German quotation marks). Upload them before the
+        // atlas is first sampled instead of during the first no-results layout.
+        if (alphabet.empty())
+            alphabet = std::string {searchAlphabet} + " " + _("Best match") + " " +
+                       _("No games match ‘%s’.") + " " + _("Did you mean") + " " +
+                       _("Try another system or remove a filter.") + " " + _("favorite") + " " +
+                       _("Last played") + " " + _("today") + " " + _("yesterday");
         if (glyph < alphabet.size()) {
             const auto end = nextCharacter(alphabet, glyph);
             prepareSearchGlyphs(font, alphabet.substr(glyph, end - glyph), samples);
@@ -231,11 +244,13 @@ void GuiSearch::prepareRenderer(bool opening)
         owner->step();
         ++tasks;
     } while (opening || PreparationClock::now() - start < std::chrono::milliseconds {2});
-    if (owner->atlas && owner->samples.getBatchCount()) {
+    if (opening && owner->atlas && owner->samples.getBatchCount()) {
         auto* renderer = Renderer::getInstance();
         renderer->setMatrix(glm::mat4 {1});
         // Actually sample every prepared atlas so deferred driver/upload work is
-        // paid before typing. No synthetic textures, fences or app-wide GL changes.
+        // paid before typing. Do not interleave atlas reads with idle uploads:
+        // that creates a read/write hazard and driver waits in otherwise small
+        // chunks.
         owner->atlas->renderTextCache(&owner->samples);
         // swapBuffers() has just cleared the back buffer. Restore its one pixel;
         // opening also runs before the screen's first normal full-surface render.
@@ -493,12 +508,13 @@ std::shared_ptr<Font> GuiSearch::searchFont(float size)
         owner->screen = mSize;
     }
     if (!owner->atlas)
-        owner->atlas = Font::get(atlasKey, Font::getDefaultPath(), 1024);
+        owner->atlas = Font::get(atlasKey, Font::getDefaultPath(), searchAtlasSize);
     mFontAtlas = owner->atlas;
     auto& font = owner->fonts[key];
     if (!font) {
-        font =
-            key == atlasKey ? mFontAtlas : Font::get(key, Font::getDefaultPath(), 1024, mFontAtlas);
+        font = key == atlasKey ?
+                   mFontAtlas :
+                   Font::get(key, Font::getDefaultPath(), searchAtlasSize, mFontAtlas);
     }
     mFonts[key] = font;
     return font;

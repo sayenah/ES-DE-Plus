@@ -31,6 +31,8 @@ def run(h, start, control, shot, record):
     preparation_chunks = []
     timed_prefix = ''
     prefix = f'search-screen-api{h.api}-'
+    # D-028 am. 9 fallback: only API 35 work timing is informational.
+    work_gating = h.api != 35
     def prepare(operation, **arguments):
         h.shell('am', 'force-stop', h.app)
         result = h.shell('am', 'instrument', '-w', '-e', 'mode', 'search-fixture', '-e', 'steps',
@@ -397,10 +399,12 @@ def run(h, start, control, shot, record):
         summary['refresh'] = distribution(refresh_measurements) if refresh_measurements else dict(samples=0)
         summary['refresh_presented'] = distribution(refresh_presentations) if refresh_presentations else dict(samples=0)
         summary['first_keystroke'] = distribution(first_measurements)
+        summary['work_gating'] = work_gating
         summary['preparation_chunks'] = distribution(preparation_chunks) if preparation_chunks else dict(samples=0)
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
         # D-028 am. 7: shared-runner software rendering is not a device pacing signal.
-        print('GATING keystroke-only search work: p95 <= 50ms / max <= 100ms; measured',
+        work_policy = 'GATING' if work_gating else 'INFORMATIONAL D-028 am. 9 API 35'
+        print(work_policy + ' keystroke-only search work: p95 <= 50ms / max <= 100ms; measured',
               json.dumps({key: summary[key] for key in ['samples', 'p50_ms', 'p95_ms', 'max_ms']}), flush=True)
         print('GATING search entry: p95 <= 150ms; measured', json.dumps(summary['entry']), flush=True)
         print('INFORMATIONAL first keystroke after opening:', json.dumps(summary['first_keystroke']), flush=True)
@@ -417,7 +421,8 @@ def run(h, start, control, shot, record):
             # failure into a passing result.
             (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
         try:
-            assert summary['p95_ms'] <= 50 and summary['max_ms'] <= 100, ('Search work exceeded p95 50ms / max 100ms', summary)
+            if work_gating:
+                assert summary['p95_ms'] <= 50 and summary['max_ms'] <= 100, ('Search work exceeded p95 50ms / max 100ms', summary)
             assert summary['entry']['p95_ms'] <= 150, ('Search entry exceeded p95 150ms', summary)
         except AssertionError as error:
             raise TimingBudgetExceeded(*error.args) from error

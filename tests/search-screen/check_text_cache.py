@@ -46,6 +46,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     (build / 'search-glyph-prepare.inc').write_text(method('void prepareSearchGlyphs(', search))
     (build / 'search-alphabet.inc').write_text(method('constexpr char searchAlphabet', search) + ';\n')
     (build / 'search-roles.inc').write_text(method('constexpr std::array<float, 3> searchRoles', search) + ';\n')
+    (build / 'search-atlas-size.inc').write_text(method('constexpr unsigned int searchAtlasSize', search) + ';\n')
     (build / 'search-next-character.inc').write_text(method('size_t nextCharacter(', search))
     (build / 'search-font-step.inc').write_text(method('void SearchFonts::step(', search))
     (build / 'search-prepare.inc').write_text(method('void GuiSearch::prepareRenderer(', search))

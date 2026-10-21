@@ -24,8 +24,10 @@ def compile_nodes(nodes):
                    'actual search timing checks', 'exec')
 
 body = next(node for node in run_body(path).body if isinstance(node, ast.Try)).body
-check = next(node for node in body if isinstance(node, ast.Try) and node.body and
-             isinstance(node.body[0], ast.Assert))
+check = next(node for node in body if isinstance(node, ast.Try) and
+             any('TimingBudgetExceeded' in ast.unparse(handler) for handler in node.handlers))
+policy = next(node for node in run_body(path).body if isinstance(node, ast.Assign) and
+              ast.unparse(node.targets[0]) == 'work_gating')
 gate = compile_nodes([check])
 caller = run_body(root / 'android/touch_smoke.py')
 journey = next(node for node in caller.body if isinstance(node, ast.Try) and
@@ -47,25 +49,33 @@ flow_function = ast.FunctionDef(name='exercise', args=ast.arguments(posonlyargs=
 flow = compile_nodes([flow_function, ast.Expr(ast.Call(ast.Name('exercise', ast.Load()), [], []))])
 checks = 1
 
-for p95, maximum, entry, presented, message in [
-    (20, 33, 150, 50, None),
-    (50, 100, 150, 1000, None),
-    (50.001, 100, 150, 50, 'Search work exceeded p95 50ms / max 100ms'),
-    (20, 100.001, 150, 50, 'Search work exceeded p95 50ms / max 100ms'),
-    (19, 32, 150.001, 50, 'Search entry exceeded p95 150ms'),
-    (20.001, 33.001, 149, 100000, None),
-    (22.6001, 28.2229, 72.324, 87.043, None),
-    (37.6403, 77.0527, 74.4614, 141.538, None),
-    (19, 143.496, 149, 49, 'Search work exceeded p95 50ms / max 100ms')]:
-    summary = dict(samples=64, p95_ms=p95, max_ms=maximum,
-                   entry=dict(p95_ms=entry), presented=dict(max_ms=presented))
-    try:
-        exec(gate, dict(summary=summary, TimingBudgetExceeded=subject.TimingBudgetExceeded))
-    except subject.TimingBudgetExceeded as error:
-        assert message and error.args == ((message, summary),)
-    else:
-        assert message is None
+for api in [33, 35, 36]:
+    namespace = dict(h=SimpleNamespace(api=api))
+    exec(compile_nodes([policy]), namespace)
+    work_gating = namespace['work_gating']
+    assert work_gating == (api != 35)
     checks += 1
+    for p95, maximum, entry, presented, message in [
+        (20, 33, 150, 50, None),
+        (50, 100, 150, 1000, None),
+        (50.001, 100, 150, 50, 'Search work exceeded p95 50ms / max 100ms'),
+        (20, 100.001, 150, 50, 'Search work exceeded p95 50ms / max 100ms'),
+        (19, 32, 150.001, 50, 'Search entry exceeded p95 150ms'),
+        (20.001, 33.001, 149, 100000, None),
+        (22.6001, 28.2229, 72.324, 87.043, None),
+        (37.6403, 77.0527, 74.4614, 141.538, None),
+        (19, 143.496, 149, 49, 'Search work exceeded p95 50ms / max 100ms')]:
+        summary = dict(samples=64, p95_ms=p95, max_ms=maximum,
+                       entry=dict(p95_ms=entry), presented=dict(max_ms=presented))
+        if not work_gating and message and message.startswith('Search work exceeded'):
+            message = None
+        try:
+            exec(gate, dict(summary=summary, work_gating=work_gating, TimingBudgetExceeded=subject.TimingBudgetExceeded))
+        except subject.TimingBudgetExceeded as error:
+            assert message and error.args == ((message, summary),)
+        else:
+            assert message is None
+        checks += 1
 
 # Execute Linux's actual reporting/assertion block against the same boundaries.
 # Presentation and am. 6 targets must remain visible without failing either path.
@@ -336,4 +346,4 @@ for nodes, label, activation in [(body, 'A closes search into game list', 'pad(0
     exec(compile_nodes([before, nodes[shown - 1], nodes[shown], actual]), env)
     checks += 1
 
-print(f'PASS: {checks} actual timing/phase controls; exact failures stay hard; fresh overlay runs after failed search')
+print(f'PASS: {checks} actual timing/phase controls; API 33 work and both opening gates stay hard; API 35 work informational; fresh overlay runs after failed search')
