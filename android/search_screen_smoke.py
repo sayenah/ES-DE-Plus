@@ -381,6 +381,13 @@ def run(h, start, control, shot, record):
         summary['presented'] = distribution(presentations)
         summary['entry'] = distribution(entries)
         (h.evidence / 'search-screen-timing.json').write_text(json.dumps(summary, indent=2) + '\n')
+        # D-028 am. 7: shared-runner software rendering is not a device pacing signal.
+        print('GATING search work: p95 <= 50ms / max <= 100ms; measured',
+              json.dumps({key: summary[key] for key in ['samples', 'p50_ms', 'p95_ms', 'max_ms']}), flush=True)
+        print('GATING search entry: p95 <= 150ms; measured', json.dumps(summary['entry']), flush=True)
+        print('INFORMATIONAL presented intervals (no CI limit):', json.dumps(summary['presented']), flush=True)
+        print('INFORMATIONAL D-028 am. 6 work target p95 <= 20ms / max <= 33ms:',
+              'within target' if summary['p95_ms'] <= 20 and summary['max_ms'] <= 33 else 'exceeded', flush=True)
         try:
             scheduler_control()
         except Exception as error:
@@ -388,9 +395,8 @@ def run(h, start, control, shot, record):
             # failure into a passing result.
             (h.evidence / 'search-screen-scheduler-error.txt').write_text(repr(error) + '\n')
         try:
-            assert summary['p95_ms'] <= 20 and summary['max_ms'] <= 33, ('Search work exceeded p95 20ms / max 33ms', summary)
+            assert summary['p95_ms'] <= 50 and summary['max_ms'] <= 100, ('Search work exceeded p95 50ms / max 100ms', summary)
             assert summary['entry']['p95_ms'] <= 150, ('Search entry exceeded p95 150ms', summary)
-            assert summary['presented']['max_ms'] <= 50, ('Search presented frame exceeded 50ms', summary)
         except AssertionError as error:
             raise TimingBudgetExceeded(*error.args) from error
         (h.evidence / 'search-screen-result.txt').write_text(f'PASS: API {h.api} controller grid A/X/Y, suggestions, L/R, A show/cursor, recent X removal, X launch; phone/tablet IME, tap, long-press Play now, recent tap; kid/history-off privacy.\n')

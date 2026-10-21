@@ -49,11 +49,14 @@ checks = 1
 
 for p95, maximum, entry, presented, message in [
     (20, 33, 150, 50, None),
-    (20.001, 33, 150, 50, 'Search work exceeded p95 20ms / max 33ms'),
-    (20, 33.001, 150, 50, 'Search work exceeded p95 20ms / max 33ms'),
+    (50, 100, 150, 1000, None),
+    (50.001, 100, 150, 50, 'Search work exceeded p95 50ms / max 100ms'),
+    (20, 100.001, 150, 50, 'Search work exceeded p95 50ms / max 100ms'),
     (19, 32, 150.001, 50, 'Search entry exceeded p95 150ms'),
-    (19, 32, 149, 50.001, 'Search presented frame exceeded 50ms'),
-    (19, 143.496, 149, 49, 'Search work exceeded p95 20ms / max 33ms')]:
+    (20.001, 33.001, 149, 100000, None),
+    (22.6001, 28.2229, 72.324, 87.043, None),
+    (37.6403, 77.0527, 74.4614, 141.538, None),
+    (19, 143.496, 149, 49, 'Search work exceeded p95 50ms / max 100ms')]:
     summary = dict(samples=64, p95_ms=p95, max_ms=maximum,
                    entry=dict(p95_ms=entry), presented=dict(max_ms=presented))
     try:
@@ -64,6 +67,37 @@ for p95, maximum, entry, presented, message in [
         assert message is None
     checks += 1
 
+# Execute Linux's actual reporting/assertion block against the same boundaries.
+# Presentation and am. 6 targets must remain visible without failing either path.
+linux_tree = ast.parse((root / 'tests/search-screen/run.py').read_text())
+linux_body = next(node for node in ast.walk(linux_tree)
+                  if isinstance(node, ast.Try) and any(isinstance(child, ast.Assert) and
+                     'Every query frame must reach swap' in ast.unparse(child)
+                     for child in node.body)).body
+linux_start = next(i for i, node in enumerate(linux_body)
+                   if isinstance(node, ast.Assert) and 'Every query frame must reach swap' in ast.unparse(node))
+linux_end = next(i for i in range(linux_start, len(linux_body))
+                 if isinstance(linux_body[i], ast.Assign))
+linux_gate = compile_nodes(linux_body[linux_start:linux_end])
+for p95, maximum, entry, presented, failure in [
+    (50, 100, 150, 100000, None),
+    (20.001, 33.001, 149, 267.599, None),
+    (50.001, 100, 150, 16, 'Linux search work exceeded p95 50ms / max 100ms'),
+    (20, 100.001, 150, 16, 'Linux search work exceeded p95 50ms / max 100ms'),
+    (19, 32, 150.001, 16, 'Linux search entry exceeded p95 150ms')]:
+    lines = []
+    try:
+        exec(linux_gate, dict(work=dict(samples=64, p95_ms=p95, max_ms=maximum),
+             entry=dict(p95_ms=entry), presented=dict(samples=64, max_ms=presented),
+             json=subject.json, print=lambda *args, **kwargs: lines.append(' '.join(map(str, args)))))
+    except AssertionError as error:
+        assert failure and error.args[0][0] == failure
+    else:
+        assert failure is None
+    assert any('INFORMATIONAL presented intervals' in line for line in lines)
+    assert any('INFORMATIONAL D-028 am. 6' in line for line in lines)
+    checks += 1
+
 with tempfile.TemporaryDirectory(prefix='esde-search-budget-') as temporary:
     evidence = Path(temporary)
     for suite in ['all', 'search', 'overlay']:
@@ -71,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='esde-search-budget-') as temporary:
             for name in ['search-screen-timing-failure-deferred.txt', 'search-session-summary.txt', 'touch-summary.txt']:
                 (evidence / name).unlink(missing_ok=True)
             events = []
-            budget = subject.TimingBudgetExceeded(('Search-attributable work exceeded 50ms',
+            budget = subject.TimingBudgetExceeded(('Search work exceeded p95 50ms / max 100ms',
                                                    dict(samples=64, max_ms=143.496)))
             functional = AssertionError('Result did not update')
             baseline_error = AssertionError('Overlay did not release')

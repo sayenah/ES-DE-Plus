@@ -315,12 +315,19 @@ def run(binary, probe, destination, width, height, variant='dark'):
                         p95_ms=values[math.ceil(len(values) * .95) - 1], max_ms=values[-1])
         work = distribution(r'Search frame: .*? work_ms=([0-9.]+)')
         presented = distribution(r'Search presented: .*? interval_ms=([0-9.]+)')
+        entry = distribution(r'Search entry ready: ms=([0-9.]+)')
         assert work['samples'] == presented['samples'], 'Every query frame must reach swap'
-        assert work['max_ms'] <= 50, ('Linux search work exceeded 50ms', work)
-        assert presented['max_ms'] <= 50, ('Linux presented search frame exceeded 50ms', presented)
+        # D-028 am. 7: keep raw intervals; an offscreen swap has no display cadence.
+        print('GATING search work: p95 <= 50ms / max <= 100ms; measured', json.dumps(work), flush=True)
+        print('GATING search entry: p95 <= 150ms; measured', json.dumps(entry), flush=True)
+        print('INFORMATIONAL presented intervals (no CI limit):', json.dumps(presented), flush=True)
+        print('INFORMATIONAL D-028 am. 6 work target p95 <= 20ms / max <= 33ms:',
+              'within target' if work['p95_ms'] <= 20 and work['max_ms'] <= 33 else 'exceeded', flush=True)
+        assert work['p95_ms'] <= 50 and work['max_ms'] <= 100, ('Linux search work exceeded p95 50ms / max 100ms', work)
+        assert entry['p95_ms'] <= 150, ('Linux search entry exceeded p95 150ms', entry)
         summary = dict(resolution=[width, height], variant=variant, opening_ms=opening_ms,
                        entry_work_ms=float(entry_work[0]), max_entry_work_ms=max(map(float, entry_work)),
-                       work=work, presented=presented,
+                       work=work, presented=presented, entry=entry,
                        checks=['live strokes', 'scope filter', 'result focus', 'show game',
                                'history privacy', 'no results', 'UTF-8 deletion', 'IME commit', 'Ctrl+Enter launch'])
         (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')

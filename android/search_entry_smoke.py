@@ -371,6 +371,7 @@ def run(h, start, control, shot, record):
     timing = dict(samples=len(entry_times), p50_ms=entry_times[math.ceil(len(entry_times) * .5) - 1],
                   p95_ms=entry_times[math.ceil(len(entry_times) * .95) - 1], max_ms=entry_times[-1])
     (h.evidence / 'search-entry-timing.txt').write_text(json.dumps(timing, indent=2) + '\n')
+    print('GATING shared search entry: p95 <= 150ms; measured', json.dumps(timing), flush=True)
     assert timing['p95_ms'] <= 150, ('Search entry points exceeded p95 150ms', timing)
     (h.evidence / 'search-entry-result.txt').write_text(
         'PASS: Y in full/kiosk/kid system and gamelist views; magnifier; no stacking; '
