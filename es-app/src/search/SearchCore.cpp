@@ -183,7 +183,7 @@ namespace LibrarySearch
             return out;
         }
 
-        std::string withoutFileTags(std::string_view input)
+        std::string withoutFileTags(std::string_view input, bool preserveOffsets = false)
         {
             // Filename dump/region/revision tags are not title vocabulary. Keep an
             // unmatched delimiter literal rather than dropping the rest of a name.
@@ -212,9 +212,11 @@ namespace LibrarySearch
                     result.append(input.substr(at));
                     break;
                 }
-                result += ' ';
+                result.append(preserveOffsets ? end + 1 - at : 1, ' ');
                 at = end + 1;
             }
+            if (preserveOffsets)
+                return result;
             const auto begin = result.find_first_not_of(" \t");
             return begin == std::string::npos ?
                        std::string {} :
@@ -2366,7 +2368,9 @@ namespace LibrarySearch
         for (const auto& r : rows) {
             std::vector<Span> spans;
             if (r.kind < 8) {
-                const auto mapped = title(ix.get(r.game).title, true);
+                const auto visible = ix.get(r.game).title;
+                const auto mapped = title(
+                    r.kind == 7 ? withoutFileTags(visible, true) : std::string {visible}, true);
                 auto t = makeText(mapped.text);
                 t.literalX = ix.letterX[r.game];
                 std::string highlightQuery = q;
@@ -2554,7 +2558,8 @@ namespace LibrarySearch
             // IDs increase, so an equal score cannot displace an earlier game.
             if (!threshold)
                 break;
-            const auto text = ix.doc(ix.gameDocuments[id][0]);
+            const auto document = ix.gameDocuments[id][0];
+            const auto text = ix.view(ix.documents[document].typo, ix.text);
             auto found = titles.find(text);
             size_t score;
             if (found == titles.end()) {

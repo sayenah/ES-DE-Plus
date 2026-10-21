@@ -508,6 +508,19 @@ namespace
             require(results.matches.front().kind == MatchClass::Typo,
                     "real title vocabulary keeps typo tolerance");
         }
+        const auto closestTitle = core.closest("europx", 1);
+        require(closestTitle.size() == 1 && core.game(closestTitle.front().index).id == "real-word",
+                "did-you-mean distances ignore unscraped region tags");
+        auto afterTag = game("Clockwork (Europe) Europa");
+        core.rebuild({afterTag});
+        const auto highlighted = core.search("europx");
+        require(highlighted.size() == 1 && highlighted.front().kind == MatchClass::Typo &&
+                    highlighted.front().spans.size() == 1 &&
+                    afterTag.title.substr(highlighted.front().spans[0].begin,
+                                          highlighted.front().spans[0].end -
+                                              highlighted.front().spans[0].begin) == "Europa",
+                "typo highlights retain offsets after tags without highlighting tag words");
+        core.rebuild({tagged, untagged, scraped});
         for (const std::string query : {"clockwork europe", "clockwork eur", "europe", "urope"}) {
             const auto results = core.query(query);
             require(std::any_of(results.matches.begin(), results.matches.end(),
