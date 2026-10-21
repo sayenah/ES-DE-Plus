@@ -544,6 +544,18 @@ namespace
                     "literal substring crosses tag boundaries: " + query);
         for (const std::string query : {"betaa", "hackk", "protoo", "eurpoe"})
             require(core.query(query).total == 0, "file tags never supply typo matches: " + query);
+        auto parenthetical = game("Clockwork (Europe)");
+        parenthetical.fileStem = "Clockwork [Beta]";
+        core.rebuild({parenthetical});
+        match(core, "europx", MatchClass::Typo);
+        const auto parentheticalMatches = core.search("europx");
+        require(parentheticalMatches.front().spans.size() == 1 &&
+                    parenthetical.title.substr(parentheticalMatches.front().spans[0].begin,
+                                               parentheticalMatches.front().spans[0].end -
+                                                   parentheticalMatches.front().spans[0].begin) ==
+                        "Europe",
+                "scraped parenthetical title words retain typo highlights");
+        require(core.search("betaa").empty(), "scraped title still excludes file-only tag typos");
         tagged.sortName = "Europe Squadron";
         core.rebuild({tagged});
         match(core, "europa", MatchClass::Typo, "unscraped");

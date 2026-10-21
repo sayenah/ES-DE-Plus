@@ -1853,7 +1853,8 @@ namespace LibrarySearch
         };
         auto document = [&](std::string_view raw, Id g, bool display, bool literalOnly = false) {
             const Id d = ix.documents.size();
-            const auto original = ix.get(g).title;
+            const auto source = ix.get(g);
+            const auto original = source.title;
             std::string text;
             size_t sharedPrefix {0};
             if (!display && !original.empty() && starts(raw, original)) {
@@ -1881,7 +1882,9 @@ namespace LibrarySearch
             const auto joined = compact(text);
             const auto textRef = Index::append(ix.text, text);
             auto typoRef = textRef;
-            if (raw.find_first_of("([") != std::string_view::npos) {
+            // Only file names (including an unscraped display/sort name) contain
+            // dump tags. A scraped title may have a genuine parenthetical subtitle.
+            if (raw == source.fileStem && raw.find_first_of("([") != std::string_view::npos) {
                 const auto stripped = withoutFileTags(raw);
                 if (stripped != raw) {
                     typoRef = !display && stripped == original ?
@@ -2368,9 +2371,11 @@ namespace LibrarySearch
         for (const auto& r : rows) {
             std::vector<Span> spans;
             if (r.kind < 8) {
-                const auto visible = ix.get(r.game).title;
-                const auto mapped = title(
-                    r.kind == 7 ? withoutFileTags(visible, true) : std::string {visible}, true);
+                const auto game = ix.get(r.game);
+                const auto mapped = title(r.kind == 7 && game.title == game.fileStem ?
+                                              withoutFileTags(game.title, true) :
+                                              std::string {game.title},
+                                          true);
                 auto t = makeText(mapped.text);
                 t.literalX = ix.letterX[r.game];
                 std::string highlightQuery = q;
