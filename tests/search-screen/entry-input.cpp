@@ -7,7 +7,9 @@
 //
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
+#include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -20,6 +22,7 @@ namespace
     SDL_EventFilter watch {nullptr};
     void* watchContext {nullptr};
     std::string hint;
+    std::deque<SDL_Event> events;
     void require(bool condition)
     {
         if (!condition)
@@ -37,6 +40,21 @@ extern "C" void SDLCALL SDL_StopTextInput()
 {
     active = false;
     ++stops;
+    // SDL disables and flushes these event types when text input stops.
+    for (auto event = events.begin(); event != events.end();) {
+        if (event->type == SDL_TEXTINPUT || event->type == SDL_TEXTEDITING)
+            event = events.erase(event);
+        else
+            ++event;
+    }
+}
+extern "C" SDL_bool SDLCALL SDL_HasEvents(Uint32 first, Uint32 last)
+{
+    for (const auto& event : events) {
+        if (event.type >= first && event.type <= last)
+            return SDL_TRUE;
+    }
+    return SDL_FALSE;
 }
 extern "C" const char* SDLCALL SDL_GetHint(const char*)
 {
@@ -82,6 +100,7 @@ class GuiComponent
 public:
     bool browsing {true};
     std::vector<std::string> opened;
+    std::string composition;
     bool acceptsSearchText() const { return browsing; }
     void openSearch(const std::string& text)
     {
@@ -89,6 +108,8 @@ public:
         browsing = false;
         SDL_StartTextInput();
     }
+    void textInput(const std::string& text) { opened.back() += text; }
+    void textEditing(const std::string& text) { composition = text; }
 };
 struct Window {
     GuiComponent* gui {nullptr};
@@ -101,6 +122,112 @@ struct Window {
 };
 #include "search-entry-declaration.inc"
 #include "search-entry-implementation.inc"
+
+#if !defined(__ANDROID__) && !defined(__IOS__)
+namespace
+{
+    // Model the SDL pump: watches run before key-down and translated text are
+    // queued. InputManager then drains that entire queue in the same frame.
+    void pushKey(Uint32 type, SDL_Keycode key, SDL_Keymod modifiers = KMOD_NONE)
+    {
+        SDL_Event event {};
+        event.type = type;
+        event.key.keysym.sym = key;
+        event.key.keysym.mod = modifiers;
+        watch(watchContext, &event);
+        events.push_back(event);
+    }
+    void pushText(const char* text, Uint32 type = SDL_TEXTINPUT)
+    {
+        if (!active)
+            return;
+        SDL_Event event {};
+        event.type = type;
+        if (type == SDL_TEXTEDITING)
+            std::snprintf(event.edit.text, sizeof(event.edit.text), "%s", text);
+        else
+            std::snprintf(event.text.text, sizeof(event.text.text), "%s", text);
+        events.push_back(event);
+    }
+    void drain(SearchTextInput& input, InputConfig& keyboard, GuiComponent& view)
+    {
+        input.prepare(&view, &keyboard);
+        while (!events.empty()) {
+            const SDL_Event event {events.front()};
+            events.pop_front();
+            if (event.type == SDL_KEYDOWN) {
+                Input key {DEVICE_KEYBOARD, TYPE_KEY, event.key.keysym.sym, 1, false};
+                key.modifiers = static_cast<SDL_Keymod>(event.key.keysym.mod);
+                input.keyDown(&keyboard, key, view.acceptsSearchText(), &view, &view);
+            }
+            else if (event.type == SDL_KEYUP)
+                input.keyUp();
+            else if (event.type == SDL_TEXTINPUT) {
+                if (!input.text(event.text.text, &view))
+                    view.textInput(event.text.text);
+            }
+            else if (event.type == SDL_TEXTEDITING) {
+                input.editing(&view);
+                view.textEditing(event.edit.text);
+            }
+        }
+    }
+    void queuedKeys()
+    {
+        SDL_StartTextInput();
+        pushText("discarded");
+        require(SDL_HasEvents(SDL_TEXTEDITING, SDL_TEXTINPUT));
+        SDL_StopTextInput();
+        require(events.empty()); // Positive control: stopping really loses queued text.
+        for (int scenario {0}; scenario < 6; ++scenario) {
+            InputConfig keyboard;
+            keyboard.mapped = SDLK_w;
+            GuiComponent view;
+            Window::getInstance()->gui = &view;
+            SearchTextInput input;
+            input.prepare(&view, &keyboard);
+            require(!active);
+            if (scenario == 0 || scenario == 5)
+                pushKey(SDL_KEYUP, SDLK_LEFT);
+            else if (scenario == 1) {
+                pushKey(SDL_KEYDOWN, SDLK_w);
+                pushText("w"); // Mapped key while browsing: SDL drops this text.
+            }
+            else if (scenario == 2 || scenario == 4)
+                pushKey(SDL_KEYDOWN, SDLK_LSHIFT);
+            else {
+                pushKey(SDL_KEYDOWN, SDLK_CARET);
+                pushKey(SDL_KEYUP, SDLK_CARET);
+            }
+            const SDL_Keycode key {scenario == 2 ? SDLK_b : scenario == 3 ? SDLK_e : SDLK_m};
+            const std::string expected {scenario == 2 ? "B" : scenario == 3 ? "ê" : "m"};
+            pushKey(SDL_KEYDOWN, key, scenario == 2 ? KMOD_SHIFT : KMOD_NONE);
+            if (scenario != 5)
+                pushText(scenario == 4 ? "か" : expected.c_str(),
+                         scenario == 4 ? SDL_TEXTEDITING : SDL_TEXTINPUT);
+            pushKey(SDL_KEYUP, key);
+            drain(input, keyboard, view);
+            if (scenario == 5)
+                require(view.opened.empty() && !active); // No commit leaves no listener.
+            else {
+                require(active &&
+                        view.opened == std::vector<std::string> {scenario == 4 ? "" : expected});
+                if (scenario == 4) {
+                    require(view.composition == "か");
+                    pushText("か");
+                    drain(input, keyboard, view);
+                    require(view.opened == std::vector<std::string> {"か"});
+                }
+                SDL_StopTextInput();
+            }
+            require(events.empty());
+        }
+        require(watches == 0);
+        std::cout << "PASS: same-frame release/letter, mapped/letter, Shift/letter, dead key, "
+                     "composition and no-commit SDL queue regressions\n";
+    }
+} // namespace
+#endif
 
 int main()
 {
@@ -214,6 +341,9 @@ int main()
 #endif
     }
     require(watches == 0);
+#if !defined(__ANDROID__) && !defined(__IOS__)
+    queuedKeys();
+#endif
     std::cout << "PASS: " << checks << " production search-entry input checks\n";
     return 0;
 }

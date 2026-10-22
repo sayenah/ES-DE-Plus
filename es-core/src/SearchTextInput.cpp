@@ -140,7 +140,10 @@ void SearchTextInput::keyDown(
     }
     else {
 #if !defined(__ANDROID__) && !defined(__IOS__)
-        endTemporaryText();
+        // SDL stopping text input flushes its queued commits/composition. Another
+        // key may already have armed this session later in the same event pump.
+        if (mTemporaryText && !SDL_HasEvents(SDL_TEXTEDITING, SDL_TEXTINPUT))
+            endTemporaryText();
 #endif
         // A mapped key owns its text even when it only navigates. Drop its
         // following desktop text event; Android already sent text into mText.
@@ -152,7 +155,8 @@ void SearchTextInput::keyDown(
 void SearchTextInput::keyUp()
 {
 #if !defined(__ANDROID__) && !defined(__IOS__)
-    endTemporaryText();
+    if (mTemporaryText && !SDL_HasEvents(SDL_TEXTEDITING, SDL_TEXTINPUT))
+        endTemporaryText();
 #endif
     mText.clear();
     mKeyReady = false;
