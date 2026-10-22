@@ -129,6 +129,9 @@ void InputManager::init()
 
 void InputManager::deinit()
 {
+#if !defined(__ANDROID__) && !defined(__IOS__)
+    mSearchTextInput.reset();
+#endif
 #if defined(__ANDROID__)
     mWindow->setTouchInputActive(false);
 #endif
@@ -679,6 +682,7 @@ bool InputManager::parseEvent(const SDL_Event& event)
         }
 #endif
         case SDL_TEXTEDITING: {
+            mSearchTextInput.editing(mWindow->peekGui());
             if (mWindow->peekGui())
                 mWindow->peekGui()->textEditing(event.edit.text, event.edit.start,
                                                 event.edit.length);
@@ -1004,5 +1008,9 @@ void InputManager::removeControllerByJoystickID(Window* window, SDL_JoystickID j
 void InputManager::prepareSearchTextInput()
 {
     if (!Settings::getInstance()->getBool("InputIgnoreKeyboard"))
-        mSearchTextInput.prepare(mWindow->peekGui());
+        mSearchTextInput.prepare(mWindow->peekGui(), getInputConfigByDevice(DEVICE_KEYBOARD));
+#if !defined(__ANDROID__) && !defined(__IOS__)
+    else
+        mSearchTextInput.prepare(nullptr, nullptr);
+#endif
 }

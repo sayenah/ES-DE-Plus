@@ -44,23 +44,12 @@ namespace
 {
     using PreparationClock = std::chrono::steady_clock;
     constexpr std::array<float, 3> searchRoles {40, 32, 26};
-    // The inherited allocator grows to at least six times the font size and
-    // adds pages as needed. Avoid one large, indivisible GL allocation at startup.
-    constexpr unsigned int searchAtlasSize {256};
+    // Share one atlas across search font roles to keep text drawing in few batches.
+    constexpr unsigned int searchAtlasSize {1024};
     constexpr char searchAlphabet[] {
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
         "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ fi fl ff ffi ffl "
         "áàâäãåæçéèêëíìîïñóòôöõøœúùûüßÁÀÂÄÃÅÆÇÉÈÊËÍÌÎÏÑÓÒÔÖÕØŒÚÙÛÜẞ ★ · › … ‘ ’"};
-
-    void prepareSearchGlyphs(const std::shared_ptr<Font>& font,
-                             const std::string& text,
-                             TextCache& samples)
-    {
-        // Use the real title shaping path without changing the font's line height.
-        TextComponent glyphs {text, font, 0xFFFFFFFF};
-        if (const auto* cache = glyphs.getTextCache())
-            SearchDrawing::atlasSamples(samples, *cache);
-    }
 
     // ResourceManager unloads this owner before the GL context is destroyed. Keep
     // fonts (and their shared atlas) alive between screens, never across a reload.
@@ -71,17 +60,13 @@ namespace
         bool rolesPrepared {false};
         size_t role {0};
         size_t glyph {0};
-        std::string alphabet;
-        TextCache samples {};
         void unload(ResourceManager&) override
         {
-            samples = {};
             fonts.clear();
             atlas.reset();
             rolesPrepared = false;
             role = 0;
             glyph = 0;
-            alphabet.clear();
         }
         void reload(ResourceManager&) override {}
         void step();
@@ -173,23 +158,16 @@ namespace
                                      Font::get(key, Font::getDefaultPath(), searchAtlasSize, atlas);
             return;
         }
-        // Result-only translations may contain glyphs absent from the keyboard
-        // alphabet (for example German quotation marks). Upload them before the
-        // atlas is first sampled instead of during the first no-results layout.
-        if (alphabet.empty())
-            alphabet = std::string {searchAlphabet} + " " + _("Best match") + " " +
-                       _("No games match ‘%s’.") + " " + _("Did you mean") + " " +
-                       _("Try another system or remove a filter.") + " " + _("favorite") + " " +
-                       _("Last played") + " " + _("today") + " " + _("yesterday");
-        if (glyph < alphabet.size()) {
-            const auto end = nextCharacter(alphabet, glyph);
-            prepareSearchGlyphs(font, alphabet.substr(glyph, end - glyph), samples);
+        if (glyph < sizeof(searchAlphabet) - 1) {
+            const auto end = nextCharacter(searchAlphabet, glyph);
+            TextComponent glyphs {std::string {searchAlphabet}.substr(glyph, end - glyph), font,
+                                  0xFFFFFFFF};
             glyph = end;
         }
         else {
             // Individual UTF-8 codepoints keep each idle task small; also shape the
             // contextual Latin ligatures that occur in result titles.
-            prepareSearchGlyphs(font, "fi fl ff ffi ffl", samples);
+            TextComponent glyphs {"fi fl ff ffi ffl", font, 0xFFFFFFFF};
             glyph = 0;
             rolesPrepared = ++role == searchRoles.size();
         }
@@ -244,25 +222,11 @@ void GuiSearch::prepareRenderer(bool opening)
         owner->step();
         ++tasks;
     } while (opening || PreparationClock::now() - start < std::chrono::milliseconds {2});
-    if (opening && owner->atlas && owner->samples.getBatchCount()) {
-        auto* renderer = Renderer::getInstance();
-        renderer->setMatrix(glm::mat4 {1});
-        // Actually sample every prepared atlas so deferred driver/upload work is
-        // paid before typing. Do not interleave atlas reads with idle uploads:
-        // that creates a read/write hazard and driver waits in otherwise small
-        // chunks.
-        owner->atlas->renderTextCache(&owner->samples);
-        // swapBuffers() has just cleared the back buffer. Restore its one pixel;
-        // opening also runs before the screen's first normal full-surface render.
-        renderer->drawRect(0, 0, 1, 1, 0x000000FF, 0x000000FF, false, 1, 1,
-                           Renderer::BlendFactor::ONE, Renderer::BlendFactor::ZERO);
-    }
     const double milliseconds =
         std::chrono::duration<double, std::milli>(PreparationClock::now() - start).count();
     LOG(LogDebug) << "Search preparation chunk: phase=" << (opening ? "opening" : "idle")
                   << " work_ms=" << milliseconds << " cpu_ms=" << elapsedThreadCpu(cpuStart)
-                  << " tasks=" << tasks << " ready=" << owner->rolesPrepared
-                  << " atlases=" << owner->samples.getBatchCount();
+                  << " tasks=" << tasks << " ready=" << owner->rolesPrepared;
     static bool reported {false};
     if (owner->rolesPrepared && !reported) {
         reported = true;
@@ -313,9 +277,6 @@ GuiSearch::GuiSearch(const std::string& initialText, SystemData* scopeSystem)
     SDL_StartTextInput();
     refresh();
     layout();
-    // Even an empty/private zero state prepares the best-card and row-title
-    // glyphs and samples their atlases before SDL can deliver the first edit.
-    SearchDrawing::atlasSamples(searchFonts()->samples, mTextBatch);
     prepareRenderer(true);
     const SDL_Rect rect {static_cast<int>(mFieldRect.x), static_cast<int>(mFieldRect.y),
                          static_cast<int>(mFieldRect.z), static_cast<int>(mFieldRect.w)};

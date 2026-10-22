@@ -25,24 +25,6 @@ int main()
     Renderer::Vertex tl {{0, 0}, {0, 0}, 0x12345678}, bl {{0, 10}, {0, 1}, tl.color};
     Renderer::Vertex tr {{10, 0}, {1, 0}, tl.color}, br {{10, 10}, {1, 1}, tl.color};
     source.getVertexLists().push_back({{tl, tl, bl, tr, br, br}, &texture});
-    TextCache samples;
-    SearchDrawing::atlasSamples(samples, source);
-    SearchDrawing::atlasSamples(samples, source);
-    require(samples.getBatchCount() == 1); // Shared font sizes sample one atlas once.
-    require(samples.getVertexLists()[0].textureIdPtr == &texture);
-    require(samples.getVertexLists()[0].verts.size() == 4);
-    for (const auto& vertex : samples.getVertexLists()[0].verts) {
-        require(vertex.position.x >= 0 && vertex.position.x <= 1 && vertex.position.y >= 0 &&
-                vertex.position.y <= 1);
-        require(vertex.texcoord == glm::vec2(0.5f) && vertex.color == 0xFFFFFFFF);
-    }
-    unsigned int overflowTexture {2};
-    TextCache overflow;
-    overflow.getVertexLists().push_back({{}, &texture});
-    overflow.getVertexLists().push_back({{tl, tl, bl, tr, br, br}, &overflowTexture});
-    SearchDrawing::atlasSamples(samples, overflow);
-    require(samples.getBatchCount() == 2);
-    require(samples.getVertexLists()[1].textureIdPtr == &overflowTexture);
     SearchDrawing::Cache cache;
     auto append = [&](const std::string& value, const void* font, glm::vec2 size, int align,
                       glm::vec2 offset, glm::vec4 clip, unsigned int color) {

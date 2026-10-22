@@ -183,6 +183,8 @@ def run(binary, probe, destination, width, height, variant='dark'):
                            (227, 230, 238) if variant == 'light' else (38, 43, 56)))
         png(destination / (name + '.ppm'), required, pixels)
     def search():
+        command('text-state')
+        assert (destination / 'text-state').read_text().strip() == '0', 'Browsing left desktop text input active'
         command('pad', '3')  # Y, the actual SDL controller entry point.
         wait(lambda: 'Search screen opened:' in log(), 'search opened')
     try:
@@ -268,6 +270,8 @@ def run(binary, probe, destination, width, height, variant='dark'):
             command('text', 'X')
             wait(lambda: query_seen('XPokが' + tail, before), 'caret insertion in a long UTF-8 query')
         command('key', '27')
+        command('text-state')
+        assert (destination / 'text-state').read_text().strip() == '0', 'Closing search left desktop text input active'
         count = log().count('SearchEntry: open ')
         command('key', '109')
         assert log().count('SearchEntry: open ') == count, 'Search guessed text from a key identity'

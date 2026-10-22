@@ -22,32 +22,6 @@
 
 namespace SearchDrawing
 {
-    // Keep one real, one-pixel sampling quad per atlas. Font owns the texture IDs;
-    // discard this cache before releasing its fonts or recreating their textures.
-    inline void atlasSamples(TextCache& samples, const TextCache& source)
-    {
-        samples.setClipRegion(glm::vec4 {0});
-        auto& target = samples.getVertexLists();
-        for (const auto& list : source.getVertexLists()) {
-            if (list.verts.empty() ||
-                std::any_of(target.begin(), target.end(), [&](const auto& existing) {
-                    return existing.textureIdPtr == list.textureIdPtr;
-                }))
-                continue;
-            auto vertex = list.verts.front();
-            vertex.color = 0xFFFFFFFF;
-            if (list.verts.size() >= 5)
-                vertex.texcoord = (list.verts[1].texcoord + list.verts[4].texcoord) * 0.5f;
-            std::vector<Renderer::Vertex> quad;
-            for (const auto& position :
-                 {glm::vec2 {0, 0}, glm::vec2 {0, 1}, glm::vec2 {1, 0}, glm::vec2 {1, 1}}) {
-                vertex.position = position;
-                quad.push_back(vertex);
-            }
-            target.push_back({std::move(quad), list.textureIdPtr});
-        }
-    }
-
     inline void polygon(std::vector<Renderer::Vertex>& batch,
                         const std::vector<glm::vec2>& outline,
                         unsigned int color)

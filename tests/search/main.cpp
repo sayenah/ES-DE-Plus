@@ -471,14 +471,16 @@ namespace
         }
         Core core;
         core.rebuild(games);
-        for (const std::string query : {"europa", "europe", "japon"}) {
+        for (const std::string query : {"europa", "japon"}) {
             const auto results = core.search(query);
             require(results.size() == 1, "filename tags do not create fuzzy matches: " + query);
             require(core.game(results.front().index).id == (query == "japon" ? "4" : "0"),
                     "actual title words still match: " + query);
         }
-        for (const std::string query : {"usa", "rev", "usance s"})
-            require(core.search(query).empty(), "filename tag text omitted: " + query);
+        for (const std::string query : {"europe", "usa", "rev"})
+            require(core.search(query).size() == games.size(),
+                    "literal filename tags match: " + query);
+        require(core.search("usance s").empty(), "tag words never supply typo matches");
         require(core.search("world").size() == 2, "ordinary title words remain searchable");
         require(core.game(0).fileStem == games[0].fileStem,
                 "public game value preserves the original filename");
@@ -486,12 +488,89 @@ namespace
         alias.fileStem = "Rare (Europe [Rev 1]) Alias [!]";
         core.rebuild({alias});
         match(core, "rare alias", MatchClass::Exact);
-        require(core.search("europe").empty(), "nested filename tags removed");
+        require(core.search("europe").size() == 1, "nested filename tags match literally");
         alias.fileStem = "Knight (Legends";
         core.rebuild({alias});
         match(core, "knight legends", MatchClass::Exact);
         core.rebuild({game("Europe Squadron")});
         match(core, "europa", MatchClass::Typo);
+
+        auto tagged = game("Clockwork (Europe) [!]", "unscraped");
+        auto untagged = game("Europe Squadron", "real-word");
+        auto scraped = game("Clockwork", "scraped");
+        scraped.fileStem = "Clockwork (Europe) [Beta] [Hack] [t+eng] [Proto]";
+        core.rebuild({tagged, untagged, scraped});
+        for (const std::string query : {"europa", "europx"}) {
+            const auto results = core.query(query);
+            require(results.total == 1 &&
+                        core.game(results.matches.front().index).id == "real-word",
+                    "shared title/tag vocabulary does not leak typo postings: " + query);
+            require(results.matches.front().kind == MatchClass::Typo,
+                    "real title vocabulary keeps typo tolerance");
+        }
+        const auto closestTitle = core.closest("europx", 1);
+        require(closestTitle.size() == 1 && core.game(closestTitle.front().index).id == "real-word",
+                "did-you-mean distances ignore unscraped region tags");
+        auto afterTag = game("Clockwork (Europe) Europa");
+        core.rebuild({afterTag});
+        const auto highlighted = core.search("europx");
+        require(highlighted.size() == 1 && highlighted.front().kind == MatchClass::Typo &&
+                    highlighted.front().spans.size() == 1 &&
+                    afterTag.title.substr(highlighted.front().spans[0].begin,
+                                          highlighted.front().spans[0].end -
+                                              highlighted.front().spans[0].begin) == "Europa",
+                "typo highlights retain offsets after tags without highlighting tag words");
+        core.rebuild({tagged, untagged, scraped});
+        for (const std::string query : {"clockwork europe", "clockwork eur", "europe", "urope"}) {
+            const auto results = core.query(query);
+            require(std::any_of(results.matches.begin(), results.matches.end(),
+                                [&](const Match& m) {
+                                    return core.game(m.index).id == "unscraped" &&
+                                           m.kind != MatchClass::Typo && !m.spans.empty();
+                                }),
+                    "visible unscraped title retains literal matches and highlights: " + query);
+        }
+        core.rebuild({scraped});
+        match(core, scraped.fileStem, MatchClass::Exact, "scraped");
+        match(core, "Clockwork (Europe) [Bet", MatchClass::Prefix, "scraped");
+        for (const std::string query : {"beta", "bet", "eta", "hack", "hac", "ack", "t+eng", "t+en",
+                                        "eng", "proto", "prot", "roto"}) {
+            const auto results = core.search(query);
+            require(results.size() == 1 && results.front().kind != MatchClass::Typo,
+                    "file tags support literal exact/prefix/substring: " + query);
+        }
+        for (const std::string query : {"europebeta", "pebetahack"})
+            require(core.search(query).size() == 1,
+                    "literal substring crosses tag boundaries: " + query);
+        for (const std::string query : {"betaa", "hackk", "protoo", "eurpoe"})
+            require(core.query(query).total == 0, "file tags never supply typo matches: " + query);
+        auto parenthetical = game("Clockwork (Europe)");
+        parenthetical.fileStem = "Clockwork [Beta]";
+        core.rebuild({parenthetical});
+        match(core, "europx", MatchClass::Typo);
+        const auto parentheticalMatches = core.search("europx");
+        require(parentheticalMatches.front().spans.size() == 1 &&
+                    parenthetical.title.substr(parentheticalMatches.front().spans[0].begin,
+                                               parentheticalMatches.front().spans[0].end -
+                                                   parentheticalMatches.front().spans[0].begin) ==
+                        "Europe",
+                "scraped parenthetical title words retain typo highlights");
+        require(core.search("betaa").empty(), "scraped title still excludes file-only tag typos");
+        tagged.sortName = "Europe Squadron";
+        core.rebuild({tagged});
+        match(core, "europa", MatchClass::Typo, "unscraped");
+        tagged.sortName = tagged.title;
+        core.rebuild({tagged});
+        require(core.query("europa").total == 0,
+                "unscraped title/sort/file tags never supply typo matches");
+        match(core, "clokwork", MatchClass::Typo, "unscraped");
+        tagged.title = tagged.sortName = tagged.fileStem = "Clockwork (Europe [Prototype])";
+        core.rebuild({tagged});
+        require(core.query("prototypf").total == 0,
+                "nested unscraped tags excluded from typo text");
+        tagged.title = tagged.sortName = tagged.fileStem = "Knight (Legends";
+        core.rebuild({tagged});
+        match(core, "legenda", MatchClass::Typo, "unscraped");
     }
     void roundTwo()
     {

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 # ES-DE-Plus — written for ES-DE-Plus. Compile production rendering/artwork methods in isolation.
 import pathlib
+import os
 import shlex
 import subprocess
 import tempfile
@@ -43,7 +44,6 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                          ('label', 'void GuiSearch::label('),
                          ('size', 'glm::vec2 GuiSearch::textSize(')]:
         (build / ('search-' + name + '.inc')).write_text(method(marker, search))
-    (build / 'search-glyph-prepare.inc').write_text(method('void prepareSearchGlyphs(', search))
     (build / 'search-alphabet.inc').write_text(method('constexpr char searchAlphabet', search) + ';\n')
     (build / 'search-roles.inc').write_text(method('constexpr std::array<float, 3> searchRoles', search) + ';\n')
     (build / 'search-atlas-size.inc').write_text(method('constexpr unsigned int searchAtlasSize', search) + ';\n')
@@ -60,6 +60,15 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
     (build / 'begin-keystroke.inc').write_text(method('void GuiSearch::beginKeystroke(', search))
     entry = (root / 'es-app/src/guis/SearchEntry.cpp').read_text()
     (build / 'cursor-observer.inc').write_text(method('void SearchEntry::observeGamelistCursor(', entry))
+    for part, path in [('declaration', 'es-core/src/SearchTextInput.h'),
+                       ('implementation', 'es-core/src/SearchTextInput.cpp')]:
+        (build / ('search-entry-' + part + '.inc')).write_text('\n'.join(
+            line for line in (root / path).read_text().splitlines()
+            if not line.startswith('#include')))
+    input_manager = (root / 'es-core/src/InputManager.cpp').read_text()
+    teardown = method('void InputManager::deinit()', input_manager)
+    (build / 'entry-deinit.inc').write_text(
+        'input.reset();\n' if 'mSearchTextInput.reset();' in teardown else '')
     flags = shlex.split(subprocess.check_output(
         ['pkg-config', '--cflags', 'sdl2', 'freetype2', 'harfbuzz'], text=True))
     includes = ['es-core/src', 'es-app/src', 'external/glm', 'external/rapidjson/include',
@@ -68,11 +77,24 @@ with tempfile.TemporaryDirectory(prefix='esde-search-text-') as temporary:
                '-Wno-unused-parameter', '-Wno-ignored-qualifiers']
     command += ['-I' + str(root / path) for path in includes]
     command += ['-I' + str(build), *flags]
-    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'geometry-cache', 'presentation', 'cursor-observer']:
+    for name in ['text-cache', 'glyph-cache', 'panel-cache', 'render-cache', 'artwork-cache', 'text-input', 'font-owner', 'geometry-cache', 'presentation', 'cursor-observer', 'entry-input']:
         subprocess.run(command + ['-pthread', str(root / ('tests/search-screen/' + name + '.cpp')),
                                   '-o', str(build / name)], check=True)
         subprocess.run([str(build / name)], check=True)
-        if name in ['presentation', 'cursor-observer']:
+        if name in ['presentation', 'cursor-observer', 'entry-input']:
             subprocess.run(command + ['-DNDEBUG', str(root / ('tests/search-screen/' + name + '.cpp')),
                                       '-o', str(build / (name + '-release'))], check=True)
             subprocess.run([str(build / (name + '-release'))], check=True)
+        if name == 'entry-input':
+            for platform in ['ANDROID', 'IOS']:
+                executable = build / ('entry-input-' + platform.lower())
+                subprocess.run(command + ['-D__' + platform + '__',
+                                          str(root / 'tests/search-screen/entry-input.cpp'),
+                                          '-o', str(executable)], check=True)
+                subprocess.run([str(executable)], check=True)
+    sdl_libraries = shlex.split(subprocess.check_output(['pkg-config', '--libs', 'sdl2'], text=True))
+    lifecycle = build / 'entry-lifecycle'
+    subprocess.run(command + [str(root / 'tests/search-screen/entry-lifecycle.cpp'),
+                              *sdl_libraries, '-o', str(lifecycle)], check=True)
+    subprocess.run([str(lifecycle)], check=True, timeout=15,
+                   env={**os.environ, 'SDL_VIDEODRIVER': 'dummy', 'SDL_VIDEO_DRIVER': 'dummy'})
